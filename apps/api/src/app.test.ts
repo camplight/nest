@@ -285,6 +285,83 @@ describe("api app", () => {
     rmSync(dataDir, { recursive: true, force: true });
   });
 
+  it("renames runners from admin endpoint", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const db = openDb(":memory:");
+    const { app } = createApp({
+      db,
+      dataDir,
+      adminUser: "admin",
+      adminPass: "admin",
+      runnerToken: "test-token",
+    });
+
+    const registerRes = await app.request("http://localhost/api/runners/register", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-orgops-runner-token": "test-token",
+      },
+      body: JSON.stringify({
+        displayName: "runner-old-name",
+      }),
+    });
+    expect(registerRes.status).toBe(201);
+    const registerBody = (await registerRes.json()) as {
+      runner?: { id?: string };
+    };
+    const runnerId = registerBody.runner?.id ?? "";
+    expect(runnerId.length).toBeGreaterThan(0);
+
+    const runnerRenameRes = await app.request(
+      `http://localhost/api/runners/${encodeURIComponent(runnerId)}`,
+      {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          "x-orgops-runner-token": "test-token",
+        },
+        body: JSON.stringify({ displayName: "runner-new-name" }),
+      },
+    );
+    expect(runnerRenameRes.status).toBe(401);
+
+    const loginRes = await app.request("http://localhost/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "admin" }),
+    });
+    expect(loginRes.status).toBe(200);
+    const cookie = loginRes.headers.get("set-cookie") ?? "";
+
+    const invalidRenameRes = await app.request(
+      `http://localhost/api/runners/${encodeURIComponent(runnerId)}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({ displayName: "   " }),
+      },
+    );
+    expect(invalidRenameRes.status).toBe(400);
+
+    const renameRes = await app.request(
+      `http://localhost/api/runners/${encodeURIComponent(runnerId)}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({ displayName: "runner-new-name" }),
+      },
+    );
+    expect(renameRes.status).toBe(200);
+    const renameBody = (await renameRes.json()) as {
+      runner?: { id?: string; displayName?: string };
+    };
+    expect(renameBody.runner?.id).toBe(runnerId);
+    expect(renameBody.runner?.displayName).toBe("runner-new-name");
+
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
   it("returns runner setup token only for authenticated humans", async () => {
     const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
     const db = openDb(":memory:");
@@ -378,6 +455,54 @@ describe("api app", () => {
     };
     expect(agent.soulContents).toBe("updated soul from db");
     expect(agent.allowOutsideWorkspace).toBe(false);
+
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it("rejects agent rename attempts via patch", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const db = openDb(":memory:");
+    const { app } = createApp({
+      db,
+      dataDir,
+      adminUser: "admin",
+      adminPass: "admin",
+    });
+
+    const loginRes = await app.request("http://localhost/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "admin" }),
+    });
+    expect(loginRes.status).toBe(200);
+    const cookie = loginRes.headers.get("set-cookie") ?? "";
+
+    const createAgentRes = await app.request("http://localhost/api/agents", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        name: "rename-disabled-agent",
+        modelId: "openai:gpt-4o-mini",
+        workspacePath: ".orgops-data/workspaces/rename-disabled-agent",
+      }),
+    });
+    expect(createAgentRes.status).toBe(201);
+
+    const renameRes = await app.request("http://localhost/api/agents/rename-disabled-agent", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ name: "new-name" }),
+    });
+    expect(renameRes.status).toBe(400);
+
+    const oldAgentRes = await app.request("http://localhost/api/agents/rename-disabled-agent", {
+      headers: { cookie },
+    });
+    expect(oldAgentRes.status).toBe(200);
+    const renamedRes = await app.request("http://localhost/api/agents/new-name", {
+      headers: { cookie },
+    });
+    expect(renamedRes.status).toBe(404);
 
     rmSync(dataDir, { recursive: true, force: true });
   });

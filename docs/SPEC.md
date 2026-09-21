@@ -338,6 +338,7 @@ Published topics include:
 - `POST /api/agents`
 - `GET /api/agents/:name`
 - `PATCH /api/agents/:name`
+  - changing an agent's `name` via patch is currently rejected (rename unsupported)
 - supports `assignedRunnerId` on create/update/read
 - supports `wrappedConfig` JSON object/string on create/update/read
 - supports `GET /api/agents?assignedRunnerId=<runnerId>` filtering
@@ -437,6 +438,7 @@ Published topics include:
 - `POST /api/runners/invites` (authenticated human users; creates scoped runner bootstrap invite)
 - `GET /api/runners/invites/:token` (public invite bootstrap payload for opscli)
 - `POST /api/runners/register` (runner auth; register/re-register)
+- `PATCH /api/runners/:id` (authenticated human users; rename runner display name)
 - `POST /api/runners/:id/heartbeat` (runner auth)
 - `DELETE /api/runners/:id` (also unassigns pinned agents from deleted runner)
 - scoped runner tokens must register/heartbeat only the runner ID bound into their scope

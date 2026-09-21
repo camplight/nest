@@ -9,12 +9,7 @@ import {
 import { basename, dirname, extname, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 
-import {
-  AGENT_VISIBILITY,
-  isAgentVisibility,
-  schema,
-  type OrgOpsDrizzleDb
-} from "@orgops/db";
+import { AGENT_VISIBILITY, isAgentVisibility, schema, type OrgOpsDrizzleDb } from "@orgops/db";
 import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { EventBus } from "@orgops/event-bus";
 import type { AccessControl, RequestUser } from "./access";
@@ -533,6 +528,13 @@ export function registerAgentsRoutes(app: Hono<any>, deps: AgentsDeps) {
     const body = await c.req.json();
     const existing = orm.select().from(schema.agents).where(eq(schema.agents.name, name)).get() as any;
     if (!existing) return jsonResponse(c, { error: "Not found" }, 404);
+    if (
+      body.name !== undefined &&
+      String(body.name ?? "").trim() &&
+      String(body.name ?? "").trim() !== name
+    ) {
+      return jsonResponse(c, { error: "Agent rename is not supported" }, 400);
+    }
     const soulPath =
       typeof body.soulPath === "string" && body.soulPath.trim()
         ? body.soulPath.trim()
