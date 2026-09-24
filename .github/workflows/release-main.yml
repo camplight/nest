@@ -21,9 +21,9 @@ jobs:
           - os: macos-latest
             node_version: 22
             artifact_name: nest-macos
-          # Pin Windows + Node for native module stability (better-sqlite3/node-gyp).
+          # Use Node 22 on every platform to match dependency engine requirements.
           - os: windows-2022
-            node_version: 20
+            node_version: 22
             artifact_name: nest-windows
     runs-on: ${{ matrix.os }}
     steps:

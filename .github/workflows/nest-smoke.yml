@@ -19,9 +19,9 @@ jobs:
             node_version: 22
           - os: macos-latest
             node_version: 22
-          # Keep Windows on Node 20 for better native module/node-gyp stability.
+          # Use Node 22 on every platform to match dependency engine requirements.
           - os: windows-2022
-            node_version: 20
+            node_version: 22
 
     steps:
       - name: Checkout repository
