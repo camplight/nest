@@ -1,0 +1,24 @@
+{
+  "name": "@nest/cli",
+  "version": "0.0.2",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "node --watch --import tsx src/index.ts",
+    "start": "node --import tsx src/index.ts",
+    "test": "node --import tsx --test test/*.test.mjs",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "build:release": "node --import tsx scripts/build-release.ts"
+  },
+  "dependencies": {
+    "@nest/llm": "file:../../packages/llm",
+    "tar": "^7.5.22",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "esbuild": "^0.25.11",
+    "postject": "^1.0.0-alpha.6",
+    "tsx": "^4.20.5"
+  }
+}

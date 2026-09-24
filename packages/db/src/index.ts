@@ -16,12 +16,13 @@ export {
 
 const THIS_DIR = dirname(fileURLToPath(import.meta.url));
 
-export type OrgOpsDb = InstanceType<typeof Database>;
-export type OrgOpsDrizzleDb = ReturnType<typeof createDrizzleDb>;
+export type NestDb = InstanceType<typeof Database>;
+export type NestDrizzleDb = ReturnType<typeof createDrizzleDb>;
 
-export const DEFAULT_DB_PATH = ".orgops-data/orgops.sqlite";
+export const DEFAULT_DB_PATH = ".nest-data/nest.sqlite";
 
-export function openDb(path = DEFAULT_DB_PATH): OrgOpsDb {
+export function openDb(path = existsSync(DEFAULT_DB_PATH) || !existsSync(".orgops-data/orgops.sqlite")
+  ? DEFAULT_DB_PATH : ".orgops-data/orgops.sqlite"): NestDb {
   if (path !== ":memory:") {
     // Ensure parent directory exists for file-based SQLite paths.
     mkdirSync(dirname(path), { recursive: true });
@@ -31,18 +32,18 @@ export function openDb(path = DEFAULT_DB_PATH): OrgOpsDb {
   return db;
 }
 
-export function configureDb(db: OrgOpsDb) {
+export function configureDb(db: NestDb) {
   db.exec("PRAGMA journal_mode=WAL;");
   db.exec("PRAGMA synchronous=NORMAL;");
   db.exec("PRAGMA busy_timeout=5000;");
   db.exec("PRAGMA foreign_keys=ON;");
 }
 
-export function createDrizzleDb(db: OrgOpsDb) {
+export function createDrizzleDb(db: NestDb) {
   return drizzle(db, { schema });
 }
 
-export function migrate(db: OrgOpsDb, migrationsDir = join(THIS_DIR, "..", "migrations")) {
+export function migrate(db: NestDb, migrationsDir = join(THIS_DIR, "..", "migrations")) {
   if (!existsSync(migrationsDir)) {
     return;
   }

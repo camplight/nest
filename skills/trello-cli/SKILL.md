@@ -1,6 +1,6 @@
 ---
 name: trello-cli
-description: "Use Trello CLI in orgops agents for Trello board/list/card operations with non-interactive command patterns."
+description: "Use Trello CLI in nest agents for Trello board/list/card operations with non-interactive command patterns."
 ---
 
 # Trello CLI skill

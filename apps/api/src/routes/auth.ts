@@ -1,3 +1,4 @@
+import { readSessionId } from "../session-cookie";
 import type { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import { and, eq, ne } from "drizzle-orm";
@@ -17,7 +18,7 @@ type AuthDeps = {
 type CookieSecureMode = "always" | "never" | "auto";
 
 function getCookieSecureMode(): CookieSecureMode {
-  const configured = (process.env.ORGOPS_COOKIE_SECURE ?? "auto").trim().toLowerCase();
+  const configured = ((process.env.NEST_COOKIE_SECURE ?? process.env.ORGOPS_COOKIE_SECURE) ?? "auto").trim().toLowerCase();
   if (configured === "always" || configured === "never" || configured === "auto") {
     return configured;
   }
@@ -46,7 +47,7 @@ function shouldUseSecureCookie(c: any): boolean {
 
 function buildSessionCookie(c: any, sessionId: string, maxAge: number | null = null) {
   const parts = [
-    `orgops_session=${sessionId}`,
+    `nest_session=${sessionId}`,
     "HttpOnly",
     "Path=/",
     "SameSite=Strict",
@@ -111,8 +112,8 @@ export function registerAuthRoutes(app: Hono<any>, deps: AuthDeps) {
 
   app.post("/api/auth/logout", requireAuth, (c) => {
     const cookie = c.req.header("cookie") ?? "";
-    const match = cookie.match(/orgops_session=([^;]+)/);
-    if (match) sessions.delete(match[1]);
+    const sessionId = readSessionId(cookie);
+    if (sessionId) sessions.delete(sessionId);
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: {
@@ -204,9 +205,9 @@ export function registerAuthRoutes(app: Hono<any>, deps: AuthDeps) {
       .run();
 
     const cookie = c.req.header("cookie") ?? "";
-    const sessionMatch = cookie.match(/orgops_session=([^;]+)/);
-    if (sessionMatch?.[1]) {
-      sessions.set(sessionMatch[1], {
+    const sessionId = readSessionId(cookie);
+    if (sessionId) {
+      sessions.set(sessionId, {
         id: user.id,
         username: nextUsername,
         mustChangePassword: wantsPasswordChange ? false : Boolean(user.mustChangePassword)
@@ -223,7 +224,7 @@ export function registerAuthRoutes(app: Hono<any>, deps: AuthDeps) {
     if (c.req.path.startsWith("/api/agent-invites/public/")) {
       return next();
     }
-    if (RUNNER_TOKEN && c.req.header("x-orgops-runner-token") === RUNNER_TOKEN) {
+    if (RUNNER_TOKEN && (c.req.header("x-nest-runner-token") ?? c.req.header("x-orgops-runner-token")) === RUNNER_TOKEN) {
       (c as any).set("user", { username: "runner", mustChangePassword: false });
       return next();
     }

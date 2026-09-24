@@ -82,7 +82,7 @@ export function buildWrapperSessionId(
 ) {
   const base = scope === "per-agent" ? agent.name : `${agent.name}:${channelId}`;
   const digest = createHash("sha256").update(base).digest("hex").slice(0, 16);
-  return `orgops-${agent.name.replace(/[^a-zA-Z0-9_.-]/g, "-")}-${digest}`;
+  return `nest-${agent.name.replace(/[^a-zA-Z0-9_.-]/g, "-")}-${digest}`;
 }
 
 function eventText(event: Event) {
@@ -104,7 +104,7 @@ export function buildWrapperMessage(events: Event[]) {
   }
   return JSON.stringify(
     {
-      type: "orgops.pending.events",
+      type: "nest.pending.events",
       events: events.map((event) => ({
         id: event.id,
         type: event.type,

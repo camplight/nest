@@ -1,11 +1,11 @@
-# OrgOps API
+# Nest API
 
 Hono-based HTTP + WebSocket server with SQLite single-writer access.
 
 ## Run
 
 ```bash
-npm run dev --workspace @orgops/api
+npm run dev --workspace @nest/api
 ```
 
 ## Key endpoints
@@ -19,11 +19,11 @@ npm run dev --workspace @orgops/api
 ## Environment
 
 - `PORT` (default: 8787)
-- `ORGOPS_ADMIN_USER` / `ORGOPS_ADMIN_PASS`
-- `ORGOPS_RUNNER_TOKEN`
-- `ORGOPS_MASTER_KEY`
-- `ORGOPS_PROJECT_ROOT` (optional monorepo root override)
-- `ORGOPS_COOKIE_SECURE` (`auto|always|never`, default: `auto`)
-- `ORGOPS_EVENT_MAX_FAILURES` (default: `25`)
-- `ORGOPS_EVENT_SHAPES_CACHE_TTL_MS` (default: `3000`)
-- `ORGOPS_RUNNER_ONLINE_THRESHOLD_MS` (default: `15000`)
+- `NEST_ADMIN_USER` / `NEST_ADMIN_PASS`
+- `NEST_RUNNER_TOKEN`
+- `NEST_MASTER_KEY`
+- `NEST_PROJECT_ROOT` (optional monorepo root override)
+- `NEST_COOKIE_SECURE` (`auto|always|never`, default: `auto`)
+- `NEST_EVENT_MAX_FAILURES` (default: `25`)
+- `NEST_EVENT_SHAPES_CACHE_TTL_MS` (default: `3000`)
+- `NEST_RUNNER_ONLINE_THRESHOLD_MS` (default: `15000`)

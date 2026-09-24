@@ -1,7 +1,7 @@
 import type { Hono } from "hono";
-import { openDb, schema, type OrgOpsDrizzleDb } from "@orgops/db";
-import type { SkillMeta, SkillRoot } from "@orgops/skills";
-import type { EventShapeDefinition } from "@orgops/schemas";
+import { openDb, schema, type NestDrizzleDb } from "@nest/db";
+import type { SkillMeta, SkillRoot } from "@nest/skills";
+import type { EventShapeDefinition } from "@nest/schemas";
 import { z } from "zod";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -32,7 +32,7 @@ import type { AccessControl, RequestUser } from "./access";
 const MAX_EVENT_ROWS = 10_000;
 
 type EventsDeps = {
-  orm: OrgOpsDrizzleDb;
+  orm: NestDrizzleDb;
   jsonResponse: (c: any, data: unknown, status?: number) => Response;
   eventRowToApi: (row: any) => any;
   insertEvent: (input: any) => any;
@@ -82,7 +82,7 @@ export function registerEventsRoutes(app: Hono<any>, deps: EventsDeps) {
     access,
   } = deps;
   const EventSchema = deps.EventSchema;
-  const EVENT_SHAPES_CACHE_TTL_MS = Number(process.env.ORGOPS_EVENT_SHAPES_CACHE_TTL_MS ?? 3000);
+  const EVENT_SHAPES_CACHE_TTL_MS = Number((process.env.NEST_EVENT_SHAPES_CACHE_TTL_MS ?? process.env.ORGOPS_EVENT_SHAPES_CACHE_TTL_MS) ?? 3000);
   let eventShapesCache:
     | {
         expiresAt: number;
@@ -488,8 +488,8 @@ export function registerEventsRoutes(app: Hono<any>, deps: EventsDeps) {
   function createEventExportSqlite(query: ReturnType<typeof readEventQuery>, rows: any[]) {
     const timestamp = new Date().toISOString();
     const filenameTimestamp = timestamp.replace(/[:.]/g, "-");
-    const tmpDir = mkdtempSync(join(tmpdir(), "orgops-events-export-"));
-    const dbPath = join(tmpDir, "orgops-events.sqlite");
+    const tmpDir = mkdtempSync(join(tmpdir(), "nest-events-export-"));
+    const dbPath = join(tmpDir, "nest-events.sqlite");
     const exportDb = openDb(dbPath);
     try {
       exportDb.exec(`
@@ -621,9 +621,9 @@ export function registerEventsRoutes(app: Hono<any>, deps: EventsDeps) {
         }
       }
       const metadata: Record<string, string> = {
-        schema_version: "orgops.event-export.sqlite.v1",
+        schema_version: "nest.event-export.sqlite.v1",
         exported_at: timestamp,
-        source: "orgops-api",
+        source: "nest-api",
         filters_json: JSON.stringify(serializeEventQueryFilters(query)),
         event_count: String(rows.length),
         channel_count: String(channels.length),
@@ -645,7 +645,7 @@ export function registerEventsRoutes(app: Hono<any>, deps: EventsDeps) {
       const bytes = readFileSync(dbPath);
       return {
         bytes,
-        filename: `orgops-events-${filenameTimestamp}.sqlite`,
+        filename: `nest-events-${filenameTimestamp}.sqlite`,
       };
     } finally {
       if (exportDb.open) {
@@ -1110,7 +1110,7 @@ export function registerEventsRoutes(app: Hono<any>, deps: EventsDeps) {
   app.post("/api/events/:id/fail", async (c) => {
     const id = c.req.param("id");
     const body = await c.req.json().catch(() => ({}));
-    const maxFailures = Number(process.env.ORGOPS_EVENT_MAX_FAILURES ?? 25);
+    const maxFailures = Number((process.env.NEST_EVENT_MAX_FAILURES ?? process.env.ORGOPS_EVENT_MAX_FAILURES) ?? 25);
     const row = orm
       .select({ failCount: schema.events.fail_count })
       .from(schema.events)

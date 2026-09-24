@@ -1,6 +1,6 @@
-# OrgOps User UI
+# Nest User UI
 
-Lightweight non-technical UI for OrgOps users. It connects to the OrgOps API and
+Lightweight non-technical UI for Nest users. It connects to the Nest API and
 keeps the surface intentionally small: channels, messages, active agents, and
 recent activity.
 

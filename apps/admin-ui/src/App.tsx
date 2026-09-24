@@ -1,3 +1,4 @@
+import { BrandingScreen } from "./screens/BrandingScreen";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 // Page size for Events Explorer loads (initial page and each "load older" step).
@@ -24,7 +25,7 @@ import {
   HumansScreen,
   ProfileScreen
 } from "./screens";
-import { useAuth, useOrgOpsData, useWebSocket } from "./hooks";
+import { useAuth, useNestData, useWebSocket } from "./hooks";
 import type {
   AgentWorkspaceFileResponse,
   AgentWorkspaceListResponse,
@@ -160,7 +161,7 @@ export default function App() {
   const dashboardDataRefreshTimerRef = useRef<number | null>(null);
 
   const { authChecked, authenticated, username, mustChangePassword, refreshAuth, logout } = useAuth();
-  const data = useOrgOpsData(authenticated && !mustChangePassword);
+  const data = useNestData(authenticated && !mustChangePassword);
 
   useEffect(() => {
     if (mustChangePassword) {
@@ -1361,6 +1362,7 @@ export default function App() {
           }}
         />
       )}
+      {activeScreen === "branding" && <BrandingScreen />}
       {activeScreen === "profile" && (
         <ProfileScreen
           username={username}

@@ -1,6 +1,6 @@
 # Wrapped Agent Invite Bootstrap
 
-This guide lets an external agent self-join OrgOps as a `WRAPPED` agent by redeeming a one-time invite link.
+This guide lets an external agent self-join Nest as a `WRAPPED` agent by redeeming a one-time invite link.
 
 The invited agent is expected to configure its own runtime command based on what is available locally.
 
@@ -39,19 +39,19 @@ The invited agent is expected to configure its own runtime command based on what
    - subscribes the wrapped agent to allowed channels
    - pins the wrapped agent to a scoped `runnerId`
    - returns:
-     - scoped `x-orgops-runner-token`
+     - scoped `x-nest-runner-token`
      - pinned `runnerId`
 3. Start `apps/agent-runner` using:
-   - `ORGOPS_RUNNER_API_URL=<api-url>`
-   - `ORGOPS_RUNNER_TOKEN=<scoped-token>`
+   - `NEST_RUNNER_API_URL=<api-url>`
+   - `NEST_RUNNER_TOKEN=<scoped-token>`
    - `.agent-runner-id` containing the pinned `runnerId` (or let register persist it)
 4. Patch wrapped runtime config if needed (`PATCH /api/agents/:name`), then set `desiredState=RUNNING`.
 
 Wrapped command runtimes also receive:
-- `ORGOPS_API_URL` (same as runner API base URL)
-- `ORGOPS_RUNNER_TOKEN` (the redeemed runner token)
+- `NEST_API_URL` (same as runner API base URL)
+- `NEST_RUNNER_TOKEN` (the redeemed runner token)
 
-This lets wrapped agents call OrgOps API endpoints directly (for example events/channels queries) using `x-orgops-runner-token`.
+This lets wrapped agents call Nest API endpoints directly (for example events/channels queries) using `x-nest-runner-token`.
 
 ## Invited Agent Responsibilities
 
@@ -93,14 +93,14 @@ Wrapped runtime timeout notes:
 
 Some CLIs do not automatically create named sessions. For these, use a tiny wrapper script that:
 
-- reads `ORGOPS_WRAPPED_CHANNEL_ID`
+- reads `NEST_WRAPPED_CHANNEL_ID`
 - maps `channelId -> runtimeSessionId`
 - creates/stores a session id on first message
 - reuses that session id for later messages in the same channel
 
 OpenCode example strategy:
 
-- try `opencode run --session <mappedId> "$ORGOPS_WRAPPED_MESSAGE"`
+- try `opencode run --session <mappedId> "$NEST_WRAPPED_MESSAGE"`
 - if session does not exist, run once without `--session` (or with `--continue`), capture the created session id, store mapping, then retry with mapped session
 
 This keeps channel-local memory instead of one global rolling context.

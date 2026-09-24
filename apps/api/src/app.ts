@@ -1,3 +1,5 @@
+import { registerBrandingRoutes } from "./routes/branding";
+import { readSessionId } from "./session-cookie";
 import { Hono } from "hono";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { existsSync, mkdirSync } from "node:fs";
@@ -15,9 +17,9 @@ import {
   openDb,
   migrate,
   schema,
-  type OrgOpsDb,
-} from "@orgops/db";
-import { EventBus } from "@orgops/event-bus";
+  type NestDb,
+} from "@nest/db";
+import { EventBus } from "@nest/event-bus";
 import {
   AuthLoginSchema,
   EventSchema,
@@ -25,12 +27,12 @@ import {
   getCoreEventShapes,
   serializeEventShapes,
   validateEventAgainstShapes,
-} from "@orgops/schemas";
+} from "@nest/schemas";
 import {
   listSkills,
   loadSkillEventShapes,
   resolveSkillRoot,
-} from "@orgops/skills";
+} from "@nest/skills";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerModelsRoutes } from "./routes/models";
 import { registerAgentsRoutes } from "./routes/agents";
@@ -54,7 +56,7 @@ import { registerAgentInviteRoutes } from "./routes/agent-invites";
 import { createAccessControl } from "./routes/access";
 
 export type AppConfig = {
-  db?: OrgOpsDb;
+  db?: NestDb;
   dbPath?: string;
   dataDir?: string;
   adminUser?: string;
@@ -73,20 +75,31 @@ export function createApp(config: AppConfig = {}) {
   const app = new Hono<AppEnv>();
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
   const PROJECT_ROOT = (() => {
-    const envRoot = process.env.ORGOPS_PROJECT_ROOT;
+    const envRoot = (process.env.NEST_PROJECT_ROOT ?? process.env.ORGOPS_PROJECT_ROOT);
     if (envRoot) return envRoot;
     const cwd = process.cwd();
     const candidate = resolve(cwd, "../..");
     return existsSync(join(candidate, "package.json")) ? candidate : cwd;
   })();
   const DATA_DIR = (() => {
-    if (!config.dataDir) return join(PROJECT_ROOT, ".orgops-data");
+    if (!config.dataDir) {
+      const nestDir = join(PROJECT_ROOT, ".nest-data");
+      const legacyDir = join(PROJECT_ROOT, ".orgops-data");
+      const nestDatabaseExists = existsSync(join(nestDir, "nest.sqlite")) || existsSync(join(nestDir, "orgops.sqlite"));
+      const legacyDatabaseExists = existsSync(join(legacyDir, "orgops.sqlite"));
+      return !nestDatabaseExists && (legacyDatabaseExists || (!existsSync(nestDir) && existsSync(legacyDir)))
+        ? legacyDir : nestDir;
+    }
     return config.dataDir.startsWith("/")
       ? config.dataDir
       : resolve(PROJECT_ROOT, config.dataDir);
   })();
   const dbPath = (() => {
-    if (!config.dbPath) return join(DATA_DIR, "orgops.sqlite");
+    if (!config.dbPath) {
+      const nestPath = join(DATA_DIR, "nest.sqlite");
+      const legacyPath = join(DATA_DIR, "orgops.sqlite");
+      return !existsSync(nestPath) && existsSync(legacyPath) ? legacyPath : nestPath;
+    }
     if (config.dbPath === ":memory:" || config.dbPath.startsWith("/"))
       return config.dbPath;
     return resolve(PROJECT_ROOT, config.dbPath);
@@ -102,15 +115,15 @@ export function createApp(config: AppConfig = {}) {
   >();
 
   const ADMIN_USER =
-    config.adminUser ?? process.env.ORGOPS_ADMIN_USER ?? "admin";
+    config.adminUser ?? (process.env.NEST_ADMIN_USER ?? process.env.ORGOPS_ADMIN_USER) ?? "admin";
   const ADMIN_PASS =
-    config.adminPass ?? process.env.ORGOPS_ADMIN_PASS ?? "admin";
+    config.adminPass ?? (process.env.NEST_ADMIN_PASS ?? process.env.ORGOPS_ADMIN_PASS) ?? "admin";
   const RUNNER_TOKEN =
-    config.runnerToken ?? process.env.ORGOPS_RUNNER_TOKEN ?? "dev-runner-token";
+    config.runnerToken ?? (process.env.NEST_RUNNER_TOKEN ?? process.env.ORGOPS_RUNNER_TOKEN) ?? "dev-runner-token";
   const RUNNER_API_URL =
     config.runnerApiUrl ??
-    process.env.ORGOPS_RUNNER_API_URL ??
-    process.env.ORGOPS_PUBLIC_API_URL ??
+    (process.env.NEST_RUNNER_API_URL ?? process.env.ORGOPS_RUNNER_API_URL) ??
+    (process.env.NEST_PUBLIC_API_URL ?? process.env.ORGOPS_PUBLIC_API_URL) ??
     `http://localhost:${process.env.PORT ?? "8787"}`;
 
   const FILES_DIR = join(PROJECT_ROOT, "files");
@@ -194,7 +207,7 @@ export function createApp(config: AppConfig = {}) {
   app.get("/health", (c) =>
     jsonResponse(c, {
       status: "ok",
-      service: "orgops-api",
+      service: "nest-api",
       now: Date.now(),
     }),
   );
@@ -231,23 +244,23 @@ export function createApp(config: AppConfig = {}) {
   }
 
   function requireAuth(c: any, next: any) {
-    const runnerHeader = c.req.header("x-orgops-runner-token");
+    const runnerHeader = (c.req.header("x-nest-runner-token") ?? c.req.header("x-orgops-runner-token"));
     const runnerUser = resolveRunnerUserFromToken(runnerHeader);
     if (runnerUser) {
       c.set("user", runnerUser);
       return next();
     }
     const cookie = c.req.header("cookie") ?? "";
-    const match = cookie.match(/orgops_session=([^;]+)/);
-    if (!match) return jsonResponse(c, { error: "Unauthorized" }, 401);
-    const session = sessions.get(match[1]);
+    const sessionId = readSessionId(cookie);
+    if (!sessionId) return jsonResponse(c, { error: "Unauthorized" }, 401);
+    const session = sessions.get(sessionId);
     if (!session) return jsonResponse(c, { error: "Unauthorized" }, 401);
     c.set("user", session);
     return next();
   }
 
   function requireRunnerAuth(c: any, next: any) {
-    const runnerHeader = c.req.header("x-orgops-runner-token");
+    const runnerHeader = (c.req.header("x-nest-runner-token") ?? c.req.header("x-orgops-runner-token"));
     const runnerUser = resolveRunnerUserFromToken(runnerHeader);
     if (!runnerUser) {
       return jsonResponse(c, { error: "Runner token required" }, 401);
@@ -416,6 +429,8 @@ export function createApp(config: AppConfig = {}) {
 
   const access = createAccessControl({ orm });
 
+  registerBrandingRoutes(app as any, { orm, requireAuth, jsonResponse, insertEvent });
+
   registerAuthRoutes(app as any, {
     orm,
     humanSchema: schema.humans,
@@ -506,13 +521,13 @@ export function createApp(config: AppConfig = {}) {
     bus,
     upgradeWebSocket,
     resolveRequestUser: (c: any) => {
-      const runnerHeader = c.req.header("x-orgops-runner-token");
+      const runnerHeader = (c.req.header("x-nest-runner-token") ?? c.req.header("x-orgops-runner-token"));
       const runnerUser = resolveRunnerUserFromToken(runnerHeader);
       if (runnerUser) return runnerUser;
       const cookie = c.req.header("cookie") ?? "";
-      const match = cookie.match(/orgops_session=([^;]+)/);
-      if (!match) return null;
-      return sessions.get(match[1]) ?? null;
+      const sessionId = readSessionId(cookie);
+      if (!sessionId) return null;
+      return sessions.get(sessionId) ?? null;
     },
     access,
   });

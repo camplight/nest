@@ -57,8 +57,8 @@ function deriveWsBaseFromApiBase(apiBaseUrl: string): string | undefined {
 }
 
 function resolveConfiguredApiBase(): string {
-  const runtimeConfig = (globalThis as { __ORGOPS_UI_CONFIG__?: RuntimeUiConfig })
-    .__ORGOPS_UI_CONFIG__;
+  const runtimeConfig = ((globalThis as { __NEST_UI_CONFIG__?: RuntimeUiConfig }).__NEST_UI_CONFIG__ ??
+    (globalThis as { __ORGOPS_UI_CONFIG__?: RuntimeUiConfig }).__ORGOPS_UI_CONFIG__);
   return (
     trimToUndefined(runtimeConfig?.apiBaseUrl) ??
     trimToUndefined(import.meta.env.VITE_API_BASE_URL) ??
@@ -67,8 +67,8 @@ function resolveConfiguredApiBase(): string {
 }
 
 function resolveConfiguredWsBase(configuredApiBase: string): string {
-  const runtimeConfig = (globalThis as { __ORGOPS_UI_CONFIG__?: RuntimeUiConfig })
-    .__ORGOPS_UI_CONFIG__;
+  const runtimeConfig = ((globalThis as { __NEST_UI_CONFIG__?: RuntimeUiConfig }).__NEST_UI_CONFIG__ ??
+    (globalThis as { __ORGOPS_UI_CONFIG__?: RuntimeUiConfig }).__ORGOPS_UI_CONFIG__);
   return (
     trimToUndefined(runtimeConfig?.wsBaseUrl) ??
     trimToUndefined(import.meta.env.VITE_WS_BASE_URL) ??

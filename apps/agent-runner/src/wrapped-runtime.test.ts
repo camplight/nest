@@ -34,7 +34,7 @@ describe("wrapped runtime", () => {
   });
 
   it("runs a command recipe and emits a message event", async () => {
-    const workspacePath = mkdtempSync(join(tmpdir(), "orgops-wrapped-"));
+    const workspacePath = mkdtempSync(join(tmpdir(), "nest-wrapped-"));
     const emitted: unknown[] = [];
     const agent: Agent = {
       name: "wrapped-test",
@@ -49,7 +49,7 @@ describe("wrapped runtime", () => {
         kind: "test",
         runtime: {
           command:
-            'node -e "process.stdout.write(JSON.stringify({payloads:[{text:process.env.ORGOPS_WRAPPED_MESSAGE}]}))"',
+            'node -e "process.stdout.write(JSON.stringify({payloads:[{text:process.env.NEST_WRAPPED_MESSAGE}]}))"',
           parse: "json-payloads",
         },
       },
@@ -99,7 +99,7 @@ describe("wrapped runtime", () => {
   });
 
   it("passes the wrapped workspace path to command recipes", async () => {
-    const workspacePath = mkdtempSync(join(tmpdir(), "orgops-workspace-wrapped-"));
+    const workspacePath = mkdtempSync(join(tmpdir(), "nest-workspace-wrapped-"));
     const emitted: unknown[] = [];
     const agent: Agent = {
       name: "openclaw-test",
@@ -114,7 +114,7 @@ describe("wrapped runtime", () => {
         kind: "custom",
         runtime: {
           command:
-            'node -e "process.stdout.write(JSON.stringify({payloads:[{text:process.env.ORGOPS_WRAPPED_WORKSPACE_PATH}]}))"',
+            'node -e "process.stdout.write(JSON.stringify({payloads:[{text:process.env.NEST_WRAPPED_WORKSPACE_PATH}]}))"',
           parse: "json-payloads",
         },
       },
@@ -156,7 +156,7 @@ describe("wrapped runtime", () => {
   });
 
   it("uses Node's cross-platform shell for wrapped commands", async () => {
-    const workspacePath = mkdtempSync(join(tmpdir(), "orgops-shell-wrapped-"));
+    const workspacePath = mkdtempSync(join(tmpdir(), "nest-shell-wrapped-"));
     const emitted: unknown[] = [];
     const agent: Agent = {
       name: "shell-test",
@@ -213,7 +213,7 @@ describe("wrapped runtime", () => {
   });
 
   it("creates configured command cwd before spawning", async () => {
-    const workspacePath = mkdtempSync(join(tmpdir(), "orgops-cwd-wrapped-"));
+    const workspacePath = mkdtempSync(join(tmpdir(), "nest-cwd-wrapped-"));
     const emitted: unknown[] = [];
     const setupCwd = join(workspacePath, "missing", "wrapper");
     const agent: Agent = {
@@ -261,7 +261,7 @@ describe("wrapped runtime", () => {
   });
 
   it("starts configured wrapper sidecars", async () => {
-    const workspacePath = mkdtempSync(join(tmpdir(), "orgops-sidecar-wrapped-"));
+    const workspacePath = mkdtempSync(join(tmpdir(), "nest-sidecar-wrapped-"));
     const emitted: unknown[] = [];
     const processRequests: Array<{ path: string; body: any }> = [];
     const agent: Agent = {
@@ -332,7 +332,7 @@ describe("wrapped runtime", () => {
   });
 
   it("passes attachment payloads to wrapped runtime message input", async () => {
-    const workspacePath = mkdtempSync(join(tmpdir(), "orgops-wrapped-attachments-"));
+    const workspacePath = mkdtempSync(join(tmpdir(), "nest-wrapped-attachments-"));
     const emitted: unknown[] = [];
     const agent: Agent = {
       name: "wrapped-attachments-test",
@@ -347,7 +347,7 @@ describe("wrapped runtime", () => {
         kind: "test",
         runtime: {
           command:
-            'node -e "process.stdout.write(JSON.stringify({payloads:[{text:process.env.ORGOPS_WRAPPED_MESSAGE}]}))"',
+            'node -e "process.stdout.write(JSON.stringify({payloads:[{text:process.env.NEST_WRAPPED_MESSAGE}]}))"',
           parse: "json-payloads",
         },
       },
@@ -389,11 +389,11 @@ describe("wrapped runtime", () => {
     ) as { payload?: { text?: string } } | undefined;
     expect(wrappedReply?.payload?.text).toContain('"attachments"');
     expect(wrappedReply?.payload?.text).toContain('"img-123"');
-    expect(wrappedReply?.payload?.text).toContain('"orgops.pending.events"');
+    expect(wrappedReply?.payload?.text).toContain('"nest.pending.events"');
   });
 
   it("streams wrapped runtime output via process output events", async () => {
-    const workspacePath = mkdtempSync(join(tmpdir(), "orgops-wrapped-stream-"));
+    const workspacePath = mkdtempSync(join(tmpdir(), "nest-wrapped-stream-"));
     const emitted: unknown[] = [];
     const apiRequests: Array<{ path: string; body: any }> = [];
     const agent: Agent = {
@@ -464,7 +464,7 @@ describe("wrapped runtime", () => {
   });
 
   it("downloads attached files for wrapped runtime when tempPath is absent", async () => {
-    const workspacePath = mkdtempSync(join(tmpdir(), "orgops-wrapped-attachment-download-"));
+    const workspacePath = mkdtempSync(join(tmpdir(), "nest-wrapped-attachment-download-"));
     const emitted: unknown[] = [];
     const agent: Agent = {
       name: "wrapped-attachment-download-test",
@@ -479,7 +479,7 @@ describe("wrapped runtime", () => {
         kind: "test",
         runtime: {
           command:
-            'node -e "process.stdout.write(JSON.stringify({payloads:[{text:process.env.ORGOPS_WRAPPED_MESSAGE}]}))"',
+            'node -e "process.stdout.write(JSON.stringify({payloads:[{text:process.env.NEST_WRAPPED_MESSAGE}]}))"',
           parse: "json-payloads",
         },
       },
@@ -551,7 +551,7 @@ describe("wrapped runtime", () => {
   });
 
   it("filters wrapped secret env using allowedKeys and deniedKeys", async () => {
-    const workspacePath = mkdtempSync(join(tmpdir(), "orgops-wrapped-secrets-filter-"));
+    const workspacePath = mkdtempSync(join(tmpdir(), "nest-wrapped-secrets-filter-"));
     const emitted: unknown[] = [];
     const agent: Agent = {
       name: "wrapped-secret-filter-test",
@@ -615,8 +615,8 @@ describe("wrapped runtime", () => {
     expect(replyText).toBe("openai-visible||");
   });
 
-  it("injects OrgOps API auth env vars into wrapped runtime commands", async () => {
-    const workspacePath = mkdtempSync(join(tmpdir(), "orgops-wrapped-api-auth-"));
+  it("injects Nest API auth env vars into wrapped runtime commands", async () => {
+    const workspacePath = mkdtempSync(join(tmpdir(), "nest-wrapped-api-auth-"));
     const emitted: unknown[] = [];
     const agent: Agent = {
       name: "wrapped-api-auth-test",
@@ -631,7 +631,7 @@ describe("wrapped runtime", () => {
         kind: "test",
         runtime: {
           command:
-            'node -e "process.stdout.write(JSON.stringify({payloads:[{text:[process.env.ORGOPS_API_URL||\\"\\",process.env.ORGOPS_RUNNER_TOKEN||\\"\\"] .join(\\"|\\")}]}))"',
+            'node -e "process.stdout.write(JSON.stringify({payloads:[{text:[process.env.NEST_API_URL||\\"\\",process.env.NEST_RUNNER_TOKEN||\\"\\"] .join(\\"|\\")}]}))"',
           parse: "json-payloads",
         },
       },

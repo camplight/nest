@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 
-const API_URL = process.env.ORGOPS_API_URL ?? "http://localhost:8787";
-const RUNNER_TOKEN = process.env.ORGOPS_RUNNER_TOKEN ?? "dev-runner-token";
+const API_URL = (process.env.NEST_API_URL ?? process.env.ORGOPS_API_URL) ?? "http://localhost:8787";
+const RUNNER_TOKEN = (process.env.NEST_RUNNER_TOKEN ?? process.env.ORGOPS_RUNNER_TOKEN) ?? "dev-runner-token";
 
 const API_START_CMD = [
   "node",
@@ -19,7 +19,7 @@ function sleep(ms: number) {
 
 async function apiFetch(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers ?? {});
-  headers.set("x-orgops-runner-token", RUNNER_TOKEN);
+  headers.set("x-nest-runner-token", RUNNER_TOKEN);
   if (init.body && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }

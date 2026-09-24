@@ -1,6 +1,6 @@
 ---
 name: agent-management
-description: Create, list, and configure OrgOps agents from native agents. Use when the user asks an agent to create agents, list agents, set up WRAPPED agents, OpenClaw wrappers, sidecars, or Cursor coding harnesses.
+description: Create, list, and configure Nest agents from native agents. Use when the user asks an agent to create agents, list agents, set up WRAPPED agents, OpenClaw wrappers, sidecars, or Cursor coding harnesses.
 ---
 
 # Agent Management
@@ -27,7 +27,7 @@ Example:
 
 ## Create Native Agents
 
-For a normal OrgOps-managed LLM agent, use `mode: "CLASSIC"` or omit `mode`. Pick a concrete `modelId`, set a workspace, and enable any required skills.
+For a normal Nest-managed LLM agent, use `mode: "CLASSIC"` or omit `mode`. Pick a concrete `modelId`, set a workspace, and enable any required skills.
 
 Example:
 
@@ -36,7 +36,7 @@ Example:
   "name": "ResearchAgent",
   "mode": "CLASSIC",
   "modelId": "openai:gpt-4o-mini",
-  "workspacePath": ".orgops-data/workspaces/ResearchAgent",
+  "workspacePath": ".nest-data/workspaces/ResearchAgent",
   "enabledSkills": ["tavily"],
   "alwaysPreloadedSkills": ["tavily"],
   "joinCurrentChannel": true
@@ -49,11 +49,11 @@ For a wrapped agent, set:
 
 - `mode: "WRAPPED"`
 - `modelId: "wrapped:none"` if you provide it explicitly
-- `memoryContextMode: "OFF"` or omit it; OrgOps forces wrapped agents to memory OFF
+- `memoryContextMode: "OFF"` or omit it; Nest forces wrapped agents to memory OFF
 - `enabledSkills: []` and `alwaysPreloadedSkills: []`
 - a `wrappedConfig` object with `kind`, `harness`, optional `setup`, optional `sidecars`, and `runtime`
 
-Wrapped agents do not use OrgOps model calls, prompts, memory, skills, or `allowOutsideWorkspace` for turns. The external runtime owns its session, tools, memory, prompt behavior, and filesystem policy through its own settings.
+Wrapped agents do not use Nest model calls, prompts, memory, skills, or `allowOutsideWorkspace` for turns. The external runtime owns its session, tools, memory, prompt behavior, and filesystem policy through its own settings.
 
 ## Update Existing Agents
 
@@ -63,23 +63,23 @@ Example:
 
 ```json
 {
-  "agentName": "OrgOpsCoordinator",
-  "wrappedConfigJson": "{\"kind\":\"openclaw\",\"harness\":\"command\",\"runtime\":{\"command\":\"./run-openclaw.sh\",\"cwd\":\".orgops-data/workspaces/OrgOpsCoordinator/wrapper\",\"parse\":\"json-payloads\",\"timeoutMs\":600000}}",
+  "agentName": "NestCoordinator",
+  "wrappedConfigJson": "{\"kind\":\"openclaw\",\"harness\":\"command\",\"runtime\":{\"command\":\"./run-openclaw.sh\",\"cwd\":\".nest-data/workspaces/NestCoordinator/wrapper\",\"parse\":\"json-payloads\",\"timeoutMs\":600000}}",
   "desiredState": "RUNNING"
 }
 ```
 
 ## OpenClaw With Gateway Sidecar
 
-Use OpenClaw when the wrapped runtime is an OpenClaw agent. The OpenClaw sidecar should be the OpenClaw Gateway; OrgOps starts it before turns and the runtime command sends each turn through that gateway.
+Use OpenClaw when the wrapped runtime is an OpenClaw agent. The OpenClaw sidecar should be the OpenClaw Gateway; Nest starts it before turns and the runtime command sends each turn through that gateway.
 
 Example `agents_create` arguments:
 
 ```json
 {
-  "name": "OrgOpsCoordinator",
+  "name": "NestCoordinator",
   "mode": "WRAPPED",
-  "workspacePath": ".orgops-data/workspaces/OrgOpsCoordinator",
+  "workspacePath": ".nest-data/workspaces/NestCoordinator",
   "wrappedConfig": {
     "kind": "openclaw",
     "harness": "command",
@@ -87,22 +87,22 @@ Example `agents_create` arguments:
     "setup": {
       "checkCommand": "test -x node_modules/.bin/openclaw",
       "command": "npm install --no-save openclaw",
-      "cwd": ".orgops-data/workspaces/OrgOpsCoordinator/wrapper",
+      "cwd": ".nest-data/workspaces/NestCoordinator/wrapper",
       "timeoutMs": 600000
     },
     "sidecars": [
       {
         "name": "gateway",
         "command": "npx openclaw gateway --force",
-        "cwd": ".orgops-data/workspaces/OrgOpsCoordinator/wrapper",
+        "cwd": ".nest-data/workspaces/NestCoordinator/wrapper",
         "restart": true,
         "restartDelayMs": 2000,
         "timeoutMs": 0
       }
     ],
     "runtime": {
-      "command": "npx openclaw agent --agent coordinator --session-id \"$ORGOPS_WRAPPED_SESSION_ID\" --message \"$ORGOPS_WRAPPED_MESSAGE\" --json",
-      "cwd": ".orgops-data/workspaces/OrgOpsCoordinator/wrapper",
+      "command": "npx openclaw agent --agent coordinator --session-id \"$NEST_WRAPPED_SESSION_ID\" --message \"$NEST_WRAPPED_MESSAGE\" --json",
+      "cwd": ".nest-data/workspaces/NestCoordinator/wrapper",
       "parse": "json-payloads",
       "timeoutMs": 600000
     }
@@ -113,18 +113,18 @@ Example `agents_create` arguments:
 
 OpenClaw setup notes:
 
-- OpenClaw is optional and is not installed with OrgOps. Install it in the wrapped agent's workspace during `setup`, or configure `source` to use an OpenClaw checkout.
-- Before upgrading an existing OpenClaw agent that relied on OrgOps' root installation, add an explicit local install to its stored `wrappedConfig.setup`; otherwise `npx openclaw` may fail or download an unpinned version.
+- OpenClaw is optional and is not installed with Nest. Install it in the wrapped agent's workspace during `setup`, or configure `source` to use an OpenClaw checkout.
+- Before upgrading an existing OpenClaw agent that relied on Nest' root installation, add an explicit local install to its stored `wrappedConfig.setup`; otherwise `npx openclaw` may fail or download an unpinned version.
 - Pin the `openclaw` version in production recipes when reproducible setup is required.
 - Store wrapper source in the agent workspace or configure `source` if it comes from a repo.
-- Put secrets in OrgOps package secrets, not in `wrappedConfig`; setup, sidecars, and runtime receive package secrets as env.
-- Use `ORGOPS_WRAPPED_SESSION_ID` to keep OpenClaw state stable per channel or per agent.
+- Put secrets in Nest package secrets, not in `wrappedConfig`; setup, sidecars, and runtime receive package secrets as env.
+- Use `NEST_WRAPPED_SESSION_ID` to keep OpenClaw state stable per channel or per agent.
 - Configure OpenClaw's gateway, agents, model allowlist, channel bridges, sandbox, and filesystem policy in OpenClaw itself.
 - Keep the gateway sidecar idempotent and restartable.
 
 ## Cursor Coding Harness
 
-Use Cursor wrapped mode when the agent should delegate coding work to Cursor tooling rather than the OrgOps LLM loop. Treat it as a high-power coding harness: give it an isolated workspace, a narrow prompt/message bridge, and a long turn timeout.
+Use Cursor wrapped mode when the agent should delegate coding work to Cursor tooling rather than the Nest LLM loop. Treat it as a high-power coding harness: give it an isolated workspace, a narrow prompt/message bridge, and a long turn timeout.
 
 Example `agents_create` arguments:
 
@@ -132,13 +132,13 @@ Example `agents_create` arguments:
 {
   "name": "CursorCoder",
   "mode": "WRAPPED",
-  "workspacePath": ".orgops-data/workspaces/CursorCoder",
+  "workspacePath": ".nest-data/workspaces/CursorCoder",
   "wrappedConfig": {
     "kind": "cursor",
     "harness": "command",
     "session": { "scope": "per-agent" },
     "runtime": {
-      "command": "cursor-agent -p \"$ORGOPS_WRAPPED_MESSAGE\" --output-format text",
+      "command": "cursor-agent -p \"$NEST_WRAPPED_MESSAGE\" --output-format text",
       "cwd": ".",
       "parse": "text",
       "timeoutMs": 1800000
@@ -149,7 +149,7 @@ Example `agents_create` arguments:
 
 Cursor setup notes:
 
-- Configure `CURSOR_API_KEY` as an OrgOps secret in package `cursor`.
-- Configure Cursor's filesystem and permission policy in the Cursor harness settings; OrgOps `allowOutsideWorkspace` does not apply to wrapped agents.
+- Configure `CURSOR_API_KEY` as a Nest secret in package `cursor`.
+- Configure Cursor's filesystem and permission policy in the Cursor harness settings; Nest `allowOutsideWorkspace` does not apply to wrapped agents.
 - Prefer `session.scope: "per-agent"` for coding continuity across channels; use `per-channel` when channel isolation matters.
 - Ask before creating or modifying repositories outside the configured workspace.

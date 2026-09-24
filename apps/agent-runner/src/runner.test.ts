@@ -2285,7 +2285,7 @@ describe("agent runner", () => {
     expect(requests[0]?.body).toMatchObject({
       name: "worker-c",
       modelId: "openai:gpt-4o-mini",
-      workspacePath: ".orgops-data/workspaces/worker-c",
+      workspacePath: ".nest-data/workspaces/worker-c",
       assignedRunnerId: "runner-1",
       mode: "CLASSIC",
       runtimeState: "STOPPED",
@@ -2335,7 +2335,7 @@ describe("agent runner", () => {
     };
 
     const result = (await executeTool(ctx, "agents_update", {
-      agentName: "TestOrgOpsCoordinator",
+      agentName: "TestNestCoordinator",
       wrappedConfigJson: JSON.stringify({
         kind: "openclaw",
         harness: "command",
@@ -2345,9 +2345,9 @@ describe("agent runner", () => {
     })) as { ok?: boolean; agentName?: string };
 
     expect(result.ok).toBe(true);
-    expect(result.agentName).toBe("TestOrgOpsCoordinator");
+    expect(result.agentName).toBe("TestNestCoordinator");
     expect(requests).toHaveLength(1);
-    expect(requests[0]?.path).toBe("/api/agents/TestOrgOpsCoordinator");
+    expect(requests[0]?.path).toBe("/api/agents/TestNestCoordinator");
     expect(requests[0]?.init?.method).toBe("PATCH");
     expect(requests[0]?.body).toEqual({
       wrappedConfig: {

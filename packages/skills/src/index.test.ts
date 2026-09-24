@@ -14,7 +14,7 @@ describe("skills", () => {
   });
 
   it("skips malformed skill frontmatter and keeps loading others", () => {
-    const root = mkdtempSync(join(tmpdir(), "orgops-skills-test-"));
+    const root = mkdtempSync(join(tmpdir(), "nest-skills-test-"));
     const validDir = join(root, "valid");
     const brokenDir = join(root, "broken");
     mkdirSync(validDir, { recursive: true });
@@ -52,7 +52,7 @@ describe("skills", () => {
   });
 
   it("loads skill-provided TypeScript event shapes", async () => {
-    const root = mkdtempSync(join(tmpdir(), "orgops-skills-events-test-"));
+    const root = mkdtempSync(join(tmpdir(), "nest-skills-events-test-"));
     const skillDir = join(root, "bridge");
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(

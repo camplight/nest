@@ -497,7 +497,7 @@ type MessageSegment =
   | { kind: "secret-input"; spec: SecretInputSpec };
 
 const SECRET_INPUT_TAG_PATTERN =
-  /<orgops-secret-input\b[^>]*(?:\/>|>\s*<\/orgops-secret-input>)/gi;
+  /<nest-secret-input\b[^>]*(?:\/>|>\s*<\/nest-secret-input>)/gi;
 
 function readSecretInputAttribute(node: Element, name: string, fallback: string, maxLength = 160): string {
   const value = node.getAttribute(name);
@@ -519,7 +519,7 @@ function parseSecretInputSpec(messageText: string): SecretInputSpec | null {
   const children = Array.from(doc.body.children);
   if (children.length !== 1) return null;
   const node = children[0];
-  if (node.tagName.toLowerCase() !== "orgops-secret-input") return null;
+  if (node.tagName.toLowerCase() !== "nest-secret-input") return null;
   if (node.children.length > 0) return null;
   if ((node.textContent ?? "").trim().length > 0) return null;
   const packageValue = readSecretInputAttribute(node, "package", "");

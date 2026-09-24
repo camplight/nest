@@ -2,11 +2,11 @@ import { spawn } from "node:child_process";
 
 const modeArg = process.argv[2];
 const runnerScript = modeArg === "start" ? "start" : "dev";
-const apiUrlRaw = process.env.ORGOPS_API_URL ?? `http://localhost:${process.env.PORT ?? "8787"}`;
+const apiUrlRaw = (process.env.NEST_API_URL ?? process.env.ORGOPS_API_URL) ?? `http://localhost:${process.env.PORT ?? "8787"}`;
 const apiUrl = apiUrlRaw.endsWith("/") ? apiUrlRaw.slice(0, -1) : apiUrlRaw;
-const runnerToken = process.env.ORGOPS_RUNNER_TOKEN ?? "dev-runner-token";
-const waitTimeoutMs = Number(process.env.ORGOPS_API_WAIT_TIMEOUT_MS ?? 180_000);
-const pollIntervalMs = Number(process.env.ORGOPS_API_WAIT_POLL_MS ?? 500);
+const runnerToken = (process.env.NEST_RUNNER_TOKEN ?? process.env.ORGOPS_RUNNER_TOKEN) ?? "dev-runner-token";
+const waitTimeoutMs = Number((process.env.NEST_API_WAIT_TIMEOUT_MS ?? process.env.ORGOPS_API_WAIT_TIMEOUT_MS) ?? 180_000);
+const pollIntervalMs = Number((process.env.NEST_API_WAIT_POLL_MS ?? process.env.ORGOPS_API_WAIT_POLL_MS) ?? 500);
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -16,7 +16,7 @@ async function isApiReady() {
   try {
     const res = await fetch(`${apiUrl}/api/auth/me`, {
       headers: {
-        "x-orgops-runner-token": runnerToken,
+        "x-nest-runner-token": runnerToken,
       },
     });
     return res.ok;
@@ -38,7 +38,7 @@ async function waitForApiReady() {
 
 async function main() {
   process.stdout.write(
-    `[runner-after-api] waiting for API at ${apiUrl} before running @orgops/agent-runner ${runnerScript}\n`,
+    `[runner-after-api] waiting for API at ${apiUrl} before running @nest/agent-runner ${runnerScript}\n`,
   );
   const ready = await waitForApiReady();
   if (!ready) {
@@ -51,7 +51,7 @@ async function main() {
   process.stdout.write("[runner-after-api] API ready, starting runner\n");
   const child = spawn(
     "npm",
-    ["run", "--workspace", "@orgops/agent-runner", runnerScript],
+    ["run", "--workspace", "@nest/agent-runner", runnerScript],
     {
       cwd: process.cwd(),
       stdio: "inherit",

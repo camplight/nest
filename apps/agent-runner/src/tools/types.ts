@@ -1,6 +1,6 @@
-import type { LlmTool } from "@orgops/llm";
+import type { LlmTool } from "@nest/llm";
 import type { Agent, Event } from "../types";
-import type { EventTypeSummary } from "@orgops/schemas";
+import type { EventTypeSummary } from "@nest/schemas";
 import type { z } from "zod";
 
 export type RunnerToolDeps = {

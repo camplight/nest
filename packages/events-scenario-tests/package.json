@@ -1,5 +1,5 @@
 {
-  "name": "@orgops/events-scenario-tests",
+  "name": "@nest/events-scenario-tests",
   "version": "0.0.1",
   "type": "module",
   "main": "src/index.ts",

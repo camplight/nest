@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { resolveSkillRoot } from "@orgops/skills";
+import { resolveSkillRoot } from "@nest/skills";
 import { stopAllRunningProcesses } from "./tools/shell";
 import { createChannelLoopManager } from "./channel-loop";
 import { shouldHandleEventForAgent } from "./event-routing";
@@ -32,18 +32,17 @@ import {
 import { buildModelMessages, selectRecentDeltaEventsForPrompt } from "./prompt-composer";
 import type { Agent, Event } from "./types";
 
-const API_URL = process.env.ORGOPS_API_URL ?? "http://localhost:8787";
+const API_URL = (process.env.NEST_API_URL ?? process.env.ORGOPS_API_URL) ?? "http://localhost:8787";
 const PROJECT_ROOT = (() => {
-  const envRoot = process.env.ORGOPS_PROJECT_ROOT;
+  const envRoot = (process.env.NEST_PROJECT_ROOT ?? process.env.ORGOPS_PROJECT_ROOT);
   if (envRoot) return envRoot;
   const cwd = process.cwd();
   const candidate = resolve(cwd, "../..");
   return existsSync(join(candidate, "package.json")) ? candidate : cwd;
 })();
 const SKILL_ROOT = resolveSkillRoot(PROJECT_ROOT);
-const RUNNER_ID_FILE = process.env.ORGOPS_RUNNER_ID_FILE
-  ? resolve(PROJECT_ROOT, process.env.ORGOPS_RUNNER_ID_FILE)
-  : resolve(PROJECT_ROOT, ".agent-runner-id");
+const configuredRunnerIdFile = process.env.NEST_RUNNER_ID_FILE ?? process.env.ORGOPS_RUNNER_ID_FILE;
+const RUNNER_ID_FILE = resolve(PROJECT_ROOT, configuredRunnerIdFile ?? ".agent-runner-id");
 const HEARTBEAT_INTERVAL_MS = 5000;
 const DEFAULT_CHANNEL_RECENT_MEMORY_INTERVAL_MS = 10_000;
 const DEFAULT_CHANNEL_FULL_MEMORY_INTERVAL_MS = 60_000;
@@ -59,38 +58,38 @@ function readPositiveIntEnv(value: string | undefined, fallback: number): number
 }
 
 const LLM_CALL_TIMEOUT_MS = readPositiveIntEnv(
-  process.env.ORGOPS_LLM_CALL_TIMEOUT_MS,
+  (process.env.NEST_LLM_CALL_TIMEOUT_MS ?? process.env.ORGOPS_LLM_CALL_TIMEOUT_MS),
   DEFAULT_LLM_CALL_TIMEOUT_MS,
 );
 const CHANNEL_RECENT_MEMORY_INTERVAL_MS = readPositiveIntEnv(
-  process.env.ORGOPS_CHANNEL_RECENT_MEMORY_INTERVAL_MS,
+  (process.env.NEST_CHANNEL_RECENT_MEMORY_INTERVAL_MS ?? process.env.ORGOPS_CHANNEL_RECENT_MEMORY_INTERVAL_MS),
   DEFAULT_CHANNEL_RECENT_MEMORY_INTERVAL_MS,
 );
 const CHANNEL_FULL_MEMORY_INTERVAL_MS = readPositiveIntEnv(
-  process.env.ORGOPS_CHANNEL_FULL_MEMORY_INTERVAL_MS,
+  (process.env.NEST_CHANNEL_FULL_MEMORY_INTERVAL_MS ?? process.env.ORGOPS_CHANNEL_FULL_MEMORY_INTERVAL_MS),
   DEFAULT_CHANNEL_FULL_MEMORY_INTERVAL_MS,
 );
 const CROSS_RECENT_MEMORY_INTERVAL_MS = readPositiveIntEnv(
-  process.env.ORGOPS_CROSS_RECENT_MEMORY_INTERVAL_MS,
+  (process.env.NEST_CROSS_RECENT_MEMORY_INTERVAL_MS ?? process.env.ORGOPS_CROSS_RECENT_MEMORY_INTERVAL_MS),
   DEFAULT_CROSS_RECENT_MEMORY_INTERVAL_MS,
 );
 const CROSS_FULL_MEMORY_INTERVAL_MS = readPositiveIntEnv(
-  process.env.ORGOPS_CROSS_FULL_MEMORY_INTERVAL_MS,
+  (process.env.NEST_CROSS_FULL_MEMORY_INTERVAL_MS ?? process.env.ORGOPS_CROSS_FULL_MEMORY_INTERVAL_MS),
   DEFAULT_CROSS_FULL_MEMORY_INTERVAL_MS,
 );
 const AGENT_INTENT_TIMEOUT_MS = readPositiveIntEnv(
-  process.env.ORGOPS_AGENT_INTENT_TIMEOUT_MS,
+  (process.env.NEST_AGENT_INTENT_TIMEOUT_MS ?? process.env.ORGOPS_AGENT_INTENT_TIMEOUT_MS),
   DEFAULT_AGENT_INTENT_TIMEOUT_MS,
 );
 const AGENT_INTENT_MAX_TIMEOUTS = readPositiveIntEnv(
-  process.env.ORGOPS_AGENT_INTENT_MAX_TIMEOUTS,
+  (process.env.NEST_AGENT_INTENT_MAX_TIMEOUTS ?? process.env.ORGOPS_AGENT_INTENT_MAX_TIMEOUTS),
   DEFAULT_AGENT_INTENT_MAX_TIMEOUTS,
 );
 
 const state = createRunnerState();
 const api = createRunnerApi({
   apiUrl: API_URL,
-  runnerToken: process.env.ORGOPS_RUNNER_TOKEN ?? "dev-runner-token",
+  runnerToken: (process.env.NEST_RUNNER_TOKEN ?? process.env.ORGOPS_RUNNER_TOKEN) ?? "dev-runner-token",
   heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
   runnerIdFile: RUNNER_ID_FILE,
   runnerState: state,
@@ -101,7 +100,7 @@ const handleTurn = createTurnExecutor({
   llmCallTimeoutMs: LLM_CALL_TIMEOUT_MS,
   runtimeAuth: {
     apiBaseUrl: API_URL,
-    runnerToken: process.env.ORGOPS_RUNNER_TOKEN ?? "dev-runner-token",
+    runnerToken: (process.env.NEST_RUNNER_TOKEN ?? process.env.ORGOPS_RUNNER_TOKEN) ?? "dev-runner-token",
   },
   api: {
     apiFetch: api.apiFetch,

@@ -1,4 +1,4 @@
-# OrgOps Use Cases
+# Nest Use Cases
 
 ## 1) Same-agent same-host execution
 
@@ -9,7 +9,7 @@
 
 ## 2) Autonomous host bootstrap and maintenance
 
-- Install and maintain OrgOps components on personal hosts using `opscli`.
+- Install and maintain Nest components on personal hosts using `nest`.
 - Start with or without an initial goal prompt.
 - Let the agent ask for additional user input interactively (`input(...)`).
 - Execute host commands via `shell(...)`, print status via `print(...)`, and terminate cleanly via `exit(code)`.
@@ -32,4 +32,4 @@
 
 - Make agent setup and reconfiguration straightforward.
 - Enable one team to coordinate many specialized agents cost-effectively.
-- Support break-glass remediation from terminal (`opscli`) even if UI/API are unhealthy.
+- Support break-glass remediation from terminal (`nest`) even if UI/API are unhealthy.

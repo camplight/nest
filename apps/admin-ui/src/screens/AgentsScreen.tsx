@@ -35,7 +35,7 @@ const DEFAULT_WRAPPED_CONFIG = JSON.stringify(
     kind: "custom",
     harness: "command",
     runtime: {
-      command: 'printf "%s" "$ORGOPS_WRAPPED_MESSAGE"',
+      command: 'printf "%s" "$NEST_WRAPPED_MESSAGE"',
       parse: "text",
       timeoutMs: 600000
     },
@@ -56,7 +56,7 @@ const DEFAULT_AGENT_FORM: AgentForm = {
   emitAuditEvents: true,
   llmCallTimeoutMs: "",
   contextSessionGapMs: "",
-  workspacePath: ".orgops-data/workspaces/default",
+  workspacePath: ".nest-data/workspaces/default",
   allowOutsideWorkspace: false,
   assignedRunnerId: "",
   soulContents: "",
@@ -282,7 +282,7 @@ export function AgentsScreen({
           : "",
       workspacePath:
         selectedAgent.workspacePath ??
-        `.orgops-data/workspaces/${selectedAgent.name}`,
+        `.nest-data/workspaces/${selectedAgent.name}`,
       allowOutsideWorkspace: Boolean(selectedAgent.allowOutsideWorkspace),
       assignedRunnerId: selectedAgent.assignedRunnerId ?? "",
       soulContents: selectedAgent.soulContents ?? "",
@@ -1115,7 +1115,7 @@ export function AgentsScreen({
                       </select>
                       {form.mode === "WRAPPED" ? (
                         <p className="text-xs text-slate-500">
-                          Wrapped agents use an external runtime harness. OrgOps manages lifecycle and routing.
+                          Wrapped agents use an external runtime harness. Nest manages lifecycle and routing.
                         </p>
                       ) : null}
                     </div>
@@ -1278,7 +1278,7 @@ export function AgentsScreen({
                           setSaveStatus(null);
                           setForm((prev) => ({ ...prev, workspacePath: e.target.value }));
                         }}
-                        placeholder=".orgops-data/workspaces/agent-name"
+                        placeholder=".nest-data/workspaces/agent-name"
                       />
                     </div>
                     {!isWrappedMode ? (

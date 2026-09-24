@@ -1,0 +1,13 @@
+import type { LlmTool } from "@nest/llm";
+import type { AgentRuntimeState } from "../lib/types";
+
+export type ToolContext = {
+  requestPasswordInput: (promptText: string) => Promise<string>;
+  forceExitProcess: (code: number) => never;
+  abortSignal?: AbortSignal;
+  runtime: AgentRuntimeState;
+  reportProgress: (message: string) => void;
+  appendLog: (message: string) => void;
+};
+
+export type NamedTool = [string, LlmTool];

@@ -4,7 +4,7 @@ description: Manage secrets (write, list keys, delete). Secrets are stored encry
 ---
 # Scoped secrets
 
-Manage OrgOps scoped secrets. Agents can **write** key-value pairs, **list** secret keys (not values), and **delete** keys. Secret values are never returned to the agent; they are only injected as environment variables when the runner executes skills or calls the LLM.
+Manage Nest scoped secrets. Agents can **write** key-value pairs, **list** secret keys (not values), and **delete** keys. Secret values are never returned to the agent; they are only injected as environment variables when the runner executes skills or calls the LLM.
 
 ## Secure secret collection in chat
 
@@ -13,7 +13,7 @@ When you need a user to provide a secret, **do not ask them to paste the secret 
 Instead, return a single HTML component that the UI can render as a secure input form:
 
 ```html
-<orgops-secret-input package="llm" key="OPENAI_API_KEY" label="Set OpenAI API key" submit-label="Save secret" description="This value is sent directly to the secrets API and is not posted as a chat message."></orgops-secret-input>
+<nest-secret-input package="llm" key="OPENAI_API_KEY" label="Set OpenAI API key" submit-label="Save secret" description="This value is sent directly to the secrets API and is not posted as a chat message."></nest-secret-input>
 ```
 
 Rules:
@@ -25,7 +25,7 @@ Rules:
 
 ## Usage
 
-All commands require `ORGOPS_RUNNER_TOKEN` and use `ORGOPS_API_URL` (default `http://localhost:8787`).
+All commands require `NEST_RUNNER_TOKEN` and use `NEST_API_URL` (default `http://localhost:8787`).
 
 ### Set a secret (legacy package helper)
 
@@ -36,7 +36,7 @@ node --import tsx {baseDir}/assets/set.ts -- <package> <key> <value>
 Example: store OpenAI key for the legacy `llm` package scope:
 
 ```bash
-ORGOPS_RUNNER_TOKEN=... node --import tsx {baseDir}/assets/set.ts -- llm OPENAI_API_KEY sk-...
+NEST_RUNNER_TOKEN=... node --import tsx {baseDir}/assets/set.ts -- llm OPENAI_API_KEY sk-...
 ```
 
 ### List secret keys

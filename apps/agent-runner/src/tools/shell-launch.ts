@@ -13,9 +13,9 @@ function splitShellArgs(raw: string): string[] {
 }
 
 export function getShellLaunch(cmd: string): ShellLaunch {
-  const customShellPath = process.env.ORGOPS_SHELL_PATH?.trim();
+  const customShellPath = (process.env.NEST_SHELL_PATH ?? process.env.ORGOPS_SHELL_PATH)?.trim();
   if (customShellPath) {
-    const customShellArgs = process.env.ORGOPS_SHELL_ARGS?.trim();
+    const customShellArgs = (process.env.NEST_SHELL_ARGS ?? process.env.ORGOPS_SHELL_ARGS)?.trim();
     const args = customShellArgs
       ? [...splitShellArgs(customShellArgs), cmd]
       : ["-lc", cmd];
@@ -24,7 +24,7 @@ export function getShellLaunch(cmd: string): ShellLaunch {
 
   if (process.platform === "win32") {
     const gitBashPath =
-      process.env.ORGOPS_GIT_BASH_PATH?.trim() ||
+      (process.env.NEST_GIT_BASH_PATH ?? process.env.ORGOPS_GIT_BASH_PATH)?.trim() ||
       "C:\\Program Files\\Git\\bin\\bash.exe";
     if (existsSync(gitBashPath)) {
       return { command: gitBashPath, args: ["-lc", cmd] };

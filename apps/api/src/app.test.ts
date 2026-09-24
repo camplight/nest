@@ -12,12 +12,12 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
-import { createDrizzleDb, migrate, openDb, schema } from "@orgops/db";
+import { createDrizzleDb, migrate, openDb, schema } from "@nest/db";
 import { createApp } from "./app";
 
 describe("api app", () => {
   it("serves an unauthenticated health endpoint", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -30,7 +30,7 @@ describe("api app", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { status?: string; service?: string };
     expect(body.status).toBe("ok");
-    expect(body.service).toBe("orgops-api");
+    expect(body.service).toBe("nest-api");
 
     rmSync(dataDir, { recursive: true, force: true });
   });
@@ -53,7 +53,7 @@ describe("api app", () => {
       })
       .run();
 
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const { app } = createApp({
       db,
       dataDir,
@@ -72,7 +72,7 @@ describe("api app", () => {
   });
 
   it("registers runners and filters agents by assigned runner", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -86,7 +86,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": "test-token",
+        "x-nest-runner-token": "test-token",
       },
       body: JSON.stringify({
         displayName: "runner-main",
@@ -113,7 +113,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "assigned-agent",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/assigned-agent",
+        workspacePath: ".nest-data/workspaces/assigned-agent",
         assignedRunnerId: runnerId,
       }),
     });
@@ -125,7 +125,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "unassigned-agent",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/unassigned-agent",
+        workspacePath: ".nest-data/workspaces/unassigned-agent",
       }),
     });
     expect(createUnassignedRes.status).toBe(201);
@@ -133,7 +133,7 @@ describe("api app", () => {
     const listAssignedRes = await app.request(
       `http://localhost/api/agents?assignedRunnerId=${encodeURIComponent(runnerId)}`,
       {
-        headers: { "x-orgops-runner-token": "test-token" },
+        headers: { "x-nest-runner-token": "test-token" },
       },
     );
     expect(listAssignedRes.status).toBe(200);
@@ -144,7 +144,7 @@ describe("api app", () => {
   });
 
   it("persists wrapped agent configuration as editable JSON", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -170,7 +170,7 @@ describe("api app", () => {
         modelId: "wrapped:none",
         memoryContextMode: "PER_CHANNEL_CROSS_CHANNEL",
         allowOutsideWorkspace: true,
-        workspacePath: ".orgops-data/workspaces/wrapped-agent",
+        workspacePath: ".nest-data/workspaces/wrapped-agent",
         wrappedConfig: {
           kind: "openclaw",
           runtime: { command: "openclaw agent --local --json" },
@@ -225,7 +225,7 @@ describe("api app", () => {
   });
 
   it("de-registers runner and clears assigned agents", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -239,7 +239,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": "test-token",
+        "x-nest-runner-token": "test-token",
       },
       body: JSON.stringify({
         displayName: "runner-to-delete",
@@ -266,7 +266,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "runner-bound-agent",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/runner-bound-agent",
+        workspacePath: ".nest-data/workspaces/runner-bound-agent",
         assignedRunnerId: runnerId,
       }),
     });
@@ -305,7 +305,7 @@ describe("api app", () => {
   });
 
   it("renames runners from admin endpoint", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -319,7 +319,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": "test-token",
+        "x-nest-runner-token": "test-token",
       },
       body: JSON.stringify({
         displayName: "runner-old-name",
@@ -338,7 +338,7 @@ describe("api app", () => {
         method: "PATCH",
         headers: {
           "content-type": "application/json",
-          "x-orgops-runner-token": "test-token",
+          "x-nest-runner-token": "test-token",
         },
         body: JSON.stringify({ displayName: "runner-new-name" }),
       },
@@ -382,7 +382,7 @@ describe("api app", () => {
   });
 
   it("returns runner setup token only for authenticated humans", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -393,7 +393,7 @@ describe("api app", () => {
     });
 
     const runnerAccessRes = await app.request("http://localhost/api/runners/setup-config", {
-      headers: { "x-orgops-runner-token": "test-token" },
+      headers: { "x-nest-runner-token": "test-token" },
     });
     expect(runnerAccessRes.status).toBe(401);
 
@@ -420,7 +420,7 @@ describe("api app", () => {
   });
 
   it("stores and updates agent soul contents in database", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -444,7 +444,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "soul-agent",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/soul-agent",
+        workspacePath: ".nest-data/workspaces/soul-agent",
         allowOutsideWorkspace: true,
         soulContents: "initial soul",
       }),
@@ -479,7 +479,7 @@ describe("api app", () => {
   });
 
   it("rejects agent rename attempts via patch", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -502,7 +502,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "rename-disabled-agent",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/rename-disabled-agent",
+        workspacePath: ".nest-data/workspaces/rename-disabled-agent",
       }),
     });
     expect(createAgentRes.status).toBe(201);
@@ -527,7 +527,7 @@ describe("api app", () => {
   });
 
   it("persists always-preloaded skills as a subset of enabled skills", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -551,7 +551,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "skills-agent",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/skills-agent",
+        workspacePath: ".nest-data/workspaces/skills-agent",
         enabledSkills: ["slack"],
         alwaysPreloadedSkills: ["slack", "secrets"],
       }),
@@ -603,7 +603,7 @@ describe("api app", () => {
   });
 
   it("deletes agents and directly related state", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const orm = createDrizzleDb(db);
     const { app } = createApp({
@@ -628,7 +628,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "delete-agent",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/delete-agent",
+        workspacePath: ".nest-data/workspaces/delete-agent",
       }),
     });
     expect(createAgentRes.status).toBe(201);
@@ -847,7 +847,7 @@ describe("api app", () => {
   });
 
   it("supports per-agent LLM timeout and classic max model steps overrides", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -871,7 +871,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "tuned-agent",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/tuned-agent",
+        workspacePath: ".nest-data/workspaces/tuned-agent",
         llmCallTimeoutMs: 180000,
         classicMaxModelSteps: 250,
         memoryContextMode: "FULL_CHANNEL_EVENTS",
@@ -953,7 +953,7 @@ describe("api app", () => {
   });
 
   it("authenticates and creates events", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -980,7 +980,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": "test-token",
+        "x-nest-runner-token": "test-token",
       },
       body: JSON.stringify({
         type: "message.created",
@@ -996,7 +996,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": "test-token",
+        "x-nest-runner-token": "test-token",
       },
       body: JSON.stringify({
         type: "message.created",
@@ -1009,7 +1009,7 @@ describe("api app", () => {
     const secondEvent = (await secondEventRes.json()) as { id: string };
 
     const listRes = await app.request("http://localhost/api/events?limit=10", {
-      headers: { "x-orgops-runner-token": "test-token" },
+      headers: { "x-nest-runner-token": "test-token" },
     });
     const list = await listRes.json();
     expect(Array.isArray(list)).toBe(true);
@@ -1017,7 +1017,7 @@ describe("api app", () => {
     const descListRes = await app.request(
       "http://localhost/api/events?limit=10&order=desc",
       {
-        headers: { "x-orgops-runner-token": "test-token" },
+        headers: { "x-nest-runner-token": "test-token" },
       },
     );
     expect(descListRes.status).toBe(200);
@@ -1029,7 +1029,7 @@ describe("api app", () => {
   });
 
   it("exports filtered events as a SQLite database", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const orm = createDrizzleDb(db);
     const { app } = createApp({
@@ -1109,10 +1109,10 @@ describe("api app", () => {
     expect(exportRes.status).toBe(200);
     expect(exportRes.headers.get("content-type")).toContain("application/vnd.sqlite3");
     expect(exportRes.headers.get("content-disposition")).toContain(
-      "attachment; filename=\"orgops-events-",
+      "attachment; filename=\"nest-events-",
     );
 
-    const exportDir = mkdtempSync(join(tmpdir(), "orgops-events-export-test-"));
+    const exportDir = mkdtempSync(join(tmpdir(), "nest-events-export-test-"));
     const exportPath = join(exportDir, "events.sqlite");
     writeFileSync(exportPath, Buffer.from(await exportRes.arrayBuffer()));
     const exportDb = openDb(exportPath);
@@ -1138,7 +1138,7 @@ describe("api app", () => {
       const metadata = Object.fromEntries(
         metadataRows.map((row) => [row.key, row.value]),
       );
-      expect(metadata.schema_version).toBe("orgops.event-export.sqlite.v1");
+      expect(metadata.schema_version).toBe("nest.event-export.sqlite.v1");
       expect(metadata.event_count).toBe("1005");
       expect(JSON.parse(metadata.filters_json)).toMatchObject({
         channelId,
@@ -1167,7 +1167,7 @@ describe("api app", () => {
   });
 
   it("returns schema validation errors for invalid event emit", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -1181,7 +1181,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": "test-token",
+        "x-nest-runner-token": "test-token",
       },
       body: JSON.stringify({
         type: "message.created",
@@ -1203,7 +1203,7 @@ describe("api app", () => {
   });
 
   it("rejects scheduled triggers when target agent is not in channel participants", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -1251,7 +1251,7 @@ describe("api app", () => {
   });
 
   it("lists TypeScript event shape definitions from core and skills", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -1264,7 +1264,7 @@ describe("api app", () => {
     const eventTypesRes = await app.request(
       "http://localhost/api/event-types",
       {
-        headers: { "x-orgops-runner-token": "test-token" },
+        headers: { "x-nest-runner-token": "test-token" },
       },
     );
     expect(eventTypesRes.status).toBe(200);
@@ -1285,7 +1285,7 @@ describe("api app", () => {
   });
 
   it("invites humans with temporary passwords and enforces first-login reset", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -1354,7 +1354,7 @@ describe("api app", () => {
   });
 
   it("resets an existing human to a new temporary password", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -1431,7 +1431,7 @@ describe("api app", () => {
   });
 
   it("updates agent runtime state on start and stop actions", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -1455,7 +1455,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "agent-one",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/agent-one",
+        workspacePath: ".nest-data/workspaces/agent-one",
         soulContents: "",
       }),
     });
@@ -1505,7 +1505,7 @@ describe("api app", () => {
   });
 
   it("does not mark agent events delivered for non-runner requests", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -1529,7 +1529,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "agent-two",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/agent-two",
+        workspacePath: ".nest-data/workspaces/agent-two",
         soulContents: "",
       }),
     });
@@ -1588,13 +1588,13 @@ describe("api app", () => {
 
     const runnerListRes = await app.request(
       "http://localhost/api/events?agentName=agent-two&status=PENDING&limit=10",
-      { headers: { "x-orgops-runner-token": "test-token" } },
+      { headers: { "x-nest-runner-token": "test-token" } },
     );
     expect(runnerListRes.status).toBe(200);
 
     const afterRunnerRes = await app.request(
       "http://localhost/api/events?agentName=agent-two&status=DELIVERED&limit=10",
-      { headers: { "x-orgops-runner-token": "test-token" } },
+      { headers: { "x-nest-runner-token": "test-token" } },
     );
     expect(afterRunnerRes.status).toBe(200);
     const afterRunner = (await afterRunnerRes.json()) as Array<{
@@ -1607,7 +1607,7 @@ describe("api app", () => {
   });
 
   it("delivers channel events per agent receipt and finalizes after all recipients", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -1632,7 +1632,7 @@ describe("api app", () => {
         body: JSON.stringify({
           name,
           modelId: "openai:gpt-4o-mini",
-          workspacePath: `.orgops-data/workspaces/${name}`,
+          workspacePath: `.nest-data/workspaces/${name}`,
           soulContents: "",
         }),
       });
@@ -1680,7 +1680,7 @@ describe("api app", () => {
 
     const pollAgentARes = await app.request(
       "http://localhost/api/events?agentName=agent-a&status=PENDING&limit=10",
-      { headers: { "x-orgops-runner-token": "test-token" } },
+      { headers: { "x-nest-runner-token": "test-token" } },
     );
     expect(pollAgentARes.status).toBe(200);
     const pollAgentA = (await pollAgentARes.json()) as Array<{ id: string }>;
@@ -1701,7 +1701,7 @@ describe("api app", () => {
 
     const pollAgentBRes = await app.request(
       "http://localhost/api/events?agentName=agent-b&status=PENDING&limit=10",
-      { headers: { "x-orgops-runner-token": "test-token" } },
+      { headers: { "x-nest-runner-token": "test-token" } },
     );
     expect(pollAgentBRes.status).toBe(200);
     const pollAgentB = (await pollAgentBRes.json()) as Array<{ id: string }>;
@@ -1722,7 +1722,7 @@ describe("api app", () => {
   });
 
   it("deletes teams and removes related memberships", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -1786,7 +1786,7 @@ describe("api app", () => {
   });
 
   it("allows TEAM channel subscriptions", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -1854,7 +1854,7 @@ describe("api app", () => {
   });
 
   it("deletes teams through POST action endpoint", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -1899,7 +1899,7 @@ describe("api app", () => {
   });
 
   it("deletes channels and removes related subscriptions", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -1935,7 +1935,7 @@ describe("api app", () => {
         name: "agent-one",
         modelId: "test:model",
         systemInstructions: "",
-        workspacePath: ".orgops-data/workspaces/agent-one",
+        workspacePath: ".nest-data/workspaces/agent-one",
       }),
     });
     expect(createAgentRes.status).toBe(201);
@@ -1983,7 +1983,7 @@ describe("api app", () => {
   });
 
   it("archives, restores, and deletes channels", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -2072,7 +2072,7 @@ describe("api app", () => {
   });
 
   it("deletes all channels and clears channel subscriptions", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -2097,7 +2097,7 @@ describe("api app", () => {
         name: "agent-bulk-delete",
         modelId: "test:model",
         systemInstructions: "",
-        workspacePath: ".orgops-data/workspaces/agent-bulk-delete",
+        workspacePath: ".nest-data/workspaces/agent-bulk-delete",
       }),
     });
     expect(createAgentRes.status).toBe(201);
@@ -2159,7 +2159,7 @@ describe("api app", () => {
   });
 
   it("deletes missing channels idempotently", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -2193,7 +2193,7 @@ describe("api app", () => {
   });
 
   it("allows explicit integration bridge kind and rejects direct kinds via /api/channels", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -2253,7 +2253,7 @@ describe("api app", () => {
   });
 
   it("returns 409 when creating a duplicate channel name", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -2299,7 +2299,7 @@ describe("api app", () => {
   });
 
   it("returns 409 when renaming a channel to an existing name", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -2354,7 +2354,7 @@ describe("api app", () => {
   });
 
   it("updates channel visibility between public and private", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -2428,7 +2428,7 @@ describe("api app", () => {
   });
 
   it("stores and returns channel metadata for integration bridge channels", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -2528,7 +2528,7 @@ describe("api app", () => {
   });
 
   it("ensures human-agent direct channel from authenticated user", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -2553,7 +2553,7 @@ describe("api app", () => {
         name: "coordinator",
         modelId: "test:model",
         systemInstructions: "",
-        workspacePath: ".orgops-data/workspaces/coordinator",
+        workspacePath: ".nest-data/workspaces/coordinator",
       }),
     });
     expect(createAgentRes.status).toBe(201);
@@ -2590,7 +2590,7 @@ describe("api app", () => {
   });
 
   it("rejects human-agent direct channel for unknown agent", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -2622,7 +2622,7 @@ describe("api app", () => {
   });
 
   it("rejects agent-agent direct channel when participant agent is unknown", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -2638,7 +2638,7 @@ describe("api app", () => {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-orgops-runner-token": "test-token",
+          "x-nest-runner-token": "test-token",
         },
         body: JSON.stringify({
           leftAgentName: "coordinator",
@@ -2652,7 +2652,7 @@ describe("api app", () => {
   });
 
   it("uses authenticated human source when creating events", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -2699,7 +2699,7 @@ describe("api app", () => {
   });
 
   it("clears all events", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -2759,7 +2759,7 @@ describe("api app", () => {
   });
 
   it("clears only matching events when delete filters are provided", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -2867,7 +2867,7 @@ describe("api app", () => {
   });
 
   it("clears only channel messages via dedicated endpoint and leaves audit trace", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -2975,7 +2975,7 @@ describe("api app", () => {
   });
 
   it("returns all events when all=1", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -3034,7 +3034,7 @@ describe("api app", () => {
   });
 
   it("returns aggregate event stats from /api/events/stats", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -3077,7 +3077,7 @@ describe("api app", () => {
   });
 
   it("caps all=1 event listings at 10000 rows", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -3120,7 +3120,7 @@ describe("api app", () => {
   });
 
   it("pages older events with before", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -3159,7 +3159,7 @@ describe("api app", () => {
   });
 
   it("hides future scheduled events from non-runner event feeds", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -3183,7 +3183,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "agent-future",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/agent-future",
+        workspacePath: ".nest-data/workspaces/agent-future",
         soulContents: "",
       }),
     });
@@ -3285,7 +3285,7 @@ describe("api app", () => {
   });
 
   it("updates and deletes a future scheduled event by id", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -3309,7 +3309,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "agent-future",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/agent-future",
+        workspacePath: ".nest-data/workspaces/agent-future",
         soulContents: "",
       }),
     });
@@ -3403,7 +3403,7 @@ describe("api app", () => {
   });
 
   it("rejects update/delete when event is not future-scheduled", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -3457,7 +3457,7 @@ describe("api app", () => {
   });
 
   it("cleans an agent workspace directory", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -3509,7 +3509,7 @@ describe("api app", () => {
   });
 
   it("rejects root-level workspace cleanup paths", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -3555,7 +3555,7 @@ describe("api app", () => {
   });
 
   it("records workspace cleanup audit event in agent lifecycle channel", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -3632,7 +3632,7 @@ describe("api app", () => {
   });
 
   it("signals a single running process by id", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -3692,7 +3692,7 @@ describe("api app", () => {
   });
 
   it("stores process output events as delivered when requested", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const orm = createDrizzleDb(db);
     const { app } = createApp({
@@ -3789,7 +3789,7 @@ describe("api app", () => {
   });
 
   it("reconciles missing running processes as exited on refresh", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -3859,7 +3859,7 @@ describe("api app", () => {
   });
 
   it("marks active process as exited when pid is missing on exit request", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -3931,7 +3931,7 @@ describe("api app", () => {
   });
 
   it("clears only exited processes when scope=exited", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -4042,7 +4042,7 @@ describe("api app", () => {
   });
 
   it("stores and retrieves separate recent/full channel memory records", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -4053,7 +4053,7 @@ describe("api app", () => {
     });
     const runnerHeaders = {
       "content-type": "application/json",
-      "x-orgops-runner-token": "test-token",
+      "x-nest-runner-token": "test-token",
     };
 
     const putRecentRes = await app.request("http://localhost/api/memory/channel/recent", {
@@ -4095,7 +4095,7 @@ describe("api app", () => {
 
     const getRecentRes = await app.request(
       "http://localhost/api/memory/channel/recent?agentName=memory-agent&channelId=chan-1",
-      { headers: { "x-orgops-runner-token": "test-token" } },
+      { headers: { "x-nest-runner-token": "test-token" } },
     );
     expect(getRecentRes.status).toBe(200);
     const getRecentBody = (await getRecentRes.json()) as {
@@ -4106,7 +4106,7 @@ describe("api app", () => {
 
     const listRecentRes = await app.request(
       "http://localhost/api/memory/channel/recent?agentName=memory-agent",
-      { headers: { "x-orgops-runner-token": "test-token" } },
+      { headers: { "x-nest-runner-token": "test-token" } },
     );
     expect(listRecentRes.status).toBe(200);
     const listRecentBody = (await listRecentRes.json()) as {
@@ -4118,7 +4118,7 @@ describe("api app", () => {
   });
 
   it("stores cross-channel memory and enforces expectedVersion conflict", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -4129,7 +4129,7 @@ describe("api app", () => {
     });
     const runnerHeaders = {
       "content-type": "application/json",
-      "x-orgops-runner-token": "test-token",
+      "x-nest-runner-token": "test-token",
     };
 
     const putRes = await app.request("http://localhost/api/memory/cross/full", {
@@ -4159,7 +4159,7 @@ describe("api app", () => {
 
     const getRes = await app.request(
       "http://localhost/api/memory/cross/full?agentName=memory-agent",
-      { headers: { "x-orgops-runner-token": "test-token" } },
+      { headers: { "x-nest-runner-token": "test-token" } },
     );
     expect(getRes.status).toBe(200);
     const getBody = (await getRes.json()) as {
@@ -4173,7 +4173,7 @@ describe("api app", () => {
   });
 
   it("shows private channels only to owner and invited humans", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -4261,7 +4261,7 @@ describe("api app", () => {
   });
 
   it("shows private channels to humans who inherit access through team membership", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -4376,7 +4376,7 @@ describe("api app", () => {
   });
 
   it("shares a private channel as read-only for a human viewer", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -4485,7 +4485,7 @@ describe("api app", () => {
   });
 
   it("claims share links by authenticating then auto-adding human viewer", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -4599,7 +4599,7 @@ describe("api app", () => {
   });
 
   it("returns current user's team memberships from /api/teams/me", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -4671,7 +4671,7 @@ describe("api app", () => {
   });
 
   it("creates human-agent direct channels as private by default", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -4695,7 +4695,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "dm-private-agent",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/dm-private-agent",
+        workspacePath: ".nest-data/workspaces/dm-private-agent",
       }),
     });
     expect(createAgentRes.status).toBe(201);
@@ -4722,7 +4722,7 @@ describe("api app", () => {
   });
 
   it("limits private agent discoverability to owner and humans sharing a channel", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -4746,7 +4746,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "owner-private-agent",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/owner-private-agent",
+        workspacePath: ".nest-data/workspaces/owner-private-agent",
         visibility: "PRIVATE",
       }),
     });
@@ -4834,7 +4834,7 @@ describe("api app", () => {
   });
 
   it("allows private agent discoverability through team-linked channels", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -4858,7 +4858,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "team-private-agent",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/team-private-agent",
+        workspacePath: ".nest-data/workspaces/team-private-agent",
         visibility: "PRIVATE",
       }),
     });
@@ -4955,7 +4955,7 @@ describe("api app", () => {
   });
 
   it("creates, authenticates, and revokes integration API keys", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -4969,7 +4969,7 @@ describe("api app", () => {
     expect(unauthorized.status).toBe(401);
 
     const runnerList = await app.request("http://localhost/api/integration-keys", {
-      headers: { "x-orgops-runner-token": "test-token" },
+      headers: { "x-nest-runner-token": "test-token" },
     });
     expect(runnerList.status).toBe(403);
 
@@ -4994,7 +4994,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "invoice-receiver",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/invoice-receiver",
+        workspacePath: ".nest-data/workspaces/invoice-receiver",
       }),
     });
     expect(createAgentRes.status).toBe(201);
@@ -5074,7 +5074,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": "test-token",
+        "x-nest-runner-token": "test-token",
       },
       body: JSON.stringify({
         name: "runner-key",
@@ -5106,9 +5106,9 @@ describe("api app", () => {
   });
 
   it("creates embed conversations and waits for chat completions", async () => {
-    const previousTimeout = process.env.ORGOPS_EMBED_TURN_TIMEOUT_MS;
-    process.env.ORGOPS_EMBED_TURN_TIMEOUT_MS = "2000";
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const previousTimeout = process.env.NEST_EMBED_TURN_TIMEOUT_MS;
+    process.env.NEST_EMBED_TURN_TIMEOUT_MS = "2000";
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -5131,7 +5131,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "invoice-receiver",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/invoice-receiver",
+        workspacePath: ".nest-data/workspaces/invoice-receiver",
       }),
     });
     const keyRes = await app.request("http://localhost/api/integration-keys", {
@@ -5225,7 +5225,7 @@ describe("api app", () => {
             role: "user",
             content: [
               { type: "text", text: "Extract the vendor" },
-              { type: "image_url", image_url: { url: `orgops://file/${uploaded.id}` } },
+              { type: "image_url", image_url: { url: `nest://file/${uploaded.id}` } },
             ],
           },
         ],
@@ -5257,7 +5257,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": "test-token",
+        "x-nest-runner-token": "test-token",
       },
       body: JSON.stringify({
         type: "message.created",
@@ -5281,13 +5281,13 @@ describe("api app", () => {
       content: "Vendor is Acme",
     });
 
-    if (previousTimeout === undefined) delete process.env.ORGOPS_EMBED_TURN_TIMEOUT_MS;
-    else process.env.ORGOPS_EMBED_TURN_TIMEOUT_MS = previousTimeout;
+    if (previousTimeout === undefined) delete process.env.NEST_EMBED_TURN_TIMEOUT_MS;
+    else process.env.NEST_EMBED_TURN_TIMEOUT_MS = previousTimeout;
     rmSync(dataDir, { recursive: true, force: true });
   });
 
   it("creates wrapped agent invites and enforces scoped runner tokens", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -5306,7 +5306,7 @@ describe("api app", () => {
     expect(loginRes.status).toBe(200);
     const cookie = loginRes.headers.get("set-cookie") ?? "";
 
-    const createInviteRes = await app.request("http://orgops.exe.xyz/api/agent-invites", {
+    const createInviteRes = await app.request("http://nest.example.com/api/agent-invites", {
       method: "POST",
       headers: { "content-type": "application/json", cookie },
       body: JSON.stringify({
@@ -5333,7 +5333,7 @@ describe("api app", () => {
     expect(invite.createdByType).toBe("HUMAN");
     expect(invite.createdById).toBe("admin");
     expect(typeof invite.inviteLink).toBe("string");
-    expect(invite.inviteLink?.startsWith("http://orgops.exe.xyz/api/agent-invites/public/")).toBe(true);
+    expect(invite.inviteLink?.startsWith("http://nest.example.com/api/agent-invites/public/")).toBe(true);
 
     const inviteLink = invite.inviteLink ?? "";
     const token = decodeURIComponent(inviteLink.split("/public/")[1] ?? "");
@@ -5383,7 +5383,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": "test-token",
+        "x-nest-runner-token": "test-token",
       },
       body: JSON.stringify({
         agentName: "runner-owned-agent",
@@ -5402,7 +5402,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": redeemed.runner.token,
+        "x-nest-runner-token": redeemed.runner.token,
       },
       body: JSON.stringify({
         existingRunnerId: "not-allowed-runner-id",
@@ -5415,7 +5415,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": redeemed.runner.token,
+        "x-nest-runner-token": redeemed.runner.token,
       },
       body: JSON.stringify({
         displayName: "scoped-runner",
@@ -5429,7 +5429,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": redeemed.runner.token,
+        "x-nest-runner-token": redeemed.runner.token,
       },
       body: JSON.stringify({
         name: "another-agent",
@@ -5439,7 +5439,7 @@ describe("api app", () => {
     expect(scopedCreateOtherAgent.status).toBe(403);
 
     const scopedEventsWithoutAgent = await app.request("http://localhost/api/events", {
-      headers: { "x-orgops-runner-token": redeemed.runner.token },
+      headers: { "x-nest-runner-token": redeemed.runner.token },
     });
     expect(scopedEventsWithoutAgent.status).toBe(200);
     const scopedEventsRows = (await scopedEventsWithoutAgent.json()) as unknown[];
@@ -5449,7 +5449,7 @@ describe("api app", () => {
   });
 
   it("promotes scoped invite runner tokens to global scope", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -5499,7 +5499,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": redeemed.runner.token,
+        "x-nest-runner-token": redeemed.runner.token,
       },
       body: JSON.stringify({
         name: "another-agent-before-promote",
@@ -5527,7 +5527,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": redeemed.runner.token,
+        "x-nest-runner-token": redeemed.runner.token,
       },
       body: JSON.stringify({
         existingRunnerId: "any-runner-id-after-promote",
@@ -5537,7 +5537,7 @@ describe("api app", () => {
     expect(registerRes.status).toBe(201);
 
     const eventsRes = await app.request("http://localhost/api/events", {
-      headers: { "x-orgops-runner-token": redeemed.runner.token },
+      headers: { "x-nest-runner-token": redeemed.runner.token },
     });
     expect(eventsRes.status).toBe(200);
 
@@ -5545,7 +5545,7 @@ describe("api app", () => {
   });
 
   it("supports global-scope invite runner tokens for normal agent access", async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -5597,7 +5597,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": redeemed.runner.token,
+        "x-nest-runner-token": redeemed.runner.token,
       },
       body: JSON.stringify({
         existingRunnerId: "any-runner-id-works",
@@ -5607,7 +5607,7 @@ describe("api app", () => {
     expect(registerRes.status).toBe(201);
 
     const eventsRes = await app.request("http://localhost/api/events", {
-      headers: { "x-orgops-runner-token": redeemed.runner.token },
+      headers: { "x-nest-runner-token": redeemed.runner.token },
     });
     expect(eventsRes.status).toBe(200);
     const events = (await eventsRes.json()) as unknown[];
@@ -5617,9 +5617,9 @@ describe("api app", () => {
   });
 
   it("resolves secret env precedence as private > team > public > package", async () => {
-    const previousMasterKey = process.env.ORGOPS_MASTER_KEY;
-    process.env.ORGOPS_MASTER_KEY = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const previousMasterKey = process.env.NEST_MASTER_KEY;
+    process.env.NEST_MASTER_KEY = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -5659,7 +5659,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "agent-a",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/agent-a",
+        workspacePath: ".nest-data/workspaces/agent-a",
       }),
     });
     expect(createAgentARes.status).toBe(201);
@@ -5669,7 +5669,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "agent-b",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/agent-b",
+        workspacePath: ".nest-data/workspaces/agent-b",
       }),
     });
     expect(createAgentBRes.status).toBe(201);
@@ -5708,7 +5708,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": "test-token",
+        "x-nest-runner-token": "test-token",
       },
       body: JSON.stringify({
         name: "OPENAI_API_KEY",
@@ -5721,9 +5721,9 @@ describe("api app", () => {
 
     const envARes = await app.request("http://localhost/api/secrets/env", {
       headers: {
-        "x-orgops-runner-token": "test-token",
-        "x-orgops-agent-name": "agent-a",
-        "x-orgops-channel-id": channel.id,
+        "x-nest-runner-token": "test-token",
+        "x-nest-agent-name": "agent-a",
+        "x-nest-channel-id": channel.id,
       },
     });
     expect(envARes.status).toBe(200);
@@ -5733,24 +5733,24 @@ describe("api app", () => {
 
     const envBRes = await app.request("http://localhost/api/secrets/env", {
       headers: {
-        "x-orgops-runner-token": "test-token",
-        "x-orgops-agent-name": "agent-b",
-        "x-orgops-channel-id": channel.id,
+        "x-nest-runner-token": "test-token",
+        "x-nest-agent-name": "agent-b",
+        "x-nest-channel-id": channel.id,
       },
     });
     expect(envBRes.status).toBe(200);
     const envB = (await envBRes.json()) as Record<string, string>;
     expect(envB.OPENAI_API_KEY).toBe("team-key");
 
-    if (previousMasterKey === undefined) delete process.env.ORGOPS_MASTER_KEY;
-    else process.env.ORGOPS_MASTER_KEY = previousMasterKey;
+    if (previousMasterKey === undefined) delete process.env.NEST_MASTER_KEY;
+    else process.env.NEST_MASTER_KEY = previousMasterKey;
     rmSync(dataDir, { recursive: true, force: true });
   });
 
   it("resolves secrets env for agent names containing spaces", async () => {
-    const previousMasterKey = process.env.ORGOPS_MASTER_KEY;
-    process.env.ORGOPS_MASTER_KEY = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const previousMasterKey = process.env.NEST_MASTER_KEY;
+    process.env.NEST_MASTER_KEY = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -5774,7 +5774,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "agent with spaces",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/agent-with-spaces",
+        workspacePath: ".nest-data/workspaces/agent-with-spaces",
       }),
     });
     expect(createAgentRes.status).toBe(201);
@@ -5792,23 +5792,23 @@ describe("api app", () => {
 
     const envRes = await app.request("http://localhost/api/secrets/env", {
       headers: {
-        "x-orgops-runner-token": "test-token",
-        "x-orgops-agent-name": "agent with spaces",
+        "x-nest-runner-token": "test-token",
+        "x-nest-agent-name": "agent with spaces",
       },
     });
     expect(envRes.status).toBe(200);
     const env = (await envRes.json()) as Record<string, string>;
     expect(env.CURSOR_API_KEY).toBe("cursor-token");
 
-    if (previousMasterKey === undefined) delete process.env.ORGOPS_MASTER_KEY;
-    else process.env.ORGOPS_MASTER_KEY = previousMasterKey;
+    if (previousMasterKey === undefined) delete process.env.NEST_MASTER_KEY;
+    else process.env.NEST_MASTER_KEY = previousMasterKey;
     rmSync(dataDir, { recursive: true, force: true });
   });
 
   it("restricts scoped runners to private/team secrets and filters visible secrets", async () => {
-    const previousMasterKey = process.env.ORGOPS_MASTER_KEY;
-    process.env.ORGOPS_MASTER_KEY = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
-    const dataDir = mkdtempSync(join(tmpdir(), "orgops-api-"));
+    const previousMasterKey = process.env.NEST_MASTER_KEY;
+    process.env.NEST_MASTER_KEY = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
+    const dataDir = mkdtempSync(join(tmpdir(), "nest-api-"));
     const db = openDb(":memory:");
     const { app } = createApp({
       db,
@@ -5852,7 +5852,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": redeemed.runner.token,
+        "x-nest-runner-token": redeemed.runner.token,
       },
       body: JSON.stringify({
         name: "OPENAI_API_KEY",
@@ -5866,7 +5866,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": redeemed.runner.token,
+        "x-nest-runner-token": redeemed.runner.token,
       },
       body: JSON.stringify({
         name: "OPENAI_API_KEY",
@@ -5881,7 +5881,7 @@ describe("api app", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": redeemed.runner.token,
+        "x-nest-runner-token": redeemed.runner.token,
       },
       body: JSON.stringify({
         name: "OPENAI_API_KEY",
@@ -5898,7 +5898,7 @@ describe("api app", () => {
       body: JSON.stringify({
         name: "other-agent",
         modelId: "openai:gpt-4o-mini",
-        workspacePath: ".orgops-data/workspaces/other-agent",
+        workspacePath: ".nest-data/workspaces/other-agent",
       }),
     });
     expect(createOtherAgentRes.status).toBe(201);
@@ -5927,7 +5927,7 @@ describe("api app", () => {
     expect(adminOtherPrivateRes.status).toBe(201);
 
     const secretsListRes = await app.request("http://localhost/api/secrets", {
-      headers: { "x-orgops-runner-token": redeemed.runner.token },
+      headers: { "x-nest-runner-token": redeemed.runner.token },
     });
     expect(secretsListRes.status).toBe(200);
     const secretsList = (await secretsListRes.json()) as Array<{
@@ -5954,8 +5954,8 @@ describe("api app", () => {
       ),
     ).toBe(false);
 
-    if (previousMasterKey === undefined) delete process.env.ORGOPS_MASTER_KEY;
-    else process.env.ORGOPS_MASTER_KEY = previousMasterKey;
+    if (previousMasterKey === undefined) delete process.env.NEST_MASTER_KEY;
+    else process.env.NEST_MASTER_KEY = previousMasterKey;
     rmSync(dataDir, { recursive: true, force: true });
   });
 });

@@ -32,7 +32,7 @@
     "source": "human:scenario",
     "channelId": "$setup:humanCoordinator.id",
     "payload": {
-      "text": "@Coordinator coordinate with @worker1 in your direct channel. Ask worker1 to count down from a random number between 1 and 10 down to 0 and save the full countdown to .orgops-data/workspaces/worker1/countdown.txt. Then report the final countdown result back here to me with the final number."
+      "text": "@Coordinator coordinate with @worker1 in your direct channel. Ask worker1 to count down from a random number between 1 and 10 down to 0 and save the full countdown to .nest-data/workspaces/worker1/countdown.txt. Then report the final countdown result back here to me with the final number."
     }
   },
   "assertions": {
@@ -82,7 +82,7 @@
     ],
     "fileChecks": [
       {
-        "path": ".orgops-data/workspaces/worker1/countdown.txt",
+        "path": ".nest-data/workspaces/worker1/countdown.txt",
         "mustContain": ["0"],
         "mustMatchRegex": ["\\n?0\\s*$"]
       }

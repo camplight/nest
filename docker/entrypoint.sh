@@ -1,11 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-COMPONENTS_RAW="${ORGOPS_COMPONENTS:-api,runner,user-ui}"
-PROXY_PORT="${ORGOPS_PROXY_PORT:-8787}"
-API_INTERNAL_PORT="${ORGOPS_INTERNAL_API_PORT:-8788}"
-ADMIN_UI_PORT="${ORGOPS_INTERNAL_ADMIN_UI_PORT:-4173}"
-USER_UI_PORT="${ORGOPS_INTERNAL_USER_UI_PORT:-4190}"
+# Accept legacy deployment configuration, with explicit Nest values taking precedence.
+while IFS='=' read -r key value; do
+  if [[ "$key" == ORGOPS_* ]]; then
+    nest_key="NEST_${key#ORGOPS_}"
+    if [[ ! -v "$nest_key" ]]; then export "$nest_key=$value"; fi
+  fi
+done < <(env)
+
+COMPONENTS_RAW="${NEST_COMPONENTS:-api,runner,user-ui}"
+PROXY_PORT="${NEST_PROXY_PORT:-8787}"
+API_INTERNAL_PORT="${NEST_INTERNAL_API_PORT:-8788}"
+ADMIN_UI_PORT="${NEST_INTERNAL_ADMIN_UI_PORT:-4173}"
+USER_UI_PORT="${NEST_INTERNAL_USER_UI_PORT:-4190}"
+
+# Permit the configured public hostname in both Vite preview servers.
+if [[ -n "${NEST_PUBLIC_HOST:-}" ]]; then
+  export __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS="${NEST_PUBLIC_HOST}"
+fi
 
 declare -A ENABLED=(
   ["api"]=0
@@ -41,11 +54,11 @@ for token in "${COMPONENT_TOKENS[@]}"; do
 done
 
 if [[ "${#NORMALIZED_COMPONENTS[@]}" -eq 0 ]]; then
-  echo "No components enabled. Set ORGOPS_COMPONENTS to at least one component." >&2
+  echo "No components enabled. Set NEST_COMPONENTS to at least one component." >&2
   exit 1
 fi
 
-echo "Starting OrgOps components: ${NORMALIZED_COMPONENTS[*]}"
+echo "Starting Nest components: ${NORMALIZED_COMPONENTS[*]}"
 
 PIDS=()
 NAMES=()
@@ -75,7 +88,7 @@ wait_for_local_api() {
 }
 
 build_haproxy_config() {
-  local config_path="/tmp/orgops-haproxy.cfg"
+  local config_path="/tmp/nest-haproxy.cfg"
   local default_backend=""
   if [[ "${ENABLED["user-ui"]}" -eq 1 ]]; then
     default_backend="user_ui_backend"
@@ -101,7 +114,7 @@ defaults
   timeout server 60s
   timeout tunnel 1h
 
-frontend orgops_frontend
+frontend nest_frontend
   bind *:${PROXY_PORT}
   acl is_health path -i /health
   acl is_api path_beg /api
@@ -184,28 +197,28 @@ fi
 
 if [[ "${ENABLED["runner"]}" -eq 1 ]]; then
   if [[ "${ENABLED["api"]}" -eq 1 ]]; then
-    RUNNER_API_URL="${ORGOPS_API_URL:-http://127.0.0.1:${API_INTERNAL_PORT}}"
+    RUNNER_API_URL="${NEST_API_URL:-http://127.0.0.1:${API_INTERNAL_PORT}}"
     wait_for_local_api
-    start_process "runner" env ORGOPS_API_URL="${RUNNER_API_URL}" node --import tsx apps/agent-runner/src/index.ts
+    start_process "runner" env NEST_API_URL="${RUNNER_API_URL}" node --import tsx apps/agent-runner/src/index.ts
   else
-    if [[ -z "${ORGOPS_API_URL:-}" ]]; then
-      echo "Runner is enabled without API. Set ORGOPS_API_URL to a reachable API endpoint." >&2
+    if [[ -z "${NEST_API_URL:-}" ]]; then
+      echo "Runner is enabled without API. Set NEST_API_URL to a reachable API endpoint." >&2
     fi
     start_process "runner" node --import tsx apps/agent-runner/src/index.ts
   fi
 fi
 
 if [[ "${ENABLED["admin-ui"]}" -eq 1 ]]; then
-  start_process "admin-ui" env VITE_UI_BASE_PATH="/admin/" npm run --workspace @orgops/admin-ui preview -- --host 0.0.0.0 --port "${ADMIN_UI_PORT}"
+  start_process "admin-ui" env VITE_UI_BASE_PATH="/admin/" npm run --workspace @nest/admin-ui preview -- --host 0.0.0.0 --port "${ADMIN_UI_PORT}"
 fi
 
 if [[ "${ENABLED["user-ui"]}" -eq 1 ]]; then
-  start_process "user-ui" env VITE_UI_BASE_PATH="/" npm run --workspace @orgops/user-ui preview -- --host 0.0.0.0 --port "${USER_UI_PORT}"
+  start_process "user-ui" env VITE_UI_BASE_PATH="/" npm run --workspace @nest/user-ui preview -- --host 0.0.0.0 --port "${USER_UI_PORT}"
 fi
 
 if [[ "${ENABLED["api"]}" -eq 1 || "${ENABLED["admin-ui"]}" -eq 1 || "${ENABLED["user-ui"]}" -eq 1 ]]; then
   build_haproxy_config
-  start_process "haproxy" haproxy -W -db -f /tmp/orgops-haproxy.cfg
+  start_process "haproxy" haproxy -W -db -f /tmp/nest-haproxy.cfg
 fi
 
 if [[ "${#PIDS[@]}" -eq 0 ]]; then

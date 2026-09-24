@@ -1,4 +1,5 @@
 import type { Agent, Channel, EventRow, ProcessRow, SecretRow, Team } from "../types";
+import { Icon, type IconName } from "../components/ui/Icon";
 import { Card } from "../components/ui";
 import { formatTimestamp } from "../utils/formatTimestamp";
 
@@ -39,26 +40,29 @@ export function DashboardScreen({
   const recentProcesses = [...processes]
     .sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))
     .slice(0, 12);
-  const metricCards = [
-    { label: "Agents", value: agents.length, tone: "text-cyan-300" },
-    { label: "Events (total)", value: eventStats.total, tone: "text-slate-100" },
-    { label: "Processed", value: eventStats.processed, tone: "text-emerald-300" },
-    { label: "Failed", value: eventStats.failed, tone: "text-rose-300" },
-    { label: "Pending", value: eventStats.pending, tone: "text-amber-300" },
-    { label: "Scheduled", value: eventStats.scheduled, tone: "text-violet-300" },
-    { label: "Channels", value: channels.length, tone: "text-sky-300" },
-    { label: "Processes", value: processes.length, tone: "text-teal-300" },
-    { label: "Secrets", value: secrets.length, tone: "text-fuchsia-300" },
-    { label: "Teams", value: teams.length, tone: "text-orange-300" }
+  const metricCards: { label: string; value: number; tone: string; icon: IconName }[] = [
+    { icon: "agents", label: "Agents", value: agents.length, tone: "text-slate-100" },
+    { icon: "events", label: "Events (total)", value: eventStats.total, tone: "text-slate-100" },
+    { icon: "processed", label: "Processed", value: eventStats.processed, tone: "text-blue-400" },
+    { icon: "failed", label: "Failed", value: eventStats.failed, tone: "text-red-600" },
+    { icon: "pending", label: "Pending", value: eventStats.pending, tone: "text-slate-300" },
+    { icon: "scheduled", label: "Scheduled", value: eventStats.scheduled, tone: "text-slate-100" },
+    { icon: "channels", label: "Channels", value: channels.length, tone: "text-slate-100" },
+    { icon: "processes", label: "Processes", value: processes.length, tone: "text-slate-100" },
+    { icon: "secrets", label: "Secrets", value: secrets.length, tone: "text-slate-100" },
+    { icon: "teams", label: "Teams", value: teams.length, tone: "text-slate-100" }
   ];
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="nest-metrics grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {metricCards.map((metric) => (
           <Card key={metric.label} className="space-y-1">
-            <div className="text-xs uppercase tracking-wide text-slate-400">{metric.label}</div>
-            <div className={`text-2xl font-semibold ${metric.tone}`}>
+            <div className="flex items-center justify-between gap-3 text-xs uppercase tracking-wide text-slate-400">
+              <span>{metric.label}</span>
+              <Icon name={metric.icon} className="nest-metric-icon" />
+            </div>
+            <div className={`nest-metric-value ${metric.tone}`}>
               {numberFormatter.format(metric.value)}
             </div>
           </Card>
@@ -68,6 +72,7 @@ export function DashboardScreen({
       <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         <Card title="Agents">
           <div className="space-y-2">
+            {agents.length === 0 && <p className="text-sm text-slate-400">No agents yet.</p>}
             {agents.map((agent) => (
               <button
                 type="button"

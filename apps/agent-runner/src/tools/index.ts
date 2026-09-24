@@ -1,4 +1,4 @@
-import type { LlmTool } from "@orgops/llm";
+import type { LlmTool } from "@nest/llm";
 import { createWrapExecute, toolDefToLlmTool } from "./types";
 import { shellToolDefs, execute as executeShell } from "./shell";
 import { fsToolDefs, execute as executeFs } from "./fs";

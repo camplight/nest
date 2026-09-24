@@ -1,7 +1,7 @@
 import type { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import { desc, eq } from "drizzle-orm";
-import { schema } from "@orgops/db";
+import { schema } from "@nest/db";
 import type { AccessControl, RequestUser } from "./access";
 import {
   findActiveIntegrationKey,

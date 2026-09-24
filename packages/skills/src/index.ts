@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { EventShapeDefinition } from "@orgops/schemas";
+import type { EventShapeDefinition } from "@nest/schemas";
 import YAML from "yaml";
 
 export type SkillMeta = {

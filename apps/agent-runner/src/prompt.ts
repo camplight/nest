@@ -1,4 +1,4 @@
-import type { EventTypeSummary } from "@orgops/schemas";
+import type { EventTypeSummary } from "@nest/schemas";
 
 export type RunnerHostInfo = {
   platform: string;
@@ -45,7 +45,7 @@ export function buildRunnerGuidance(
   hostInfo: RunnerHostInfo,
 ) {
   return [
-    "- You are running inside OrgOps' agent-runner and receive events per channels.",
+    "- You are running inside Nest' agent-runner and receive events per channels.",
     "- The runner executes your tool calls on the agent-runner's host machine.",
     "- The runner does not orchestrate your collaboration.",
     "- The runner maps relative paths as your own workspace-relative.",

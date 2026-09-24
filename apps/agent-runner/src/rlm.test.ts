@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { LlmMessage } from "@orgops/llm";
+import type { LlmMessage } from "@nest/llm";
 import {
   getCoreEventShapes,
   validateEventAgainstShapes,
-} from "@orgops/schemas";
+} from "@nest/schemas";
 import { __resetRlmSessionsForTests, runRlmEvent } from "./rlm";
 import type { Agent, Event } from "./types";
 

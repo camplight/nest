@@ -1,3 +1,4 @@
+import { withLegacyRunnerEnv } from "../legacy-env";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -169,7 +170,7 @@ async function spawnTrackedProcess(
   }
   const child = spawn(shell.command, shell.args, {
     cwd: input.cwd,
-    env: mergedEnv,
+    env: withLegacyRunnerEnv(mergedEnv),
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -370,9 +371,9 @@ export async function execute(
       }) => void)
     | undefined;
   const timeoutKillGraceMs = Number.isFinite(
-    Number(process.env.ORGOPS_SHELL_TIMEOUT_KILL_GRACE_MS),
+    Number((process.env.NEST_SHELL_TIMEOUT_KILL_GRACE_MS ?? process.env.ORGOPS_SHELL_TIMEOUT_KILL_GRACE_MS)),
   )
-    ? Math.max(0, Math.floor(Number(process.env.ORGOPS_SHELL_TIMEOUT_KILL_GRACE_MS)))
+    ? Math.max(0, Math.floor(Number((process.env.NEST_SHELL_TIMEOUT_KILL_GRACE_MS ?? process.env.ORGOPS_SHELL_TIMEOUT_KILL_GRACE_MS))))
     : DEFAULT_TIMEOUT_KILL_GRACE_MS;
   const onData = (
     chunk: Buffer | string,

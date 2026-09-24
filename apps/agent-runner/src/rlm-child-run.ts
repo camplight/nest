@@ -1,7 +1,7 @@
 import { runRlmEvent } from "./rlm";
 import type { ExecuteContext } from "./tools";
 import type { Agent, Event } from "./types";
-import type { EventTypeSummary } from "@orgops/schemas";
+import type { EventTypeSummary } from "@nest/schemas";
 
 type RunEventPayload = {
   agent: Agent;
@@ -23,7 +23,7 @@ type ParentMessage =
 function createApiFetch(apiUrl: string, runnerToken: string) {
   return async (path: string, init?: RequestInit) => {
     const headers = new Headers(init?.headers);
-    if (runnerToken) headers.set("x-orgops-runner-token", runnerToken);
+    if (runnerToken) headers.set("x-nest-runner-token", runnerToken);
     const res = await fetch(`${apiUrl}${path}`, { ...init, headers });
     if (!res.ok) {
       const text = await res.text();

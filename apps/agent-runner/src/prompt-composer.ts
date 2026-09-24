@@ -3,7 +3,7 @@ import type {
   LlmMessage,
   LlmMessageContent,
   LlmTextPart,
-} from "@orgops/llm";
+} from "@nest/llm";
 import { buildPromptEventRecord } from "./prompt-event-compact";
 import type { Agent, Event } from "./types";
 
@@ -18,11 +18,11 @@ function readPositiveIntEnv(value: string | undefined, fallback: number): number
 }
 
 const HISTORY_MAX_EVENTS = readPositiveIntEnv(
-  process.env.ORGOPS_HISTORY_MAX_EVENTS,
+  (process.env.NEST_HISTORY_MAX_EVENTS ?? process.env.ORGOPS_HISTORY_MAX_EVENTS),
   DEFAULT_MAX_HISTORY_EVENTS,
 );
 const HISTORY_MAX_CHARS = readPositiveIntEnv(
-  process.env.ORGOPS_HISTORY_MAX_CHARS,
+  (process.env.NEST_HISTORY_MAX_CHARS ?? process.env.ORGOPS_HISTORY_MAX_CHARS),
   DEFAULT_MAX_HISTORY_CHARS,
 );
 

@@ -183,7 +183,7 @@ async function hydrateAttachmentPaths(
           : fileBaseName;
       const attachmentDir = join(
         agent.workspacePath,
-        ".orgops-wrapped-attachments",
+        ".nest-wrapped-attachments",
         channelId,
         event.id,
       );

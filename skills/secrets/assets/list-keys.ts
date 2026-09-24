@@ -1,19 +1,19 @@
-const apiUrl = process.env.ORGOPS_API_URL ?? "http://localhost:8787";
-const token = process.env.ORGOPS_RUNNER_TOKEN;
+const apiUrl = (process.env.NEST_API_URL ?? process.env.ORGOPS_API_URL) ?? "http://localhost:8787";
+const token = (process.env.NEST_RUNNER_TOKEN ?? process.env.ORGOPS_RUNNER_TOKEN);
 
 const args = process.argv.slice(2);
 if (args[0] === "--") args.shift();
 const [pkg] = args;
 
 if (!token) {
-  console.error("ORGOPS_RUNNER_TOKEN is required");
+  console.error("NEST_RUNNER_TOKEN is required");
   process.exit(1);
 }
 
 async function main() {
   const url = pkg ? `${apiUrl}/api/secrets/keys?package=${encodeURIComponent(pkg)}` : `${apiUrl}/api/secrets/keys`;
   const res = await fetch(url, {
-    headers: { "x-orgops-runner-token": token },
+    headers: { "x-nest-runner-token": token },
   });
 
   if (!res.ok) {

@@ -1,8 +1,8 @@
 import type { Hono } from "hono";
 import { asc, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { schema, type OrgOpsDrizzleDb } from "@orgops/db";
-import type { EventBus } from "@orgops/event-bus";
+import { schema, type NestDrizzleDb } from "@nest/db";
+import type { EventBus } from "@nest/event-bus";
 import {
   findActiveRunnerTokenByToken,
   generateRunnerScopedToken,
@@ -22,7 +22,7 @@ type RunnerRecord = {
 };
 
 type RunnersDeps = {
-  orm: OrgOpsDrizzleDb;
+  orm: NestDrizzleDb;
   bus: EventBus<any>;
   jsonResponse: (c: any, data: unknown, status?: number) => Response;
   requireAuth: (c: any, next: any) => Response | Promise<Response>;
@@ -65,7 +65,7 @@ function toApiRunner(row: RunnerRecord, onlineThresholdMs: number) {
 export function registerRunnersRoutes(app: Hono<any>, deps: RunnersDeps) {
   const { orm, bus, jsonResponse, requireAuth, requireRunnerAuth, runnerToken, runnerApiUrl } = deps;
   const ONLINE_THRESHOLD_MS = Number(
-    process.env.ORGOPS_RUNNER_ONLINE_THRESHOLD_MS ?? 15_000
+    (process.env.NEST_RUNNER_ONLINE_THRESHOLD_MS ?? process.env.ORGOPS_RUNNER_ONLINE_THRESHOLD_MS) ?? 15_000
   );
   const requireHumanUser = (c: any) => {
     const user = (c as any).get("user") as { id?: string; username?: string } | undefined;

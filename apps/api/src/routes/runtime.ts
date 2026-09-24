@@ -3,12 +3,12 @@ import { randomUUID, createHash } from "node:crypto";
 import { join } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
-import { schema, type OrgOpsDrizzleDb } from "@orgops/db";
+import { schema, type NestDrizzleDb } from "@nest/db";
 import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { AccessControl, RequestUser } from "./access";
 
 type RuntimeDeps = {
-  orm: OrgOpsDrizzleDb;
+  orm: NestDrizzleDb;
   FILES_DIR: string;
   jsonResponse: (c: any, data: unknown, status?: number) => Response;
   publishProcessOutput: (processId: string, payload: any) => void;

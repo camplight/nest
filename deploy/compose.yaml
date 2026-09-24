@@ -1,0 +1,33 @@
+services:
+  nest:
+    image: ${NEST_IMAGE:-nest:deploy-20260923}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NEST_COMPONENTS: api,runner,admin-ui,user-ui
+      NEST_PUBLIC_HOST: nest.camplight.net
+      NEST_COOKIE_SECURE: always
+      NEST_RUNNER_ID_FILE: /app/.nest-data/runner-id
+    volumes:
+      - nest-data:/app/.nest-data
+      - nest-files:/app/files
+    expose:
+      - '8787'
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      nest:
+        condition: service_healthy
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+volumes:
+  nest-data:
+  nest-files:
+  caddy-data:
+  caddy-config:

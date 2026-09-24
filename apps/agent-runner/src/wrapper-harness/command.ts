@@ -1,3 +1,4 @@
+import { withLegacyRunnerEnv } from "../legacy-env";
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -114,7 +115,7 @@ function resolveCommandCwd(
   if (cwd === "." || cwd.startsWith("./") || cwd.startsWith("../")) {
     return resolve(fallbackCwd, cwd);
   }
-  if (projectRoot && cwd.startsWith(".orgops-data/")) {
+  if (projectRoot && (cwd.startsWith(".nest-data/") || cwd.startsWith(".orgops-data/"))) {
     return resolve(projectRoot, cwd);
   }
   return resolve(fallbackCwd, cwd);
@@ -180,7 +181,7 @@ async function runCommand(
   },
   options?: { strictProviderEnv?: boolean },
 ): Promise<CommandResult> {
-  const mergedEnv = mergeEnv(process.env, env, commandConfig.env);
+  const mergedEnv = withLegacyRunnerEnv(mergeEnv(process.env, env, commandConfig.env));
   if (options?.strictProviderEnv) {
     for (const key of PROVIDER_SECRET_ENV_KEYS) {
       if (!(key in env) && !(key in commandConfig.env)) {
@@ -272,7 +273,7 @@ async function ensureSidecarStarted(
   }
 
   const sidecarEnv = mergeEnv(process.env, env, sidecar.env, {
-    ORGOPS_WRAPPED_SIDECAR_NAME: sidecar.name,
+    NEST_WRAPPED_SIDECAR_NAME: sidecar.name,
   });
   for (const key of PROVIDER_SECRET_ENV_KEYS) {
     if (!(key in env) && !(key in sidecar.env)) {
@@ -284,7 +285,7 @@ async function ensureSidecarStarted(
   }
   const child = spawn(sidecar.command, sidecar.args ?? [], {
     cwd: sidecar.cwd,
-    env: sidecarEnv,
+    env: withLegacyRunnerEnv(sidecarEnv),
     shell: true,
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -624,15 +625,15 @@ export const commandWrapperHarness: WrapperHarness = {
     );
     const baseEnv: Record<string, string> = {
       ...secretsEnv,
-      ORGOPS_PROJECT_ROOT: ctx.projectRoot,
-      ORGOPS_WRAPPED_AGENT_NAME: agent.name,
-      ORGOPS_WRAPPED_KIND: config.kind,
-      ORGOPS_WRAPPED_WORKSPACE_PATH: agent.workspacePath,
-      ...(ctx.runtimeAuth?.apiBaseUrl ? { ORGOPS_API_URL: ctx.runtimeAuth.apiBaseUrl } : {}),
-      ...(ctx.runtimeAuth?.runnerToken ? { ORGOPS_RUNNER_TOKEN: ctx.runtimeAuth.runnerToken } : {}),
+      NEST_PROJECT_ROOT: ctx.projectRoot,
+      NEST_WRAPPED_AGENT_NAME: agent.name,
+      NEST_WRAPPED_KIND: config.kind,
+      NEST_WRAPPED_WORKSPACE_PATH: agent.workspacePath,
+      ...(ctx.runtimeAuth?.apiBaseUrl ? { NEST_API_URL: ctx.runtimeAuth.apiBaseUrl } : {}),
+      ...(ctx.runtimeAuth?.runnerToken ? { NEST_RUNNER_TOKEN: ctx.runtimeAuth.runnerToken } : {}),
     };
     const sourceDir = await ensureSourceCheckout(agent.workspacePath, config, baseEnv);
-    if (sourceDir) baseEnv.ORGOPS_WRAPPED_SOURCE_DIR = sourceDir;
+    if (sourceDir) baseEnv.NEST_WRAPPED_SOURCE_DIR = sourceDir;
     const setupCwd = sourceDir ?? agent.workspacePath;
     const checkCommand = normalizeCommand(
       config.setup?.checkCommand
@@ -793,17 +794,17 @@ export const commandWrapperHarness: WrapperHarness = {
         runtime,
         {
           ...secretsEnv,
-          ORGOPS_PROJECT_ROOT: ctx.projectRoot,
-          ORGOPS_WRAPPED_AGENT_NAME: agent.name,
-          ORGOPS_WRAPPED_KIND: config.kind,
-          ORGOPS_WRAPPED_WORKSPACE_PATH: agent.workspacePath,
-          ORGOPS_WRAPPED_CHANNEL_ID: channelId,
-          ORGOPS_WRAPPED_SESSION_ID: sessionId,
-          ORGOPS_WRAPPED_MESSAGE: message,
-          ORGOPS_WRAPPED_TRIGGER_EVENT_ID: triggerEvent.id,
-          ...(ctx.runtimeAuth?.apiBaseUrl ? { ORGOPS_API_URL: ctx.runtimeAuth.apiBaseUrl } : {}),
-          ...(ctx.runtimeAuth?.runnerToken ? { ORGOPS_RUNNER_TOKEN: ctx.runtimeAuth.runnerToken } : {}),
-          ...(sourceDir ? { ORGOPS_WRAPPED_SOURCE_DIR: sourceDir } : {}),
+          NEST_PROJECT_ROOT: ctx.projectRoot,
+          NEST_WRAPPED_AGENT_NAME: agent.name,
+          NEST_WRAPPED_KIND: config.kind,
+          NEST_WRAPPED_WORKSPACE_PATH: agent.workspacePath,
+          NEST_WRAPPED_CHANNEL_ID: channelId,
+          NEST_WRAPPED_SESSION_ID: sessionId,
+          NEST_WRAPPED_MESSAGE: message,
+          NEST_WRAPPED_TRIGGER_EVENT_ID: triggerEvent.id,
+          ...(ctx.runtimeAuth?.apiBaseUrl ? { NEST_API_URL: ctx.runtimeAuth.apiBaseUrl } : {}),
+          ...(ctx.runtimeAuth?.runnerToken ? { NEST_RUNNER_TOKEN: ctx.runtimeAuth.runnerToken } : {}),
+          ...(sourceDir ? { NEST_WRAPPED_SOURCE_DIR: sourceDir } : {}),
         },
         {
           onStdout: (chunk) => streamRuntimeOutput("STDOUT", chunk),

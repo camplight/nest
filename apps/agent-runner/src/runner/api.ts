@@ -73,7 +73,7 @@ function writeRunnerIdToDisk(filePath: string, runnerId: string) {
 export function createRunnerApi(deps: RunnerApiDeps) {
   async function apiFetch(path: string, init?: RequestInit) {
     const headers = new Headers(init?.headers);
-    if (deps.runnerToken) headers.set("x-orgops-runner-token", deps.runnerToken);
+    if (deps.runnerToken) headers.set("x-nest-runner-token", deps.runnerToken);
     const method = init?.method ?? "GET";
     const url = `${deps.apiUrl}${path}`;
     const requestId = `${Date.now()}-${++apiFetchRequestCounter}`;
@@ -117,7 +117,7 @@ export function createRunnerApi(deps: RunnerApiDeps) {
   async function registerRunnerIdentity(): Promise<string> {
     const existingRunnerId = readRunnerIdFromDisk(deps.runnerIdFile);
     const displayName =
-      process.env.ORGOPS_RUNNER_NAME?.trim() ||
+      (process.env.NEST_RUNNER_NAME ?? process.env.ORGOPS_RUNNER_NAME)?.trim() ||
       `${hostname()}-${process.platform}-${arch()}`;
     const response = await apiFetch("/api/runners/register", {
       method: "POST",
@@ -296,8 +296,8 @@ export function createRunnerApi(deps: RunnerApiDeps) {
   ): Promise<Record<string, string>> {
     const res = await apiFetch("/api/secrets/env", {
       headers: {
-        "x-orgops-agent-name": agentName,
-        ...(channelId ? { "x-orgops-channel-id": channelId } : {}),
+        "x-nest-agent-name": agentName,
+        ...(channelId ? { "x-nest-channel-id": channelId } : {}),
       },
     });
     return (await res.json()) as Record<string, string>;

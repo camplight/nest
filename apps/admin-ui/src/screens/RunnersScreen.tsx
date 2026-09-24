@@ -77,19 +77,19 @@ export function RunnersScreen({
   }, [agents]);
 
   const apiBaseUrl = runnerApiUrl || runnerApiUrlHint();
-  const opsCliSetupPrompt = [
-    "Set up this host as an OrgOps runner connected to my API using invite bootstrap.",
+  const nestCliSetupPrompt = [
+    "Set up this host as a Nest runner connected to my API using invite bootstrap.",
     "",
     "Run:",
     runnerInviteUrl
-      ? `opscli install --components runner --runner-invite-url "${runnerInviteUrl}"`
-      : "opscli install --components runner --runner-invite-url <paste-runner-invite-url>",
+      ? `nest install --components runner --runner-invite-url "${runnerInviteUrl}"`
+      : "nest install --components runner --runner-invite-url <paste-runner-invite-url>",
     "",
     "Localhost/manual fallback (without invite):",
-    `opscli install --components runner --runner-api-url "${apiBaseUrl}" --runner-token "${runnerToken || "<token>"}" --runner-name "<name>"`,
+    `nest install --components runner --runner-api-url "${apiBaseUrl}" --runner-token "${runnerToken || "<token>"}" --runner-name "<name>"`,
     "",
     "Then start and verify:",
-    'opscli start --components runner && opscli status --components runner'
+    'nest start --components runner && nest status --components runner'
   ].join("\n");
 
   const copyText = async (key: string, text: string) => {
@@ -163,7 +163,7 @@ export function RunnersScreen({
   };
   return (
     <div className="space-y-4">
-      <Card title="OpsCLI Runner Setup Prompt">
+      <Card title="Nest CLI Runner Setup Prompt">
         <div className="space-y-3 text-sm">
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={() => void handleCreateInvite()}>
@@ -186,18 +186,18 @@ export function RunnersScreen({
           ) : null}
           <div className="rounded border border-slate-800 bg-slate-950 p-3">
             <div className="mb-2 text-xs uppercase tracking-wide text-slate-500">
-              Prompt to give OpsCLI
+              Prompt to give Nest CLI
             </div>
             <div className="flex items-start justify-between gap-3 rounded border border-slate-800 bg-slate-900 px-3 py-2">
               <pre className="overflow-auto whitespace-pre-wrap break-all text-xs text-slate-200">
-                {opsCliSetupPrompt}
+                {nestCliSetupPrompt}
               </pre>
               <Button
                 variant="secondary"
                 className="px-2 py-1 text-xs"
-                onClick={() => void copyText("opscli-setup-prompt", opsCliSetupPrompt)}
+                onClick={() => void copyText("nest-setup-prompt", nestCliSetupPrompt)}
               >
-                {copiedKey === "opscli-setup-prompt" ? "Copied" : "Copy"}
+                {copiedKey === "nest-setup-prompt" ? "Copied" : "Copy"}
               </Button>
             </div>
           </div>
