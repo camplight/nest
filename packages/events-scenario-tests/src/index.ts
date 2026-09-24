@@ -59,8 +59,8 @@ type OrgEvent = {
   createdAt?: number;
 };
 
-const API_URL = process.env.ORGOPS_API_URL ?? "http://localhost:8787";
-const RUNNER_TOKEN = process.env.ORGOPS_RUNNER_TOKEN ?? "dev-runner-token";
+const API_URL = (process.env.NEST_API_URL ?? process.env.ORGOPS_API_URL) ?? "http://localhost:8787";
+const RUNNER_TOKEN = (process.env.NEST_RUNNER_TOKEN ?? process.env.ORGOPS_RUNNER_TOKEN) ?? "dev-runner-token";
 const PACKAGE_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const SCENARIOS_DIR = resolve(PACKAGE_ROOT, "scenarios");
 const PROJECT_ROOT = resolve(PACKAGE_ROOT, "..", "..");
@@ -229,7 +229,7 @@ function describeMatcher(matcher: EventMatcher) {
 
 async function apiFetch(path: string, init?: RequestInit) {
   const headers = new Headers(init?.headers);
-  headers.set("x-orgops-runner-token", RUNNER_TOKEN);
+  headers.set("x-nest-runner-token", RUNNER_TOKEN);
   const response = await fetch(`${API_URL}${path}`, { ...init, headers });
   if (!response.ok) {
     const text = await response.text();
@@ -428,7 +428,7 @@ async function run() {
     await apiFetch("/api/agents");
   } catch (error) {
     throw new Error(
-      `API is unreachable or unauthorized. Ensure dev services are running and ORGOPS_RUNNER_TOKEN matches. ${String(error)}`,
+      `API is unreachable or unauthorized. Ensure dev services are running and NEST_RUNNER_TOKEN matches. ${String(error)}`,
     );
   }
 

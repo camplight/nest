@@ -1,11 +1,18 @@
 node_modules
 dist
 .DS_Store
-.orgops-data/
+.nest-data/
 files/
 .env
 memory/
 .venv-playwright/
 .release-tmp
 .agent-runner-id
+.nest-output.log
+# Legacy runtime data remains private during migration.
+.orgops-data/
+.orgops/
 .opscli-output.log
+.nest/
+.nest-runtime/
+.nest-backups/

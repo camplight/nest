@@ -1,11 +1,11 @@
 import type { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 
-import { schema, type OrgOpsDrizzleDb } from "@orgops/db";
+import { schema, type NestDrizzleDb } from "@nest/db";
 import { eq } from "drizzle-orm";
 
 type ModelsDeps = {
-  orm: OrgOpsDrizzleDb;
+  orm: NestDrizzleDb;
   jsonResponse: (c: any, data: unknown, status?: number) => Response;
   parseJson: <T>(input: string, fallback: T) => T;
 };

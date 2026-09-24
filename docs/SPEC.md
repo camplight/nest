@@ -1,8 +1,8 @@
-# OrgOps Implementation Spec (Current)
+# Nest Implementation Spec (Current)
 
 ## Goal
 
-OrgOps is a Node.js multi-host system where humans and agents collaborate through an event bus persisted in SQLite. Agents can execute shell/filesystem/process tools, emit typed events, and stream process output to API/WebSocket clients.
+Nest is a Node.js multi-host system where humans and agents collaborate through an event bus persisted in SQLite. Agents can execute shell/filesystem/process tools, emit typed events, and stream process output to API/WebSocket clients.
 
 This document describes the current implementation in this repository.
 
@@ -13,8 +13,8 @@ This document describes the current implementation in this repository.
 - DB: SQLite + Drizzle ORM
 - Realtime: WebSocket topic pub/sub via in-process event bus
 - UI: React apps for admin and lightweight user workflows
-- LLM wrapper: `@orgops/llm` (`generate()` abstraction)
-- Schemas/validation: Zod-based event shapes in `@orgops/schemas`
+- LLM wrapper: `@nest/llm` (`generate()` abstraction)
+- Schemas/validation: Zod-based event shapes in `@nest/schemas`
 
 ## Monorepo Layout
 
@@ -22,7 +22,7 @@ This document describes the current implementation in this repository.
 apps/
   api/            Hono HTTP + WS server
   agent-runner/   Agent polling loop + tool/runtime execution
-  opscli/         Host bootstrap/maintenance CLI (deterministic commands + optional chat)
+  cli/            Host bootstrap/maintenance CLI (deterministic commands + optional chat)
   admin-ui/       React + Tailwind admin UI
   user-ui/        Lightweight user UI
 packages/
@@ -34,7 +34,7 @@ packages/
   skills/         Skill discovery and loading
 skills/           Built-in skills (SKILL.md, optional event-shapes.ts)
 files/            Uploaded file storage
-.orgops-data/     Runtime DB/workspaces/soul files
+.nest-data/     Runtime DB/workspaces/soul files
 ```
 
 ## Core Data Model
@@ -52,7 +52,7 @@ Stored in `agents`:
 - skills: `enabled_skills_json`, `always_preloaded_skills_json`
 - wrapped runtime config: `wrapped_config_json` (JSON object; used only by `WRAPPED` mode)
 
-`WRAPPED` agents are orgops-owned lifecycle records whose turns are delegated to an external runtime. They do not use orgops memory summaries, prompt composition, skills, model calls, or `allow_outside_workspace` for turn handling. The wrapped runtime owns its own session/memory/tool state and filesystem policy. The normal `soul_path` / `soul_contents` fields may still be stored on the agent row for humans, opscli, and native management agents; the wrapper runner does not automatically inject them. The creator of the wrapped agent should translate those native fields into the selected harness configuration/setup/runtime behavior when that harness needs a soul file or prompt seed.
+`WRAPPED` agents are nest-owned lifecycle records whose turns are delegated to an external runtime. They do not use nest memory summaries, prompt composition, skills, model calls, or `allow_outside_workspace` for turn handling. The wrapped runtime owns its own session/memory/tool state and filesystem policy. The normal `soul_path` / `soul_contents` fields may still be stored on the agent row for humans, nest, and native management agents; the wrapper runner does not automatically inject them. The creator of the wrapped agent should translate those native fields into the selected harness configuration/setup/runtime behavior when that harness needs a soul file or prompt seed.
 
 Example wrapped config:
 
@@ -81,7 +81,7 @@ Example wrapped config:
     }
   ],
   "runtime": {
-    "command": "npx openclaw agent --agent main --session-id \"$ORGOPS_WRAPPED_SESSION_ID\" --message \"$ORGOPS_WRAPPED_MESSAGE\" --json",
+    "command": "npx openclaw agent --agent main --session-id \"$NEST_WRAPPED_SESSION_ID\" --message \"$NEST_WRAPPED_MESSAGE\" --json",
     "parse": "json-payloads",
     "timeoutMs": 600000
   },
@@ -109,16 +109,16 @@ Supported recipe fields:
 - `secrets.deniedKeys`: optional env-key denylist (exact keys or `*` wildcard patterns) applied after allowlist.
 - `session.scope`: `per-channel` (default) or `per-agent`.
 
-OpenClaw is an optional wrapped runtime and is not installed as an OrgOps dependency. A recipe must install it in the agent workspace during `setup` or provide an OpenClaw source checkout. OpenClaw recipes should configure the target agent's default model during setup rather than relying on OpenClaw package defaults. Runtime `--model` overrides are subject to the target agent's model allowlist and may be rejected unless setup has added that model first.
+OpenClaw is an optional wrapped runtime and is not installed as a Nest dependency. A recipe must install it in the agent workspace during `setup` or provide an OpenClaw source checkout. OpenClaw recipes should configure the target agent's default model during setup rather than relying on OpenClaw package defaults. Runtime `--model` overrides are subject to the target agent's model allowlist and may be rejected unless setup has added that model first.
 
-**Breaking-change migration:** existing OpenClaw wrapped agents that relied on OrgOps' root installation must update their stored `wrappedConfig` before upgrading. Add an explicit setup in the same directory used by the sidecar and runtime commands:
+**Breaking-change migration:** existing OpenClaw wrapped agents that relied on Nest' root installation must update their stored `wrappedConfig` before upgrading. Add an explicit setup in the same directory used by the sidecar and runtime commands:
 
 ```json
 {
   "setup": {
     "checkCommand": "test -x node_modules/.bin/openclaw",
     "command": "npm install --no-save openclaw@<version>",
-    "cwd": ".orgops-data/workspaces/<agent-name>/wrapper",
+    "cwd": ".nest-data/workspaces/<agent-name>/wrapper",
     "timeoutMs": 600000
   }
 }
@@ -128,15 +128,15 @@ Replace `<version>` with the OpenClaw version the agent should run. Agents whose
 
 Commands run with the agent workspace/source directory as cwd unless overridden and receive environment variables:
 
-- `ORGOPS_PROJECT_ROOT`
-- `ORGOPS_WRAPPED_AGENT_NAME`
-- `ORGOPS_WRAPPED_KIND`
-- `ORGOPS_WRAPPED_WORKSPACE_PATH`
-- `ORGOPS_WRAPPED_CHANNEL_ID` (turn commands)
-- `ORGOPS_WRAPPED_SESSION_ID` (turn commands)
-- `ORGOPS_WRAPPED_MESSAGE` (turn commands)
-- `ORGOPS_WRAPPED_TRIGGER_EVENT_ID` (turn commands)
-- `ORGOPS_WRAPPED_SOURCE_DIR` (when a source checkout is configured)
+- `NEST_PROJECT_ROOT`
+- `NEST_WRAPPED_AGENT_NAME`
+- `NEST_WRAPPED_KIND`
+- `NEST_WRAPPED_WORKSPACE_PATH`
+- `NEST_WRAPPED_CHANNEL_ID` (turn commands)
+- `NEST_WRAPPED_SESSION_ID` (turn commands)
+- `NEST_WRAPPED_MESSAGE` (turn commands)
+- `NEST_WRAPPED_TRIGGER_EVENT_ID` (turn commands)
+- `NEST_WRAPPED_SOURCE_DIR` (when a source checkout is configured)
 
 Resolved runtime secrets are injected into setup and turn command environments using precedence `private > team > public > package(legacy)`.
 
@@ -218,6 +218,7 @@ Validation is dynamic and composed from:
 ### Human Auth
 
 - Session-cookie login: `POST /api/auth/login`
+- Session lookup prefers `nest_session` regardless of cookie order; `orgops_session` is accepted only when the Nest cookie is absent. This applies to HTTP authentication, WebSocket authentication, profile updates, and logout.
 - Profile/password update: `PATCH /api/auth/profile`
 - Logout/me endpoints supported
 - Invited humans must rotate temporary password before accessing most API routes
@@ -235,9 +236,9 @@ Validation is dynamic and composed from:
 
 ### Runner Auth
 
-- Trusted runner token header: `x-orgops-runner-token`
+- Trusted runner token header: `x-nest-runner-token`
 - Runner-only endpoint for secret env injection: `GET /api/secrets/env`
-- Runner secret env requests must include `x-orgops-agent-name`; optional `x-orgops-channel-id` enables team-scope resolution for that channel context.
+- Runner secret env requests must include `x-nest-agent-name`; optional `x-nest-channel-id` enables team-scope resolution for that channel context.
 - Invite redemption can mint runner tokens in either mode:
   - `SCOPED` (default): restricted to one agent and one runner ID, and by default restricted to invite-approved channels.
   - `GLOBAL`: behaves like a normal unrestricted runner token (full runner access).
@@ -252,7 +253,7 @@ Runner tools resolve paths through an allowlist:
 - if `allowOutsideWorkspace=true`: full host root allowed
 - extra allowed roots: enabled skill directories
 
-This applies to native OrgOps tools only. `WRAPPED` agents do not use OrgOps tool filesystem access; their external runtime enforces its own filesystem policy.
+This applies to native Nest tools only. `WRAPPED` agents do not use Nest tool filesystem access; their external runtime enforces its own filesystem policy.
 
 ## Realtime (WebSocket)
 
@@ -440,7 +441,7 @@ Published topics include:
 - `GET /api/runners`
 - `GET /api/runners/setup-config` (authenticated human users)
 - `POST /api/runners/invites` (authenticated human users; creates scoped runner bootstrap invite)
-- `GET /api/runners/invites/:token` (public invite bootstrap payload for opscli)
+- `GET /api/runners/invites/:token` (public invite bootstrap payload for nest)
 - `POST /api/runners/register` (runner auth; register/re-register)
 - `PATCH /api/runners/:id` (authenticated human users; rename runner display name)
 - `POST /api/runners/:id/heartbeat` (runner auth)
@@ -464,7 +465,7 @@ Runner loop:
 8. Execute by agent mode:
    - `CLASSIC`: call LLM, enforce JSON event output with retries, validate and emit.
    - `RLM_REPL`: run recursive REPL loop in child process with explicit `done(result)`.
-   - `WRAPPED`: skip orgops memory/prompt/skills/model calls and run the configured external runtime recipe.
+   - `WRAPPED`: skip nest memory/prompt/skills/model calls and run the configured external runtime recipe.
 9. For native modes, build context from system prompt + bounded channel history + skills + soul, plus a synthetic merged-trigger message when a batch contains multiple events.
 10. For native modes, run model generation in step mode (single-step/attempt calls) and poll pending events for the same `(agent, channel)` between attempts; newly arrived events are merged into subsequent attempt context.
 11. On handler failure, call `/api/events/:id/fail` for each event in the failed channel batch.
@@ -502,9 +503,11 @@ Current tool families exposed to models:
 
 Audit events are emitted around tool/process operations and RLM execution.
 
-## OpsCLI Behavior
+## Nest CLI Behavior
 
-`apps/opscli` is a standalone host bootstrap/maintenance CLI with deterministic commands and an optional chat loop.
+`apps/cli` is a standalone host bootstrap/maintenance CLI with deterministic commands and an optional chat loop.
+
+Its saved runner configuration reader accepts `ORGOPS_API_URL`, `ORGOPS_RUNNER_TOKEN`, and `ORGOPS_RUNNER_NAME` from existing `.env` files when their `NEST_*` equivalents are absent. Explicit Nest values, including empty values, take precedence. New runner configuration is written using `NEST_*` keys.
 
 - deterministic commands:
   - `install` (prereq checks + clone/pull repo + `npm ci` + component-scoped build/config)
@@ -519,7 +522,7 @@ Audit events are emitted around tool/process operations and RLM execution.
     - explicit `--runner-api-url` + `--runner-token` (+ optional `--runner-name`)
     - invite bootstrap URL from `GET /api/runners/invites/:token`
 - optional `chat` command:
-  - plain tool-calling loop (`shell`, `askPassword`, `getBundledDocs`, `exitOpscli`)
+  - plain tool-calling loop (`shell`, `askPassword`, `getBundledDocs`, `exitNestCli`)
   - rolling summarization + context-capped history
   - prompts for provider API keys only in chat mode
 - release build embeds docs/build metadata for chat context (not a full source snapshot)
@@ -528,7 +531,7 @@ Audit events are emitted around tool/process operations and RLM execution.
   - Linux systemd user service
   - Windows Scheduled Task
 
-Security note: wrapped `source`, `setup.command`, and `runtime.command` are host code execution. Native orgops agents and opscli should treat GitHub-derived wrapper recipes as privileged changes and should prefer explicit user approval or trusted repo allowlists before enabling them on shared hosts.
+Security note: wrapped `source`, `setup.command`, and `runtime.command` are host code execution. Native nest agents and nest should treat GitHub-derived wrapper recipes as privileged changes and should prefer explicit user approval or trusted repo allowlists before enabling them on shared hosts.
 
 ## Delivery and Failure Semantics
 
@@ -541,77 +544,108 @@ Security note: wrapped `source`, `setup.command`, and `runtime.command` are host
 ## Container Runtime (Single Image)
 
 - Root `Dockerfile` builds a single reusable image containing `api`, `agent-runner`, `admin-ui`, and `user-ui`.
-- `docker/entrypoint.sh` supports runtime component selection through `ORGOPS_COMPONENTS` (CSV of `api`, `runner`, `admin-ui`, `user-ui`).
+- `docker/entrypoint.sh` supports runtime component selection through `NEST_COMPONENTS` (CSV of `api`, `runner`, `admin-ui`, `user-ui`).
 - When any HTTP-serving component is enabled, HAProxy runs in-container as the public listener (default port `8787`) and routes:
   - `/api`, `/ws`, `/health` -> API backend
   - `/admin` -> admin UI preview backend
   - `/` -> user UI preview backend (fallback order: user UI -> admin UI -> API)
 - Runner startup waits for local API readiness only when both `api` and `runner` are enabled in the same container.
-- Runtime state persists through `/app/.orgops-data` and `/app/files` volumes.
+- Runtime state persists through `/app/.nest-data` and `/app/files` volumes.
 
 ## Environment Variables (Implemented)
 
 - `PORT`
-- `ORGOPS_API_URL`
-- `ORGOPS_RUNNER_TOKEN`
-- `ORGOPS_RUNNER_ID_FILE`
-- `ORGOPS_RUNNER_NAME`
-- `ORGOPS_ADMIN_USER`, `ORGOPS_ADMIN_PASS`
-- `ORGOPS_MASTER_KEY`
-- `ORGOPS_COOKIE_SECURE`
-- `ORGOPS_EVENT_MAX_FAILURES`
-- `ORGOPS_EVENT_SHAPES_CACHE_TTL_MS`
-- `ORGOPS_RUNNER_ONLINE_THRESHOLD_MS`
-- `ORGOPS_PROJECT_ROOT`
-- `ORGOPS_LLM_STUB`
-- `ORGOPS_LLM_CALL_TIMEOUT_MS`
-- `ORGOPS_HISTORY_MAX_EVENTS`, `ORGOPS_HISTORY_MAX_CHARS`
-- `ORGOPS_CHANNEL_RECENT_MEMORY_INTERVAL_MS`
-- `ORGOPS_CHANNEL_FULL_MEMORY_INTERVAL_MS`
-- `ORGOPS_CROSS_RECENT_MEMORY_INTERVAL_MS`
-- `ORGOPS_CROSS_FULL_MEMORY_INTERVAL_MS`
-- `ORGOPS_AGENT_INTENT_TIMEOUT_MS`
-- `ORGOPS_AGENT_INTENT_MAX_TIMEOUTS`
+- `NEST_API_URL`
+- `NEST_RUNNER_TOKEN`
+- `NEST_RUNNER_ID_FILE`
+- `NEST_RUNNER_NAME`
+- `NEST_ADMIN_USER`, `NEST_ADMIN_PASS`
+- `NEST_MASTER_KEY`
+- `NEST_COOKIE_SECURE`
+- `NEST_EVENT_MAX_FAILURES`
+- `NEST_EVENT_SHAPES_CACHE_TTL_MS`
+- `NEST_RUNNER_ONLINE_THRESHOLD_MS`
+- `NEST_PROJECT_ROOT`
+- `NEST_LLM_STUB`
+- `NEST_LLM_CALL_TIMEOUT_MS`
+- `NEST_HISTORY_MAX_EVENTS`, `NEST_HISTORY_MAX_CHARS`
+- `NEST_CHANNEL_RECENT_MEMORY_INTERVAL_MS`
+- `NEST_CHANNEL_FULL_MEMORY_INTERVAL_MS`
+- `NEST_CROSS_RECENT_MEMORY_INTERVAL_MS`
+- `NEST_CROSS_FULL_MEMORY_INTERVAL_MS`
+- `NEST_AGENT_INTENT_TIMEOUT_MS`
+- `NEST_AGENT_INTENT_MAX_TIMEOUTS`
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`
   - for native/wrapped runtime execution with injected env, provider keys are loaded from resolved secrets and do not fall back to host process env
 - `OPENROUTER_BASE_URL`, `OPENROUTER_HTTP_REFERER`, `OPENROUTER_APP_TITLE`
-- `ORGOPS_GIT_BASH_PATH`
-- `ORGOPS_SHELL_PATH`, `ORGOPS_SHELL_ARGS`
-- `ORGOPS_SHELL_TIMEOUT_KILL_GRACE_MS`
+- `NEST_GIT_BASH_PATH`
+- `NEST_SHELL_PATH`, `NEST_SHELL_ARGS`
+- `NEST_SHELL_TIMEOUT_KILL_GRACE_MS`
 - Admin UI build/runtime config:
   - `VITE_API_BASE_URL`
   - `VITE_WS_BASE_URL`
   - `VITE_UI_BASE_PATH`
-  - optional runtime override: `window.__ORGOPS_UI_CONFIG__ = { apiBaseUrl, wsBaseUrl }`
+  - optional runtime override: `window.__NEST_UI_CONFIG__ = { apiBaseUrl, wsBaseUrl }`
 - User UI build/runtime config:
   - `VITE_API_BASE_URL`
   - `VITE_WS_BASE_URL`
   - `VITE_UI_BASE_PATH`
-  - optional runtime override: `window.__ORGOPS_USER_UI_CONFIG__ = { apiBaseUrl, wsBaseUrl }`
+  - optional runtime override: `window.__NEST_USER_UI_CONFIG__ = { apiBaseUrl, wsBaseUrl }`
 - Container entrypoint controls:
-  - `ORGOPS_COMPONENTS`
-  - `ORGOPS_PROXY_PORT`
-  - `ORGOPS_INTERNAL_API_PORT`
-  - `ORGOPS_INTERNAL_ADMIN_UI_PORT`
-  - `ORGOPS_INTERNAL_USER_UI_PORT`
+  - `NEST_COMPONENTS`
+  - `NEST_PROXY_PORT`
+  - `NEST_INTERNAL_API_PORT`
+  - `NEST_INTERNAL_ADMIN_UI_PORT`
+  - `NEST_INTERNAL_USER_UI_PORT`
 - RLM controls:
-  - `ORGOPS_RLM_MAX_STEPS`
-  - `ORGOPS_RLM_MAX_OUTPUT_CHARS`
-  - `ORGOPS_RLM_MAX_INPUT_CHARS`
-  - `ORGOPS_RLM_PROMPT_PREVIEW_MAX_CHARS`
-  - `ORGOPS_RLM_EVAL_TIMEOUT_MS`
-  - `ORGOPS_RLM_MAX_SUBAGENT_DEPTH`
-  - `ORGOPS_RLM_MAX_SUBAGENTS_PER_EVENT`
-- OpsCLI controls:
-  - `ORGOPS_OPSCLI_MODEL`
-  - `ORGOPS_OPSCLI_TOOL_LOOP_MAX_STEPS`
-  - `ORGOPS_OPSCLI_COMMAND_TIMEOUT_MS`
-  - `ORGOPS_OPSCLI_MAX_CONTEXT_CHARS`
-  - `ORGOPS_OPSCLI_MAX_SUMMARY_CHARS`
-  - `ORGOPS_OPSCLI_SUMMARY_CHUNK_MESSAGES`
-  - `ORGOPS_OPSCLI_MIN_RECENT_MESSAGES`
-  - `ORGOPS_OPSCLI_MAX_SYSTEM_DOC_CHARS`
-  - `ORGOPS_OPSCLI_PROGRESS`
-  - `ORGOPS_OPSCLI_SPINNER`
-  - `ORGOPS_OPSCLI_LOG_PATH`
-  - `ORGOPS_OPSCLI_DOUBLE_SIGINT_MS`
+  - `NEST_RLM_MAX_STEPS`
+  - `NEST_RLM_MAX_OUTPUT_CHARS`
+  - `NEST_RLM_MAX_INPUT_CHARS`
+  - `NEST_RLM_PROMPT_PREVIEW_MAX_CHARS`
+  - `NEST_RLM_EVAL_TIMEOUT_MS`
+  - `NEST_RLM_MAX_SUBAGENT_DEPTH`
+  - `NEST_RLM_MAX_SUBAGENTS_PER_EVENT`
+- Nest CLI controls:
+  - `NEST_CLI_MODEL`
+  - `NEST_CLI_TOOL_LOOP_MAX_STEPS`
+  - `NEST_CLI_COMMAND_TIMEOUT_MS`
+  - `NEST_CLI_MAX_CONTEXT_CHARS`
+  - `NEST_CLI_MAX_SUMMARY_CHARS`
+  - `NEST_CLI_SUMMARY_CHUNK_MESSAGES`
+  - `NEST_CLI_MIN_RECENT_MESSAGES`
+  - `NEST_CLI_MAX_SYSTEM_DOC_CHARS`
+  - `NEST_CLI_PROGRESS`
+  - `NEST_CLI_SPINNER`
+  - `NEST_CLI_LOG_PATH`
+  - `NEST_CLI_DOUBLE_SIGINT_MS`
+
+## Nest identity and backward compatibility
+
+Canonical product, package, deployment, and protocol names use Nest. Legacy configuration and data fallbacks are specified in [REBRANDING.md](REBRANDING.md). This includes environment precedence, session/header compatibility, child-process environment aliases, and database selection.
+
+## Instance branding
+
+The main Nest product supports instance-specific identity without rebuilding either UI.
+`instance_settings` stores the validated branding JSON under the `branding` key;
+new installations retain Nest defaults. `GET /api/branding` is public, returns only
+branding fields, and is not cached so sign-in pages can show the instance identity.
+`PUT /api/branding` replaces `displayName`, `logoUrl`, `primaryColor`, `accentColor`,
+and `backgroundColor`. Only the instance owner (the earliest-created human, ordered
+by `created_at` then `id`) with a completed password setup may write; runner tokens
+and other humans cannot. `GET /api/branding/access` returns the authenticated user's
+`canManage` flag. Owner access follows the human ID across username changes.
+
+Names are limited to 60 characters, colors to six-digit hex values, and logos to
+HTTPS image URLs, local `/brand/` assets, or inline PNG/JPEG/WebP data. The admin
+screen accepts uploads up to 250 KB. Uploaded SVG/HTML data and executable URL
+schemes are rejected. Logo images are rendered through `img`, never injected markup;
+failed images fall back to the organization name. Full requests over 360,000
+characters are rejected. Changes emit `audit.branding.updated` with `displayName`;
+this bookkeeping event does not wake agents.
+
+Admin → Branding includes a live draft preview, logo upload, color controls, save
+feedback, and restore-to-Nest defaults (applied only after saving). Both UIs load
+branding on startup and window focus, apply it to sign-in screens, titles, logos,
+and light/dark color tokens, and retain a fixed “Powered by Nest” sidebar footer.
+Camplight assets and `deploy/camplight-branding.json` configure this deployment;
+Camplight is not the default identity of other Nest installations.

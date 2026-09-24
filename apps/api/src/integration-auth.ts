@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
-import { schema, type OrgOpsDrizzleDb } from "@orgops/db";
+import { schema, type NestDrizzleDb } from "@nest/db";
 
 export const INTEGRATION_TOKEN_PREFIX = "org_sk_";
 
@@ -42,7 +42,7 @@ export function parseBearerToken(header: string | undefined): string | null {
 }
 
 export function findActiveIntegrationKey(
-  orm: OrgOpsDrizzleDb,
+  orm: NestDrizzleDb,
   token: string,
 ): IntegrationKeyRow | undefined {
   if (!token.startsWith(INTEGRATION_TOKEN_PREFIX)) return undefined;
@@ -67,7 +67,7 @@ export function findActiveIntegrationKey(
 }
 
 export function touchIntegrationKeyLastUsed(
-  orm: OrgOpsDrizzleDb,
+  orm: NestDrizzleDb,
   id: string,
   at = Date.now(),
 ) {

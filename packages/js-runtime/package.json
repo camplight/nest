@@ -1,5 +1,5 @@
 {
-  "name": "@orgops/js-runtime",
+  "name": "@nest/js-runtime",
   "version": "0.0.1",
   "type": "module",
   "main": "src/index.ts",

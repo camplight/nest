@@ -1,11 +1,11 @@
 import type { Hono } from "hono";
 import { sql } from "drizzle-orm";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { schema, type OrgOpsDrizzleDb } from "@orgops/db";
+import { schema, type NestDrizzleDb } from "@nest/db";
 import type { AccessControl, RequestUser } from "./access";
 
 type MemoryDeps = {
-  orm: OrgOpsDrizzleDb;
+  orm: NestDrizzleDb;
   jsonResponse: (c: any, data: unknown, status?: number) => Response;
   access: AccessControl;
 };
@@ -30,7 +30,7 @@ function readPositiveIntEnv(value: string | undefined, fallback: number): number
 }
 
 const MEMORY_SUMMARY_MAX_CHARS = readPositiveIntEnv(
-  process.env.ORGOPS_MEMORY_SUMMARY_MAX_CHARS,
+  (process.env.NEST_MEMORY_SUMMARY_MAX_CHARS ?? process.env.ORGOPS_MEMORY_SUMMARY_MAX_CHARS),
   DEFAULT_MEMORY_SUMMARY_MAX_CHARS,
 );
 

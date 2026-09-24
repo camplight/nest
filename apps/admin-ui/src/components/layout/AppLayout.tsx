@@ -52,7 +52,7 @@ export function AppLayout({
           onLogout={onLogout}
           onOpenMobileNav={() => setMobileNavOpen(true)}
         />
-        <main className="p-3 md:p-6 space-y-6">{children}</main>
+        <main className="nest-admin-content p-3 md:p-6 space-y-6">{children}</main>
       </div>
     </div>
   );

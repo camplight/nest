@@ -1,3 +1,5 @@
+import { useBranding } from "../../nest-brand/BrandingProvider";
+import { PoweredByNest, InstanceBrand, ThemeToggle } from "../../nest-brand/Brand";
 import {
   FormEvent,
   type ChangeEvent,
@@ -509,6 +511,7 @@ function formatAttachmentSize(size?: number) {
 }
 
 export default function App() {
+  const { branding } = useBranding();
   const messagesPanelRef = useRef<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -848,7 +851,7 @@ export default function App() {
       selectChannel(nextActiveChannelId, { replace: true });
       await loadMessageNotifications({ initialize: true });
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unable to load OrgOps");
+      setError(loadError instanceof Error ? loadError.message : "Unable to load workspace");
     } finally {
       setLoading(false);
     }
@@ -1175,7 +1178,6 @@ export default function App() {
   }
 
   useEffect(() => {
-    document.title = "OrgOps User UI";
     void loadSession();
   }, []);
 
@@ -1878,25 +1880,27 @@ export default function App() {
   }, []);
 
   if (authLoading && !authenticated) {
-    return <main className="loading-screen">Loading OrgOps...</main>;
+    return <main className="loading-screen" role="status">Loading workspace…</main>;
   }
 
   if (!authenticated) {
     return (
       <main className="login-screen">
         <section className="login-copy">
-          <div className="brand-mark large">OO</div>
-          <p>OrgOps User Workspace</p>
-          <h1>Welcome back</h1>
-          <span>Sign in to talk to your team and agents.</span>
+          <InstanceBrand />
+          <p>Your {branding.displayName} workspace</p>
+          <h1>Great work starts here.</h1>
+          <span>One workspace for your people, your agents, and what comes next.</span>
+          <PoweredByNest />
         </section>
 
         <form className="login-card" onSubmit={handleLogin}>
+          <ThemeToggle />
           <div>
-            <span>Sign in</span>
-            <strong>OrgOps</strong>
+            <span>Welcome back</span>
+            <strong>Sign in to {branding.displayName}</strong>
           </div>
-          {error ? <div className="notice error">{error}</div> : null}
+          {error ? <div className="notice error" role="alert">{error}</div> : null}
           <label>
             Username
             <input
@@ -1926,21 +1930,23 @@ export default function App() {
     return (
       <main className="login-screen">
         <section className="login-copy">
-          <div className="brand-mark large">OO</div>
-          <p>OrgOps User Workspace</p>
+          <InstanceBrand />
+          <p>Your {branding.displayName} workspace</p>
           <h1>Set a new password</h1>
           <span>Finish first-time setup before opening your workspace.</span>
+          <PoweredByNest />
         </section>
 
         <form className="login-card" onSubmit={handlePasswordUpdate}>
+          <ThemeToggle />
           <div>
             <span>First login</span>
-            <strong>{username || "OrgOps"}</strong>
+            <strong>{username || branding.displayName}</strong>
           </div>
           <p className="login-hint">
             Your temporary password worked. Choose a new password with at least 8 characters.
           </p>
-          {error ? <div className="notice error">{error}</div> : null}
+          {error ? <div className="notice error" role="alert">{error}</div> : null}
           <label>
             New password
             <input
@@ -1986,13 +1992,7 @@ export default function App() {
         >
           Close
         </button>
-        <div className="brand">
-          <div className="brand-mark">OO</div>
-          <div>
-            <strong>OrgOps</strong>
-            <span>User workspace</span>
-          </div>
-        </div>
+        <InstanceBrand subtitle="Workspace" />
 
         <section className="sidebar-section">
           <label className="channel-search">
@@ -2029,6 +2029,7 @@ export default function App() {
                       {group.channels.map((channel) => (
                         <button
                           key={channel.id}
+                          aria-current={channel.id === activeChannelId ? "page" : undefined}
                           className={channel.id === activeChannelId ? "active" : undefined}
                           onClick={() => selectChannel(channel.id)}
                         >
@@ -2059,7 +2060,8 @@ export default function App() {
                     {filteredArchivedChannels.map((channel) => (
                       <button
                         key={channel.id}
-                        className={channel.id === activeChannelId ? "active" : undefined}
+                        aria-current={channel.id === activeChannelId ? "page" : undefined}
+                          className={channel.id === activeChannelId ? "active" : undefined}
                         onClick={() => selectChannel(channel.id)}
                       >
                         <span>{channelLabel(channel, username)}</span>
@@ -2086,10 +2088,12 @@ export default function App() {
         </section>
 
         <section className="sidebar-section account-actions">
+          <ThemeToggle />
           <button className="logout-button" onClick={() => void handleLogout()}>
             Sign out {username ? `(${username})` : ""}
           </button>
         </section>
+        <div className="instance-sidebar-footer"><PoweredByNest /></div>
       </aside>
       {mobileSidebarOpen ? (
         <button
@@ -2131,8 +2135,8 @@ export default function App() {
           ) : null}
         </header>
 
-        {error ? <div className="notice error">{error}</div> : null}
-        {loading ? <div className="notice">Loading OrgOps...</div> : null}
+        {error ? <div className="notice error" role="alert">{error}</div> : null}
+        {loading ? <div className="notice">Loading workspace…</div> : null}
 
         <section className="chat-stack">
           <section
@@ -2311,6 +2315,7 @@ export default function App() {
             </div>
           ) : null}
           <textarea
+            aria-label="Message"
             ref={composerTextareaRef}
             value={draft}
             onChange={(event) => {

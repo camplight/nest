@@ -15,6 +15,12 @@ export const migrations = sqliteTable("migrations", {
   applied_at: integer("applied_at").notNull()
 });
 
+export const instanceSettings = sqliteTable("instance_settings", {
+  key: text("key").primaryKey().notNull(),
+  value_json: text("value_json").notNull(),
+  updated_at: integer("updated_at").notNull(),
+});
+
 export const agents = sqliteTable("agents", {
   id: text("id").primaryKey(),
   name: text("name").notNull().unique(),
@@ -493,6 +499,7 @@ export const embedConversations = sqliteTable(
 );
 
 export const schema = {
+  instanceSettings,
   migrations,
   agents,
   runnerNodes,

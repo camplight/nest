@@ -9,7 +9,7 @@ function createSubject() {
     apiUrl: "http://localhost:8787",
     runnerToken: "test-token",
     heartbeatIntervalMs: 5_000,
-    runnerIdFile: "/tmp/orgops-runner-id-test",
+    runnerIdFile: "/tmp/nest-runner-id-test",
     runnerState: createRunnerState(),
   });
 }
@@ -36,9 +36,9 @@ describe("runner api secrets env", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const headers = new Headers(init.headers);
-    expect(headers.get("x-orgops-runner-token")).toBe("test-token");
-    expect(headers.get("x-orgops-agent-name")).toBe("Agent Name");
-    expect(headers.get("x-orgops-channel-id")).toBe("chan-1");
+    expect(headers.get("x-nest-runner-token")).toBe("test-token");
+    expect(headers.get("x-nest-agent-name")).toBe("Agent Name");
+    expect(headers.get("x-nest-channel-id")).toBe("chan-1");
   });
 
   it("propagates /api/secrets/env errors instead of returning empty env", async () => {

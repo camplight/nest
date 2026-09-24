@@ -1,4 +1,4 @@
-import { generate } from "@orgops/llm";
+import { generate } from "@nest/llm";
 import { listChannelEventsAfter } from "./channel-events";
 import type { Agent, Event } from "./types";
 
@@ -45,11 +45,11 @@ function readPositiveIntEnv(value: string | undefined, fallback: number): number
 }
 
 const MEMORY_SUMMARY_MAX_CHARS = readPositiveIntEnv(
-  process.env.ORGOPS_MEMORY_SUMMARY_MAX_CHARS,
+  (process.env.NEST_MEMORY_SUMMARY_MAX_CHARS ?? process.env.ORGOPS_MEMORY_SUMMARY_MAX_CHARS),
   DEFAULT_MEMORY_SUMMARY_MAX_CHARS,
 );
 const MEMORY_PROMPT_SUMMARY_MAX_CHARS = readPositiveIntEnv(
-  process.env.ORGOPS_MEMORY_PROMPT_SUMMARY_MAX_CHARS,
+  (process.env.NEST_MEMORY_PROMPT_SUMMARY_MAX_CHARS ?? process.env.ORGOPS_MEMORY_PROMPT_SUMMARY_MAX_CHARS),
   DEFAULT_MEMORY_PROMPT_SUMMARY_MAX_CHARS,
 );
 

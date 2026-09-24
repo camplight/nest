@@ -1,6 +1,8 @@
-# OrgOps
+# Nest
 
-OrgOps is a Node.js multi-host agent system where humans and autonomous agents collaborate via an event bus. Agents can run host shell/filesystem/process operations, manage long-running jobs, and stream outputs back to humans/models. The current deployment model emphasizes deterministic host assignment and a local autonomous bootstrap/maintenance CLI (`opscli`).
+[Repository](https://github.com/camplight/nest) · [Migration from OrgOps](docs/REBRANDING.md)
+
+Nest is a Node.js multi-host agent system where humans and autonomous agents collaborate via an event bus. Agents can run host shell/filesystem/process operations, manage long-running jobs, and stream outputs back to humans/models. The current deployment model emphasizes deterministic host assignment and a local autonomous bootstrap/maintenance CLI (`nest`).
 
 ## Repo layout
 
@@ -8,7 +10,7 @@ OrgOps is a Node.js multi-host agent system where humans and autonomous agents c
 apps/
   api/            Hono HTTP + WebSocket API
   agent-runner/   Agent supervisor and tool executor
-  opscli/         Host bootstrap + maintenance CLI agent
+  cli/            Host bootstrap + maintenance CLI agent
   admin-ui/       React + Tailwind admin UI
   user-ui/        Lightweight non-technical user UI
 packages/
@@ -20,7 +22,7 @@ packages/
   skills/         Skill catalog parser
 skills/           Built-in skills (+ optional event-shapes.ts per skill)
 files/            Runtime file storage (gitignored)
-.orgops-data/      Runtime DB + workspaces (gitignored)
+.nest-data/      Runtime DB + workspaces (gitignored)
 ```
 
 ## Requirements
@@ -41,6 +43,14 @@ npm run dev:all
 Open `http://localhost:5173` for admin UI, `http://localhost:5190` for user UI,
 and API on `http://localhost:8787`.
 
+## Brand your instance
+
+Open **Admin → Branding** as the instance owner to set your organization name,
+logo, sidebar color, accent, and workspace background. Preview changes before
+saving. Both apps and sign-in screens use the saved identity, with a fixed
+**Powered by Nest** footer. Settings persist in SQLite; no rebuild is required.
+New instances use Nest defaults. See [white-label configuration](docs/REBRANDING.md#white-label-instances).
+
 ## Embed an agent in another product
 
 External apps authenticate with an **API key** and call `/v1/conversations` +
@@ -49,13 +59,13 @@ paste it into the embedding app’s coding agent.
 
 ## Deployment approach
 
-OrgOps is split into three runtime components plus one bootstrap/maintenance CLI:
+Nest is split into three runtime components plus one bootstrap/maintenance CLI:
 
 - `api`: central API/event system
 - `admin-ui`: operator/admin control surface
 - `user-ui`: lightweight non-technical user workspace
 - `agent-runner`: host-local execution runtime
-- `opscli`: host bootstrap + maintenance CLI (deterministic commands + optional chat)
+- `nest`: host bootstrap + maintenance CLI (deterministic commands + optional chat)
 
 Multi-host execution is kept intentionally simple:
 
@@ -79,77 +89,80 @@ the API service) so browser auth cookies and WebSocket traffic work correctly.
 
 ### Single-image container deployment
 
-OrgOps now ships a root `Dockerfile` that builds one reusable image containing API, runner,
+Nest now ships a root `Dockerfile` that builds one reusable image containing API, runner,
 admin UI, and user UI. The container entrypoint starts whichever components you choose via
-`ORGOPS_COMPONENTS`.
+`NEST_COMPONENTS`.
 
 Build:
 
 ```bash
-docker build -t orgops:local .
+docker build -t nest:local .
 ```
 
 Run API + runner + user UI (default):
 
 ```bash
 docker run --rm -p 8787:8787 \
-  -e ORGOPS_COMPONENTS=api,runner,user-ui \
-  -e ORGOPS_MASTER_KEY='<32-byte-base64>' \
-  -v orgops-data:/app/.orgops-data \
-  -v orgops-files:/app/files \
-  orgops:local
+  -e NEST_COMPONENTS=api,runner,user-ui \
+  -e NEST_MASTER_KEY='<32-byte-base64>' \
+  -v nest-data:/app/.nest-data \
+  -v nest-files:/app/files \
+  nest:local
 ```
 
 Run API only:
 
 ```bash
 docker run --rm -p 8787:8787 \
-  -e ORGOPS_COMPONENTS=api \
-  -e ORGOPS_MASTER_KEY='<32-byte-base64>' \
-  -v orgops-data:/app/.orgops-data \
-  -v orgops-files:/app/files \
-  orgops:local
+  -e NEST_COMPONENTS=api \
+  -e NEST_MASTER_KEY='<32-byte-base64>' \
+  -v nest-data:/app/.nest-data \
+  -v nest-files:/app/files \
+  nest:local
 ```
 
 Run runner only (against an external API):
 
 ```bash
 docker run --rm \
-  -e ORGOPS_COMPONENTS=runner \
-  -e ORGOPS_API_URL='https://orgops.example.com' \
-  -e ORGOPS_RUNNER_TOKEN='<runner-token>' \
-  -e ORGOPS_MASTER_KEY='<32-byte-base64>' \
-  -v orgops-data:/app/.orgops-data \
-  -v orgops-files:/app/files \
-  orgops:local
+  -e NEST_COMPONENTS=runner \
+  -e NEST_API_URL='https://nest.example.com' \
+  -e NEST_RUNNER_TOKEN='<runner-token>' \
+  -e NEST_MASTER_KEY='<32-byte-base64>' \
+  -v nest-data:/app/.nest-data \
+  -v nest-files:/app/files \
+  nest:local
 ```
 
 Container networking is fronted by HAProxy on port `8787`:
+
+Set `NEST_PUBLIC_HOST` to the public hostname (for example, `nest.camplight.net`)
+when serving behind a reverse proxy, so both UI servers accept that Host header.
 
 - `/api`, `/ws`, and `/health` -> API
 - `/admin` -> admin UI (when enabled)
 - `/` -> user UI (when enabled), then admin UI, then API fallback
 
-## OpsCLI
+## Nest CLI
 
-`apps/opscli` is the bootstrap and maintenance CLI for OrgOps hosts.
+`apps/cli` is the bootstrap and maintenance CLI for Nest hosts.
 
 ```bash
-npm run --workspace @orgops/opscli start
+npm run --workspace @nest/cli start
 ```
 
 Command examples:
 
-- `opscli install --register-service --create-shortcut`
-- `opscli upgrade`
-- `opscli start` / `opscli stop` / `opscli status`
-- `opscli admin open` / `opscli admin stop` / `opscli admin status`
-- `opscli service register --components <csv>` (cross-OS per-component auto-start registration without reinstalling)
-- `opscli service unregister --components <csv>` (cross-OS per-component auto-start removal without reinstalling)
-- `opscli shortcut create` (cross-OS desktop shortcut for user-ui or admin-ui without reinstalling)
-- `opscli chat`
+- `nest install --register-service --create-shortcut`
+- `nest upgrade`
+- `nest start` / `nest stop` / `nest status`
+- `nest admin open` / `nest admin stop` / `nest admin status`
+- `nest service register --components <csv>` (cross-OS per-component auto-start registration without reinstalling)
+- `nest service unregister --components <csv>` (cross-OS per-component auto-start removal without reinstalling)
+- `nest shortcut create` (cross-OS desktop shortcut for user-ui or admin-ui without reinstalling)
+- `nest chat`
 
-OpsCLI keeps a rolling session summary and capped recent history to stay within model context limits.
+Nest CLI keeps a rolling session summary and capped recent history to stay within model context limits.
 
 ## Release automation
 
@@ -161,86 +174,86 @@ Release tags follow SemVer + date:
 - `0.0.1-YYYY-MM-DD` for the first release
 - `0.0.N-YYYY-MM-DD` for subsequent releases (patch increments on each release)
 
-The workflow builds self-contained `opscli` binaries for Linux/macOS/Windows.
+The workflow builds self-contained `nest` binaries for Linux/macOS/Windows.
 Each release includes:
 
-- platform binaries (`opscli-linux`, `opscli-macos`, `opscli-windows`)
+- platform binaries (`nest-linux`, `nest-macos`, `nest-windows`)
 - a release changelog artifact (`CHANGELOG-<release-tag>.md`)
 - release notes generated from commits since the previous release tag
 
 Each binary includes deterministic installer/lifecycle commands (`install`, `upgrade`, `doctor`, `start`, `stop`, `status`, `admin open`, `admin stop`, `admin status`) and
-an optional agentic `chat` command. Installer mode clones OrgOps from git, builds runtime
+an optional agentic `chat` command. Installer mode clones Nest from git, builds runtime
 artifacts, and can register OS auto-start services.
 
 On macOS, downloaded binaries may be quarantined by Gatekeeper. After download:
 
 ```bash
-xattr -d com.apple.quarantine ./opscli-macos
-chmod +x ./opscli-macos
-./opscli-macos
+xattr -d com.apple.quarantine ./nest-macos
+chmod +x ./nest-macos
+./nest-macos
 ```
 
 ## Environment variables
 
 - `PORT` (API server port, default: `8787`)
-- `ORGOPS_ADMIN_USER` / `ORGOPS_ADMIN_PASS` (defaults to `admin`)
-- `ORGOPS_RUNNER_TOKEN` (shared token for agent-runner -> API, default: `dev-runner-token`)
-- `ORGOPS_MASTER_KEY` (32-byte base64, required for secrets encryption)
-- `ORGOPS_COOKIE_SECURE` (`auto|always|never`, default: `auto`; `auto` enables `Secure` cookies on HTTPS requests)
-- `ORGOPS_PROJECT_ROOT` (optional monorepo root override)
-- `ORGOPS_API_URL` (agent-runner API base URL)
-- `ORGOPS_RUNNER_ID_FILE` (optional path for persisted runner identity; default: `.agent-runner-id`)
-- `ORGOPS_RUNNER_NAME` (optional runner display name used on registration)
-- `ORGOPS_EVENT_MAX_FAILURES` (default: 25)
-- `ORGOPS_EVENT_SHAPES_CACHE_TTL_MS` (API event-shapes cache TTL, default: `3000`)
-- `ORGOPS_RUNNER_ONLINE_THRESHOLD_MS` (runner online threshold, default: `15000`)
+- `NEST_ADMIN_USER` / `NEST_ADMIN_PASS` (defaults to `admin`)
+- `NEST_RUNNER_TOKEN` (shared token for agent-runner -> API, default: `dev-runner-token`)
+- `NEST_MASTER_KEY` (32-byte base64, required for secrets encryption)
+- `NEST_COOKIE_SECURE` (`auto|always|never`, default: `auto`; `auto` enables `Secure` cookies on HTTPS requests)
+- `NEST_PROJECT_ROOT` (optional monorepo root override)
+- `NEST_API_URL` (agent-runner API base URL)
+- `NEST_RUNNER_ID_FILE` (optional path for persisted runner identity; default: `.agent-runner-id`)
+- `NEST_RUNNER_NAME` (optional runner display name used on registration)
+- `NEST_EVENT_MAX_FAILURES` (default: 25)
+- `NEST_EVENT_SHAPES_CACHE_TTL_MS` (API event-shapes cache TTL, default: `3000`)
+- `NEST_RUNNER_ONLINE_THRESHOLD_MS` (runner online threshold, default: `15000`)
 - `OPENAI_API_KEY` (for OpenAI models)
 - `ANTHROPIC_API_KEY` (for Anthropic models)
 - `OPENROUTER_API_KEY` (for OpenRouter models)
 - `OPENROUTER_BASE_URL` (optional; defaults to `https://openrouter.ai/api/v1`)
 - `OPENROUTER_HTTP_REFERER` / `OPENROUTER_APP_TITLE` (optional OpenRouter request headers)
-- `ORGOPS_LLM_STUB` (`1` to stub `@orgops/llm` calls)
-- `ORGOPS_LLM_CALL_TIMEOUT_MS` (runner default LLM call timeout; default: `10800000`)
-- `ORGOPS_HISTORY_MAX_EVENTS` / `ORGOPS_HISTORY_MAX_CHARS` (runner prompt history bounds)
-- `ORGOPS_CHANNEL_RECENT_MEMORY_INTERVAL_MS` / `ORGOPS_CHANNEL_FULL_MEMORY_INTERVAL_MS`
-- `ORGOPS_CROSS_RECENT_MEMORY_INTERVAL_MS` / `ORGOPS_CROSS_FULL_MEMORY_INTERVAL_MS`
-- `ORGOPS_AGENT_INTENT_TIMEOUT_MS` / `ORGOPS_AGENT_INTENT_MAX_TIMEOUTS`
-- `ORGOPS_GIT_BASH_PATH` (optional Windows path to `bash.exe`; defaults to `C:\Program Files\Git\bin\bash.exe`)
-- `ORGOPS_SHELL_PATH` / `ORGOPS_SHELL_ARGS` (optional shell override for all `shell_*` tools)
-- `ORGOPS_SHELL_TIMEOUT_KILL_GRACE_MS` (optional post-timeout kill grace for `shell_run`)
+- `NEST_LLM_STUB` (`1` to stub `@nest/llm` calls)
+- `NEST_LLM_CALL_TIMEOUT_MS` (runner default LLM call timeout; default: `10800000`)
+- `NEST_HISTORY_MAX_EVENTS` / `NEST_HISTORY_MAX_CHARS` (runner prompt history bounds)
+- `NEST_CHANNEL_RECENT_MEMORY_INTERVAL_MS` / `NEST_CHANNEL_FULL_MEMORY_INTERVAL_MS`
+- `NEST_CROSS_RECENT_MEMORY_INTERVAL_MS` / `NEST_CROSS_FULL_MEMORY_INTERVAL_MS`
+- `NEST_AGENT_INTENT_TIMEOUT_MS` / `NEST_AGENT_INTENT_MAX_TIMEOUTS`
+- `NEST_GIT_BASH_PATH` (optional Windows path to `bash.exe`; defaults to `C:\Program Files\Git\bin\bash.exe`)
+- `NEST_SHELL_PATH` / `NEST_SHELL_ARGS` (optional shell override for all `shell_*` tools)
+- `NEST_SHELL_TIMEOUT_KILL_GRACE_MS` (optional post-timeout kill grace for `shell_run`)
 - RLM controls:
-  - `ORGOPS_RLM_MAX_STEPS`
-  - `ORGOPS_RLM_MAX_OUTPUT_CHARS`
-  - `ORGOPS_RLM_MAX_INPUT_CHARS`
-  - `ORGOPS_RLM_PROMPT_PREVIEW_MAX_CHARS`
-  - `ORGOPS_RLM_EVAL_TIMEOUT_MS`
-  - `ORGOPS_RLM_MAX_SUBAGENT_DEPTH`
-  - `ORGOPS_RLM_MAX_SUBAGENTS_PER_EVENT`
-- OpsCLI:
-  - `ORGOPS_OPSCLI_MODEL`
-  - `ORGOPS_OPSCLI_MAX_STEPS`
-  - `ORGOPS_OPSCLI_COMMAND_TIMEOUT_MS`
-  - `ORGOPS_OPSCLI_EVAL_TIMEOUT_MS`
-  - `ORGOPS_OPSCLI_EVAL_CALLBACK_TIMEOUT_MS`
-  - `ORGOPS_OPSCLI_MAX_CONTEXT_CHARS`
-  - `ORGOPS_OPSCLI_MAX_SUMMARY_CHARS`
-  - `ORGOPS_OPSCLI_SUMMARY_CHUNK_MESSAGES`
-  - `ORGOPS_OPSCLI_MIN_RECENT_MESSAGES`
-  - `ORGOPS_OPSCLI_MAX_SYSTEM_DOC_CHARS`
-  - `ORGOPS_OPSCLI_DEBUG`
-  - `ORGOPS_OPSCLI_SPINNER` / `ORGOPS_OPSCLI_PROGRESS`
-  - `ORGOPS_OPSCLI_LOG_PATH`
-  - `ORGOPS_OPSCLI_DOUBLE_SIGINT_MS`
-  - `ORGOPS_EXTRACTED_ROOT` (auto-managed extracted path)
+  - `NEST_RLM_MAX_STEPS`
+  - `NEST_RLM_MAX_OUTPUT_CHARS`
+  - `NEST_RLM_MAX_INPUT_CHARS`
+  - `NEST_RLM_PROMPT_PREVIEW_MAX_CHARS`
+  - `NEST_RLM_EVAL_TIMEOUT_MS`
+  - `NEST_RLM_MAX_SUBAGENT_DEPTH`
+  - `NEST_RLM_MAX_SUBAGENTS_PER_EVENT`
+- Nest CLI:
+  - `NEST_CLI_MODEL`
+  - `NEST_CLI_MAX_STEPS`
+  - `NEST_CLI_COMMAND_TIMEOUT_MS`
+  - `NEST_CLI_EVAL_TIMEOUT_MS`
+  - `NEST_CLI_EVAL_CALLBACK_TIMEOUT_MS`
+  - `NEST_CLI_MAX_CONTEXT_CHARS`
+  - `NEST_CLI_MAX_SUMMARY_CHARS`
+  - `NEST_CLI_SUMMARY_CHUNK_MESSAGES`
+  - `NEST_CLI_MIN_RECENT_MESSAGES`
+  - `NEST_CLI_MAX_SYSTEM_DOC_CHARS`
+  - `NEST_CLI_DEBUG`
+  - `NEST_CLI_SPINNER` / `NEST_CLI_PROGRESS`
+  - `NEST_CLI_LOG_PATH`
+  - `NEST_CLI_DOUBLE_SIGINT_MS`
+  - `NEST_EXTRACTED_ROOT` (auto-managed extracted path)
 - Admin UI (`apps/admin-ui`):
   - `VITE_API_BASE_URL` (optional; default: `/api`)
   - `VITE_WS_BASE_URL` (optional; default: `/ws`, or derived from `VITE_API_BASE_URL` when absolute)
-  - runtime override via `window.__ORGOPS_UI_CONFIG__ = { apiBaseUrl, wsBaseUrl }`
+  - runtime override via `window.__NEST_UI_CONFIG__ = { apiBaseUrl, wsBaseUrl }`
   - in dev, Vite proxies `/api` and `/ws` to `http://localhost:8787` when using relative paths
 - User UI (`apps/user-ui`):
   - `VITE_API_BASE_URL` (optional; default: `/api`)
   - `VITE_WS_BASE_URL` (optional; default: `/ws`, or derived from `VITE_API_BASE_URL` when absolute)
-  - runtime override via `window.__ORGOPS_USER_UI_CONFIG__ = { apiBaseUrl, wsBaseUrl }`
+  - runtime override via `window.__NEST_USER_UI_CONFIG__ = { apiBaseUrl, wsBaseUrl }`
   - in dev, Vite proxies `/api` and `/ws` to `http://localhost:8787` when using relative paths
 
 ## Runner behavior notes
@@ -269,7 +282,7 @@ Each skill is a folder with docs plus optional runnable assets.
 
 Built-in skills:
 
-- OrgOps API events
+- Nest API events
 - Agent collaboration via events
 - Local memory init
 - Browser automation via Playwright + Lightpanda (`skills/browser-use-lightpanda`)

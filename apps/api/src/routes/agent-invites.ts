@@ -5,8 +5,8 @@ import {
   AGENT_VISIBILITY,
   type AgentVisibility,
   schema,
-  type OrgOpsDrizzleDb,
-} from "@orgops/db";
+  type NestDrizzleDb,
+} from "@nest/db";
 import type { AccessControl, RequestUser } from "./access";
 import {
   findActiveInviteByToken,
@@ -17,7 +17,7 @@ import {
 } from "../agent-invite-auth";
 
 type AgentInvitesDeps = {
-  orm: OrgOpsDrizzleDb;
+  orm: NestDrizzleDb;
   jsonResponse: (c: any, data: unknown, status?: number) => Response;
   access: AccessControl;
   inviteBaseUrlFallback: string;
@@ -523,10 +523,10 @@ export function registerAgentInviteRoutes(app: Hono<any>, deps: AgentInvitesDeps
           ],
         },
         memoryHint:
-          "For CLIs that support sessions, keep a per-channel session map keyed by ORGOPS_WRAPPED_CHANNEL_ID.",
+          "For CLIs that support sessions, keep a per-channel session map keyed by NEST_WRAPPED_CHANNEL_ID.",
         docs: {
           wrappedInviteGuide:
-            "https://github.com/camplight/orgops/blob/main/docs/WRAPPED_AGENT_INVITES.md",
+            "https://github.com/camplight/nest/blob/main/docs/WRAPPED_AGENT_INVITES.md",
         },
       },
       redeemEndpoint: `/api/agent-invites/public/${encodeURIComponent(token)}/redeem`,
@@ -621,9 +621,9 @@ export function registerAgentInviteRoutes(app: Hono<any>, deps: AgentInvitesDeps
           description: `Joined via invite: ${invite.name}`,
           model_id: "wrapped:none",
           system_instructions: "",
-          soul_path: `.orgops-data/souls/${invite.agent_name}.md`,
+          soul_path: `.nest-data/souls/${invite.agent_name}.md`,
           soul_contents: "",
-          workspace_path: `.orgops-data/workspaces/${invite.agent_name}`,
+          workspace_path: `.nest-data/workspaces/${invite.agent_name}`,
           allow_outside_workspace: 0,
           llm_call_timeout_ms: null,
           classic_max_model_steps: null,
@@ -750,11 +750,11 @@ export function registerAgentInviteRoutes(app: Hono<any>, deps: AgentInvitesDeps
           ],
         },
         memoryHint:
-          "For CLIs that support sessions, keep a per-channel session map keyed by ORGOPS_WRAPPED_CHANNEL_ID.",
+          "For CLIs that support sessions, keep a per-channel session map keyed by NEST_WRAPPED_CHANNEL_ID.",
       },
       docs: {
         setupGuideUrl:
-          "https://github.com/camplight/orgops/blob/main/docs/WRAPPED_AGENT_INVITES.md",
+          "https://github.com/camplight/nest/blob/main/docs/WRAPPED_AGENT_INVITES.md",
       },
     });
   });

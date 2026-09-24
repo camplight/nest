@@ -146,7 +146,7 @@ export function IntegrationKeysScreen({
       <Card title={`API keys (${sortedKeys.length})`}>
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="text-xs text-slate-500">
-            Inbound credentials for embedding an OrgOps agent. The secret is shown once at create time.
+            Inbound credentials for embedding a Nest agent. The secret is shown once at create time.
           </div>
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={() => void onRefresh()}>
@@ -209,7 +209,7 @@ export function IntegrationKeysScreen({
           <div className="min-w-0 flex-1">
             <div className="text-xs text-slate-500">
               Copy this into a coding agent in the embedding app. It is filled with this
-              OrgOps API origin and the selected agent. The secret key is not included —
+              Nest API origin and the selected agent. The secret key is not included —
               paste the org_sk_ token separately.
             </div>
             <Label className="mt-3 block max-w-xs">

@@ -43,7 +43,7 @@ describe("shell tool env isolation", () => {
 
   it("does not leak host provider keys without injected secret", async () => {
     process.env.OPENAI_API_KEY = "host-key";
-    const workspace = mkdtempSync(join(tmpdir(), "orgops-shell-test-"));
+    const workspace = mkdtempSync(join(tmpdir(), "nest-shell-test-"));
     createdDirs.push(workspace);
     const ctx = createTestContext(workspace, {});
     const result = (await execute(ctx, "shell_run", {
@@ -56,7 +56,7 @@ describe("shell tool env isolation", () => {
 
   it("passes provider keys from injected env", async () => {
     process.env.OPENAI_API_KEY = "host-key";
-    const workspace = mkdtempSync(join(tmpdir(), "orgops-shell-test-"));
+    const workspace = mkdtempSync(join(tmpdir(), "nest-shell-test-"));
     createdDirs.push(workspace);
     const ctx = createTestContext(workspace, { OPENAI_API_KEY: "agent-key" });
     const result = (await execute(ctx, "shell_run", {

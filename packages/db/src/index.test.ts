@@ -1,23 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
 import { openDb, migrate } from "./index";
 
 describe("db", () => {
-  it("runs migrations and creates tables", () => {
-    const dir = join(
-      fileURLToPath(new URL(".", import.meta.url)),
-      "..",
-      "..",
-      "..",
-      "..",
-      "data",
-      "tmp-tests",
-    );
-    mkdirSync(dir, { recursive: true });
+  it("runs migrations and creates tables", ({ onTestFinished }) => {
+    const dir = mkdtempSync(join(tmpdir(), "nest-db-test-"));
     const dbPath = join(dir, "test.sqlite");
     const db = openDb(dbPath);
+    onTestFinished(() => {
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
+    });
     migrate(db);
     const row = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='events'")
@@ -35,7 +30,5 @@ describe("db", () => {
       )
       .get();
     expect(embedRow).toBeTruthy();
-    db.close();
-    rmSync(dbPath);
   });
 });

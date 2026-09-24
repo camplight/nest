@@ -17,7 +17,7 @@ This skill is Playwright + Lightpanda-only:
 ## Why this skill
 
 - Faster startup and lower memory footprint are useful for parallel agent workloads.
-- Keeps browser automation setup consistent across OrgOps agents.
+- Keeps browser automation setup consistent across Nest agents.
 - Eliminates browser fallback ambiguity.
 
 ## Fixed local endpoint and stack
@@ -30,7 +30,7 @@ This skill does not use secrets for endpoint discovery.
 
 ## Local-only setup (no cloud)
 
-Use this when you want OrgOps browser tasks to stay fully local:
+Use this when you want Nest browser tasks to stay fully local:
 
 1. Install Playwright Python package in a local venv.
 2. Run local Lightpanda CDP server.

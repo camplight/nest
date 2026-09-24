@@ -4,9 +4,9 @@ export function buildEmbedAgentPrompt(input: {
 }): string {
   const baseUrl = input.baseUrl.replace(/\/+$/, "");
   const agentName = input.agentName.trim() || "your-agent-name";
-  return `OrgOps embed API
+  return `Nest embed API
 ${baseUrl}
-Authorization: Bearer {ORGOPS_API_KEY}
+Authorization: Bearer {NEST_API_KEY}
 Agent: ${agentName}
 
 GET ${baseUrl}/v1/me
@@ -27,9 +27,9 @@ POST ${baseUrl}/v1/chat/completions
   "attachments"?: [{ "fileId": "…" }],
   "stream"?: false
 }
-conversation required (body or X-OrgOps-Conversation). No default.
+conversation required (body or X-Nest-Conversation). No default.
 attachments are optional. You can also pass image content parts with file URLs:
-{ "role":"user", "content":[{ "type":"text", "text":"..." }, { "type":"image_url", "image_url": { "url":"orgops://file/<fileId>" } }] }
+{ "role":"user", "content":[{ "type":"text", "text":"..." }, { "type":"image_url", "image_url": { "url":"nest://file/<fileId>" } }] }
 → OpenAI chat completion (choices[0].message.content). stream:true → SSE then data: [DONE]
 Errors: { "error": "…" }
 Timeout default 180s.

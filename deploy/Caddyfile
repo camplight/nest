@@ -1,0 +1,4 @@
+nest.camplight.net {
+    encode zstd gzip
+    reverse_proxy nest:8787
+}

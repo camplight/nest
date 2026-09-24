@@ -1,11 +1,11 @@
-# OrgOps Admin UI
+# Nest Admin UI
 
-React + Tailwind admin SPA for OrgOps.
+React + Tailwind admin SPA for Nest.
 
 ## Run
 
 ```bash
-npm run dev --workspace @orgops/admin-ui
+npm run dev --workspace @nest/admin-ui
 ```
 
 The UI proxies `/api` and `/ws` to the API server.
@@ -19,9 +19,9 @@ Runtime override (optional, useful without rebuilding):
 
 ```html
 <script>
-  window.__ORGOPS_UI_CONFIG__ = {
-    apiBaseUrl: "https://orgops.example.com/api",
-    wsBaseUrl: "wss://orgops.example.com/ws"
+  window.__NEST_UI_CONFIG__ = {
+    apiBaseUrl: "https://nest.example.com/api",
+    wsBaseUrl: "wss://nest.example.com/ws"
   };
 </script>
 ```

@@ -1,3 +1,4 @@
+import { ThemeToggle } from "../../../../nest-brand/Brand";
 type PageHeaderProps = {
   title: string;
   subtitle?: string;
@@ -9,14 +10,14 @@ type PageHeaderProps = {
 
 export function PageHeader({
   title,
-  subtitle = "OrgOps control plane",
+  subtitle = "Your workspace, at a glance",
   username,
   onOpenProfile,
   onLogout,
   onOpenMobileNav
 }: PageHeaderProps) {
   return (
-    <header className="border-b border-slate-800 p-3 md:p-6 flex flex-col sm:flex-row items-start justify-between gap-3 md:gap-4 min-w-0">
+    <header className="nest-page-header border-b border-slate-800 p-3 md:p-6 flex flex-col sm:flex-row items-start justify-between gap-3 md:gap-4 min-w-0">
       <div className="w-full sm:w-auto min-w-0">
         <div className="flex items-start justify-between gap-3 min-w-0">
           <h1 className="text-xl md:text-2xl font-semibold capitalize text-slate-100 min-w-0 truncate">
@@ -24,7 +25,7 @@ export function PageHeader({
           </h1>
           <button
             type="button"
-            className="rounded border border-emerald-300/50 bg-emerald-500 hover:bg-emerald-400 text-white px-3 py-1 text-xs font-semibold shadow-sm shrink-0 sm:hidden"
+            className="rounded border border-slate-700 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 text-xs font-semibold shadow-sm shrink-0 md:hidden"
             onClick={onOpenMobileNav}
           >
             Menu
@@ -33,6 +34,7 @@ export function PageHeader({
         <p className="text-slate-400 text-sm">{subtitle}</p>
       </div>
       <div className="flex w-full sm:w-auto items-center gap-2 flex-wrap sm:flex-nowrap min-w-0">
+        <ThemeToggle />
         <div className="text-xs md:text-sm text-slate-300 px-2 py-1 rounded bg-slate-900 border border-slate-800 truncate max-w-full sm:max-w-none">
           {username ?? "Unknown user"}
         </div>

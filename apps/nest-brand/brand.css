@@ -1,0 +1,128 @@
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/brand/inter-400.ttf) format('truetype');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(/brand/inter-500.ttf) format('truetype');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(/brand/inter-600.ttf) format('truetype');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(/brand/inter-700.ttf) format('truetype');
+}
+
+@font-face {
+  font-family: 'Unbounded';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/brand/unbounded-400.ttf) format('truetype');
+}
+
+@font-face {
+  font-family: 'Unbounded';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(/brand/unbounded-500.ttf) format('truetype');
+}
+
+@font-face {
+  font-family: 'Unbounded';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(/brand/unbounded-600.ttf) format('truetype');
+}
+
+:root {
+  --nest-forest: #021814;
+  --nest-mist: #eff0f0;
+  --nest-white: #fefefe;
+  --nest-lime: #5dbc20;
+  --nest-coral: #ff5c35;
+  --nest-bg: #eff0f0;
+  --nest-surface: #fefefe;
+  --nest-muted-surface: #e6ebe8;
+  --nest-text: #021814;
+  --nest-muted: #566760;
+  --nest-border: #d6dfda;
+  --nest-accent: #337b13;
+  color-scheme: light;
+  font-family: Inter, sans-serif;
+}
+:root[data-theme="dark"] {
+  --nest-bg: #021814;
+  --nest-surface: #112a23;
+  --nest-muted-surface: #1b352d;
+  --nest-text: #f0f4f1;
+  --nest-muted: #a9bbb2;
+  --nest-border: #2b463b;
+  --nest-accent: #91d767;
+  color-scheme: dark;
+}
+body { margin: 0; background: var(--nest-bg); color: var(--nest-text); font-family: Inter, sans-serif; }
+h1, h2, h3 { font-family: Unbounded, sans-serif; font-weight: 500; letter-spacing: -.035em; }
+button, input, select, textarea { font: inherit; }
+button { transition: background-color 160ms, color 160ms, transform 160ms; }
+button:enabled:active { transform: scale(.98); }
+:where(button, a, input, textarea, select):focus-visible { outline: 2px solid var(--nest-lime); outline-offset: 3px; }
+.nest-brand { display: flex; align-items: center; gap: 10px; color: inherit; }
+.nest-brand img { flex-shrink: 0; }
+.nest-wordmark { font-size: 30px; font-weight: 500; letter-spacing: -.065em; line-height: 1; }
+.nest-brand small { display: block; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; margin-top: 7px; opacity: .65; }
+.nest-theme-toggle { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--nest-border); border-radius: 6px; padding: 7px 10px; background: var(--nest-surface); color: var(--nest-muted); font-size: 12px; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+
+/* Instance identity is supplied at runtime; Nest remains the product signature. */
+:root {
+  --instance-primary: #021814;
+  --instance-accent: #5dbc20;
+  --instance-background: #eff0f0;
+  --instance-on-primary: #ffffff;
+  --nest-forest: var(--instance-primary);
+  --nest-lime: var(--instance-accent);
+  --nest-bg: var(--instance-background);
+  --nest-text: color-mix(in srgb, var(--instance-primary) 65%, #19131f);
+  --nest-muted: color-mix(in srgb, var(--instance-primary) 40%, #88828d);
+  --nest-border: color-mix(in srgb, var(--instance-primary) 12%, #ffffff);
+  --nest-muted-surface: color-mix(in srgb, var(--instance-background) 75%, #ffffff);
+  --nest-accent: color-mix(in srgb, var(--instance-accent) 65%, #24152d);
+}
+:root[data-theme="dark"] {
+  --nest-bg: color-mix(in srgb, var(--instance-primary) 30%, #121017);
+  --nest-surface: color-mix(in srgb, var(--instance-primary) 28%, #231f2a);
+  --nest-muted-surface: color-mix(in srgb, var(--instance-primary) 28%, #342e3d);
+  --nest-text: #f5f1f8;
+  --nest-muted: #bdb3c5;
+  --nest-border: color-mix(in srgb, var(--instance-primary) 30%, #504958);
+  --nest-accent: color-mix(in srgb, var(--instance-accent) 70%, white);
+}
+.instance-brand { flex-wrap: wrap; gap: 7px; min-width: 0; }
+.instance-brand .instance-logo { width: 100%; max-width: 172px; height: 45px; object-fit: contain; object-position: left center; }
+.instance-brand small { width: 100%; margin-top: 3px; letter-spacing: .13em; }
+.instance-wordmark { font-size: 28px; font-weight: 600; letter-spacing: -.045em; overflow-wrap: anywhere; }
+.powered-by-nest { display: flex; align-items: center; justify-content: flex-start; gap: 6px; white-space: nowrap; font-size: 12px; line-height: 1; color: inherit; }
+.powered-by-nest > span:first-child { opacity: .75; margin-right: 2px; }
+.powered-by-nest .nest-wordmark { font-size: 24px; color: inherit; }
+.powered-by-nest img { display: block; flex: 0 0 23px; }
+.instance-sidebar-footer { margin-top: auto; padding: 26px 8px 4px; }

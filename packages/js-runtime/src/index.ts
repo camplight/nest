@@ -23,7 +23,7 @@ export function createJsRuntimeSession(initialContext: Record<string, unknown> =
     context,
     async evaluate(code: string, options?: JsRuntimeEvaluateOptions): Promise<unknown> {
       const script = new vm.Script(`(async () => {\n${code}\n})()`, {
-        filename: options?.filename ?? "orgops-runtime",
+        filename: options?.filename ?? "nest-runtime",
         ...(mainContextLoader
           ? { importModuleDynamically: mainContextLoader }
           : {}),

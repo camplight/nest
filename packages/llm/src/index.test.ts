@@ -45,7 +45,7 @@ describe("llm", () => {
     mocks.stepCountIs.mockClear();
     mocks.createOpenAI.mockClear();
     mocks.createAnthropic.mockClear();
-    delete process.env.ORGOPS_LLM_STUB;
+    delete process.env.NEST_LLM_STUB;
     delete process.env.OPENAI_API_KEY;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
@@ -65,7 +65,7 @@ describe("llm", () => {
   });
 
   it("returns stub response when configured", async () => {
-    process.env.ORGOPS_LLM_STUB = "1";
+    process.env.NEST_LLM_STUB = "1";
     const result = await generate("openai:gpt-4o-mini", [
       { role: "user", content: "hello" },
     ]);
@@ -75,7 +75,7 @@ describe("llm", () => {
   });
 
   it("does not fall back to process provider keys when env is injected", async () => {
-    process.env.ORGOPS_LLM_STUB = "0";
+    process.env.NEST_LLM_STUB = "0";
     process.env.OPENAI_API_KEY = "host-key";
     await generate(
       "openai:gpt-4o-mini",
@@ -90,7 +90,7 @@ describe("llm", () => {
   });
 
   it("uses injected provider keys when provided", async () => {
-    process.env.ORGOPS_LLM_STUB = "0";
+    process.env.NEST_LLM_STUB = "0";
     process.env.OPENAI_API_KEY = "host-key";
     await generate(
       "openai:gpt-4o-mini",
@@ -105,14 +105,14 @@ describe("llm", () => {
   });
 
   it("rejects unsupported providers", async () => {
-    process.env.ORGOPS_LLM_STUB = "0";
+    process.env.NEST_LLM_STUB = "0";
     await expect(
       generate("foo:bar", [{ role: "user", content: "hello" }]),
     ).rejects.toThrow("Unsupported provider: foo");
   });
 
   it("passes a system-only prompt without an empty messages array", async () => {
-    process.env.ORGOPS_LLM_STUB = "0";
+    process.env.NEST_LLM_STUB = "0";
     await generate("openai:gpt-4o-mini", [
       { role: "system", content: "Only system guidance." },
     ]);
@@ -130,7 +130,7 @@ describe("llm", () => {
   });
 
   it("rejects empty prompts before calling the SDK", async () => {
-    process.env.ORGOPS_LLM_STUB = "0";
+    process.env.NEST_LLM_STUB = "0";
     await expect(generate("openai:gpt-4o-mini", [])).rejects.toThrow(
       "LLM generate requires at least one non-empty message.",
     );

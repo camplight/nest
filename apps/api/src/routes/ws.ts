@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 
-import type { EventBus } from "@orgops/event-bus";
+import type { EventBus } from "@nest/event-bus";
 import type { AccessControl, RequestUser } from "./access";
 
 type WsMessage =

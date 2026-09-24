@@ -1,5 +1,5 @@
 {
-  "name": "@orgops/skills",
+  "name": "@nest/skills",
   "version": "0.0.1",
   "type": "module",
   "main": "src/index.ts",
@@ -7,7 +7,7 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@orgops/schemas": "file:../schemas",
+    "@nest/schemas": "file:../schemas",
     "yaml": "^2.8.3"
   }
 }

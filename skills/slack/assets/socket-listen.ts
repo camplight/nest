@@ -1,6 +1,6 @@
 import {
-  emitOrgOpsEvent,
-  ensureOrgOpsChannelSubscription,
+  emitNestEvent,
+  ensureNestChannelSubscription,
   getAgent,
   getEnvForAgent,
   parseArgs,
@@ -29,7 +29,7 @@ type SlackIdentity = {
   botId?: string;
 };
 
-type OrgOpsEvent = {
+type NestEvent = {
   id: string;
   type: string;
   source?: string;
@@ -139,20 +139,20 @@ function describeSocketCloseEvent(event: CloseEvent) {
   };
 }
 
-function toOrgOpsChannelId(teamId: string, channelId: string) {
+function toNestChannelId(teamId: string, channelId: string) {
   return `slack:${teamId}:${channelId}`;
 }
 
-async function orgopsApiFetch(path: string, init?: RequestInit) {
-  const apiUrl = process.env.ORGOPS_API_URL ?? "http://localhost:8787";
-  const token = process.env.ORGOPS_RUNNER_TOKEN;
-  if (!token) throw new Error("Missing ORGOPS_RUNNER_TOKEN");
+async function nestApiFetch(path: string, init?: RequestInit) {
+  const apiUrl = (process.env.NEST_API_URL ?? process.env.ORGOPS_API_URL) ?? "http://localhost:8787";
+  const token = (process.env.NEST_RUNNER_TOKEN ?? process.env.ORGOPS_RUNNER_TOKEN);
+  if (!token) throw new Error("Missing NEST_RUNNER_TOKEN");
   const headers = new Headers(init?.headers);
-  headers.set("x-orgops-runner-token", token);
+  headers.set("x-nest-runner-token", token);
   const response = await fetch(`${apiUrl}${path}`, { ...init, headers });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`OrgOps API ${path} failed: ${response.status} ${text}`);
+    throw new Error(`Nest API ${path} failed: ${response.status} ${text}`);
   }
   return response;
 }
@@ -178,7 +178,7 @@ async function resolveBridgeTarget(input: {
   threadTs?: string;
   connection?: string;
 } | null> {
-  const channelsResponse = await orgopsApiFetch("/api/channels");
+  const channelsResponse = await nestApiFetch("/api/channels");
   const channels = (await channelsResponse.json()) as BridgeChannelInfo[];
   const bridge = channels.find((channel) => channel.id === input.channelId);
   if (!bridge) {
@@ -202,8 +202,8 @@ async function resolveBridgeTarget(input: {
   return null;
 }
 
-async function failOrgOpsEvent(eventId: string, error: unknown) {
-  await orgopsApiFetch(`/api/events/${encodeURIComponent(eventId)}/fail`, {
+async function failNestEvent(eventId: string, error: unknown) {
+  await nestApiFetch(`/api/events/${encodeURIComponent(eventId)}/fail`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ error: String(error) }),
@@ -245,7 +245,7 @@ async function emitChannelCommandSucceeded(input: {
   target?: Record<string, unknown>;
   result?: unknown;
 }) {
-  await emitOrgOpsEvent({
+  await emitNestEvent({
     type: "channel.command.succeeded",
     source: `channel:slack:${input.agent}`,
     channelId: input.sourceChannelId,
@@ -268,7 +268,7 @@ async function emitChannelCommandFailed(input: {
   error: unknown;
   details?: unknown;
 }) {
-  await emitOrgOpsEvent({
+  await emitNestEvent({
     type: "channel.command.failed",
     source: `channel:slack:${input.agent}`,
     channelId: input.sourceChannelId,
@@ -285,14 +285,14 @@ async function emitChannelCommandFailed(input: {
 async function handleOutboundMessageEvent(
   agent: string,
   botToken: string,
-  event: OrgOpsEvent,
+  event: NestEvent,
 ) {
   if (event.type !== "message.created") return;
   if (!event.source?.startsWith("agent:")) return;
   if (event.source === `channel:slack:${agent}`) return;
   const eventChannelId = String(event.channelId ?? "").trim();
   if (!eventChannelId) {
-    await failOrgOpsEvent(event.id, "message.created missing channelId");
+    await failNestEvent(event.id, "message.created missing channelId");
     return;
   }
   const payload = (event.payload ?? {}) as Record<string, unknown>;
@@ -319,14 +319,14 @@ async function handleOutboundMessageEvent(
     }
     await slackApi<Record<string, unknown>>(botToken, "chat.postMessage", requestBody);
   } catch (error) {
-    await failOrgOpsEvent(event.id, error);
+    await failNestEvent(event.id, error);
   }
 }
 
 async function handleOutboundCommandRequestedEvent(
   agent: string,
   botToken: string,
-  event: OrgOpsEvent,
+  event: NestEvent,
 ) {
   if (event.type !== "channel.command.requested") return;
   if (!event.source?.startsWith("agent:")) return;
@@ -334,7 +334,7 @@ async function handleOutboundCommandRequestedEvent(
   if (!sourceAgent || sourceAgent !== agent) return;
   const eventChannelId = String(event.channelId ?? "").trim();
   if (!eventChannelId) {
-    await failOrgOpsEvent(event.id, "channel.command.requested missing channelId");
+    await failNestEvent(event.id, "channel.command.requested missing channelId");
     return;
   }
 
@@ -351,7 +351,7 @@ async function handleOutboundCommandRequestedEvent(
       error: "Invalid channel.command.requested payload.command",
       details: payload,
     });
-    await failOrgOpsEvent(event.id, "invalid channel.command.requested payload.command");
+    await failNestEvent(event.id, "invalid channel.command.requested payload.command");
     return;
   }
 
@@ -425,14 +425,14 @@ async function handleOutboundCommandRequestedEvent(
       command,
       error,
     });
-    await failOrgOpsEvent(event.id, error);
+    await failNestEvent(event.id, error);
   }
 }
 
 async function listPendingOutboundEvents(
   agent: string,
   type: "message.created" | "channel.command.requested",
-): Promise<OrgOpsEvent[]> {
+): Promise<NestEvent[]> {
   const query = new URLSearchParams({
     agentName: agent,
     status: "PENDING",
@@ -440,8 +440,8 @@ async function listPendingOutboundEvents(
     sourcePrefix: "agent:",
     limit: "20",
   });
-  const response = await orgopsApiFetch(`/api/events?${query.toString()}`);
-  return (await response.json()) as OrgOpsEvent[];
+  const response = await nestApiFetch(`/api/events?${query.toString()}`);
+  return (await response.json()) as NestEvent[];
 }
 
 async function pollOutboundMessages(agent: string, botToken: string) {
@@ -457,7 +457,7 @@ async function pollOutboundMessages(agent: string, botToken: string) {
   }
 }
 
-async function emitSlackEventToOrgOps(
+async function emitSlackEventToNest(
   agent: string,
   input: {
     type: "slack.message.created" | "slack.app_mention";
@@ -466,9 +466,9 @@ async function emitSlackEventToOrgOps(
     payload: Record<string, unknown>;
   },
 ) {
-  const orgopsChannelId = toOrgOpsChannelId(input.teamId, input.slackChannelId);
-  const canonicalOrgOpsChannelId = await ensureOrgOpsChannelSubscription({
-    channelId: orgopsChannelId,
+  const nestChannelId = toNestChannelId(input.teamId, input.slackChannelId);
+  const canonicalNestChannelId = await ensureNestChannelSubscription({
+    channelId: nestChannelId,
     agentName: agent,
     metadata: {
       integrationBridge: {
@@ -486,10 +486,10 @@ async function emitSlackEventToOrgOps(
   const inboundAction = input.type === "slack.app_mention" ? "app_mention" : "message_created";
 
   // Generic channel event envelope for connector-agnostic routing.
-  await emitOrgOpsEvent({
+  await emitNestEvent({
     type: "channel.event.created",
     source: `channel:slack:${agent}`,
-    channelId: canonicalOrgOpsChannelId,
+    channelId: canonicalNestChannelId,
     payload: {
       channel: {
         provider: "slack",
@@ -545,7 +545,7 @@ async function handleSlackEventWithIdentity(
 
     if (!channelId || !userId || !ts) return;
 
-    await emitSlackEventToOrgOps(agent, {
+    await emitSlackEventToNest(agent, {
       type: "slack.message.created",
       teamId,
       slackChannelId: channelId,
@@ -569,7 +569,7 @@ async function handleSlackEventWithIdentity(
     const ts = String(inner.ts ?? "");
     const threadTs = inner.thread_ts ? String(inner.thread_ts) : undefined;
     if (!channelId || !userId || !ts) return;
-    await emitSlackEventToOrgOps(agent, {
+    await emitSlackEventToNest(agent, {
       type: "slack.app_mention",
       teamId,
       slackChannelId: channelId,
@@ -598,8 +598,8 @@ Options:
 
 Behavior:
   Starts Slack Socket Mode listener:
-  - Slack inbound messages/app_mentions -> OrgOps channel.event.created
-  - OrgOps outbound message.created + channel.command.requested (agent source) in slack bridge channels -> Slack Web API
+  - Slack inbound messages/app_mentions -> Nest channel.event.created
+  - Nest outbound message.created + channel.command.requested (agent source) in slack bridge channels -> Slack Web API
 `);
     return;
   }

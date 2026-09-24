@@ -8,13 +8,13 @@ import {
   isChannelKind,
   schema,
   type ChannelKind,
-  type OrgOpsDrizzleDb
-} from "@orgops/db";
+  type NestDrizzleDb
+} from "@nest/db";
 import { and, asc, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import type { AccessControl, RequestUser } from "./access";
 
 type CollabDeps = {
-  orm: OrgOpsDrizzleDb;
+  orm: NestDrizzleDb;
   jsonResponse: (c: any, data: unknown, status?: number) => Response;
   access: AccessControl;
 };

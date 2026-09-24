@@ -195,7 +195,7 @@ export async function generate(
       if (!(key in options.env)) delete env[key];
     }
   }
-  if (env.ORGOPS_LLM_STUB === "1") {
+  if ((env.NEST_LLM_STUB ?? env.ORGOPS_LLM_STUB) === "1") {
     return { text: "LLM stub response.", toolCalls: [], toolResults: [] };
   }
 

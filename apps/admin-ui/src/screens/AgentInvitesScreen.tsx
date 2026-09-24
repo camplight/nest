@@ -192,7 +192,7 @@ export function AgentInvitesScreen({
       <Card title={`Agent Invites (${sortedInvites.length})`}>
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="text-xs text-slate-500">
-            Invite external wrapped agents to self-bootstrap into OrgOps with scoped runner auth.
+            Invite external wrapped agents to self-bootstrap into Nest with scoped runner auth.
           </div>
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={() => void onRefresh()}>

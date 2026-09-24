@@ -11,7 +11,7 @@ export function SkillsScreen({ skills }: SkillsScreenProps) {
       <div className="space-y-2 text-sm">
         {skills.length === 0 && (
           <div className="text-slate-500">
-            No skills discovered. Check API process cwd or ORGOPS_PROJECT_ROOT.
+            No skills discovered. Check API process cwd or NEST_PROJECT_ROOT.
           </div>
         )}
         {skills.map((skill) => (

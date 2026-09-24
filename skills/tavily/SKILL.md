@@ -9,7 +9,7 @@ This skill provides a **portable** way to ensure the Tavily CLI (`tvly`) is inst
 
 ## Secrets / auth
 
-- Store the API key in OrgOps secrets under package `tavily` with key `TAVILY_API_KEY`.
+- Store the API key in Nest secrets under package `tavily` with key `TAVILY_API_KEY`.
 - The runner injects secrets as environment variables for tool execution.
 
 Recommended:

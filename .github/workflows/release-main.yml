@@ -1,4 +1,4 @@
-name: Build OpsCLI Release
+name: Build Nest CLI Release
 
 on:
   push:
@@ -10,21 +10,21 @@ permissions:
   contents: write
 
 jobs:
-  build-opscli:
+  build-nest:
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             node_version: 22
-            artifact_name: opscli-linux
+            artifact_name: nest-linux
           - os: macos-latest
             node_version: 22
-            artifact_name: opscli-macos
+            artifact_name: nest-macos
           # Pin Windows + Node for native module stability (better-sqlite3/node-gyp).
           - os: windows-2022
             node_version: 20
-            artifact_name: opscli-windows
+            artifact_name: nest-windows
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
@@ -39,18 +39,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build self-contained OpsCLI executable
-        run: npm run --workspace @orgops/opscli build:release
+      - name: Build self-contained Nest CLI executable
+        run: npm run --workspace @nest/cli build:release
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist/opscli-*
+          path: dist/nest-*
 
   publish-release:
     runs-on: ubuntu-latest
-    needs: build-opscli
+    needs: build-nest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -88,7 +88,7 @@ jobs:
 
           echo "previous_tag=${last_tag}" >> "${GITHUB_OUTPUT}"
           echo "release_tag=${release_tag}" >> "${GITHUB_OUTPUT}"
-          echo "release_title=OrgOps ${release_tag}" >> "${GITHUB_OUTPUT}"
+          echo "release_title=Nest ${release_tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Build release changelog notes
         id: changelog
@@ -134,9 +134,9 @@ jobs:
           set -euo pipefail
           ls -R dist
 
-          artifacts=(dist/*/opscli-*)
+          artifacts=(dist/*/nest-*)
           if [ "${#artifacts[@]}" -eq 0 ] || [ ! -e "${artifacts[0]}" ]; then
-            echo "No OpsCLI artifacts found under dist/*/opscli-*"
+            echo "No Nest CLI artifacts found under dist/*/nest-*"
             exit 1
           fi
 

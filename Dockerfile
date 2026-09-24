@@ -23,20 +23,20 @@ FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends haproxy tini curl \
+  && apt-get install -y --no-install-recommends haproxy tini curl ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app /app
-COPY docker/entrypoint.sh /usr/local/bin/orgops-entrypoint
+COPY docker/entrypoint.sh /usr/local/bin/nest-entrypoint
 
-RUN chmod +x /usr/local/bin/orgops-entrypoint
+RUN chmod +x /usr/local/bin/nest-entrypoint
 
-ENV ORGOPS_COMPONENTS=api,runner,user-ui
+ENV NEST_COMPONENTS=api,runner,user-ui
 EXPOSE 8787
 
-VOLUME ["/app/.orgops-data", "/app/files"]
+VOLUME ["/app/.nest-data", "/app/files"]
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
   CMD curl -fsS http://127.0.0.1:8787/health || exit 1
 
-ENTRYPOINT ["tini", "--", "/usr/local/bin/orgops-entrypoint"]
+ENTRYPOINT ["tini", "--", "/usr/local/bin/nest-entrypoint"]

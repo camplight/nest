@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import type { SkillRoot } from "@orgops/skills";
+import type { SkillRoot } from "@nest/skills";
 
 type SkillsDeps = {
   SKILL_ROOT: SkillRoot;

@@ -59,3 +59,5 @@ export const AuthLoginSchema = z.object({
 export type EventInput = z.infer<typeof EventSchema>;
 export type AgentInput = z.infer<typeof AgentSchema>;
 export type ModelInput = z.infer<typeof ModelSchema>;
+
+export { BrandingSchema, DEFAULT_BRANDING, type Branding } from "./branding";

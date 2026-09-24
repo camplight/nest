@@ -91,7 +91,7 @@ const agentsUpdateSchema = z
 export const agentsToolDefs: ToolDef[] = [
   [
     "agents_create",
-    "Create an OrgOps agent. Defaults workspacePath to .orgops-data/workspaces/<name>, modelId to this agent's model for CLASSIC agents, and assignedRunnerId to this agent's runner when available. Optionally join the new agent to a channel.",
+    "Create a Nest agent. Defaults workspacePath to .nest-data/workspaces/<name>, modelId to this agent's model for CLASSIC agents, and assignedRunnerId to this agent's runner when available. Optionally join the new agent to a channel.",
     agentsCreateSchema,
   ],
   [
@@ -101,7 +101,7 @@ export const agentsToolDefs: ToolDef[] = [
   ],
   [
     "agents_update",
-    "Update an existing OrgOps agent via the agent API. Use wrappedConfig for object input or wrappedConfigJson for a JSON string when patching wrapped runtime config.",
+    "Update an existing Nest agent via the agent API. Use wrappedConfig for object input or wrappedConfigJson for a JSON string when patching wrapped runtime config.",
     agentsUpdateSchema,
   ],
 ];
@@ -258,7 +258,7 @@ export async function execute(
     const modelId =
       trimOptional(parsed.modelId) ?? (mode === "WRAPPED" ? "wrapped:none" : ctx.agent.modelId);
     const workspacePath =
-      trimOptional(parsed.workspacePath) ?? `.orgops-data/workspaces/${name}`;
+      trimOptional(parsed.workspacePath) ?? `.nest-data/workspaces/${name}`;
     const assignedRunnerId =
       parsed.assignedRunnerId !== undefined
         ? trimOptional(parsed.assignedRunnerId) ?? ""

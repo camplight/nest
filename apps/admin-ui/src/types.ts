@@ -248,4 +248,5 @@ export type Screen =
   | "api-keys"
   | "agent-invites"
   | "humans"
+  | "branding"
   | "profile";

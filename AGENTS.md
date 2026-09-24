@@ -1,6 +1,6 @@
 # What this is
 
-OrgOps is a self-hosted control plane for running teams of AI agents across multiple machines. Humans and agents collaborate through an append-only, typed event log persisted in SQLite; agents execute shell/filesystem/process tools on a specific assigned host and stream results back.
+Nest is a self-hosted control plane for running teams of AI agents across multiple machines. Humans and agents collaborate through an append-only, typed event log persisted in SQLite; agents execute shell/filesystem/process tools on a specific assigned host and stream results back.
 
 `docs/SPEC.md` describes the current implementation in detail and is kept in sync with the code — read it before making architectural changes, and update it when you change the API surface, event contract, or runtime behavior. `PROJECT_OVERVIEW.md` covers motivation and trade-offs.
 
@@ -29,11 +29,11 @@ npx vitest run apps/agent-runner/src/turn-executor.test.ts
 npx vitest run apps/api/src/app.test.ts -t "creates an agent"
 ```
 
-`apps/opscli` uses the Node test runner, not vitest, and is **not** covered by root `npm test`:
+`apps/cli` uses the Node test runner, not vitest, and is **not** covered by root `npm test`:
 
 ```bash
-npm run --workspace @orgops/opscli test
-npm run --workspace @orgops/opscli start
+npm run --workspace @nest/cli test
+npm run --workspace @nest/cli start
 ```
 
 Scenario e2e checks run against already-running services:
@@ -42,28 +42,29 @@ Scenario e2e checks run against already-running services:
 npm run scenario:test:countdown
 ```
 
-Set `ORGOPS_LLM_STUB=1` to work without provider API keys. Default login is `ORGOPS_ADMIN_USER`/`ORGOPS_ADMIN_PASS` (`admin`/`admin`); the admin row is only seeded when no humans exist.
+Set `NEST_LLM_STUB=1` to work without provider API keys. Default login is `NEST_ADMIN_USER`/`NEST_ADMIN_PASS` (`admin`/`admin`); the admin row is only seeded when no humans exist.
 
 Backend apps run TypeScript directly via `tsx` (`node --import tsx`). There is no compile step and no emitted `dist/` — `lint` is the only type check.
 
 ## Architecture
 
-### Four runtime components
+### Runtime components
 
 - **`apps/api`** — Hono HTTP + WebSocket server. Sole owner of the SQLite DB. Runs migrations at startup.
 - **`apps/agent-runner`** — host-local supervisor. Polls the API once per second, runs agent turns, executes tools, supervises processes.
-- **`apps/ui`** — React + Tailwind + Vite operator surface. Dev-proxies `/api` and `/ws` to :8787; production uses same-origin paths, so UI and API must sit behind one origin.
-- **`apps/opscli`** — standalone bootstrap/break-glass CLI agent. Ships as a self-contained binary from `.github/workflows/release-main.yml` with a repo source snapshot and the docs bundled into its system prompt.
+- **`apps/admin-ui`** — React + Tailwind + Vite operator surface. Dev-proxies `/api` and `/ws` to :8787; production uses same-origin paths, so UI and API must sit behind one origin.
+- **`apps/user-ui`** — lightweight React messaging UI for human collaboration with agents.
+- **`apps/cli`** — standalone bootstrap/break-glass CLI agent. Ships as a self-contained binary from `.github/workflows/release-main.yml` with docs and build metadata bundled for its chat context.
 
-`apps/site` is a separate Astro marketing site, unrelated to the runtime.
+`apps/nest-brand` contains branding components and styles shared by both UIs.
 
 ### Event flow
 
 Everything is an event. `insertEvent()` in `apps/api/src/app.ts` is the single write path: it assigns a strictly-monotonic `created_at`, writes the `events` row, creates a `PENDING` row in `event_receipts` for **every agent subscribed to the channel**, then publishes to WebSocket topics (`org:events`, `channel:<id>`, and `agent:<name>` for agent-sourced events).
 
-Runners consume via per-agent receipts (at-least-once). `deliverAt` schedules future delivery; `idempotencyKey` dedupes; repeated `/api/events/:id/fail` escalates to dead-letter (`event.deadlettered`) at `ORGOPS_EVENT_MAX_FAILURES`.
+Runners consume via per-agent receipts (at-least-once). `deliverAt` schedules future delivery; `idempotencyKey` dedupes; repeated `/api/events/:id/fail` escalates to dead-letter (`event.deadlettered`) at `NEST_EVENT_MAX_FAILURES`.
 
-**Event validation is dynamic.** The registry is composed at request time from `packages/schemas/src/event-shapes.ts` plus any `skills/*/event-shapes.ts` belonging to installed skills, cached for `ORGOPS_EVENT_SHAPES_CACHE_TTL_MS`. Adding a new event type means adding a shape there — `POST /api/events` rejects unknown/invalid payloads.
+**Event validation is dynamic.** The registry is composed at request time from `packages/schemas/src/event-shapes.ts` plus any `skills/*/event-shapes.ts` belonging to installed skills, cached for `NEST_EVENT_SHAPES_CACHE_TTL_MS`. Adding a new event type means adding a shape there — `POST /api/events` rejects unknown/invalid payloads.
 
 **Not every event wakes an agent.** `apps/agent-runner/src/event-routing.ts` filters out whole prefixes as bookkeeping: `agent.control.`, `agent.turn.`, `wrapper.`, `audit.`, `telemetry.`, `tool.`, plus `noop`, self-authored events, channel-less events, and events whose `payload.targetAgentName` names someone else. When adding an event type, decide deliberately which side of that filter it belongs on.
 
@@ -77,7 +78,7 @@ Pending events are grouped by channel and processed as **one batch per `(agent, 
 
 - `CLASSIC` — LLM tool-calling loop; model output is coerced into valid events, with a fallback `message.created` if it doesn't produce one.
 - `RLM_REPL` — recursive REPL: the model emits one JS snippet per step into a child-process VM, terminating with `done(result)`. See `rlm.ts` / `rlm-process.ts`.
-- `WRAPPED` — an OrgOps-owned lifecycle record whose turns are delegated to an **external** runtime (OpenClaw, Cursor, any CLI) described by `wrapped_config_json`. Wrapped agents deliberately bypass OrgOps memory, prompt composition, skills, model calls, and filesystem allowlisting — the external runtime owns all of that. `soul_path`/`soul_contents` are *not* auto-injected; whoever creates the agent must translate them into the harness config.
+- `WRAPPED` — an Nest-owned lifecycle record whose turns are delegated to an **external** runtime (OpenClaw, Cursor, any CLI) described by `wrapped_config_json`. Wrapped agents deliberately bypass Nest memory, prompt composition, skills, model calls, and filesystem allowlisting — the external runtime owns all of that. `soul_path`/`soul_contents` are *not* auto-injected; whoever creates the agent must translate them into the harness config.
 
 To support a new external runtime (SDK, HTTP, daemon, MCP), add a harness module under `apps/agent-runner/src/wrapper-harness/` implementing `canHandle`/`ensureReady`/`runTurn` and register it in `registry.ts` — do not grow `wrapped-runtime.ts`. Note that `source`, `setup.command`, and `runtime.command` in a wrapped config are arbitrary host code execution; treat GitHub-derived recipes as privileged.
 
@@ -97,7 +98,7 @@ Hand-written, numbered SQL migrations in `packages/db/migrations/` (`NNN_name.sq
 
 `apps/api/src/app.ts` is the composition root: it opens the DB, migrates, seeds admin, defines shared helpers (`insertEvent`, `jsonResponse`, `requireAuth`, `requireRunnerAuth`, password hashing), then calls `registerXRoutes(app, deps)` for each route module. Route modules receive everything through that deps object rather than importing the DB — preserve that when adding routes.
 
-Auth has two paths: human session cookie (`orgops_session`, in-memory `sessions` map, so sessions die on restart) and the `x-orgops-runner-token` header, which satisfies `requireAuth` as the pseudo-user `runner`. `routes/access.ts` layers public/private visibility on channels and agents; the `runner` user bypasses all of it.
+Auth has two paths: human session cookie (`nest_session`, in-memory `sessions` map, so sessions die on restart) and the `x-nest-runner-token` header, which satisfies `requireAuth` as the pseudo-user `runner`. `routes/access.ts` layers public/private visibility on channels and agents; the `runner` user bypasses all of it.
 
 ### Skills
 
@@ -109,4 +110,4 @@ Auth has two paths: human session cookie (`orgops_session`, in-memory `sessions`
 - Tests are colocated `*.test.ts`. `apps/api/src/app.test.ts` and `apps/agent-runner/src/runner.test.ts` are large and serve as the de facto behavioral spec — check them before changing event or turn semantics.
 - Conventional commits (`feat:`, `fix:`, `chore:`, `docs:`, with a scope), as in existing history.
 - `CHANGELOG.md` is intentionally not maintained by hand; release notes are generated per release tag by CI.
-- Runtime state lives in gitignored `.orgops-data/` (SQLite, workspaces, souls) and `files/` (uploads).
+- Runtime state lives in gitignored `.nest-data/` (SQLite, workspaces, souls) and `files/` (uploads).

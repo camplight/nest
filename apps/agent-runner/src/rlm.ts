@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { inspect } from "node:util";
-import { generate, type LlmMessage, type LlmTool } from "@orgops/llm";
-import { createJsRuntimeSession, type JsRuntimeSession } from "@orgops/js-runtime";
+import { generate, type LlmMessage, type LlmTool } from "@nest/llm";
+import { createJsRuntimeSession, type JsRuntimeSession } from "@nest/js-runtime";
 import { createRunnerTools, executeTool, type ExecuteContext } from "./tools";
 import type { Agent, Event } from "./types";
 import { pullInjectedEventMessages } from "./channel-injection";
@@ -24,31 +24,31 @@ function readPositiveIntEnv(
 }
 
 const RLM_MAX_STEPS = readPositiveIntEnv(
-  process.env.ORGOPS_RLM_MAX_STEPS,
+  (process.env.NEST_RLM_MAX_STEPS ?? process.env.ORGOPS_RLM_MAX_STEPS),
   DEFAULT_MAX_STEPS,
 );
 const RLM_MAX_OUTPUT_CHARS = readPositiveIntEnv(
-  process.env.ORGOPS_RLM_MAX_OUTPUT_CHARS,
+  (process.env.NEST_RLM_MAX_OUTPUT_CHARS ?? process.env.ORGOPS_RLM_MAX_OUTPUT_CHARS),
   DEFAULT_MAX_OUTPUT_CHARS,
 );
 const RLM_MAX_INPUT_CHARS = readPositiveIntEnv(
-  process.env.ORGOPS_RLM_MAX_INPUT_CHARS,
+  (process.env.NEST_RLM_MAX_INPUT_CHARS ?? process.env.ORGOPS_RLM_MAX_INPUT_CHARS),
   DEFAULT_MAX_INPUT_CHARS,
 );
 const RLM_PROMPT_PREVIEW_MAX_CHARS = readPositiveIntEnv(
-  process.env.ORGOPS_RLM_PROMPT_PREVIEW_MAX_CHARS,
+  (process.env.NEST_RLM_PROMPT_PREVIEW_MAX_CHARS ?? process.env.ORGOPS_RLM_PROMPT_PREVIEW_MAX_CHARS),
   RLM_MAX_INPUT_CHARS,
 );
 const RLM_EVAL_TIMEOUT_MS = readPositiveIntEnv(
-  process.env.ORGOPS_RLM_EVAL_TIMEOUT_MS,
+  (process.env.NEST_RLM_EVAL_TIMEOUT_MS ?? process.env.ORGOPS_RLM_EVAL_TIMEOUT_MS),
   DEFAULT_EVAL_TIMEOUT_MS,
 );
 const RLM_MAX_SUBAGENT_DEPTH = readPositiveIntEnv(
-  process.env.ORGOPS_RLM_MAX_SUBAGENT_DEPTH,
+  (process.env.NEST_RLM_MAX_SUBAGENT_DEPTH ?? process.env.ORGOPS_RLM_MAX_SUBAGENT_DEPTH),
   DEFAULT_MAX_SUBAGENT_DEPTH,
 );
 const RLM_MAX_SUBAGENTS_PER_EVENT = readPositiveIntEnv(
-  process.env.ORGOPS_RLM_MAX_SUBAGENTS_PER_EVENT,
+  (process.env.NEST_RLM_MAX_SUBAGENTS_PER_EVENT ?? process.env.ORGOPS_RLM_MAX_SUBAGENTS_PER_EVENT),
   DEFAULT_MAX_SUBAGENTS_PER_EVENT,
 );
 

@@ -5,7 +5,7 @@ import {
   CHANNEL_KINDS,
   CHANNEL_VISIBILITY,
   schema,
-} from "@orgops/db";
+} from "@nest/db";
 import {
   findActiveIntegrationKey,
   parseBearerToken,
@@ -103,8 +103,8 @@ function normalizeAttachment(input: unknown): RequestedAttachment | null {
 function parseFileIdFromUrl(rawUrl: string): string | null {
   const trimmed = rawUrl.trim();
   if (!trimmed) return null;
-  const orgopsScheme = trimmed.match(/^orgops:\/\/file\/([^/?#]+)$/i);
-  if (orgopsScheme?.[1]) return decodeURIComponent(orgopsScheme[1]);
+  const nestScheme = trimmed.match(/^(?:nest|orgops):\/\/file\/([^/?#]+)$/i);
+  if (nestScheme?.[1]) return decodeURIComponent(nestScheme[1]);
   const relativeMatch = trimmed.match(/\/api\/files\/([^/?#]+)/);
   if (relativeMatch?.[1]) return decodeURIComponent(relativeMatch[1]);
   try {
@@ -283,7 +283,7 @@ function findOwnedConversation(
 }
 
 function embedTurnTimeoutMs() {
-  const raw = Number(process.env.ORGOPS_EMBED_TURN_TIMEOUT_MS ?? 180000);
+  const raw = Number((process.env.NEST_EMBED_TURN_TIMEOUT_MS ?? process.env.ORGOPS_EMBED_TURN_TIMEOUT_MS) ?? 180000);
   return Number.isFinite(raw) && raw > 0 ? raw : 180000;
 }
 
@@ -380,8 +380,8 @@ export function registerEmbedRoutes(app: Hono<any>, deps: EmbedDeps) {
     const body = await c.req.json().catch(() => ({}));
     const conversationId =
       (typeof body.conversation === "string" && body.conversation.trim()) ||
-      (typeof c.req.header("x-orgops-conversation") === "string" &&
-        c.req.header("x-orgops-conversation")?.trim()) ||
+      (typeof (c.req.header("x-nest-conversation") ?? c.req.header("x-orgops-conversation")) === "string" &&
+        (c.req.header("x-nest-conversation") ?? c.req.header("x-orgops-conversation"))?.trim()) ||
       "";
     if (!conversationId) {
       return jsonResponse(c, { error: "conversation is required" }, 400);

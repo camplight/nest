@@ -4,12 +4,12 @@ description: "Slack skill: per-agent Slack skill + Socket Mode listener server. 
 ---
 # Slack skill
 
-This skill lets OrgOps agents act as **Slack apps** using **per-agent tokens** stored in OrgOps **secrets**.
+This skill lets Nest agents act as **Slack apps** using **per-agent tokens** stored in Nest **secrets**.
 
 It provides:
 
-- A **Socket Mode** listener (one process per agent) that converts Slack events into OrgOps `channel.event.created` events.
-- Outbound Slack delivery by consuming OrgOps events in bridged channels.
+- A **Socket Mode** listener (one process per agent) that converts Slack events into Nest `channel.event.created` events.
+- Outbound Slack delivery by consuming Nest events in bridged channels.
 - Typed event-shape validators (`event-shapes.ts`) consumed by runner/API validation.
 
 ## Secrets
@@ -60,7 +60,7 @@ Agent operating rule:
 
 ## Outbound via Events API (bridged channel only)
 
-For agent-to-Slack delivery through a bridged OrgOps channel, emit:
+For agent-to-Slack delivery through a bridged Nest channel, emit:
 
 - `message.created` for common text replies
 - `channel.command.requested` for explicit Slack Web API commands
@@ -72,9 +72,9 @@ Preferred tool call from agents:
   "tool": "events_emit",
   "args": {
     "type": "message.created",
-    "channelId": "<orgops-bridge-channel-id>",
+    "channelId": "<nest-bridge-channel-id>",
     "payload": {
-      "text": "hello from OrgOps"
+      "text": "hello from Nest"
     }
   }
 }
@@ -87,7 +87,7 @@ Reply in a Slack thread (tool call example):
   "tool": "events_emit",
   "args": {
     "type": "message.created",
-    "channelId": "<orgops-bridge-channel-id>",
+    "channelId": "<nest-bridge-channel-id>",
     "payload": {
       "text": "Thanks — here are examples.",
       "threadTs": "1710000000.000100"
@@ -103,7 +103,7 @@ Explicit command example (`channel.command.requested`):
   "tool": "events_emit",
   "args": {
     "type": "channel.command.requested",
-    "channelId": "<orgops-bridge-channel-id>",
+    "channelId": "<nest-bridge-channel-id>",
     "payload": {
       "channel": {
         "provider": "slack",
@@ -140,20 +140,20 @@ node --import tsx skills/slack/assets/socket-listen.ts -- --agent worker1
 
 Optional routing granularity:
 
-- `--route-mode channel` (default): one OrgOps channel per Slack team+channel
-- `--route-mode thread`: one OrgOps channel per Slack thread
-- `--route-mode person`: one OrgOps channel per sender in a Slack channel
+- `--route-mode channel` (default): one Nest channel per Slack team+channel
+- `--route-mode thread`: one Nest channel per Slack thread
+- `--route-mode person`: one Nest channel per sender in a Slack channel
 
-This emits OrgOps `channel.event.created` events via the Events API.
+This emits Nest `channel.event.created` events via the Events API.
 
-When emitting, the listener auto-ensures an OrgOps channel exists and subscribes
+When emitting, the listener auto-ensures a Nest channel exists and subscribes
 the target agent, so incoming Slack events are routable to the runner without manual setup.
 Channel metadata includes Slack routing info (`provider/teamId/channelId`, and optional thread/person).
 
 Notes:
 
 - v1 keeps lifecycle management simple: you run this as an explicit sidecar process.
-- v2 can integrate with OrgOps process/websocket infra for supervision.
+- v2 can integrate with Nest process/websocket infra for supervision.
 - Listener behavior:
-  - Slack inbound -> OrgOps `channel.event.created` (`source: channel:slack:<agent>`)
-  - OrgOps outbound `message.created` and `channel.command.requested` (agent source in slack bridge channels) -> Slack Web API
+  - Slack inbound -> Nest `channel.event.created` (`source: channel:slack:<agent>`)
+  - Nest outbound `message.created` and `channel.command.requested` (agent source in slack bridge channels) -> Slack Web API

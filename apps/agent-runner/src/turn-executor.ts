@@ -7,16 +7,16 @@ import {
   type LlmMessage,
   type LlmMessageContent,
   type LlmUsage,
-} from "@orgops/llm";
+} from "@nest/llm";
 import { getModel } from "models-dev-db";
-import { listSkills, loadSkillEventShapes } from "@orgops/skills";
+import { listSkills, loadSkillEventShapes } from "@nest/skills";
 import {
   type EventValidationResult,
   type EventTypeSummary,
   getCoreEventShapes,
   serializeEventShapes,
   validateEventAgainstShapes,
-} from "@orgops/schemas";
+} from "@nest/schemas";
 import { createRunnerTools, executeTool } from "./tools";
 import { pullInjectedEventMessages } from "./channel-injection";
 import { shouldHandleEventForAgent } from "./event-routing";
@@ -107,7 +107,7 @@ function readPositiveIntEnv(value: string | undefined, fallback: number): number
 }
 
 const MAX_LLM_MESSAGE_CHARS = readPositiveIntEnv(
-  process.env.ORGOPS_MAX_LLM_MESSAGE_CHARS,
+  (process.env.NEST_MAX_LLM_MESSAGE_CHARS ?? process.env.ORGOPS_MAX_LLM_MESSAGE_CHARS),
   DEFAULT_MAX_LLM_MESSAGE_CHARS,
 );
 
@@ -390,7 +390,7 @@ export function resolveAgentLlmCallTimeoutMs(agent: Agent): number {
     return Math.floor(configured);
   }
   return readPositiveIntEnv(
-    process.env.ORGOPS_LLM_CALL_TIMEOUT_MS,
+    (process.env.NEST_LLM_CALL_TIMEOUT_MS ?? process.env.ORGOPS_LLM_CALL_TIMEOUT_MS),
     DEFAULT_LLM_CALL_TIMEOUT_MS,
   );
 }
@@ -601,7 +601,7 @@ export function createTurnExecutor(input: CreateTurnExecutorInput) {
       agent.systemInstructions,
       runnerGuidance,
       `Your own workspace:\n${agent.workspacePath}\n`,
-      `OrgOps system path:\n${input.projectRoot}\n`,
+      `Nest system path:\n${input.projectRoot}\n`,
       `Current channel context:\n${JSON.stringify(
         channelRecord ?? { id: channelId, unresolved: true },
         null,

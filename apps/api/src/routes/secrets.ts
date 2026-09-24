@@ -2,13 +2,13 @@ import type { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import { Buffer } from "node:buffer";
 
-import { decryptSecret, encryptSecret, parseMasterKey } from "@orgops/crypto";
-import { schema, type OrgOpsDrizzleDb } from "@orgops/db";
+import { decryptSecret, encryptSecret, parseMasterKey } from "@nest/crypto";
+import { schema, type NestDrizzleDb } from "@nest/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { AccessControl, RequestUser } from "./access";
 
 type SecretsDeps = {
-  orm: OrgOpsDrizzleDb;
+  orm: NestDrizzleDb;
   jsonResponse: (c: any, data: unknown, status?: number) => Response;
   requireAuth: (c: any, next: any) => Response | Promise<Response | void> | void;
   requireRunnerAuth: (c: any, next: any) => Response | Promise<Response | void> | void;
@@ -291,7 +291,7 @@ export function registerSecretsRoutes(app: Hono<any>, deps: SecretsDeps) {
       return jsonResponse(c, { error: "Forbidden" }, 403);
     }
 
-    const masterKey = parseMasterKey(process.env.ORGOPS_MASTER_KEY ?? "");
+    const masterKey = parseMasterKey((process.env.NEST_MASTER_KEY ?? process.env.ORGOPS_MASTER_KEY) ?? "");
     const ciphertext = encryptSecret(masterKey, String(value));
     const existing = orm
       .select({ id: schema.secrets.id })
@@ -415,13 +415,13 @@ export function registerSecretsRoutes(app: Hono<any>, deps: SecretsDeps) {
   });
 
   app.get("/api/secrets/env", requireRunnerAuth, async (c) => {
-    const masterKey = parseMasterKey(process.env.ORGOPS_MASTER_KEY ?? "");
-    const requestedByAgent = (c.req.header("x-orgops-agent-name") ?? "").trim();
-    const requestedChannelId = (c.req.header("x-orgops-channel-id") ?? "").trim();
+    const masterKey = parseMasterKey((process.env.NEST_MASTER_KEY ?? process.env.ORGOPS_MASTER_KEY) ?? "");
+    const requestedByAgent = ((c.req.header("x-nest-agent-name") ?? c.req.header("x-orgops-agent-name")) ?? "").trim();
+    const requestedChannelId = ((c.req.header("x-nest-channel-id") ?? c.req.header("x-orgops-channel-id")) ?? "").trim();
     const user = (c as any).get("user") as RequestUser | undefined;
 
     if (!requestedByAgent) {
-      return jsonResponse(c, { error: "x-orgops-agent-name is required" }, 400);
+      return jsonResponse(c, { error: "x-nest-agent-name is required" }, 400);
     }
     if (!access.canManageAgent(user, requestedByAgent)) {
       return jsonResponse(c, { error: "Forbidden" }, 403);

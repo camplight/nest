@@ -9,7 +9,7 @@ export type EncryptedEnvelope = {
 export function parseMasterKey(base64Key: string): Buffer {
   const key = Buffer.from(base64Key, "base64");
   if (key.length !== 32) {
-    throw new Error("ORGOPS_MASTER_KEY must be 32 bytes base64");
+    throw new Error("NEST_MASTER_KEY must be 32 bytes base64");
   }
   return key;
 }

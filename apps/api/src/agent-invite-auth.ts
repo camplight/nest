@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
-import { schema, type OrgOpsDrizzleDb } from "@orgops/db";
+import { schema, type NestDrizzleDb } from "@nest/db";
 
 const AGENT_INVITE_PREFIX = "org_inv_";
 const RUNNER_TOKEN_PREFIX = "org_rt_";
@@ -67,7 +67,7 @@ export function generateRunnerScopedToken() {
 }
 
 export function findActiveInviteByToken(
-  orm: OrgOpsDrizzleDb,
+  orm: NestDrizzleDb,
   token: string,
   now = Date.now(),
 ): AgentInviteRow | undefined {
@@ -92,7 +92,7 @@ export function findActiveInviteByToken(
 }
 
 export function findActiveRunnerTokenByToken(
-  orm: OrgOpsDrizzleDb,
+  orm: NestDrizzleDb,
   token: string,
   now = Date.now(),
 ): RunnerTokenRow | undefined {
@@ -116,7 +116,7 @@ export function findActiveRunnerTokenByToken(
 }
 
 export function touchRunnerTokenLastUsed(
-  orm: OrgOpsDrizzleDb,
+  orm: NestDrizzleDb,
   id: string,
   at = Date.now(),
 ) {

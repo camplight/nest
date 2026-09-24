@@ -9,13 +9,13 @@ import {
 import { basename, dirname, extname, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 
-import { AGENT_VISIBILITY, isAgentVisibility, schema, type OrgOpsDrizzleDb } from "@orgops/db";
+import { AGENT_VISIBILITY, isAgentVisibility, schema, type NestDrizzleDb } from "@nest/db";
 import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
-import type { EventBus } from "@orgops/event-bus";
+import type { EventBus } from "@nest/event-bus";
 import type { AccessControl, RequestUser } from "./access";
 
 type AgentsDeps = {
-  orm: OrgOpsDrizzleDb;
+  orm: NestDrizzleDb;
   bus: EventBus<any>;
   PROJECT_ROOT: string;
   jsonResponse: (c: any, data: unknown, status?: number) => Response;

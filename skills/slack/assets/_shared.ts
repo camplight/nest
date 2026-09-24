@@ -60,48 +60,48 @@ export async function slackApi<T>(botToken: string, method: string, body: Record
   return json as T;
 }
 
-export async function emitOrgOpsEvent(input: {
+export async function emitNestEvent(input: {
   type: string;
   source: string;
   channelId: string;
   payload: Record<string, unknown>;
 }) {
-  const apiUrl = process.env.ORGOPS_API_URL ?? "http://localhost:8787";
-  const token = process.env.ORGOPS_RUNNER_TOKEN;
-  if (!token) throw new Error("Missing ORGOPS_RUNNER_TOKEN");
+  const apiUrl = (process.env.NEST_API_URL ?? process.env.ORGOPS_API_URL) ?? "http://localhost:8787";
+  const token = (process.env.NEST_RUNNER_TOKEN ?? process.env.ORGOPS_RUNNER_TOKEN);
+  if (!token) throw new Error("Missing NEST_RUNNER_TOKEN");
 
   const res = await fetch(`${apiUrl}/api/events`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-orgops-runner-token": token
+      "x-nest-runner-token": token
     },
     body: JSON.stringify(input)
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Failed to emit orgops event: ${res.status} ${text}`);
+    throw new Error(`Failed to emit nest event: ${res.status} ${text}`);
   }
   return (await res.json().catch(() => ({}))) as unknown;
 }
 
-export async function ensureOrgOpsChannelSubscription(input: {
+export async function ensureNestChannelSubscription(input: {
   channelId: string;
   agentName: string;
   metadata?: Record<string, unknown> | null;
 }) {
-  const apiUrl = process.env.ORGOPS_API_URL ?? "http://localhost:8787";
-  const token = process.env.ORGOPS_RUNNER_TOKEN;
-  if (!token) throw new Error("Missing ORGOPS_RUNNER_TOKEN");
+  const apiUrl = (process.env.NEST_API_URL ?? process.env.ORGOPS_API_URL) ?? "http://localhost:8787";
+  const token = (process.env.NEST_RUNNER_TOKEN ?? process.env.ORGOPS_RUNNER_TOKEN);
+  if (!token) throw new Error("Missing NEST_RUNNER_TOKEN");
 
   const listRes = await fetch(`${apiUrl}/api/channels`, {
     headers: {
-      "x-orgops-runner-token": token
+      "x-nest-runner-token": token
     }
   });
   if (!listRes.ok) {
     const text = await listRes.text().catch(() => "");
-    throw new Error(`Failed to list orgops channels: ${listRes.status} ${text}`);
+    throw new Error(`Failed to list nest channels: ${listRes.status} ${text}`);
   }
   const existingChannels = (await listRes.json().catch(() => [])) as Array<{
     id?: string;
@@ -116,7 +116,7 @@ export async function ensureOrgOpsChannelSubscription(input: {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": token
+        "x-nest-runner-token": token
       },
       body: JSON.stringify({
         name: input.channelId,
@@ -134,7 +134,7 @@ export async function ensureOrgOpsChannelSubscription(input: {
         text.includes("UNIQUE constraint failed: channels.name") ||
         text.includes("constraint failed: channels.name");
       if (!duplicateName) {
-        throw new Error(`Failed to ensure orgops channel: ${createRes.status} ${text}`);
+        throw new Error(`Failed to ensure nest channel: ${createRes.status} ${text}`);
       }
     }
   }
@@ -142,12 +142,12 @@ export async function ensureOrgOpsChannelSubscription(input: {
   if (!canonicalChannelId) {
     const refreshRes = await fetch(`${apiUrl}/api/channels`, {
       headers: {
-        "x-orgops-runner-token": token
+        "x-nest-runner-token": token
       }
     });
     if (!refreshRes.ok) {
       const text = await refreshRes.text().catch(() => "");
-      throw new Error(`Failed to refresh orgops channels: ${refreshRes.status} ${text}`);
+      throw new Error(`Failed to refresh nest channels: ${refreshRes.status} ${text}`);
     }
     const refreshedChannels = (await refreshRes.json().catch(() => [])) as Array<{
       id?: string;
@@ -166,7 +166,7 @@ export async function ensureOrgOpsChannelSubscription(input: {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-orgops-runner-token": token
+        "x-nest-runner-token": token
       },
       body: JSON.stringify({
         subscriberType: "AGENT",
@@ -176,7 +176,7 @@ export async function ensureOrgOpsChannelSubscription(input: {
   );
   if (!subscribeRes.ok) {
     const text = await subscribeRes.text().catch(() => "");
-    throw new Error(`Failed to subscribe agent to orgops channel: ${subscribeRes.status} ${text}`);
+    throw new Error(`Failed to subscribe agent to nest channel: ${subscribeRes.status} ${text}`);
   }
 
   return canonicalChannelId;

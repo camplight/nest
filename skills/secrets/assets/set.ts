@@ -1,5 +1,5 @@
-const apiUrl = process.env.ORGOPS_API_URL ?? "http://localhost:8787";
-const token = process.env.ORGOPS_RUNNER_TOKEN;
+const apiUrl = (process.env.NEST_API_URL ?? process.env.ORGOPS_API_URL) ?? "http://localhost:8787";
+const token = (process.env.NEST_RUNNER_TOKEN ?? process.env.ORGOPS_RUNNER_TOKEN);
 
 const args = process.argv.slice(2);
 if (args[0] === "--") args.shift();
@@ -10,7 +10,7 @@ if (!pkg || !key || value === undefined) {
 }
 
 if (!token) {
-  console.error("ORGOPS_RUNNER_TOKEN is required");
+  console.error("NEST_RUNNER_TOKEN is required");
   process.exit(1);
 }
 
@@ -19,7 +19,7 @@ async function main() {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-orgops-runner-token": token,
+      "x-nest-runner-token": token,
     },
     body: JSON.stringify({ package: pkg, key, value }),
   });

@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Agent, Event } from "./types";
 import type { ExecuteContext } from "./tools";
-import type { LlmMessage } from "@orgops/llm";
+import type { LlmMessage } from "@nest/llm";
 
 type RunEventResultMessage = {
   type: "runEventResult";
@@ -123,8 +123,8 @@ export async function runRlmEventInChild(input: {
         injectionEnv: executeCtx.injectionEnv,
         extraAllowedRoots: executeCtx.extraAllowedRoots ?? [],
         eventTypes: executeCtx.listEventTypes?.() ?? [],
-        apiUrl: process.env.ORGOPS_API_URL ?? "http://localhost:8787",
-        runnerToken: process.env.ORGOPS_RUNNER_TOKEN ?? "dev-runner-token",
+        apiUrl: (process.env.NEST_API_URL ?? process.env.ORGOPS_API_URL) ?? "http://localhost:8787",
+        runnerToken: (process.env.NEST_RUNNER_TOKEN ?? process.env.ORGOPS_RUNNER_TOKEN) ?? "dev-runner-token",
       },
     });
   });

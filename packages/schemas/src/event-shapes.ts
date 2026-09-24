@@ -87,6 +87,7 @@ const auditToolPayloadSchema = z
   .passthrough();
 
 const coreEventShapes: EventShapeDefinition[] = [
+  { type: "audit.branding.updated", description: "Instance branding changed by its owner.", payloadSchema: z.object({ displayName: z.string() }) },
   {
     type: "noop",
     description:
