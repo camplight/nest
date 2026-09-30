@@ -1,4 +1,4 @@
-import type { LlmMessage } from "@nest/llm";
+import type { LlmMessage } from "@orgops/llm";
 
 export type ShellResult = {
   exitCode: number | null;

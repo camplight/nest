@@ -16,3 +16,6 @@ memory/
 .nest/
 .nest-runtime/
 .nest-backups/
+
+.nest-product/
+__pycache__/

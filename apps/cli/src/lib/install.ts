@@ -52,10 +52,11 @@ function ensureRepoReady(installDir: string, repoUrl: string, repoRef: string) {
     runChecked("git", ["fetch", "--all", "--tags"], installDir);
     runChecked("git", ["checkout", repoRef], installDir);
     runChecked("git", ["pull", "--ff-only", "origin", repoRef], installDir);
+    runChecked("git", ["submodule", "update", "--init", "--recursive"], installDir);
     return;
   }
   mkdirSync(resolve(installDir, ".."), { recursive: true });
-  runChecked("git", ["clone", "--depth", "1", "--branch", repoRef, repoUrl, installDir]);
+  runChecked("git", ["clone", "--recurse-submodules", "--depth", "1", "--branch", repoRef, repoUrl, installDir]);
 }
 
 function ensureRepoReadyMock(installDir: string, repoUrl: string, repoRef: string) {

@@ -11,7 +11,8 @@ done < <(env)
 
 COMPONENTS_RAW="${NEST_COMPONENTS:-api,runner,user-ui}"
 PROXY_PORT="${NEST_PROXY_PORT:-8787}"
-API_INTERNAL_PORT="${NEST_INTERNAL_API_PORT:-8788}"
+API_INTERNAL_PORT="${NEST_INTERNAL_API_PORT:-8789}"
+ENGINE_PORT="${ORGOPS_PORT:-8788}"
 ADMIN_UI_PORT="${NEST_INTERNAL_ADMIN_UI_PORT:-4173}"
 USER_UI_PORT="${NEST_INTERNAL_USER_UI_PORT:-4190}"
 
@@ -118,13 +119,14 @@ frontend nest_frontend
   bind *:${PROXY_PORT}
   acl is_health path -i /health
   acl is_api path_beg /api
+  acl is_v1 path_beg /v1/
   acl is_ws path_beg /ws
   acl is_admin path_beg /admin
 EOF
 
   if [[ "${ENABLED["api"]}" -eq 1 ]]; then
     cat >> "${config_path}" <<EOF
-  use_backend api_backend if is_health || is_api || is_ws
+  use_backend api_backend if is_health || is_api || is_v1 || is_ws
 EOF
   fi
 
@@ -192,6 +194,10 @@ trap 'on_signal SIGTERM' SIGTERM
 trap 'on_signal SIGINT' SIGINT
 
 if [[ "${ENABLED["api"]}" -eq 1 ]]; then
+  if [[ -z "${ORGOPS_URL:-}" ]]; then
+    start_process "orgops-api" env ORGOPS_PORT="${ENGINE_PORT}" node --import tsx scripts/start-orgops.ts api
+  fi
+  export ORGOPS_URL="${ORGOPS_URL:-http://127.0.0.1:${ENGINE_PORT}}"
   start_process "api" env PORT="${API_INTERNAL_PORT}" node --import tsx apps/api/src/server.ts
 fi
 
@@ -199,12 +205,12 @@ if [[ "${ENABLED["runner"]}" -eq 1 ]]; then
   if [[ "${ENABLED["api"]}" -eq 1 ]]; then
     RUNNER_API_URL="${NEST_API_URL:-http://127.0.0.1:${API_INTERNAL_PORT}}"
     wait_for_local_api
-    start_process "runner" env NEST_API_URL="${RUNNER_API_URL}" node --import tsx apps/agent-runner/src/index.ts
+    start_process "runner" env NEST_API_URL="${RUNNER_API_URL}" node --import tsx scripts/start-orgops.ts runner
   else
     if [[ -z "${NEST_API_URL:-}" ]]; then
       echo "Runner is enabled without API. Set NEST_API_URL to a reachable API endpoint." >&2
     fi
-    start_process "runner" node --import tsx apps/agent-runner/src/index.ts
+    start_process "runner" node --import tsx scripts/start-orgops.ts runner
   fi
 fi
 
@@ -226,12 +232,12 @@ if [[ "${#PIDS[@]}" -eq 0 ]]; then
   exit 1
 fi
 
-while true; do
-  if ! wait -n "${PIDS[@]}"; then
-    status=$?
-    echo "One process exited with status ${status}, stopping remaining processes..."
-    shutdown_all TERM
-    wait || true
-    exit "${status}"
-  fi
-done
+if wait -n "${PIDS[@]}"; then
+  status=1
+else
+  status=$?
+fi
+echo "One process exited with status ${status}, stopping remaining processes..."
+shutdown_all TERM
+wait || true
+exit "${status}"

@@ -3,30 +3,38 @@
   "private": true,
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "vendor/orgops/apps/api",
+    "vendor/orgops/apps/agent-runner",
+    "vendor/orgops/packages/*"
   ],
   "scripts": {
     "dev": "dotenv -e .env -- npm run --workspace @nest/api dev",
-    "dev:runner:after-api": "node --env-file=.env --import tsx scripts/start-runner-after-api.ts dev",
-    "dev:all": "dotenv -e .env -- concurrently -k \"npm run --workspace @nest/api dev\" \"npm run --workspace @nest/admin-ui dev\" \"npm run --workspace @nest/user-ui dev\" \"npm run dev:runner:after-api\"",
-    "dev:all:no-api": "dotenv -e .env -- concurrently -k \"npm run --workspace @nest/admin-ui dev\" \"npm run --workspace @nest/user-ui dev\" \"npm run dev:runner:after-api\"",
+    "dev:runner:after-api": "node --env-file-if-exists=.env --import tsx scripts/start-orgops.ts runner",
+    "dev:all": "dotenv -e .env -- concurrently -k \"npm run start:api:env\" \"npm run admin-ui:dev\" \"npm run user-ui:dev\" \"npm run dev:runner:after-api\"",
+    "dev:all:no-api": "dotenv -e .env -- concurrently -k \"npm run admin-ui:dev\" \"npm run user-ui:dev\" \"npm run dev:runner:after-api\"",
     "dev:all:clean": "node --env-file=.env --import tsx scripts/dev-all-clean.ts",
     "build": "npm run --workspace @nest/admin-ui build && npm run --workspace @nest/user-ui build",
-    "prod:runner:after-api": "node --env-file=.env --import tsx scripts/start-runner-after-api.ts start",
-    "prod:all": "npm run build && dotenv -e .env -- concurrently -k \"npm run --workspace @nest/api start\" \"npm run --workspace @nest/admin-ui preview\" \"npm run prod:runner:after-api\"",
+    "prod:runner:after-api": "npm run dev:runner:after-api",
+    "prod:all": "npm run build && npm run start:all",
     "admin-ui:dev": "npm run --workspace @nest/admin-ui dev",
     "admin-ui:build": "npm run --workspace @nest/admin-ui build",
     "user-ui:dev": "npm run --workspace @nest/user-ui dev --",
     "user-ui:build": "npm run --workspace @nest/user-ui build",
-    "start:api:env": "node --env-file=.env --import tsx apps/api/src/server.ts",
-    "start:runner:env": "node --env-file=.env --import tsx apps/agent-runner/src/index.ts",
-    "start:admin-ui:preview:env": "node --env-file=.env ./node_modules/vite/bin/vite.js preview --config apps/admin-ui/vite.config.ts --host 0.0.0.0 --port 4173",
-    "start:user-ui:preview:env": "node --env-file=.env ./node_modules/vite/bin/vite.js preview --config apps/user-ui/vite.config.ts --host 0.0.0.0 --port 4190",
+    "start:api:env": "node --env-file-if-exists=.env --import tsx scripts/start-stack.ts api",
+    "start:runner:env": "node --env-file-if-exists=.env --import tsx scripts/start-orgops.ts runner",
+    "start:admin-ui:preview:env": "node --env-file=.env ./node_modules/vite/bin/vite.js preview apps/admin-ui --config apps/admin-ui/vite.config.ts --host 0.0.0.0 --port 4173",
+    "start:user-ui:preview:env": "node --env-file=.env ./node_modules/vite/bin/vite.js preview apps/user-ui --config apps/user-ui/vite.config.ts --host 0.0.0.0 --port 4190",
     "test": "vitest run",
-    "lint": "npm run lint:all",
-    "lint:all": "npm run --workspace @nest/api lint && npm run --workspace @nest/agent-runner lint && npm run --workspace @nest/cli lint && npm run --workspace @nest/admin-ui lint && npm run --workspace @nest/user-ui lint && npm run --workspace @nest/db lint && npm run --workspace @nest/schemas lint && npm run --workspace @nest/event-bus lint && npm run --workspace @nest/llm lint && npm run --workspace @nest/crypto lint && npm run --workspace @nest/skills lint && npm run --workspace @nest/events-scenario-tests lint",
-    "scenario:test": "npm run --workspace @nest/events-scenario-tests run",
-    "scenario:test:countdown": "npm run --workspace @nest/events-scenario-tests run:countdown"
+    "lint": "npm run lint:all && tsc -p tsconfig.scripts.json --noEmit",
+    "lint:all": "npm run lint --workspaces --if-present",
+    "scenario:test": "npm run --workspace @orgops/events-scenario-tests run",
+    "scenario:test:countdown": "npm run --workspace @orgops/events-scenario-tests run:countdown",
+    "dev:orgops": "node --env-file-if-exists=.env --import tsx scripts/start-orgops.ts api",
+    "start:all": "node --env-file-if-exists=.env --import tsx scripts/start-stack.ts",
+    "engine:install": "git submodule update --init --recursive vendor/orgops",
+    "test:engine": "cd vendor/orgops && node ../../node_modules/vitest/vitest.mjs run --config ../../vitest.engine.config.ts",
+    "migrate:product": "node --import tsx scripts/migrate-product-data.ts"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",
@@ -35,7 +43,8 @@
     "tsx": "^4.20.5",
     "typescript": "^5.5.4",
     "vitest": "^3.2.6",
-    "wait-on": "^8.0.5"
+    "wait-on": "^8.0.5",
+    "@types/ws": "^8.5.13"
   },
   "dependencies": {
     "cursor-agent": "^1.0.3"
@@ -49,5 +58,6 @@
   "allowScripts": {
     "esbuild": true,
     "better-sqlite3": true
-  }
+  },
+  "type": "module"
 }

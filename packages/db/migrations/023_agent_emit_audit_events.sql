@@ -1,1 +1,0 @@
-ALTER TABLE agents ADD COLUMN emit_audit_events INTEGER NOT NULL DEFAULT 1;

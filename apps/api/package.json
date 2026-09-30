@@ -10,13 +10,10 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
-    "@hono/node-ws": "^1.2.0",
-    "@nest/crypto": "file:../../packages/crypto",
     "@nest/db": "file:../../packages/db",
-    "@nest/event-bus": "file:../../packages/event-bus",
     "@nest/schemas": "file:../../packages/schemas",
-    "@nest/skills": "file:../../packages/skills",
-    "drizzle-orm": "^0.45.2",
-    "hono": "^4.13.8"
+    "@nest/orgops-client": "file:../../packages/orgops-client",
+    "hono": "^4.13.8",
+    "ws": "^8.18.0"
   }
 }

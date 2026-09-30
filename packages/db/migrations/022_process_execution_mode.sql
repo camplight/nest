@@ -1,2 +1,0 @@
-ALTER TABLE processes
-ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'ASYNC';

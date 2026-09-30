@@ -20,7 +20,7 @@ function resolveInstallDir(inputDir?: string) {
 }
 
 async function createSafetyBackup(installDir: string) {
-  const backupCandidates = [".nest-data", ".orgops-data", "files", ".env"];
+  const backupCandidates = [".nest-data", ".nest-product", ".orgops-data", "files", ".env"];
   const existing = backupCandidates.filter((item) => existsSync(resolve(installDir, item)));
   if (existing.length === 0) return "";
   const backupsDir = resolve(installDir, ".nest-backups");
@@ -42,6 +42,11 @@ export async function runUpgrade(rawOptions: UpgradeOptions) {
   const installDir = resolveInstallDir(rawOptions.installDir);
   if (!existsSync(resolve(installDir, ".git"))) {
     throw new Error(`No git repository found at ${installDir}. Run install first.`);
+  }
+
+  if (existsSync(resolve(installDir, "packages/db/migrations/036_instance_branding.sql")) &&
+      existsSync(resolve(installDir, ".nest-data/nest.sqlite"))) {
+    throw new Error("This installation needs the one-time offline OrgOps submodule migration before CLI upgrade. Follow docs/SUBMODULE_MIGRATION.md in the new Nest checkout; no services have been stopped or files changed.");
   }
 
   const state = loadState();

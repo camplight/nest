@@ -1,0 +1,3 @@
+[submodule "vendor/orgops"]
+	path = vendor/orgops
+	url = https://github.com/camplight/orgops.git

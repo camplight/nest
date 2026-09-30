@@ -1,5 +1,5 @@
 import { hostname } from "node:os";
-import { generate, type LlmMessage } from "@nest/llm";
+import { generate, type LlmMessage } from "@orgops/llm";
 import { TOOL_LOOP_MAX_STEPS, MAX_INPUT_CHARS } from "./config";
 import { appendSessionLog } from "./logger";
 import { appendHistoryMessage } from "./memory";
@@ -147,6 +147,7 @@ export async function runAgentTurn(input: {
   );
   try {
     const result = await generate(modelId, modelMessages, {
+      env: {...process.env, ORGOPS_LLM_STUB: process.env.NEST_LLM_STUB ?? process.env.ORGOPS_LLM_STUB},
       tools: trackedTools,
       maxSteps: TOOL_LOOP_MAX_STEPS,
       abortSignal,

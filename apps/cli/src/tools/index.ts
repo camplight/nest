@@ -1,4 +1,4 @@
-import type { LlmTool } from "@nest/llm";
+import type { LlmTool } from "@orgops/llm";
 import { createAskPasswordTool } from "./ask-password";
 import { createExitTool } from "./exit";
 import { createGetBundledDocsTool } from "./nest-bundle";

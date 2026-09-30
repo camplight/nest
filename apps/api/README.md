@@ -1,29 +1,10 @@
-# Nest API
+# Nest product API
 
-Hono-based HTTP + WebSocket server with SQLite single-writer access.
+Hono backend-for-frontend for the Nest interfaces. It owns branding/settings and
+product audit in `.nest-product/nest.sqlite`. Engine requests and WebSocket
+messages go through `@nest/orgops-client` to OrgOps; this service does not open
+OrgOps's database or inject a privileged credential into browser requests.
 
-## Run
-
-```bash
-npm run dev --workspace @nest/api
-```
-
-## Key endpoints
-
-- `POST /api/auth/login`
-- `GET /api/auth/me`
-- `POST /api/events`
-- `GET /api/events`
-- `GET /ws`
-
-## Environment
-
-- `PORT` (default: 8787)
-- `NEST_ADMIN_USER` / `NEST_ADMIN_PASS`
-- `NEST_RUNNER_TOKEN`
-- `NEST_MASTER_KEY`
-- `NEST_PROJECT_ROOT` (optional monorepo root override)
-- `NEST_COOKIE_SECURE` (`auto|always|never`, default: `auto`)
-- `NEST_EVENT_MAX_FAILURES` (default: `25`)
-- `NEST_EVENT_SHAPES_CACHE_TTL_MS` (default: `3000`)
-- `NEST_RUNNER_ONLINE_THRESHOLD_MS` (default: `15000`)
+Start the local API pair with `npm run start:api:env`, or set `ORGOPS_URL` before
+`npm run --workspace @nest/api start` to use an existing engine.
+See [the product spec](../../docs/SPEC.md) and [migration guide](../../docs/SUBMODULE_MIGRATION.md).

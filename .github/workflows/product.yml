@@ -1,0 +1,27 @@
+name: Nest product integration
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  product:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - run: python3 -m unittest discover -s deploy/devops -p 'test_*.py'
+      - run: docker build -t nest:check .
+      - name: Assert engine is untouched
+        run: test -z "$(git -C vendor/orgops status --porcelain)"

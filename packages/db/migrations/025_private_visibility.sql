@@ -1,5 +1,0 @@
-ALTER TABLE channels ADD COLUMN visibility TEXT NOT NULL DEFAULT 'PUBLIC';
-ALTER TABLE channels ADD COLUMN owner_human_id TEXT;
-
-ALTER TABLE agents ADD COLUMN visibility TEXT NOT NULL DEFAULT 'PUBLIC';
-ALTER TABLE agents ADD COLUMN owner_human_id TEXT;

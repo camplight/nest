@@ -45,7 +45,7 @@ function buildDocsBundle() {
   const readme = readFileSync(resolve(REPO_ROOT, "README.md"), "utf-8");
   const spec = readFileSync(resolve(REPO_ROOT, "docs/SPEC.md"), "utf-8");
   const runnerReadme = readFileSync(
-    resolve(REPO_ROOT, "apps/agent-runner/README.md"),
+    resolve(REPO_ROOT, "vendor/orgops/apps/agent-runner/README.md"),
     "utf-8"
   );
   return [
