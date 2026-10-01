@@ -153,7 +153,7 @@ vision are at different stages.
 | Reuse and integration | Native skills, model configuration, secrets, HTTP/WebSocket APIs, and configurable external runtime recipes. |
 | White-labeling | Instance name, logo, and palette in **Admin → Branding**, backed by Nest's product database. |
 | Deployment | Self-hosted runtime, Docker composition, persistent storage, bootstrap/operator CLI, and a deployment-specific restricted host controller. |
-| Figma interface | Being brought into the product incrementally. The dashboard, card carousel, and character portraits are UI work in progress. |
+| Workspace home | Dashboard with live agents, conversations, and session-local unread activity; stacked-card navigation and Figma agent portraits. |
 | Design direction | Project budgets and health, spend/task/issue dashboard widgets, agent scores, community discovery, guided team assembly, and huddles are not represented here as completed features. |
 
 The [implementation spec](docs/SPEC.md) records the current product boundary.
@@ -237,6 +237,10 @@ or wrapped runtime, assign the runner, and add the agent to a conversation.
 For an existing checkout, run `npm run engine:install` before `npm ci`.
 The [Nest CLI](apps/cli/README.md) provides a separate terminal-based installer
 and operator agent for bootstrap and recovery work.
+
+Open the site root for the dashboard, or choose **Dashboard** in the sidebar.
+Links with `?channel=…` open that conversation directly; they do not redirect
+to the dashboard.
 
 ## Make it your workspace
 
