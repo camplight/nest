@@ -1,0 +1,17 @@
+.smooth-card-stack { min-width: 0; width: 100%; }
+.smooth-card-stack-viewport { position: relative; width: 100%; touch-action: pan-y; }
+.smooth-card-stack-card { position: absolute; top: 48px; left: 0; width: 100%; border-radius: 8px; background: var(--nest-surface); transform-origin: center center; }
+.smooth-card-stack-card:not([data-active="true"]) { border: 1px solid var(--nest-border); }
+.smooth-card-stack-controls { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 8px; }
+.smooth-card-stack-controls button { border: 0; background: transparent; color: var(--nest-text); display: grid; place-items: center; min-width: 32px; height: 36px; padding: 0; border-radius: 6px; }
+.smooth-card-stack-controls button:hover { background: var(--nest-muted-surface); }
+.smooth-card-stack-controls button:disabled { opacity: .3; cursor: default; }
+.smooth-card-stack-dots { display: flex; flex-wrap: wrap; justify-content: center; min-width: 0; }
+.smooth-card-stack-dots button { min-width: 24px; }
+.smooth-card-stack-dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--nest-text); opacity: .2; }
+.smooth-card-stack-dots [aria-current] span { opacity: 1; }
+.smooth-card-stack-announcement { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* Also respond immediately if the OS preference changes after Motion mounts. */
+@media (prefers-reduced-motion: reduce) {
+  .smooth-card-stack-card { transform: none !important; }
+}

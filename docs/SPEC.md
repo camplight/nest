@@ -58,6 +58,45 @@ Persistent volumes are `.nest-data` (engine), `.nest-product` (product) and
 `files` (uploads). Credentials and existing Codex installations remain in engine
 runtime storage. Public branding assets remain Nest-owned.
 
+## User workspace home
+
+The user UI opens on a Nest-owned dashboard when no `?channel=` link is present.
+Conversation and claimed share links still open the chat workspace directly;
+browser Back/Forward restores the dashboard or conversation from the URL.
+Dashboard navigation clears the active channel so background messages are not
+treated as read merely because the home page is visible.
+
+The dashboard uses the existing visibility-filtered channels and agents, team
+membership, and session-local unread message counts. Unread counts follow the
+existing notification behavior: a fresh session establishes a baseline, then
+HTTP polling and WebSocket events track subsequent messages. They are not
+persisted read receipts. Search filters conversations and agents; archived and
+running filters use the engine's existing state. No new API or database is added.
+
+Its visual reference is Figma file `Rqfq3v9a8nZfQKbM3Q0NZk`, Camplight dashboard
+`923:417` and Nest dashboard `793:2`. Shared instance branding supplies the logo
+and palette, with a separate Powered by Nest footer. Original exported icons
+are local in `apps/user-ui/public/design`. The first implementation adapts the
+reference's cards to available data: agents, conversations and unread messages.
+Spend, project progress, issues and community mock data are not implemented.
+
+Conversation and unread-activity cards use a local adaptation of SmoothUI's
+[Scrollable Card Stack](https://smoothui.dev/docs/components/scrollable-card-stack)
+in `apps/user-ui/src/components/smooth-ui`, with its MIT license retained. The
+component uses Motion for stack transitions, dots and previous/next controls,
+arrow/Home/End keys, horizontal touch swipes and reduced-motion support. Only
+the active card exposes actions to keyboard and assistive technology; vertical
+page scrolling remains available. "All" switches conversations to the full list.
+
+Agent portraits reuse Figma's five original characters through `AgentAvatar` in
+dashboard cards and chat participants. PNG exports preserve the composed avatar
+artwork: Puff (`857:386`, strategy), Moss (`857:396`, research), Muff (`857:406`,
+product), Pom (`857:416`, design), Pip (`857:426`, engineering). Files live under
+`apps/user-ui/public/design/avatars`. Character names and recognized role words
+in agent names select their matching portrait; other names use a stable hash.
+NestSystem uses Pip. This is a UI default, not a persisted avatar assignment or
+an inference about an agent's capabilities. Failed images fall back to initials.
+
 ## API and identity boundary
 
 Nest owns:

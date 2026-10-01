@@ -1,0 +1,2 @@
+.agent-portrait { display: inline-grid; place-items: center; flex: 0 0 auto; overflow: hidden; border-radius: 50%; background: var(--nest-bg); color: var(--nest-accent); font: 600 13px Inter, sans-serif; }
+.agent-portrait img { display: block; width: 100%; height: 100%; object-fit: contain; }

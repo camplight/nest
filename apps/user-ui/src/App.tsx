@@ -1,3 +1,5 @@
+import { AgentAvatar } from "./components/AgentAvatar";
+import { Dashboard, DesignIcon } from "./Dashboard";
 import { useBranding } from "../../nest-brand/BrandingProvider";
 import { PoweredByNest, InstanceBrand, ThemeToggle } from "../../nest-brand/Brand";
 import {
@@ -538,6 +540,7 @@ export default function App() {
   const [humans, setHumans] = useState<Array<{ username: string }>>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
+  const [view, setView] = useState<"dashboard" | "workspace">(() => readLinkedChannelId() ? "workspace" : "dashboard");
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [collapsedChannelGroups, setCollapsedChannelGroups] = useState<Record<ChannelGroupId, boolean>>({
     channels: false,
@@ -759,6 +762,7 @@ export default function App() {
 
   function selectChannel(channelId: string | null, options?: { replace?: boolean }) {
     setActiveChannelId(channelId);
+    setView(channelId ? "workspace" : "dashboard");
     setMobileSidebarOpen(false);
     updateChannelDeepLink(channelId, options?.replace);
   }
@@ -846,7 +850,7 @@ export default function App() {
         linkedChannel?.id ??
         (activeChannelId && visibleChannels.some((channel) => channel.id === activeChannelId && !channel.archivedAt)
           ? activeChannelId
-          : visibleChannels.find((channel) => !channel.archivedAt)?.id ?? null);
+          : null);
       if (linkedChannel?.archivedAt) setShowArchivedChannels(true);
       selectChannel(nextActiveChannelId, { replace: true });
       await loadMessageNotifications({ initialize: true });
@@ -1369,6 +1373,7 @@ export default function App() {
       );
       if (linkedChannel?.archivedAt) setShowArchivedChannels(true);
       setActiveChannelId(linkedChannel?.id ?? null);
+      setView(linkedChannel ? "workspace" : "dashboard");
     }
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -1983,7 +1988,7 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell product-shell ${view === "dashboard" ? "dashboard-shell" : ""}`}>
       <aside className={`sidebar ${mobileSidebarOpen ? "sidebar-mobile-open" : ""}`}>
         <button
           type="button"
@@ -1992,9 +1997,24 @@ export default function App() {
         >
           Close
         </button>
-        <InstanceBrand subtitle="Workspace" />
+        <InstanceBrand />
+        <nav className="product-nav" aria-label="Main navigation">
+          <button aria-current={view === "dashboard" ? "page" : undefined} onClick={() => selectChannel(null)}><DesignIcon name="dashboard" />Dashboard</button>
+          <button aria-current={view === "workspace" ? "page" : undefined} onClick={() => {
+            const channel = visibleChannels.find(channel => !channel.archivedAt);
+            if (channel) selectChannel(channel.id);
+            else setShowConversationDialog(true);
+          }}><DesignIcon name="conversations" />Conversations</button>
+          <button onClick={() => {
+            selectChannel(null);
+            window.requestAnimationFrame(() => {
+              document.getElementById("dashboard-agents")?.focus();
+              document.getElementById("dashboard-agents")?.scrollIntoView({ behavior: "smooth" });
+            });
+          }}><DesignIcon name="agents" />Agents</button>
+        </nav>
 
-        <section className="sidebar-section">
+        {view === "workspace" && <section className="sidebar-section">
           <label className="channel-search">
             <span>Search channels</span>
             <input
@@ -2078,7 +2098,7 @@ export default function App() {
               <p className="channel-empty">No channels match "{channelQuery.trim()}".</p>
             ) : null}
           </div>
-        </section>
+        </section>}
 
         <section className="sidebar-section start-conversation">
           <button className="new-conversation-button" onClick={() => setShowConversationDialog(true)}>
@@ -2093,7 +2113,7 @@ export default function App() {
             Sign out {username ? `(${username})` : ""}
           </button>
         </section>
-        <div className="instance-sidebar-footer"><PoweredByNest /></div>
+        <div className="instance-sidebar-footer dashboard-attribution"><span>Powered by</span><DesignIcon name="nest-mark" /><img src={`${import.meta.env.BASE_URL}design/nest-wordmark.svg`} alt="Nest" /></div>
       </aside>
       {mobileSidebarOpen ? (
         <button
@@ -2104,7 +2124,12 @@ export default function App() {
         />
       ) : null}
 
-      <section className="workspace">
+      {view === "dashboard" ? <Dashboard
+        channels={visibleChannels} agents={visibleAgents} teams={teams} unreadCounts={unreadCounts}
+        loading={loading} error={error} label={channel => channelLabel(channel, username)}
+        onSelect={selectChannel} onCreate={() => setShowConversationDialog(true)}
+        onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()}
+      /> : <><section className="workspace">
         <header className="workspace-header">
           <button
             type="button"
@@ -2388,7 +2413,7 @@ export default function App() {
               const agentStatus = participantAgentStatus(participant, agents);
               return (
                 <article key={`${participant.subscriberType}:${participant.subscriberId}:${index}`}>
-                  <div className="participant-avatar">{participantName(participant).slice(0, 2)}</div>
+                  {normalizedSubscriberType(participant) === "AGENT" ? <AgentAvatar name={participant.subscriberId} size={34} /> : <div className="participant-avatar">{participantName(participant).slice(0, 2)}</div>}
                   <div>
                     <strong>
                       {agentStatus ? (
@@ -2436,7 +2461,7 @@ export default function App() {
             {events.length === 0 ? <p>No recent activity in this channel.</p> : null}
           </div>
         </section>
-      </aside>
+      </aside></>}
 
       {showConversationDialog ? (
         <div className="dialog-backdrop" role="presentation" onMouseDown={() => setShowConversationDialog(false)}>
