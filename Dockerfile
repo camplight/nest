@@ -7,10 +7,10 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
+COPY vendor/orgops ./vendor/orgops
 COPY apps ./apps
 COPY packages ./packages
 COPY scripts ./scripts
-COPY skills ./skills
 COPY docs ./docs
 COPY README.md AGENTS.md tsconfig.base.json ./
 
@@ -34,7 +34,7 @@ RUN chmod +x /usr/local/bin/nest-entrypoint
 ENV NEST_COMPONENTS=api,runner,user-ui
 EXPOSE 8787
 
-VOLUME ["/app/.nest-data", "/app/files"]
+VOLUME ["/app/.nest-data", "/app/.nest-product", "/app/files"]
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
   CMD curl -fsS http://127.0.0.1:8787/health || exit 1

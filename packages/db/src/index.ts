@@ -1,72 +1,34 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { schema } from "./schema";
-export { CHANNEL_KINDS, isChannelKind, type ChannelKind } from "./channel-kinds";
-export {
-  CHANNEL_VISIBILITY,
-  AGENT_VISIBILITY,
-  isChannelVisibility,
-  isAgentVisibility,
-  type ChannelVisibility,
-  type AgentVisibility,
-} from "./visibility";
+import Database from 'better-sqlite3';
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { BrandingSchema, DEFAULT_BRANDING, type Branding } from '../../schemas/src/branding';
 
-const THIS_DIR = dirname(fileURLToPath(import.meta.url));
-
-export type NestDb = InstanceType<typeof Database>;
-export type NestDrizzleDb = ReturnType<typeof createDrizzleDb>;
-
-export const DEFAULT_DB_PATH = ".nest-data/nest.sqlite";
-
-export function openDb(path = existsSync(DEFAULT_DB_PATH) || !existsSync(".orgops-data/orgops.sqlite")
-  ? DEFAULT_DB_PATH : ".orgops-data/orgops.sqlite"): NestDb {
-  if (path !== ":memory:") {
-    // Ensure parent directory exists for file-based SQLite paths.
-    mkdirSync(dirname(path), { recursive: true });
-  }
+// Product-owned data only. Never open the OrgOps database from request handlers.
+export function openProductDb(path = '.nest-product/nest.sqlite') {
+  if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
-  configureDb(db);
-  return db;
-}
-
-export function configureDb(db: NestDb) {
-  db.exec("PRAGMA journal_mode=WAL;");
-  db.exec("PRAGMA synchronous=NORMAL;");
-  db.exec("PRAGMA busy_timeout=5000;");
-  db.exec("PRAGMA foreign_keys=ON;");
-}
-
-export function createDrizzleDb(db: NestDb) {
-  return drizzle(db, { schema });
-}
-
-export function migrate(db: NestDb, migrationsDir = join(THIS_DIR, "..", "migrations")) {
-  if (!existsSync(migrationsDir)) {
-    return;
+  db.pragma('journal_mode = WAL');
+  db.pragma('busy_timeout = 5000');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS product_settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS product_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL,
+      actor_id TEXT NOT NULL, payload_json TEXT NOT NULL, created_at INTEGER NOT NULL
+    );
+  `);
+  function branding(): Branding {
+    const row = db.prepare('SELECT value_json FROM product_settings WHERE key = ?').get('branding') as {value_json: string} | undefined;
+    try { return row ? BrandingSchema.parse(JSON.parse(row.value_json)) : DEFAULT_BRANDING; }
+    catch { return DEFAULT_BRANDING; }
   }
-  db.exec(
-    "CREATE TABLE IF NOT EXISTS migrations (id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)"
-  );
-
-  const applied = db.prepare("SELECT id FROM migrations").all() as Array<{ id: string }>;
-  const appliedIds = new Set(applied.map((row) => row.id));
-
-  const files = readdirSync(migrationsDir)
-    .filter((file) => file.endsWith(".sql"))
-    .sort();
-
-  const now = Date.now();
-  const insert = db.prepare("INSERT INTO migrations (id, applied_at) VALUES (?, ?)");
-
-  for (const file of files) {
-    if (appliedIds.has(file)) continue;
-    const sql = readFileSync(join(migrationsDir, file), "utf-8");
-    db.exec(sql);
-    insert.run(file, now);
+  function saveBranding(value: Branding, actorId: string) {
+    const parsed = BrandingSchema.parse(value);
+    db.transaction(() => {
+      db.prepare('INSERT INTO product_settings VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json').run('branding', JSON.stringify(parsed));
+      db.prepare('INSERT INTO product_audit(type, actor_id, payload_json, created_at) VALUES (?, ?, ?, ?)').run('audit.branding.updated', actorId, JSON.stringify({displayName: parsed.displayName}), Date.now());
+    })();
+    return parsed;
   }
+  return { db, branding, saveBranding, close: () => db.close() };
 }
-
-export { schema };
+export type ProductDb = ReturnType<typeof openProductDb>;

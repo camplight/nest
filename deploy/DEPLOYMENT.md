@@ -16,9 +16,12 @@ credentials were retained.
 - Server deployment directory: `/opt/nest`
 - 1Password: **OrgOps POC → nest-production** (username, password, runner token,
   encryption master key). No production credentials are committed to this repo.
-- Image: `nest:deploy-20260924-whitelabel` (selected in server `compose.override.yaml`)
-- Running image ID: `sha256:2d1edbb00fbb925bce98c400025739f7b2ea8d27441fe38f97e3b2a9071bb4c1`
-- Previous image: `nest:deploy-20260923-codex`
+- Image: `nest:git-2b711e50570b` (selected in server `compose.override.yaml`)
+- Running image ID: `sha256:d026541c87147010ceb93e26028e33b23c9c288265e282cb6b2ab1d8b00dad05`
+- Source: merged main commit `2b711e50570bf63d552b6b194e1b56f39bdf7619`.
+- Previous image: `nest:deploy-20260924-whitelabel`
+- Latest deployment SQLite snapshot and prior override:
+  `/opt/nest/backups/ops-c49c233d35bb494caf76fc52282a5183`.
 - Pre-update backup: `/opt/nest/backups/whitelabel-20260923-213519`
   (stopped database/uploads archive, environment, deployment configuration, previous image ID)
 - Original runner identity restored and persisted at `/app/.nest-data/runner-id`
@@ -30,6 +33,10 @@ credentials were retained.
 - Camplight settings from [camplight-branding.json](camplight-branding.json) are
   persisted in SQLite. The instance owner can edit them under Admin → Branding.
   Both interfaces display Camplight at the top and Powered by Nest at the bottom.
+- NestSystem has authenticated GitHub access and an explicitly approved,
+  restricted host operations endpoint. Restart and deployment from its runtime
+  were verified, including persistence of GitHub authentication and the Kibrit
+  demo. See [NestSystem operations](devops/README.md).
 
 Caddy manages the Let's Encrypt certificate and HTTP-to-HTTPS redirect.
 Both containers restart automatically. SQLite and uploads use persistent

@@ -1,4 +1,4 @@
-import type { LlmTool } from "@nest/llm";
+import type { LlmTool } from "@orgops/llm";
 import type { AgentRuntimeState } from "../lib/types";
 
 export type ToolContext = {

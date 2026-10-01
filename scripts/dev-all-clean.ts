@@ -8,7 +8,8 @@ const API_START_CMD = [
   "--env-file=.env",
   "--import",
   "tsx",
-  "apps/api/src/server.ts",
+  "scripts/start-stack.ts",
+  "api",
 ];
 
 type Agent = { name: string };

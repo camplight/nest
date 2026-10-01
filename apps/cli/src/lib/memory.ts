@@ -1,4 +1,4 @@
-import type { LlmMessage } from "@nest/llm";
+import type { LlmMessage } from "@orgops/llm";
 import {
   MAX_CONTEXT_CHARS,
   MAX_OUTPUT_CHARS,

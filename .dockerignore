@@ -19,3 +19,8 @@ artifacts
 .env.*
 !.env.example
 dist
+
+**/.git
+**/node_modules
+.nest-product
+vendor/orgops/.orgops-data

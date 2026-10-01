@@ -1,1 +1,0 @@
-ALTER TABLE agents ADD COLUMN soul_contents TEXT NOT NULL DEFAULT '';

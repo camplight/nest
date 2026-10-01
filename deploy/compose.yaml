@@ -11,6 +11,7 @@ services:
     volumes:
       - nest-data:/app/.nest-data
       - nest-files:/app/files
+      - nest-product:/app/.nest-product
     expose:
       - '8787'
   caddy:
@@ -29,5 +30,6 @@ services:
 volumes:
   nest-data:
   nest-files:
+  nest-product:
   caddy-data:
   caddy-config:
