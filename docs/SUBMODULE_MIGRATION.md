@@ -66,7 +66,8 @@ The repository host controller source in `deploy/devops/` supports submodule
 initialization and both DB snapshots. Install that controller and the Compose
 volume update through the existing operator SSH connection before enabling its
 new deployment flow. The already-running host controller is not automatically
-changed by a repository update. This rewrite has not changed production.
+changed by a repository update. The first production migration on 2026-10-01
+is recorded in [the deployment record](../deploy/DEPLOYMENT.md).
 
 ## Upgrade OrgOps deliberately
 
