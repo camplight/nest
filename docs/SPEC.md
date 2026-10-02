@@ -97,6 +97,27 @@ in agent names select their matching portrait; other names use a stable hash.
 NestSystem uses Pip. This is a UI default, not a persisted avatar assignment or
 an inference about an agent's capabilities. Failed images fall back to initials.
 
+## Agent directory and settings
+
+`?view=agents` opens the directory and `?view=agents&agent=<name>` opens settings.
+The Agents navigation item is selected for both. Reload and browser history
+restore these views, and dashboard agent names link to the same detail screen.
+Navigating to Agents clears the active conversation. Existing channel/share
+links retain their workspace behavior.
+
+The directory uses visibility-filtered agents, searchable by name/description.
+Counts describe total, RUNNING and STOPPED runtime records, not task activity or
+quality scores. Details load through `GET /api/agents/:name`. Description and
+native system instructions save through `PATCH /api/agents/:name`; the existing
+engine authorization remains authoritative. Private non-owner settings are
+read-only. Names, model, runner, workspace and skills are displayed read-only.
+Wrapped agents expose description editing only: native instructions/model/skills
+do not control their external runtime. Avatars remain automatic name mappings.
+
+See [ROADMAP.md](ROADMAP.md) for Figma references, acceptance criteria and remaining
+project/task/review milestones. These screens do not provision agents or implement
+task assignment, performance scores, avatar editing or resource configuration.
+
 ## API and identity boundary
 
 Nest owns:
