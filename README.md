@@ -300,6 +300,7 @@ update the submodule pin. Include relevant checks with a pull request and update
 
 ## Documentation
 
+- [Product roadmap](docs/ROADMAP.md) — milestones, Figma references, acceptance criteria, and regression checks.
 - [Implementation spec](docs/SPEC.md) — ownership, runtime, APIs, data, and verification.
 - [OrgOps engine spec](https://github.com/camplight/orgops/blob/c78698d73155bca15cfbb1bc7831d89e47804624/docs/SPEC.md) — agents, events, runners, tools, and access.
 - [Use cases](docs/use-cases.md) — execution, collaboration, maintenance, and oversight.

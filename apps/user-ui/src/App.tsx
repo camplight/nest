@@ -1,3 +1,4 @@
+import { Agents } from "./Agents";
 import { AgentAvatar } from "./components/AgentAvatar";
 import { Dashboard, DesignIcon } from "./Dashboard";
 import { useBranding } from "../../nest-brand/BrandingProvider";
@@ -428,6 +429,8 @@ function readPendingShareToken() {
 
 function updateChannelDeepLink(channelId: string | null, replace = false) {
   const url = new URL(window.location.href);
+  url.searchParams.delete("view");
+  url.searchParams.delete("agent");
   if (channelId) {
     url.searchParams.set("channel", channelId);
   } else {
@@ -540,7 +543,8 @@ export default function App() {
   const [humans, setHumans] = useState<Array<{ username: string }>>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
-  const [view, setView] = useState<"dashboard" | "workspace">(() => readLinkedChannelId() ? "workspace" : "dashboard");
+  const [view, setView] = useState<"dashboard" | "workspace" | "agents">(() => readLinkedChannelId() ? "workspace" : new URL(window.location.href).searchParams.get("view") === "agents" ? "agents" : "dashboard");
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(() => new URL(window.location.href).searchParams.get("agent"));
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [collapsedChannelGroups, setCollapsedChannelGroups] = useState<Record<ChannelGroupId, boolean>>({
     channels: false,
@@ -760,6 +764,15 @@ export default function App() {
     setArchiveDraft(Boolean(activeChannel.archivedAt));
   }, [activeChannel?.id, activeChannel?.visibility, activeChannel?.archivedAt]);
 
+  function selectAgent(name: string | null) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("channel");
+    url.searchParams.set("view", "agents");
+    if (name) url.searchParams.set("agent", name); else url.searchParams.delete("agent");
+    window.history.pushState(null, "", url);
+    setActiveChannelId(null); setView("agents"); setSelectedAgent(name); setMobileSidebarOpen(false);
+  }
+
   function selectChannel(channelId: string | null, options?: { replace?: boolean }) {
     setActiveChannelId(channelId);
     setView(channelId ? "workspace" : "dashboard");
@@ -852,7 +865,9 @@ export default function App() {
           ? activeChannelId
           : null);
       if (linkedChannel?.archivedAt) setShowArchivedChannels(true);
-      selectChannel(nextActiveChannelId, { replace: true });
+      if (!claimedShareChannelId && new URL(window.location.href).searchParams.get("view") === "agents" && !linkedChannelId) {
+        setActiveChannelId(null); setView("agents");
+      } else selectChannel(nextActiveChannelId, { replace: true });
       await loadMessageNotifications({ initialize: true });
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load workspace");
@@ -1373,7 +1388,9 @@ export default function App() {
       );
       if (linkedChannel?.archivedAt) setShowArchivedChannels(true);
       setActiveChannelId(linkedChannel?.id ?? null);
-      setView(linkedChannel ? "workspace" : "dashboard");
+      const url = new URL(window.location.href);
+      setView(linkedChannel ? "workspace" : url.searchParams.get("view") === "agents" ? "agents" : "dashboard");
+      setSelectedAgent(url.searchParams.get("agent"));
     }
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -1988,7 +2005,7 @@ export default function App() {
   }
 
   return (
-    <main className={`app-shell product-shell ${view === "dashboard" ? "dashboard-shell" : ""}`}>
+    <main className={`app-shell product-shell ${view !== "workspace" ? "dashboard-shell" : ""}`}>
       <aside className={`sidebar ${mobileSidebarOpen ? "sidebar-mobile-open" : ""}`}>
         <button
           type="button"
@@ -2005,13 +2022,7 @@ export default function App() {
             if (channel) selectChannel(channel.id);
             else setShowConversationDialog(true);
           }}><DesignIcon name="conversations" />Conversations</button>
-          <button onClick={() => {
-            selectChannel(null);
-            window.requestAnimationFrame(() => {
-              document.getElementById("dashboard-agents")?.focus();
-              document.getElementById("dashboard-agents")?.scrollIntoView({ behavior: "smooth" });
-            });
-          }}><DesignIcon name="agents" />Agents</button>
+          <button aria-current={view === "agents" ? "page" : undefined} onClick={() => selectAgent(null)}><DesignIcon name="agents" />Agents</button>
         </nav>
 
         {view === "workspace" && <section className="sidebar-section">
@@ -2124,8 +2135,8 @@ export default function App() {
         />
       ) : null}
 
-      {view === "dashboard" ? <Dashboard
-        channels={visibleChannels} agents={visibleAgents} teams={teams} unreadCounts={unreadCounts}
+      {view === "agents" ? <Agents agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
+        channels={visibleChannels} agents={visibleAgents} teams={teams} unreadCounts={unreadCounts} onAgent={selectAgent}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}
         onSelect={selectChannel} onCreate={() => setShowConversationDialog(true)}
         onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()}

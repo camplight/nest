@@ -21,6 +21,8 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ui:agents
       - run: python3 -m unittest discover -s deploy/devops -p 'test_*.py'
       - run: docker build -t nest:check .
       - name: Assert engine is untouched

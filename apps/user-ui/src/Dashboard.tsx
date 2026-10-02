@@ -20,9 +20,10 @@ type Props = {
   onCreate: () => void;
   onMenu: () => void;
   onRetry: () => void;
+  onAgent: (name: string) => void;
 };
 
-export function Dashboard({ channels, agents, teams, unreadCounts, loading, error, label, onSelect, onCreate, onMenu, onRetry }: Props) {
+export function Dashboard({ channels, agents, teams, unreadCounts, loading, error, label, onSelect, onCreate, onMenu, onRetry, onAgent }: Props) {
   const [query, setQuery] = useState("");
   const [agentFilter, setAgentFilter] = useState<"all" | "running">("all");
   const [conversationFilter, setConversationFilter] = useState<"active" | "archived">("active");
@@ -108,7 +109,7 @@ export function Dashboard({ channels, agents, teams, unreadCounts, loading, erro
       <section aria-labelledby="dashboard-agents">
         <div className="dashboard-section-title"><h2 id="dashboard-agents" tabIndex={-1}>Your agents <span className="dashboard-count">{filteredAgents.length}</span></h2><span className="dashboard-section-caption">People and agents, working together</span></div>
         <div className="dashboard-agent-grid">
-          {filteredAgents.map(agent => <article className="dashboard-card dashboard-agent" key={agent.name}><AgentAvatar name={agent.name} /><div><h3>{agent.name}</h3><p>{agent.description || "Ready for your next conversation."}</p><span className={`dashboard-agent-state ${agent.runtimeState === "RUNNING" ? "is-running" : ""}`}><i className="dashboard-status-dot" />{agent.runtimeState === "RUNNING" ? "Running" : agent.runtimeState ? agent.runtimeState.toLowerCase().replaceAll("_", " ") : "Status unavailable"}</span></div></article>)}
+          {filteredAgents.map(agent => <article className="dashboard-card dashboard-agent" key={agent.name}><AgentAvatar name={agent.name} /><div><h3><button className="agent-name-link" onClick={() => onAgent(agent.name)}>{agent.name}</button></h3><p>{agent.description || "Ready for your next conversation."}</p><span className={`dashboard-agent-state ${agent.runtimeState === "RUNNING" ? "is-running" : ""}`}><i className="dashboard-status-dot" />{agent.runtimeState === "RUNNING" ? "Running" : agent.runtimeState ? agent.runtimeState.toLowerCase().replaceAll("_", " ") : "Status unavailable"}</span></div></article>)}
           {!loading && !error && !filteredAgents.length && <div className="dashboard-card dashboard-empty"><h3>{query ? "No matching agents" : agentFilter === "running" ? "No agents running" : "Your team starts here"}</h3><p>{query ? "Try a different search." : "Agents available to you will appear here."}</p></div>}
         </div>
       </section>

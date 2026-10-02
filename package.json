@@ -34,17 +34,19 @@
     "start:all": "node --env-file-if-exists=.env --import tsx scripts/start-stack.ts",
     "engine:install": "git submodule update --init --recursive vendor/orgops",
     "test:engine": "cd vendor/orgops && node ../../node_modules/vitest/vitest.mjs run --config ../../vitest.engine.config.ts",
-    "migrate:product": "node --import tsx scripts/migrate-product-data.ts"
+    "migrate:product": "node --import tsx scripts/migrate-product-data.ts",
+    "test:ui:agents": "node tests/browser/agents.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",
+    "@types/ws": "^8.5.13",
     "concurrently": "^10.0.5",
     "dotenv-cli": "^8.0.0",
+    "playwright": "1.63.0",
     "tsx": "^4.20.5",
     "typescript": "^5.5.4",
     "vitest": "^3.2.6",
-    "wait-on": "^8.0.5",
-    "@types/ws": "^8.5.13"
+    "wait-on": "^8.0.5"
   },
   "dependencies": {
     "cursor-agent": "^1.0.3"

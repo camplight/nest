@@ -33,6 +33,21 @@ describe('Nest product over unchanged OrgOps', () => {
     expect((await product.app.request('/api/auth/logout', {method: 'POST', headers: {cookie}})).status).toBe(200);
     expect((await product.app.request('/api/auth/me', {headers: {cookie}})).status).toBe(401);
   });
+  it('persists agent settings through the adapter and rejects private non-owner edits', async () => {
+    const headers = {cookie, 'content-type': 'application/json'};
+    const name = 'SettingsAgent';
+    const created = await product.app.request('/api/agents', {method:'POST', headers, body:JSON.stringify({name, modelId:'test-model', workspacePath:join(dir, 'workspace'), visibility:'PRIVATE', description:'Original', systemInstructions:'Original instructions'})});
+    expect(created.status).toBe(201);
+    const path = `/api/agents/${encodeURIComponent(name)}`;
+    expect((await product.app.request(path, {method:'PATCH', headers, body:JSON.stringify({description:'Changed', systemInstructions:'New instructions'})})).status).toBe(200);
+    expect(await (await product.app.request(path, {headers})).json()).toMatchObject({name, description:'Changed', systemInstructions:'New instructions', modelId:'test-model'});
+    const owner = engine.db.prepare('SELECT * FROM humans LIMIT 1').get() as any;
+    engine.db.prepare('INSERT INTO humans (id, username, password_hash, must_change_password, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)').run('viewer', 'viewer', owner.password_hash, owner.created_at + 1, owner.created_at + 1);
+    const login = await product.app.request('/api/auth/login', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({username:'viewer',password:'password'})});
+    const viewerCookie = login.headers.get('set-cookie')!.split(';')[0];
+    expect((await product.app.request(path, {method:'PATCH', headers:{cookie:viewerCookie, 'content-type':'application/json'}, body:JSON.stringify({description:'Unauthorized'})})).status).toBe(403);
+    expect(await (await product.app.request(path, {headers})).json()).toMatchObject({description:'Changed'});
+  });
   it('stores branding and audit in the product DB only and retains them after reopen', async () => {
     expect(await (await product.app.request('/api/branding')).json()).toEqual(DEFAULT_BRANDING);
     const value = {...DEFAULT_BRANDING, displayName: 'Camplight'};
