@@ -1,3 +1,4 @@
+import { registerProjectRoutes } from './projects';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { Hono } from 'hono';
@@ -35,6 +36,7 @@ export function createApp(config: { store?: ProductDb; orgops?: OrgOpsClient; db
     if (!value.success) return c.json({error: 'Invalid branding'}, 400);
     return c.json(store.saveBranding(value.data, user.id));
   });
+  registerProjectRoutes(app, {store, orgops});
   // Unknown product endpoints do not fall through to a privileged service account.
   app.all('/api/branding/*', c => c.json({error: 'Not found'}, 404));
   const proxy = async (c: any) => {

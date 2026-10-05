@@ -8,7 +8,7 @@ architectural changes. Keep them synchronized when APIs or runtime behavior chan
 
 - `apps/api`: Nest Hono API and WebSocket gateway. No engine DB reads here.
 - `packages/orgops-client`: all engine HTTP/credential adaptation.
-- `packages/db`: Nest SQLite settings and product audit only.
+- `packages/db`: Nest SQLite settings, projects/tasks/reviews and product audit; never engine state.
 - `packages/schemas`: product schemas, currently branding.
 - `apps/admin-ui`, `apps/user-ui`, `apps/nest-brand`: Nest-owned React interfaces.
 - `apps/cli`: Nest installer/operator CLI using upstream LLM library.
@@ -34,6 +34,9 @@ npm run lint
 npm run build
 npm run --workspace @nest/cli test
 ```
+
+Track numbered product migrations under `packages/db/migrations`; keep product
+types in `packages/schemas` synchronized. Project UI work follows `docs/ROADMAP.md`.
 
 Tests are colocated. `npm test` excludes vendor tests; `test:engine` runs them
 separately. The CLI uses node:test. Scripts use Node 22.12+ / tsx. Test the actual

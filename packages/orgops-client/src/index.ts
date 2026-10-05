@@ -57,6 +57,18 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     humans.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.id.localeCompare(b.id));
     return humans[0]?.id === user.id;
   }
-  return { request, currentHuman, isOwner, baseUrl: base.origin };
+  function humanHeaders(input: HeadersInit) {
+    const headers = new Headers(input);
+    for (const name of ['authorization', 'x-nest-runner-token', 'x-orgops-runner-token', 'x-nest-agent-name', 'x-orgops-agent-name', 'x-nest-channel-id', 'x-orgops-channel-id']) headers.delete(name);
+    return headers;
+  }
+  async function humanJson<T>(path: string, input: HeadersInit, body?: unknown): Promise<T> {
+    const headers = humanHeaders(input);
+    if (body !== undefined) headers.set('content-type', 'application/json');
+    const result = await request(path, {headers, method: body === undefined ? 'GET' : 'POST', ...(body !== undefined ? {body: JSON.stringify(body)} : {})});
+    if (!result.ok) throw new Error(`Engine request failed (${result.status})`);
+    return result.json() as Promise<T>;
+  }
+  return { request, currentHuman, isOwner, humanJson, baseUrl: base.origin };
 }
 export type OrgOpsClient = ReturnType<typeof createOrgOpsClient>;

@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { createProjectStore } from './projects';
 import { dirname } from 'node:path';
 import { BrandingSchema, DEFAULT_BRANDING, type Branding } from '../../schemas/src/branding';
 
@@ -16,6 +17,15 @@ export function openProductDb(path = '.nest-product/nest.sqlite') {
       actor_id TEXT NOT NULL, payload_json TEXT NOT NULL, created_at INTEGER NOT NULL
     );
   `);
+  db.pragma('foreign_keys = ON');
+  db.exec('CREATE TABLE IF NOT EXISTS product_migrations (name TEXT PRIMARY KEY)');
+  db.transaction(() => {
+    if (!db.prepare('SELECT name FROM product_migrations WHERE name=?').get('001_projects')) {
+      db.exec(readFileSync(new URL('../migrations/001_projects.sql', import.meta.url), 'utf8'));
+      db.prepare('INSERT INTO product_migrations VALUES (?)').run('001_projects');
+    }
+  })();
+  const projects = createProjectStore(db);
   function branding(): Branding {
     const row = db.prepare('SELECT value_json FROM product_settings WHERE key = ?').get('branding') as {value_json: string} | undefined;
     try { return row ? BrandingSchema.parse(JSON.parse(row.value_json)) : DEFAULT_BRANDING; }
@@ -29,6 +39,6 @@ export function openProductDb(path = '.nest-product/nest.sqlite') {
     })();
     return parsed;
   }
-  return { db, branding, saveBranding, close: () => db.close() };
+  return { db, projects, branding, saveBranding, close: () => db.close() };
 }
 export type ProductDb = ReturnType<typeof openProductDb>;
