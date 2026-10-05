@@ -151,6 +151,7 @@ vision are at different stages.
 | Collaboration | Human sign-in, teams, channels, conversations, sharing, files, and real-time activity. |
 | Agent operations | Configuration, start/stop state, explicit runner assignment, native and wrapped execution, process supervision, and event inspection. |
 | Reuse and integration | Native skills, model configuration, secrets, HTTP/WebSocket APIs, and configurable external runtime recipes. |
+| Projects and reviews | Owner-managed projects linked to conversations, assigned task briefs, agent-response deliverables, revision requests and explicit human approval. [Workflow and limits](docs/ROADMAP.md). |
 | White-labeling | Instance name, logo, and palette in **Admin → Branding**, backed by Nest's product database. |
 | Deployment | Self-hosted runtime, Docker composition, persistent storage, bootstrap/operator CLI, and a deployment-specific restricted host controller. |
 | Workspace home | Dashboard with live agents, conversations, and session-local unread activity; stacked-card navigation and Figma agent portraits. |
@@ -169,7 +170,7 @@ Browser
           │ HTTP / WebSocket, same origin
           ▼
       Nest product API
-          ├── Nest SQLite: branding, settings, product audit
+          ├── Nest SQLite: settings, projects, tasks, reviews, audit
           │
           └── OrgOps adapter
                   │ HTTP / WebSocket

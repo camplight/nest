@@ -11,7 +11,7 @@ Nest does not keep a second copy of the engine or apply source patches.
 | Admin/user interfaces and branding | Nest | `apps/admin-ui`, `apps/user-ui`, `apps/nest-brand` |
 | Product API / backend-for-frontend | Nest | `apps/api` |
 | Engine HTTP/auth compatibility adapter | Nest | `packages/orgops-client` |
-| Product settings and audit persistence | Nest | `packages/db`, `.nest-product/nest.sqlite` |
+| Product settings, projects, tasks, reviews and audit persistence | Nest | `packages/db`, `.nest-product/nest.sqlite` |
 | Product schemas | Nest | `packages/schemas` |
 | Bootstrap CLI | Nest | `apps/cli` |
 | Agents, humans, sessions, events, runners, skills, execution | OrgOps | `vendor/orgops` |
@@ -118,6 +118,71 @@ See [ROADMAP.md](ROADMAP.md) for Figma references, acceptance criteria and remai
 project/task/review milestones. These screens do not provision agents or implement
 task assignment, performance scores, avatar editing or resource configuration.
 
+## Projects, tasks and human review
+
+`?view=projects`, `?view=projects&project=<id>` and
+`?view=projects&project=<id>&task=<id>` restore the project/task view on reload and
+browser history. Navigation clears the active conversation. “Open conversation”
+returns to the existing chat. The layout follows the case-study project reference
+`849:599` using shared tokens and original avatars; full project tabs and budget
+panels remain future work.
+
+Project creation links an existing active engine conversation the human can
+manage and post to. The existing conversation dialog can create a dedicated
+conversation first. Project records belong to the creating human only; engine
+conversation messages keep their existing visibility. All project routes require
+a signed-in human with password setup complete and recheck current conversation
+access. Archived/deleted/inaccessible conversations make the project unavailable
+without deleting its history. Unarchive or restore access to recover it.
+
+Tasks store a title, brief, acceptance criteria and assigned agent. Creating a
+task queues it; sending explicitly subscribes the agent and posts a targeted
+`message.created` using the human's credentials. No runner token is injected;
+runner/Authorization/scoped-agent headers are stripped from product engine calls.
+The idempotency key is `nest:task:<task-id>:attempt:<number>`. Nest persists dispatch
+receipt ID/time after the engine response. A timeout after the engine accepted
+it leaves the task queued and retryable with the same key, including after API
+restart. This is at-least-once delivery, not a promise of exactly-once agent work.
+
+States: `queued` → `working` → `needs_review` → `done`, or `needs_review` →
+`changes_requested` → `working` for a new attempt. `working` means dispatched,
+not evidence the runner is currently executing; the UI says “Awaiting deliverable.”
+Only explicit human approval marks done. Requested changes require feedback,
+increment the attempt and clear its current dispatch/deliverable references.
+Previous deliverables/reviews are immutable historical records.
+
+For a working task, a human chooses from the latest 100 assigned-agent message
+responses after the dispatch timestamp. Submission fetches the chosen event
+through the engine API and verifies source, type, conversation and timestamp.
+It snapshots text/Markdown (including artifact links) into the product DB; binary
+files stay in the engine. Selection is the human's explicit task/result mapping,
+not automatic correlation. A successful turn or arbitrary human message cannot
+complete a task. Multiple tasks can share a conversation, so the human must check
+that the chosen response matches the task and acceptance criteria.
+
+All task actions include the last observed `version`. A SQLite compare-and-swap
+transaction changes task state, stores any deliverable/review and appends an audit
+record together. Stale or concurrent decisions return 409 and cannot create two
+reviews of the same deliverable. Project/task create IDs are client UUIDs: replay
+with matching content returns the existing record; reuse with different content
+returns 409. Engine failure returns 502 with saved records retained. There is no
+background dispatch worker, stored human credential, automatic retry, cancellation
+or automatic failure-classification in this slice.
+
+Product APIs (JSON, no-store, 64 KB request cap):
+
+- `GET/POST /api/projects`: list owned accessible projects / create a project.
+- `GET /api/projects/:projectId`: project, tasks, deliverables and review history.
+- `POST /api/projects/:projectId/tasks`: create an assigned queued task.
+- `POST /api/projects/:projectId/tasks/:taskId/dispatch`: send initial/revision brief.
+- `GET /api/projects/:projectId/tasks/:taskId/responses`: candidate agent messages.
+- `POST /api/projects/:projectId/tasks/:taskId/deliverables`: snapshot selected event.
+- `POST /api/projects/:projectId/tasks/:taskId/reviews`: approve/request changes.
+
+Schemas and public product types live in `packages/schemas/src/projects.ts`.
+The initial workflow supports the creator as reviewer; shared project roles,
+notifications, full task execution telemetry and resource budgets are later milestones.
+
 ## API and identity boundary
 
 Nest owns:
@@ -126,6 +191,7 @@ Nest owns:
 - `GET /api/branding`: public, no-store; sign-in identity and palette.
 - `GET /api/branding/access`: authenticated human's owner capability.
 - `PUT /api/branding`: replaces validated branding for the instance owner.
+- `/api/projects` and descendants: project/task/review routes described above.
 
 Other `/api/*` and `/v1/*` requests pass through the adapter to the fixed engine
 origin. Streaming request/response bodies, HTTP status, uploads and query strings
@@ -152,6 +218,17 @@ identity instead of maintaining a second user/password store.
 `product_audit(id, type, actor_id, payload_json, created_at)` stores product audit
 history. A branding write and `audit.branding.updated` record share one SQLite
 transaction. This audit is product-owned and does not wake engine agents.
+
+`product_migrations` tracks numbered Nest-only SQL migrations under
+`packages/db/migrations`, applied in a transaction at startup. `001_projects.sql`
+adds `product_projects`, `product_tasks`, `product_deliverables`, and
+`product_reviews`. The existing branding tables are preserved. Project columns
+include owner and engine channel IDs. Tasks store a versioned JSON record and
+project foreign key; deliverables and reviews have immutable typed columns,
+foreign keys and uniqueness per task attempt/deliverable. Public types in
+`packages/schemas/src/projects.ts` and the store in `packages/db/src/projects.ts`
+are kept in agreement with this schema. Both databases already participate in
+host-controller deployment snapshots and rollback.
 
 Branding includes displayName (1–60 chars), logoUrl, primaryColor, accentColor,
 and backgroundColor. Colors are six-digit hex. Logos allow HTTPS without URL
@@ -185,3 +262,9 @@ implementation plus the offline migration. `npm run test:engine` runs upstream
 engine tests separately. `npm run lint` type-checks the selected workspaces;
 `npm run build` builds both Nest interfaces. CLI tests use the Node test runner:
 `npm run --workspace @nest/cli test`.
+
+`npm run test:ui:agents` checks agent navigation/settings. `npm run test:ui:projects`
+exercises the project/revision/approval flow in a browser against isolated real
+product/engine HTTP handlers. It simulates runner-authored responses without a
+model invocation. `apps/api/src/projects.test.ts` additionally covers authorization,
+immutable reviews, malformed input, idempotency and restart recovery.
