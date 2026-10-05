@@ -20,9 +20,11 @@ export function openProductDb(path = '.nest-product/nest.sqlite') {
   db.pragma('foreign_keys = ON');
   db.exec('CREATE TABLE IF NOT EXISTS product_migrations (name TEXT PRIMARY KEY)');
   db.transaction(() => {
-    if (!db.prepare('SELECT name FROM product_migrations WHERE name=?').get('001_projects')) {
-      db.exec(readFileSync(new URL('../migrations/001_projects.sql', import.meta.url), 'utf8'));
-      db.prepare('INSERT INTO product_migrations VALUES (?)').run('001_projects');
+    for (const name of ['001_projects', '002_project_chats']) {
+      if (!db.prepare('SELECT name FROM product_migrations WHERE name=?').get(name)) {
+        db.exec(readFileSync(new URL(`../migrations/${name}.sql`, import.meta.url), 'utf8'));
+        db.prepare('INSERT INTO product_migrations VALUES (?)').run(name);
+      }
     }
   })();
   const projects = createProjectStore(db);

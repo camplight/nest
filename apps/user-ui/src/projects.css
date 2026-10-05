@@ -35,3 +35,30 @@
 @media(max-width:760px) { .projects-page .dashboard-title .project-create { display: flex; } .projects-page .dashboard-title { flex-wrap: wrap; } .projects-page .dashboard-topbar { gap: 8px; } .projects-page .dashboard-topbar .dashboard-action { padding: 8px; font-size: 12px; } .project-task-row { flex-wrap: wrap; } .project-form,.project-task-detail { padding: 18px; } }
 
 .project-markdown a { color: var(--nest-text); text-decoration: underline; text-underline-offset: 3px; }
+
+.project-tabs { display:flex; gap:8px; border-bottom:1px solid var(--nest-border); margin:0 0 24px; padding-bottom:12px; }
+.project-tabs button { padding:10px 18px; border:0; border-radius:6px; color:var(--nest-muted); background:transparent; font:500 14px Inter,sans-serif; cursor:pointer; }
+.project-tabs button[aria-current="page"] { color:var(--nest-text); background:var(--nest-surface); box-shadow:0 1px 4px #0001; }
+.project-chat .workspace { display:flex; flex-direction:column; padding:0; min-height:560px; height:calc(100dvh - 245px); background:transparent; }
+.project-chat .workspace-header { display:none; }
+.project-chat .messages-panel { min-height:200px; }
+.project-members .activity-panel { padding:24px 0; background:transparent; border:0; display:block; }
+.project-file-list { padding:0; list-style:none; }
+.project-file-list li { padding:16px 0; border-bottom:1px solid var(--nest-border); overflow-wrap:anywhere; }
+.project-file-list a { color:var(--nest-text); }
+.project-sidebar-list { display:grid; gap:6px; }
+.project-sidebar-list button { color:inherit; text-align:left; border:0; border-radius:6px; padding:10px; background:transparent; overflow-wrap:anywhere; cursor:pointer; }
+.project-sidebar-list button[aria-current="page"] { background:var(--nest-sidebar-selected); font-weight:600; }
+.dashboard-projects { margin-bottom:28px; }
+@media(max-width:760px) { .project-tabs { gap:0; } .project-tabs button { flex:1; padding:10px; } .project-chat .workspace { height:calc(100dvh - 210px); } }
+
+/* Keep the composer inside the viewport, with only message history scrolling. */
+.project-chat-page { display:flex; flex-direction:column; overflow:hidden; }
+.project-chat-page .dashboard-topbar { flex-shrink:0; }
+.project-chat-page .dashboard-content { flex:1; min-height:0; width:100%; box-sizing:border-box; display:flex; flex-direction:column; gap:20px; }
+.project-chat-page .project-tabs { margin-bottom:0; }
+.project-chat-page .project-workspace { flex:1; }
+.project-chat-page .project-workspace, .project-chat-page .project-main, .project-chat-page .project-chat { height:100%; min-height:0; }
+.project-chat-page .workspace { height:100%; min-height:0; }
+.project-chat-page .project-about { max-height:100%; overflow-y:auto; box-sizing:border-box; }
+@media(max-width:1100px) { .project-chat-page .project-about { display:none; } }

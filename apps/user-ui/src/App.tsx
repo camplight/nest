@@ -1,3 +1,4 @@
+import type { Project } from "@nest/schemas";
 import { Projects } from "./Projects";
 import { Agents } from "./Agents";
 import { AgentAvatar } from "./components/AgentAvatar";
@@ -9,6 +10,7 @@ import {
   type ChangeEvent,
   type ClipboardEvent,
   useEffect,
+  useCallback,
   useMemo,
   useRef,
   useState
@@ -423,6 +425,13 @@ function readLinkedChannelId() {
   return new URL(window.location.href).searchParams.get("channel");
 }
 
+function readProjectTab() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("project") && url.searchParams.get("create") === "project") return "new";
+  const tab = url.searchParams.get("tab");
+  return tab && ["chat", "tasks", "files", "members"].includes(tab) ? tab : url.searchParams.has("task") ? "tasks" : "chat";
+}
+
 function readPendingShareToken() {
   const token = new URL(window.location.href).searchParams.get("share");
   return token?.trim() || null;
@@ -433,7 +442,7 @@ function updateChannelDeepLink(channelId: string | null, replace = false) {
   url.searchParams.delete("view");
   url.searchParams.delete("agent");
   url.searchParams.delete("project");
-  url.searchParams.delete("task");
+  url.searchParams.delete("task"); url.searchParams.delete("tab"); url.searchParams.delete("create");
   if (channelId) {
     url.searchParams.set("channel", channelId);
   } else {
@@ -547,6 +556,14 @@ export default function App() {
   const [events, setEvents] = useState<EventRow[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [view, setView] = useState<"dashboard" | "workspace" | "agents" | "projects">(() => readLinkedChannelId() ? "workspace" : new URL(window.location.href).searchParams.get("view") === "agents" ? "agents" : new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : "dashboard");
+  const [projectIndex, setProjectIndex] = useState<Project[]>([]);
+  const [projectTab, setProjectTab] = useState(readProjectTab);
+  const chatVisibleRef = useRef(false);
+  chatVisibleRef.current = view === "workspace" || (view === "projects" && projectTab === "chat");
+  const onProjectLoaded = useCallback((project: Project) => {
+    setProjectIndex(current => current.some(p => p.id === project.id && p.channelId === project.channelId) ? current : [...current.filter(p => p.id !== project.id), project]);
+    void apiJson<Channel[]>("/api/channels?includeArchived=1").then(setChannels).catch(() => {});
+  }, []);
   const [selectedProject, setSelectedProject] = useState<string | null>(() => new URL(window.location.href).searchParams.get("project"));
   const [selectedTask, setSelectedTask] = useState<string | null>(() => new URL(window.location.href).searchParams.get("task"));
   const [selectedAgent, setSelectedAgent] = useState<string | null>(() => new URL(window.location.href).searchParams.get("agent"));
@@ -682,13 +699,17 @@ export default function App() {
       ),
     [channels, userId, username, viewerTeamIds]
   );
+  const standaloneChannels = useMemo(() => visibleChannels.filter(channel => !projectIndex.some(project => project.channelId === channel.id)), [visibleChannels, projectIndex]);
+  useEffect(() => {
+    if (view === "projects") setActiveChannelId(projectIndex.find(project => project.id === selectedProject)?.channelId ?? null);
+  }, [view, selectedProject, projectIndex]);
   const activeChannels = useMemo(
-    () => visibleChannels.filter((channel) => !channel.archivedAt),
-    [visibleChannels]
+    () => standaloneChannels.filter((channel) => !channel.archivedAt),
+    [standaloneChannels]
   );
   const archivedChannels = useMemo(
-    () => visibleChannels.filter((channel) => Boolean(channel.archivedAt)),
-    [visibleChannels]
+    () => standaloneChannels.filter((channel) => Boolean(channel.archivedAt)),
+    [standaloneChannels]
   );
   const visibleChannelAgentNames = useMemo(() => {
     const names = new Set<string>();
@@ -769,20 +790,23 @@ export default function App() {
     setArchiveDraft(Boolean(activeChannel.archivedAt));
   }, [activeChannel?.id, activeChannel?.visibility, activeChannel?.archivedAt]);
 
-  function selectProject(project: string | null, task: string | null = null) {
+  function selectProject(project: string | null, task: string | null = null, tab = task ? "tasks" : "chat", replace = false) {
     const url = new URL(window.location.href);
     url.searchParams.delete("channel"); url.searchParams.delete("agent");
     url.searchParams.set("view", "projects");
     if (project) url.searchParams.set("project", project); else url.searchParams.delete("project");
-    if (task) url.searchParams.set("task", task); else url.searchParams.delete("task");
-    window.history.pushState(null, "", url);
-    setActiveChannelId(null); setView("projects"); setSelectedProject(project); setSelectedTask(task); setMobileSidebarOpen(false);
+    if (task) url.searchParams.set("task", task); else url.searchParams.delete("task"); url.searchParams.delete("tab"); url.searchParams.delete("create");
+    if (project) url.searchParams.set("tab", tab); else url.searchParams.delete("tab");
+    if (!project && tab === "new") url.searchParams.set("create", "project"); else url.searchParams.delete("create");
+    window.history[replace ? "replaceState" : "pushState"](null, "", url);
+    setProjectTab(tab);
+    setActiveChannelId(projectIndex.find(p => p.id === project)?.channelId ?? null); setView("projects"); setSelectedProject(project); setSelectedTask(task); setMobileSidebarOpen(false);
   }
 
   function selectAgent(name: string | null) {
     const url = new URL(window.location.href);
     url.searchParams.delete("channel");
-    url.searchParams.delete("project"); url.searchParams.delete("task");
+    url.searchParams.delete("project"); url.searchParams.delete("task"); url.searchParams.delete("tab"); url.searchParams.delete("create");
     url.searchParams.set("view", "agents");
     if (name) url.searchParams.set("agent", name); else url.searchParams.delete("agent");
     window.history.pushState(null, "", url);
@@ -790,6 +814,8 @@ export default function App() {
   }
 
   function selectChannel(channelId: string | null, options?: { replace?: boolean }) {
+    const project = projectIndex.find(project => project.channelId === channelId);
+    if (project) { selectProject(project.id, null, "chat", options?.replace); return; }
     setActiveChannelId(channelId);
     setView(channelId ? "workspace" : "dashboard");
     setMobileSidebarOpen(false);
@@ -844,12 +870,14 @@ export default function App() {
           );
         }
       }
-      const [nextChannels, nextAgents, nextHumans, nextTeams] = await Promise.all([
+      const [nextChannels, nextAgents, nextHumans, nextTeams, nextProjects] = await Promise.all([
         apiJson<Channel[]>("/api/channels?includeArchived=1"),
         apiJson<Agent[]>("/api/agents"),
         apiJson<Array<{ username: string }>>("/api/humans").catch(() => []),
-        apiJson<Team[]>("/api/teams/me").catch(() => [])
+        apiJson<Team[]>("/api/teams/me").catch(() => []),
+        apiJson<Project[]>("/api/projects")
       ]);
+      setProjectIndex(nextProjects);
       setChannels(nextChannels);
       setAgents(nextAgents);
       setHumans(nextHumans);
@@ -882,8 +910,12 @@ export default function App() {
           : null);
       if (linkedChannel?.archivedAt) setShowArchivedChannels(true);
       if (!claimedShareChannelId && ["agents", "projects"].includes(new URL(window.location.href).searchParams.get("view") ?? "") && !linkedChannelId) {
-        setActiveChannelId(null); setView(new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : "agents");
-      } else selectChannel(nextActiveChannelId, { replace: true });
+        setActiveChannelId(nextProjects.find(p => p.id === new URL(window.location.href).searchParams.get("project"))?.channelId ?? null); setView(new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : "agents");
+      } else {
+        const project = nextProjects.find(p => p.channelId === nextActiveChannelId);
+        if (project) selectProject(project.id, null, "chat", true);
+        else selectChannel(nextActiveChannelId, { replace: true });
+      }
       await loadMessageNotifications({ initialize: true });
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load workspace");
@@ -921,6 +953,7 @@ export default function App() {
   }
 
   function markChannelSeen(channelId: string, channelEvents: EventRow[]) {
+    if (!chatVisibleRef.current) return;
     const newestMessageAt = newestMessageTime(channelEvents);
     if (newestMessageAt > 0) {
       lastSeenByChannelRef.current[channelId] = Math.max(
@@ -1128,7 +1161,7 @@ export default function App() {
         return;
       }
 
-      const activeId = activeChannelIdRef.current;
+      const activeId = chatVisibleRef.current ? activeChannelIdRef.current : null;
       const nextCounts: Record<string, number> = {};
       for (const event of nextEvents) {
         if (!event.channelId || event.channelId === activeId) continue;
@@ -1150,7 +1183,7 @@ export default function App() {
     if (!eventChannelId) return;
 
     const currentActiveId = activeChannelIdRef.current;
-    if (eventChannelId === currentActiveId && (event.type === "message.created" || isTraceEvent(event))) {
+    if (chatVisibleRef.current && eventChannelId === currentActiveId && (event.type === "message.created" || isTraceEvent(event))) {
       const shouldAutoScroll = isMessagesPanelNearBottom();
       setEvents((current) => mergeEventsChronologically(current, [event]));
       if (event.type === "message.created" || event.type === "agent.turn.failed") {
@@ -1252,7 +1285,7 @@ export default function App() {
       scrollToBottom: true,
       showLoading: true
     });
-  }, [activeChannelId, authenticated, mustChangePassword]);
+  }, [activeChannelId, authenticated, mustChangePassword, projectTab]);
 
   useEffect(() => {
     if (!activeChannelId || messagesLoading) return;
@@ -1408,10 +1441,14 @@ export default function App() {
       setView(linkedChannel ? "workspace" : url.searchParams.get("view") === "agents" ? "agents" : url.searchParams.get("view") === "projects" ? "projects" : "dashboard");
       setSelectedAgent(url.searchParams.get("agent"));
       setSelectedProject(url.searchParams.get("project")); setSelectedTask(url.searchParams.get("task"));
+      setProjectTab(readProjectTab());
+      if (!linkedChannel && url.searchParams.get("view") === "projects") setActiveChannelId(projectIndex.find(p => p.id === url.searchParams.get("project"))?.channelId ?? null);
+      const project = projectIndex.find(p => p.channelId === linkedChannelId);
+      if (project) selectProject(project.id, null, "chat", true);
     }
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [authenticated, channels, mustChangePassword, userId, username, viewerTeamIds]);
+  }, [authenticated, channels, mustChangePassword, userId, username, viewerTeamIds, projectIndex]);
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1444,6 +1481,8 @@ export default function App() {
     setNewPassword("");
     setConfirmPassword("");
     setChannels([]);
+    setProjectIndex([]);
+    try {sessionStorage.removeItem("nest-new-project");} catch {}
     setAgents([]);
     setTeams([]);
     setEvents([]);
@@ -1567,7 +1606,9 @@ export default function App() {
             visibleChannels.some((channel) => channel.id === activeChannelId && !channel.archivedAt)
           ? activeChannelId
           : visibleChannels.find((channel) => !channel.archivedAt)?.id ?? null;
-    selectChannel(nextSelectedChannelId, { replace: true });
+    if (view === "projects" && projectIndex.some(project => project.id === selectedProject && project.channelId === nextSelectedChannelId) && visibleChannels.some(channel => channel.id === nextSelectedChannelId && !channel.archivedAt)) {
+      setActiveChannelId(nextSelectedChannelId);
+    } else selectChannel(nextSelectedChannelId, { replace: true });
     return nextChannels;
   }
 
@@ -2021,144 +2062,7 @@ export default function App() {
     );
   }
 
-  return (
-    <main className={`app-shell product-shell ${view !== "workspace" ? "dashboard-shell" : ""}`}>
-      <aside className={`sidebar ${mobileSidebarOpen ? "sidebar-mobile-open" : ""}`}>
-        <button
-          type="button"
-          className="sidebar-mobile-close"
-          onClick={() => setMobileSidebarOpen(false)}
-        >
-          Close
-        </button>
-        <InstanceBrand />
-        <nav className="product-nav" aria-label="Main navigation">
-          <button aria-current={view === "dashboard" ? "page" : undefined} onClick={() => selectChannel(null)}><DesignIcon name="dashboard" />Dashboard</button>
-          <button aria-current={view === "projects" ? "page" : undefined} onClick={() => selectProject(null)}><DesignIcon name="conversations" />Projects</button>
-          <button aria-current={view === "workspace" ? "page" : undefined} onClick={() => {
-            const channel = visibleChannels.find(channel => !channel.archivedAt);
-            if (channel) selectChannel(channel.id);
-            else setShowConversationDialog(true);
-          }}><DesignIcon name="conversations" />Conversations</button>
-          <button aria-current={view === "agents" ? "page" : undefined} onClick={() => selectAgent(null)}><DesignIcon name="agents" />Agents</button>
-        </nav>
-
-        {view === "workspace" && <section className="sidebar-section">
-          <label className="channel-search">
-            <span>Search channels</span>
-            <input
-              value={channelQuery}
-              onChange={(event) => setChannelQuery(event.target.value)}
-              placeholder="Search channels..."
-            />
-          </label>
-          <div className="channel-list">
-            {groupedChannels.map((group) => {
-              const isCollapsed = !isSearchingChannels && collapsedChannelGroups[group.id];
-              return (
-                <section className="channel-group" key={group.id}>
-                  <button
-                    type="button"
-                    className="channel-group-toggle"
-                    aria-expanded={!isCollapsed}
-                    onClick={() =>
-                      setCollapsedChannelGroups((current) => ({
-                        ...current,
-                        [group.id]: !current[group.id]
-                      }))
-                    }
-                  >
-                    <span>{group.label}</span>
-                    <em>{group.channels.length}</em>
-                    <strong>{isCollapsed ? "+" : "-"}</strong>
-                  </button>
-
-                  {!isCollapsed ? (
-                    <div className="channel-group-items">
-                      {group.channels.map((channel) => (
-                        <button
-                          key={channel.id}
-                          aria-current={channel.id === activeChannelId ? "page" : undefined}
-                          className={channel.id === activeChannelId ? "active" : undefined}
-                          onClick={() => selectChannel(channel.id)}
-                        >
-                          <span>{channelLabel(channel, username)}</span>
-                          {unreadCounts[channel.id] ? <em>{unreadCounts[channel.id]}</em> : null}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </section>
-              );
-            })}
-            {filteredArchivedChannels.length > 0 ? (
-              <section className="channel-group">
-                <button
-                  type="button"
-                  className="channel-group-toggle"
-                  aria-expanded={isSearchingChannels || showArchivedChannels}
-                  onClick={() => setShowArchivedChannels((current) => !current)}
-                >
-                  <span>Archived</span>
-                  <em>{filteredArchivedChannels.length}</em>
-                  <strong>{isSearchingChannels || showArchivedChannels ? "-" : "+"}</strong>
-                </button>
-
-                {isSearchingChannels || showArchivedChannels ? (
-                  <div className="channel-group-items archived-channel-items">
-                    {filteredArchivedChannels.map((channel) => (
-                      <button
-                        key={channel.id}
-                        aria-current={channel.id === activeChannelId ? "page" : undefined}
-                          className={channel.id === activeChannelId ? "active" : undefined}
-                        onClick={() => selectChannel(channel.id)}
-                      >
-                        <span>{channelLabel(channel, username)}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </section>
-            ) : null}
-            {!loading &&
-            channelQuery.trim() &&
-            filteredChannels.length === 0 &&
-            filteredArchivedChannels.length === 0 ? (
-              <p className="channel-empty">No channels match "{channelQuery.trim()}".</p>
-            ) : null}
-          </div>
-        </section>}
-
-        <section className="sidebar-section start-conversation">
-          <button className="new-conversation-button" onClick={() => setShowConversationDialog(true)}>
-            <span>New conversation</span>
-            <kbd>Cmd+K</kbd>
-          </button>
-        </section>
-
-        <section className="sidebar-section account-actions">
-          <ThemeToggle />
-          <button className="logout-button" onClick={() => void handleLogout()}>
-            Sign out {username ? `(${username})` : ""}
-          </button>
-        </section>
-        <div className="instance-sidebar-footer dashboard-attribution"><span>Powered by</span><DesignIcon name="nest-mark" /><img src={`${import.meta.env.BASE_URL}design/nest-wordmark.svg`} alt="Nest" /></div>
-      </aside>
-      {mobileSidebarOpen ? (
-        <button
-          type="button"
-          aria-label="Close navigation"
-          className="sidebar-mobile-backdrop"
-          onClick={() => setMobileSidebarOpen(false)}
-        />
-      ) : null}
-
-      {view === "projects" ? <Projects projectId={selectedProject} taskId={selectedTask} channels={visibleChannels} agents={visibleAgents} onSelect={selectProject} onChat={selectChannel} onMenu={() => setMobileSidebarOpen(true)} onNewConversation={() => setShowConversationDialog(true)} /> : view === "agents" ? <Agents agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
-        channels={visibleChannels} agents={visibleAgents} teams={teams} unreadCounts={unreadCounts} onAgent={selectAgent}
-        loading={loading} error={error} label={channel => channelLabel(channel, username)}
-        onSelect={selectChannel} onCreate={() => setShowConversationDialog(true)}
-        onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()}
-      /> : <><section className="workspace">
+  const chatWorkspace = <section className="workspace">
         <header className="workspace-header">
           <button
             type="button"
@@ -2430,9 +2334,8 @@ export default function App() {
           ) : null}
           </form>
         </section>
-      </section>
-
-      <aside className="activity-panel">
+      </section>;
+  const chatMembers = <aside className="activity-panel">
         <section className="participants-card">
           <div className="participants-header-row">
             <h2>Participants</h2>
@@ -2490,7 +2393,146 @@ export default function App() {
             {events.length === 0 ? <p>No recent activity in this channel.</p> : null}
           </div>
         </section>
-      </aside></>}
+      </aside>;
+
+  return (
+    <main className={`app-shell product-shell ${view !== "workspace" ? "dashboard-shell" : ""}`}>
+      <aside className={`sidebar ${mobileSidebarOpen ? "sidebar-mobile-open" : ""}`}>
+        <button
+          type="button"
+          className="sidebar-mobile-close"
+          onClick={() => setMobileSidebarOpen(false)}
+        >
+          Close
+        </button>
+        <InstanceBrand />
+        <nav className="product-nav" aria-label="Main navigation">
+          <button aria-current={view === "dashboard" ? "page" : undefined} onClick={() => selectChannel(null)}><DesignIcon name="dashboard" />Dashboard</button>
+          <button aria-current={view === "projects" ? "page" : undefined} onClick={() => selectProject(null)}><DesignIcon name="conversations" />Projects</button>
+          <button aria-current={view === "workspace" ? "page" : undefined} onClick={() => {
+            const channel = standaloneChannels.find(channel => !channel.archivedAt);
+            if (channel) selectChannel(channel.id);
+            else setShowConversationDialog(true);
+          }}><DesignIcon name="conversations" />Chats</button>
+          <button aria-current={view === "agents" ? "page" : undefined} onClick={() => selectAgent(null)}><DesignIcon name="agents" />Agents</button>
+        </nav>
+
+        {view === "projects" && <section className="sidebar-section project-sidebar-list" aria-label="Your projects">{projectIndex.map(project => <button key={project.id} aria-current={selectedProject === project.id ? "page" : undefined} onClick={() => selectProject(project.id)}># {project.name}{unreadCounts[project.channelId] ? ` (${unreadCounts[project.channelId]})` : ""}</button>)}</section>}
+
+        {view === "workspace" && <section className="sidebar-section">
+          <label className="channel-search">
+            <span>Search channels</span>
+            <input
+              value={channelQuery}
+              onChange={(event) => setChannelQuery(event.target.value)}
+              placeholder="Search channels..."
+            />
+          </label>
+          <div className="channel-list">
+            {groupedChannels.map((group) => {
+              const isCollapsed = !isSearchingChannels && collapsedChannelGroups[group.id];
+              return (
+                <section className="channel-group" key={group.id}>
+                  <button
+                    type="button"
+                    className="channel-group-toggle"
+                    aria-expanded={!isCollapsed}
+                    onClick={() =>
+                      setCollapsedChannelGroups((current) => ({
+                        ...current,
+                        [group.id]: !current[group.id]
+                      }))
+                    }
+                  >
+                    <span>{group.label}</span>
+                    <em>{group.channels.length}</em>
+                    <strong>{isCollapsed ? "+" : "-"}</strong>
+                  </button>
+
+                  {!isCollapsed ? (
+                    <div className="channel-group-items">
+                      {group.channels.map((channel) => (
+                        <button
+                          key={channel.id}
+                          aria-current={channel.id === activeChannelId ? "page" : undefined}
+                          className={channel.id === activeChannelId ? "active" : undefined}
+                          onClick={() => selectChannel(channel.id)}
+                        >
+                          <span>{channelLabel(channel, username)}</span>
+                          {unreadCounts[channel.id] ? <em>{unreadCounts[channel.id]}</em> : null}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </section>
+              );
+            })}
+            {filteredArchivedChannels.length > 0 ? (
+              <section className="channel-group">
+                <button
+                  type="button"
+                  className="channel-group-toggle"
+                  aria-expanded={isSearchingChannels || showArchivedChannels}
+                  onClick={() => setShowArchivedChannels((current) => !current)}
+                >
+                  <span>Archived</span>
+                  <em>{filteredArchivedChannels.length}</em>
+                  <strong>{isSearchingChannels || showArchivedChannels ? "-" : "+"}</strong>
+                </button>
+
+                {isSearchingChannels || showArchivedChannels ? (
+                  <div className="channel-group-items archived-channel-items">
+                    {filteredArchivedChannels.map((channel) => (
+                      <button
+                        key={channel.id}
+                        aria-current={channel.id === activeChannelId ? "page" : undefined}
+                          className={channel.id === activeChannelId ? "active" : undefined}
+                        onClick={() => selectChannel(channel.id)}
+                      >
+                        <span>{channelLabel(channel, username)}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+            {!loading &&
+            channelQuery.trim() &&
+            filteredChannels.length === 0 &&
+            filteredArchivedChannels.length === 0 ? (
+              <p className="channel-empty">No channels match "{channelQuery.trim()}".</p>
+            ) : null}
+          </div>
+        </section>}
+
+        <section className="sidebar-section start-conversation">
+          <button className="new-conversation-button" onClick={() => selectProject(null, null, "new")}><span>+ New project</span></button>
+          <button className="new-conversation-button" onClick={() => setShowConversationDialog(true)}><span>New chat</span><kbd>Cmd+K</kbd></button>
+        </section>
+
+        <section className="sidebar-section account-actions">
+          <ThemeToggle />
+          <button className="logout-button" onClick={() => void handleLogout()}>
+            Sign out {username ? `(${username})` : ""}
+          </button>
+        </section>
+        <div className="instance-sidebar-footer dashboard-attribution"><span>Powered by</span><DesignIcon name="nest-mark" /><img src={`${import.meta.env.BASE_URL}design/nest-wordmark.svg`} alt="Nest" /></div>
+      </aside>
+      {mobileSidebarOpen ? (
+        <button
+          type="button"
+          aria-label="Close navigation"
+          className="sidebar-mobile-backdrop"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      ) : null}
+
+      {view === "projects" ? <Projects projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} members={<><button className="dashboard-action" disabled={!activeChannelManageable} onClick={() => setShowChannelManageDialog(true)}>Manage members and sharing</button>{chatMembers}</>} /> : view === "agents" ? <Agents agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
+        channels={visibleChannels} projects={projectIndex} onProject={selectProject} agents={visibleAgents} teams={teams} unreadCounts={unreadCounts} onAgent={selectAgent}
+        loading={loading} error={error} label={channel => channelLabel(channel, username)}
+        onSelect={selectChannel} onCreate={() => setShowConversationDialog(true)}
+        onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()}
+      /> : <>{chatWorkspace}{chatMembers}</>}
 
       {showConversationDialog ? (
         <div className="dialog-backdrop" role="presentation" onMouseDown={() => setShowConversationDialog(false)}>

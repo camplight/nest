@@ -13,7 +13,7 @@ File: [Nest case study](https://www.figma.com/design/Rqfq3v9a8nZfQKbM3Q0NZk/Port
 | Dashboard | `793:2`, Camplight `923:417` | `Dashboard.tsx`; currently counts agents, conversations and session-local unread messages, not spend/tasks/issues. |
 | Agents directory | `866:119` | `Agents.tsx`; list, search, real runtime counts and Manage. Scores, task totals, assignment and creation are deferred. |
 | Agent details | `849:574` | `Agents.tsx`; description and native instructions can be saved. Identity/resources are read-only; wrapped runtime configuration remains external/admin. |
-| Project workspace | `849:599` | `Projects.tsx`: linked conversations, tasks, human-selected deliverables and reviews. Full Chat/Tasks/Files/Members tabs and budgets remain pending. |
+| Project workspace | `849:599` | `Projects.tsx`: one workspace with Chat/Tasks/Files/Members, automatic private chat creation, tasks and human review. Budgets remain pending. |
 | Onboarding | `860:680` | Pending. |
 
 Directory and detail references are flattened images in the case study. Use the
@@ -46,11 +46,9 @@ full resource editing remain future work.
 
 ### 1. One project completed through human review — implemented
 
-The first slice links a new project to an active conversation the human can
-manage. Project/task/review records are private to the creator; conversation
-messages retain engine visibility. Create a dedicated conversation through the
-existing UI if needed. Creating a project does not create a second identity or
-copy engine data.
+Projects now create a private chat automatically. Existing linked conversations
+remain compatible. Project/task/review records are private to the creator; chat
+messages retain engine visibility. No engine data or identity is copied.
 
 Implemented acceptance:
 
@@ -89,11 +87,18 @@ Current task states: queued, working, needs_review, changes_requested, done.
 A separate failed state awaits reliable execution-failure correlation.
 A successful agent turn alone must not imply human acceptance.
 
-### 2. Project workspace and review inbox
+### 2. Project workspace and review inbox — workspace implemented
 
-Projects list and Chat/Tasks/Files/Members tabs. Up next contains actionable review
-requests. Notification/read state survives reload and new sessions. Keep direct
-conversation links compatible.
+- One visible project workspace with URL-backed Chat/Tasks/Files/Members.
+- Automatic private chat creation; durable recovery after lost responses.
+- Existing chat controls, upload browsing, member/sharing controls and task reviews.
+- Project chats appear under Projects; standalone/direct chats remain in Chats.
+- Legacy chat links resolve to the owned project. History and mobile are tested.
+- Shared project roles are still deferred: invited chat members do not gain tasks.
+
+Next: actionable review requests in Up next, persistent notification/read state
+across sessions. Release verification is recorded in the milestone PR; local
+checks alone do not establish production deployment.
 
 ### 3. Complete agent experience
 

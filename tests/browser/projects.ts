@@ -35,18 +35,24 @@ try {
     assert.equal(login.status,200);
     const cookie=login.headers.get('set-cookie')!.split(';')[0];
     const headers={cookie,'content-type':'application/json'};
-    const channelResponse=await product.app.request('/api/channels',{method:'POST',headers,body:JSON.stringify({name:'Website launch',visibility:'PRIVATE'})});
-    const channelId=(await channelResponse.json()).id;
+    let channelId:string;
     const created=await product.app.request('/api/agents',{method:'POST',headers,body:JSON.stringify({name:'Builder',modelId:'test-model',workspacePath:join(dir,'workspace')})});assert.equal(created.status,201);
+    const direct=await product.app.request('/api/channels/direct/human-agent',{method:'POST',headers,body:JSON.stringify({agentName:'Builder'})});assert([200,201].includes(direct.status));
     await page.context().addCookies([{name:'nest_session',value:cookie.slice('nest_session='.length),url:'http://127.0.0.1:5298',httpOnly:true}]);
     // Relay browser requests into the real product + engine HTTP handlers. No
     // mocked product state, mutations, permissions or event validation.
+    let loseCreationResponse=true;
     await page.route('**/api/**',async route=>{
       const request=route.request();const url=new URL(request.url());
       const response=await product.app.request(url.pathname+url.search,{method:request.method(),headers:request.headers(),...(request.postDataBuffer()?{body:new Uint8Array(request.postDataBuffer()!)}:{})});
+      if (loseCreationResponse && url.pathname==='/api/projects' && request.method()==='POST') {
+        loseCreationResponse=false;
+        await route.fulfill({status:502,json:{error:'Response lost after project creation'}});
+        return;
+      }
       await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:Buffer.from(await response.arrayBuffer())});
     });
-    await page.routeWebSocket('**/ws',()=>{});
+    await page.routeWebSocket('**/ws',socket=>socket.close());
     const emit=async(text:string)=>{
       const r=await product.app.request('/api/events',{method:'POST',headers:{'content-type':'application/json','x-nest-runner-token':'test-runner'},body:JSON.stringify({type:'message.created',source:'agent:Builder',channelId,payload:{text}})});assert.equal(r.status,201);
     };
@@ -56,10 +62,59 @@ try {
     await page.getByRole('button',{name:'New project +',exact:true}).click();
     await page.getByRole('textbox',{name:'Project name',exact:true}).fill('Website launch');
     await page.getByRole('textbox',{name:'Project brief',exact:true}).fill('Ship an accessible landing page.');
-    await page.getByRole('combobox',{name:'Conversation',exact:true}).selectOption(channelId);
     await page.getByRole('button',{name:'Create project',exact:true}).click();
-    await page.getByRole('heading',{name:'Website launch',exact:true}).waitFor();
+    await page.getByRole('alert').filter({hasText:'Response lost after project creation'}).waitFor();
+    await page.reload();await page.getByRole('heading',{name:'Projects',exact:true}).waitFor();
+    await page.getByRole('button',{name:'New project +',exact:true}).click();
+    assert.equal(await page.getByRole('textbox',{name:'Project name',exact:true}).inputValue(),'Website launch');
+    await page.getByRole('button',{name:'Create project',exact:true}).click();
+    assert.equal((product.store.db.prepare('SELECT COUNT(*) AS count FROM product_projects').get() as {count:number}).count,1);
+
+    await page.getByRole('heading',{name:'Website launch',exact:true,level:1}).waitFor();
     assert(new URL(page.url()).searchParams.get('project'));
+    const projectId=new URL(page.url()).searchParams.get('project')!;
+    channelId=product.store.projects.project(projectId)!.channelId;
+    const sections=page.getByRole('navigation',{name:'Project sections'});
+    assert.equal(new URL(page.url()).searchParams.get('tab'),'chat');
+    await page.getByRole('textbox',{name:'Message',exact:true}).fill('Project kickoff');
+    await page.getByRole('button',{name:'Send',exact:true}).click();
+    await page.getByText('Project kickoff',{exact:true}).waitFor();
+    await page.locator('input[type=file]').setInputFiles({name:'brief.txt',mimeType:'text/plain',buffer:Buffer.from('Project acceptance brief')});
+    await page.getByRole('button',{name:'Send',exact:true}).click();
+    await page.getByRole('link',{name:'brief.txt',exact:true}).waitFor();
+    await sections.getByRole('button',{name:'Members',exact:true}).click();
+    await page.getByRole('button',{name:'Manage members and sharing'}).waitFor();
+    await page.locator('.participant-list').getByText('owner',{exact:true}).waitFor();
+    await page.getByRole('button',{name:'Manage members and sharing'}).click();
+    await page.getByRole('button',{name:'Manage participants',exact:true}).click();
+    await page.getByPlaceholder('agent name',{exact:true}).fill('Builder');
+    await page.getByRole('button',{name:'Add',exact:true}).click();
+    await page.locator('.participants-dialog-list').getByText('Builder',{exact:true}).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('tab'),'members');
+    await page.getByRole('dialog').filter({has:page.getByRole('heading',{name:'Manage participants',exact:true})}).getByRole('button',{name:'Close dialog',exact:true}).click();
+    await page.getByRole('button',{name:'Close dialog',exact:true}).click();
+    await sections.getByRole('button',{name:'Files',exact:true}).click();
+    await page.getByRole('heading',{name:'Files shared in chat'}).waitFor();
+    await page.getByRole('link',{name:'brief.txt ↗',exact:true}).waitFor();
+    await page.reload();await page.getByRole('heading',{name:'Files shared in chat'}).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('tab'),'files');
+    await page.goBack();await page.getByRole('button',{name:'Manage members and sharing'}).waitFor();
+    await sections.getByRole('button',{name:'Chat',exact:true}).click();
+    await page.getByText('Project kickoff',{exact:true}).waitFor();
+    const sendBounds=await page.getByRole('button',{name:'Send',exact:true}).boundingBox();
+    assert(sendBounds && sendBounds.y+sendBounds.height<=1100);
+    await page.screenshot({path:join(screenshots,'project-chat.png'),fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    const mobileSend=await page.getByRole('button',{name:'Send',exact:true}).boundingBox();
+    assert(mobileSend && mobileSend.y+mobileSend.height<=844);
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await page.screenshot({path:join(screenshots,'project-chat-mobile.png'),fullPage:true});
+    await page.setViewportSize({width:1440,height:1100});
+    await page.goto(`http://127.0.0.1:5298/?channel=${channelId}`);
+    await page.getByRole('navigation',{name:'Project sections'}).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('project'),projectId);
+    assert.equal(new URL(page.url()).searchParams.get('channel'),null);
+    await sections.getByRole('button',{name:'Tasks',exact:true}).click();
     await page.getByRole('button',{name:'New task +',exact:true}).click();
     await page.getByRole('textbox',{name:'Task title',exact:true}).fill('Build the landing page');
     await page.getByRole('textbox',{name:'Brief',exact:true}).fill('Implement the launch page with keyboard navigation.');
@@ -89,6 +144,12 @@ try {
     await page.reload();await page.getByText('Approved by a human. This task is complete.',{exact:true}).waitFor();
     assert.equal(await nav.getByRole('button',{name:'Projects',exact:true}).getAttribute('aria-current'),'page');
     await page.screenshot({path:join(screenshots,'project-approved.png'),fullPage:true});
+    await nav.getByRole('button',{name:'Chats',exact:true}).click();
+    await page.getByRole('heading',{name:'Builder',exact:true}).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('view'),null);
+    assert.equal(await page.locator('.channel-list').getByText('# Website launch',{exact:true}).count(),0);
+    await page.goBack();await page.getByText('Approved by a human. This task is complete.',{exact:true}).waitFor();
+
     await page.getByRole('button',{name:'All projects',exact:true}).click();await page.getByRole('heading',{name:'Projects',exact:true}).waitFor();
     await page.goBack();await page.getByText('Approved by a human. This task is complete.',{exact:true}).waitFor();
     await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'New task +',exact:true}).waitFor({state:'visible'});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
@@ -98,6 +159,6 @@ try {
     const id=new URL(deepLink).searchParams.get('project')!;
     const detail=product.store.projects.detail(product.store.projects.project(id)!);
     assert.equal(detail.tasks[0].status,'done');assert.equal(detail.deliverables.length,2);assert.equal(detail.reviews.length,2);
-    console.log(`PASS: real API project creation, task assignment, targeted dispatch, revision, deliverable approval, persistence, history and mobile. Screenshots: ${screenshots}`);
+    console.log(`PASS: automatic private chat, uploads/files, members, project tabs, legacy links, standalone chats, task dispatch/revision/approval, persistence, history and mobile. Screenshots: ${screenshots}`);
   } finally {await browser.close();}
 } finally {server.kill('SIGTERM');product.store.close();engine.db.close();rmSync(dir,{recursive:true,force:true});}

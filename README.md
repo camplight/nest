@@ -39,7 +39,7 @@ rules, and release controls still determine what is accepted and shipped.
 
 Consider a maintenance change to a repository:
 
-1. **Define the work.** Open a conversation, describe the change, provide the
+1. **Define the work.** Create a project, describe the change, provide the
    repository context, and state how you will know it is complete.
 2. **Bring in the right agents.** Choose agents with the appropriate instructions,
    tools, skills, and assigned runner. A small change may only need one.
@@ -67,6 +67,7 @@ budget, and progress panels are design concepts.*
 | **Human** | A signed-in person who participates in conversations, configures agents, or operates the instance. |
 | **Team** | A group of humans that can participate in shared channels. |
 | **Agent** | A persistent identity with instructions, an execution mode, workspace, skills, lifecycle state, and runner assignment. |
+| **Project** | One workspace with Chat, Tasks, Files and Members. New projects create a private chat automatically; task planning and reviews belong to the project owner. |
 | **Channel / conversation** | Shared context for messages and work. Agents subscribe to channels; people can participate or receive read-only access. |
 | **Event** | A typed record of something that happened, such as a message, tool result, or lifecycle change. Events connect execution to the visible history. |
 | **Runner** | A host-local process that executes agents assigned to its stable runner ID. |
@@ -151,7 +152,7 @@ vision are at different stages.
 | Collaboration | Human sign-in, teams, channels, conversations, sharing, files, and real-time activity. |
 | Agent operations | Configuration, start/stop state, explicit runner assignment, native and wrapped execution, process supervision, and event inspection. |
 | Reuse and integration | Native skills, model configuration, secrets, HTTP/WebSocket APIs, and configurable external runtime recipes. |
-| Projects and reviews | Owner-managed projects linked to conversations, assigned task briefs, agent-response deliverables, revision requests and explicit human approval. [Workflow and limits](docs/ROADMAP.md). |
+| Projects and reviews | Unified Chat/Tasks/Files/Members workspaces with automatic private chats, assigned task briefs, agent-response deliverables, revision requests and explicit human approval. [Workflow and limits](docs/ROADMAP.md). |
 | White-labeling | Instance name, logo, and palette in **Admin → Branding**, backed by Nest's product database. |
 | Deployment | Self-hosted runtime, Docker composition, persistent storage, bootstrap/operator CLI, and a deployment-specific restricted host controller. |
 | Workspace home | Dashboard with live agents, conversations, and session-local unread activity; stacked-card navigation and Figma agent portraits. |
@@ -240,8 +241,9 @@ The [Nest CLI](apps/cli/README.md) provides a separate terminal-based installer
 and operator agent for bootstrap and recovery work.
 
 Open the site root for the dashboard, or choose **Dashboard** in the sidebar.
-Links with `?channel=…` open that conversation directly; they do not redirect
-to the dashboard.
+Project links preserve the selected Chat, Tasks, Files or Members section. Older
+`?channel=…` links open the matching owned project’s chat; standalone chats remain
+available under **Chats**.
 
 ## Make it your workspace
 

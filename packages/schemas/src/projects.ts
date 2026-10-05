@@ -1,7 +1,7 @@
 import { z } from 'zod';
 export const NewProjectSchema = z.object({
   id: z.string().uuid(), name: z.string().trim().min(1).max(120),
-  description: z.string().trim().max(4000).default(''), channelId: z.string().min(1).max(200),
+  description: z.string().trim().max(4000).default(''), channelId: z.string().min(1).max(200).optional(),
 }).strict();
 export const NewTaskSchema = z.object({
   id: z.string().uuid(), title: z.string().trim().min(1).max(200),
