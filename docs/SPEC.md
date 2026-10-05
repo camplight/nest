@@ -61,7 +61,7 @@ runtime storage. Public branding assets remain Nest-owned.
 ## User workspace home
 
 The user UI opens on a Nest-owned dashboard when no `?channel=` link is present.
-Conversation and claimed share links still open the chat workspace directly;
+Conversation and claimed share links open chat, inside the matching owned project when available;
 browser Back/Forward restores the dashboard or conversation from the URL.
 Dashboard navigation clears the active channel so background messages are not
 treated as read merely because the home page is visible.
@@ -120,20 +120,44 @@ task assignment, performance scores, avatar editing or resource configuration.
 
 ## Projects, tasks and human review
 
-`?view=projects`, `?view=projects&project=<id>` and
-`?view=projects&project=<id>&task=<id>` restore the project/task view on reload and
-browser history. Navigation clears the active conversation. “Open conversation”
-returns to the existing chat. The layout follows the case-study project reference
-`849:599` using shared tokens and original avatars; full project tabs and budget
-panels remain future work.
+`?view=projects` lists projects. A project opens at
+`?view=projects&project=<id>&tab=chat` with Chat, Tasks, Files and Members sections.
+`tab=tasks&task=<id>` restores a task; older task URLs without `tab` still work.
+Tabs, reload and browser history preserve project context. Existing `?channel=`
+links for an owned project open its Chat section; other channels remain in Chats.
+The sidebar and dashboard avoid listing owned project chats twice. The layout
+follows case-study reference `849:599` with shared tokens and original avatars;
+budget, health and time estimates remain deferred.
 
-Project creation links an existing active engine conversation the human can
-manage and post to. The existing conversation dialog can create a dedicated
-conversation first. Project records belong to the creating human only; engine
-conversation messages keep their existing visibility. All project routes require
-a signed-in human with password setup complete and recheck current conversation
-access. Archived/deleted/inaccessible conversations make the project unavailable
-without deleting its history. Unarchive or restore access to recover it.
+Chat reuses the existing message history, real-time events, uploads and composer.
+Files lists attachments from engine messages, 100 messages per page, with an
+explicit older-files action. Members reuses channel participant/sharing controls;
+adding members grants engine chat/file access, not access to private project tasks.
+Viewing Tasks, Files or Members does not mark chat messages read. Read state
+remains session-local.
+
+`POST /api/projects` now accepts an optional `channelId`. Omitting it creates a
+private engine chat automatically using the signed-in human's credentials. Legacy
+clients can still link an existing active chat they can manage and post to.
+Existing projects retain their channel IDs and task/review history.
+
+Before creating the engine chat, Nest durably reserves the project UUID, owner,
+request and a random recovery marker in `product_project_chats`. The engine chat
+stores that marker in metadata. Concurrent retries and retries after restart
+reconcile the owned, accessible channel instead of repeating the channel POST.
+The browser retains a failed creation's UUID and submitted fields in tab-local
+session storage for retry after reload, and clears them on success/logout.
+If a channel POST has an uncertain outcome and no matching channel is visible,
+creation returns 409 rather than risking a duplicate. An operator must inspect
+that reservation and engine state if retries cannot reconcile it; Nest does not
+claim exactly-once cross-database transactions. Chat metadata is for recovery,
+not authorization. Conflicting requests for a reserved UUID return 409.
+
+Project records belong to the creating human only; engine messages keep their
+existing visibility. All project routes require a signed-in human with password
+setup complete and recheck current chat access. Archived/deleted/inaccessible
+chats make the project unavailable without deleting its history. Unarchive or
+restore access to recover it.
 
 Tasks store a title, brief, acceptance criteria and assigned agent. Creating a
 task queues it; sending explicitly subscribes the agent and posts a targeted
@@ -220,7 +244,7 @@ history. A branding write and `audit.branding.updated` record share one SQLite
 transaction. This audit is product-owned and does not wake engine agents.
 
 `product_migrations` tracks numbered Nest-only SQL migrations under
-`packages/db/migrations`, applied in a transaction at startup. `001_projects.sql`
+`packages/db/migrations`, applied in a transaction at startup. `002_project_chats.sql` adds durable chat-creation reservations; `001_projects.sql`
 adds `product_projects`, `product_tasks`, `product_deliverables`, and
 `product_reviews`. The existing branding tables are preserved. Project columns
 include owner and engine channel IDs. Tasks store a versioned JSON record and

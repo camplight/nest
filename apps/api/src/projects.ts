@@ -6,7 +6,7 @@ import type { ProductDb } from '@nest/db';
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
 import { NewProjectSchema, NewTaskSchema, TaskActionSchema, SubmitDeliverableSchema, ReviewSchema, type Task, type Project } from '@nest/schemas';
 
-type Channel = {id: string; canManage: boolean; canPost: boolean; archivedAt?: number | null};
+type Channel = {id: string; canManage: boolean; canPost: boolean; archivedAt?: number | null; ownerHumanId?: string; metadata?: {nestProjectChat?: string}};
 type EngineEvent = {id: string; type: string; source: string; channelId: string; createdAt: number; payload?: {text?: unknown; nestTaskId?: unknown; nestTaskAttempt?: unknown; targetAgentName?: unknown}; idempotencyKey?: string};
 export function registerProjectRoutes(app: Hono, {store, orgops}: {store: ProductDb; orgops: OrgOpsClient}) {
   const routes = new Hono<{Variables: {human: Human; channels: Channel[]}}>();
@@ -58,13 +58,37 @@ export function registerProjectRoutes(app: Hono, {store, orgops}: {store: Produc
   routes.post('/api/projects', async c => {
     const body = parse(NewProjectSchema,await c.req.json().catch(()=>null));
     const human=c.get('human');
-    if (!available(c.get('channels'),body.channelId)) return c.json({error:'Choose an active conversation you can manage'},403);
     const existing=db.project(body.id);
     if (existing) {
-      if (existing.ownerId!==human.id || existing.name!==body.name || existing.channelId!==body.channelId || existing.description!==body.description) return c.json({error:'Project ID already used'},409);
+      if (existing.ownerId!==human.id || existing.name!==body.name || (body.channelId && existing.channelId!==body.channelId) || existing.description!==body.description) return c.json({error:'Project ID already used'},409);
+      owned(body.id,human,c.get('channels'));
       return c.json(existing);
     }
-    return c.json(db.createProject({...body,ownerId:human.id,createdAt:Date.now()}),201);
+    let channelId=body.channelId;
+    if (channelId && !available(c.get('channels'),channelId)) return c.json({error:'Choose an active chat you can manage'},403);
+    // A durable reservation survives a lost response/restart. The private engine
+    // channel carries a random recovery marker; names are never used as identity.
+    const request=JSON.stringify({name:body.name,description:body.description,channelId:body.channelId ?? null});
+    const marker=randomUUID();
+    const claimed=store.db.prepare('INSERT OR IGNORE INTO product_project_chats VALUES (?,?,?,?)').run(body.id,human.id,request,marker).changes;
+    const reservation=store.db.prepare('SELECT owner_id,request_json,marker FROM product_project_chats WHERE project_id=?').get(body.id) as {owner_id:string;request_json:string;marker:string};
+    if (reservation.owner_id!==human.id || reservation.request_json!==request) return c.json({error:'Project ID already used'},409);
+    if (!channelId) {
+      if (claimed) {
+        const created=await orgops.humanJson<{id:string}>('/api/channels',c.req.raw.headers,{
+          name:body.name,description:body.description,visibility:'PRIVATE',metadata:{nestProjectChat:marker},
+        });
+        channelId=created.id;
+      } else {
+        const channels=await orgops.humanJson<Channel[]>('/api/channels',c.req.raw.headers);
+        channelId=channels.find(channel=>channel.ownerHumanId===human.id && channel.metadata?.nestProjectChat===reservation.marker && available(channels,channel.id))?.id;
+        if (!channelId) return c.json({error:'Chat creation is still unconfirmed. Refresh and retry; Nest will not create a duplicate chat.'},409);
+      }
+    }
+    // Another retry may have finished while this request awaited the engine.
+    const completed=db.project(body.id);
+    if (completed) return c.json(completed);
+    return c.json(db.createProject({...body,channelId,ownerId:human.id,createdAt:Date.now()}),201);
   });
   routes.get('/api/projects/:projectId', c => c.json(db.detail(owned(c.req.param('projectId'),c.get('human'),c.get('channels')))));
   routes.post('/api/projects/:projectId/tasks', async c => {

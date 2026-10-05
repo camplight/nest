@@ -11,6 +11,7 @@ describe('project workflow against the unchanged engine',()=>{
   let dir:string, engine:ReturnType<typeof createEngine>, product:ReturnType<typeof createApp>, client:ReturnType<typeof createOrgOpsClient>;
   let headers:Record<string,string>, channelId:string, projectId:string, taskId:string;
   let loseDispatchResponse=false;
+  let loseChannelResponse=false;
   const request=(path:string,body?:unknown,h=headers)=>product.app.request(path,{method:body===undefined?'GET':'POST',headers:h,...(body!==undefined?{body:JSON.stringify(body)}:{})});
   const taskPath=()=>`/api/projects/${projectId}/tasks/${taskId}`;
   beforeEach(async()=>{
@@ -21,6 +22,7 @@ describe('project workflow against the unchanged engine',()=>{
     client=createOrgOpsClient('http://engine',(async(url,init)=>{
       const response=await engine.app.fetch(new Request(url,init));
       if(loseDispatchResponse&&new URL(String(url)).pathname==='/api/events'&&init?.method==='POST'){loseDispatchResponse=false;throw new Error('Lost response after engine commit');}
+      if(loseChannelResponse&&new URL(String(url)).pathname==='/api/channels'&&init?.method==='POST'){loseChannelResponse=false;throw new Error('Lost channel response');}
       return response;
     }) as typeof fetch);
     product=createApp({orgops:client,dbPath:join(dir,'product.sqlite')});
@@ -39,6 +41,29 @@ describe('project workflow against the unchanged engine',()=>{
     expect(r.status).toBe(201);return r.json();
   }
   async function submit(version:number,eventId:string){const r=await request(`${taskPath()}/deliverables`,{version,eventId});expect(r.status).toBe(200);return r.json();}
+  it('creates a private project chat once, including concurrent retries',async()=>{
+    const body={id:randomUUID(),name:'Automatic project',description:'One workspace'};
+    const results=await Promise.all([request('/api/projects',body),request('/api/projects',body)]);
+    expect(results.some(r=>r.status===201)).toBe(true);
+    expect(results.every(r=>[200,201,409].includes(r.status))).toBe(true);
+    const project=await (await request('/api/projects',body)).json();
+    const channels=await (await request('/api/channels')).json();
+    const chats=channels.filter((c:any)=>c.name===body.name);
+    expect(chats).toHaveLength(1);
+    expect(chats[0]).toMatchObject({id:project.channelId,visibility:'PRIVATE',canManage:true});
+    expect(chats[0].participants).toContainEqual({subscriberType:'HUMAN',subscriberId:'owner'});
+    expect((await request('/api/projects',{...body,name:'Changed'})).status).toBe(409);
+  });
+  it('recovers chat creation after a lost engine response and product restart',async()=>{
+    const body={id:randomUUID(),name:'Recovered chat'};
+    loseChannelResponse=true;
+    expect((await request('/api/projects',body)).status).toBe(502);
+    product.store.close();product=createApp({orgops:client,dbPath:join(dir,'product.sqlite')});
+    expect((await request('/api/projects',body)).status).toBe(201);
+    expect((await request('/api/projects',body)).status).toBe(200);
+    const channels=await (await request('/api/channels')).json();
+    expect(channels.filter((c:any)=>c.name===body.name)).toHaveLength(1);
+  });
   it('dispatches a targeted brief, snapshots a real agent deliverable and requires human approval',async()=>{
     const task=await dispatch();expect(task).toMatchObject({status:'working',attempt:1,version:1});
     const brief=await (await request(`/api/events/${task.dispatchEventId}`)).json();

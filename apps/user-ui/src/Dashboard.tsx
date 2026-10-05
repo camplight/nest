@@ -1,3 +1,4 @@
+import type { Project } from "@nest/schemas";
 import { useState } from "react";
 import { AgentAvatar } from "./components/AgentAvatar";
 import { ScrollableCardStack } from "./components/smooth-ui/ScrollableCardStack";
@@ -10,6 +11,8 @@ export function DesignIcon({ name }: { name: string }) {
 
 type Props = {
   channels: Channel[];
+  projects: Project[];
+  onProject: (id: string | null) => void;
   agents: Agent[];
   teams: Team[];
   unreadCounts: Record<string, number>;
@@ -23,18 +26,19 @@ type Props = {
   onAgent: (name: string) => void;
 };
 
-export function Dashboard({ channels, agents, teams, unreadCounts, loading, error, label, onSelect, onCreate, onMenu, onRetry, onAgent }: Props) {
+export function Dashboard({ projects, onProject, channels, agents, teams, unreadCounts, loading, error, label, onSelect, onCreate, onMenu, onRetry, onAgent }: Props) {
   const [query, setQuery] = useState("");
   const [agentFilter, setAgentFilter] = useState<"all" | "running">("all");
   const [conversationFilter, setConversationFilter] = useState<"active" | "archived">("active");
   const [showAll, setShowAll] = useState(false);
   const running = agents.filter(agent => agent.runtimeState === "RUNNING");
-  const active = channels.filter(channel => !channel.archivedAt);
-  const unread = active.filter(channel => (unreadCounts[channel.id] ?? 0) > 0);
+  const chats = channels.filter(channel => !projects.some(project => project.channelId === channel.id));
+  const active = chats.filter(channel => !channel.archivedAt);
+  const unread = channels.filter(channel => !channel.archivedAt && (unreadCounts[channel.id] ?? 0) > 0);
   const totalUnread = unread.reduce((total, channel) => total + unreadCounts[channel.id], 0);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const matches = (value: string) => value.toLocaleLowerCase().includes(normalizedQuery);
-  const filteredChannels = channels.filter(channel => Boolean(channel.archivedAt) === (conversationFilter === "archived") && matches(`${label(channel)} ${channel.description ?? ""}`));
+  const filteredChannels = chats.filter(channel => Boolean(channel.archivedAt) === (conversationFilter === "archived") && matches(`${label(channel)} ${channel.description ?? ""}`));
   const filteredAgents = (agentFilter === "running" ? running : agents).filter(agent => matches(`${agent.name} ${agent.description ?? ""}`));
 
   function renderConversation(channel: Channel) {
@@ -63,7 +67,7 @@ export function Dashboard({ channels, agents, teams, unreadCounts, loading, erro
       <span className="dashboard-topbar-caption">Your workspace, at a glance</span>
     </header>
     <div className="dashboard-content" aria-busy={loading}>
-      <div className="dashboard-title"><h1>Dashboard</h1><button className="dashboard-action" onClick={onCreate}>New conversation <span aria-hidden="true">+</span></button></div>
+      <div className="dashboard-title"><h1>Dashboard</h1><button className="dashboard-action" onClick={()=>onProject(null)}>Projects <span aria-hidden="true">+</span></button></div>
       {error && <div className="notice error" role="alert">{error} <button onClick={onRetry}>Try again</button></div>}
       {loading && <p className="dashboard-loading" role="status">Loading your workspace…</p>}
       <div className="dashboard-stats">
@@ -74,27 +78,29 @@ export function Dashboard({ channels, agents, teams, unreadCounts, loading, erro
           <button className="dashboard-stat-value" aria-label="View agents" onClick={() => section("dashboard-agents")}>{loading || error ? "—" : agentFilter === "all" ? agents.length : running.length}<span aria-hidden="true">↗</span></button>
         </article>
         <article className="dashboard-card dashboard-stat">
-          <h2>Conversations</h2>
-          <div className="dashboard-segments" aria-label="Conversation filter"><button aria-pressed={conversationFilter === "active"} onClick={() => setConversationFilter("active")}>Active</button><button aria-pressed={conversationFilter === "archived"} onClick={() => setConversationFilter("archived")}>Archived</button></div>
-          <p className="dashboard-stat-note">A shared space for your work</p>
-          <button className="dashboard-stat-value" aria-label="View conversations" onClick={() => section("dashboard-conversations")}>{loading || error ? "—" : conversationFilter === "active" ? active.length : channels.length - active.length}<span aria-hidden="true">↗</span></button>
+          <h2>Chats</h2>
+          <div className="dashboard-segments" aria-label="Chat filter"><button aria-pressed={conversationFilter === "active"} onClick={() => setConversationFilter("active")}>Active</button><button aria-pressed={conversationFilter === "archived"} onClick={() => setConversationFilter("archived")}>Archived</button></div>
+          <p className="dashboard-stat-note">Direct chats and conversations outside projects</p>
+          <button className="dashboard-stat-value" aria-label="View chats" onClick={() => section("dashboard-chats")}>{loading || error ? "—" : conversationFilter === "active" ? active.length : chats.length - active.length}<span aria-hidden="true">↗</span></button>
         </article>
         <article className="dashboard-card dashboard-stat">
           <h2>Unread messages</h2>
           <p className="dashboard-stat-description">New messages since you opened Nest.</p>
-          <p className="dashboard-stat-note">Across {unread.length} {unread.length === 1 ? "conversation" : "conversations"}</p>
-          <button className="dashboard-stat-value" aria-label="View unread conversations" onClick={() => section("dashboard-up-next")}>{loading || error ? "—" : totalUnread}<span aria-hidden="true">↗</span></button>
+          <p className="dashboard-stat-note">Across {unread.length} {unread.length === 1 ? "conversation" : "chats"}</p>
+          <button className="dashboard-stat-value" aria-label="View unread chats" onClick={() => section("dashboard-up-next")}>{loading || error ? "—" : totalUnread}<span aria-hidden="true">↗</span></button>
         </article>
       </div>
 
+      <section className="dashboard-projects" aria-label="Your projects"><div className="dashboard-section-title"><h2>Projects <span className="dashboard-count">{projects.length}</span></h2><button onClick={()=>onProject(null)}>All projects →</button></div><div className="project-grid">{projects.filter(project=>matches(`${project.name} ${project.description}`)).map(project=><button className="dashboard-card project-summary" key={project.id} onClick={()=>onProject(project.id)}><h3>{project.name}</h3><p>{project.description || 'Chat, tasks, files and members in one place.'}</p><span>{unreadCounts[project.channelId] ? `${unreadCounts[project.channelId]} unread · ` : ''}Open project →</span></button>)}</div>{!projects.length&&!loading&&<p>Create a project to keep your team’s work together. <button className="dashboard-action" onClick={()=>onProject(null)}>Create a project →</button></p>}</section>
+
       <div className="dashboard-columns">
-        <section aria-labelledby="dashboard-conversations">
-          <div className="dashboard-section-title"><h2 id="dashboard-conversations" tabIndex={-1}>{conversationFilter === "active" ? "Active conversations" : "Archived conversations"} <span className="dashboard-count">{filteredChannels.length}</span></h2><button onClick={() => setShowAll(!showAll)} aria-expanded={showAll}>{showAll ? "Carousel" : "All"}</button></div>
+        <section aria-labelledby="dashboard-chats">
+          <div className="dashboard-section-title"><h2 id="dashboard-chats" tabIndex={-1}>{conversationFilter === "active" ? "Active chats" : "Archived chats"} <span className="dashboard-count">{filteredChannels.length}</span></h2><button onClick={() => setShowAll(!showAll)} aria-expanded={showAll}>{showAll ? "Carousel" : "All"}</button></div>
           <div className="dashboard-list">
             {showAll ? filteredChannels.map(renderConversation) : <ScrollableCardStack
-              items={filteredChannels} label="Conversations" renderItem={renderConversation}
+              items={filteredChannels} label="Chats" renderItem={renderConversation}
             />}
-            {!loading && !error && !filteredChannels.length && <div className="dashboard-card dashboard-empty"><h3>{query ? "No conversations found" : "Room for your next idea"}</h3><p>{query ? "Try a different name or description." : conversationFilter === "archived" ? "Archived conversations will appear here." : "Start a conversation and bring your agents together."}</p>{!query && conversationFilter === "active" && <button onClick={onCreate}>Start a conversation →</button>}</div>}
+            {!loading && !error && !filteredChannels.length && <div className="dashboard-card dashboard-empty"><h3>{query ? "No chats found" : "Room for your next idea"}</h3><p>{query ? "Try a different name or description." : conversationFilter === "archived" ? "Archived chats will appear here." : "Start a conversation and bring your agents together."}</p>{!query && conversationFilter === "active" && <button onClick={onCreate}>Start a conversation →</button>}</div>}
           </div>
         </section>
         <section aria-labelledby="dashboard-up-next">
