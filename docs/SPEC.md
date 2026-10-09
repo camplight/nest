@@ -3,6 +3,14 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
+The current pin is `f87d7c9a0a21066baf23ee8bd55aa54573c84ae6`.
+
+This engine revision adds configured/per-agent skill roots, human-scoped secrets
+and delegated private agent ownership. Migration `036` adds empty additional skill
+roots and disables owner-secret delegation for existing agents by default. Nest
+continues using its explicit runtime project root. These engine API capabilities
+are available through the gateway; upstream UI changes do not automatically alter
+Nest-owned screens.
 
 ## Ownership
 

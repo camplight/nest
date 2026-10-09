@@ -61,3 +61,12 @@ controller source does not install it on the host.
 
 Use functional factories and dependency injection. Conventional commits. Do not
 maintain CHANGELOG.md by hand. Never expose credentials in logs or commits.
+
+## Pull request screenshots
+
+Always include screenshots in pull request descriptions. For UI changes, capture
+the implemented screens on desktop and mobile; include before/after views when
+useful. For changes without a visible UI, include a screenshot of relevant
+validation results. Use images accessible to GitHub reviewers, not local file
+paths. Label test data and design references accurately, and exclude credentials
+and private tenant content. Capture the final implementation after checks pass.

@@ -160,7 +160,7 @@ vision are at different stages.
 | Design direction | Project budgets and health, spend/task/issue dashboard widgets, agent scores, public community discovery, guided team assembly, and huddles are not represented here as completed features. |
 
 The [implementation spec](docs/SPEC.md) records the current product boundary.
-[OrgOps's spec](https://github.com/camplight/orgops/blob/c78698d73155bca15cfbb1bc7831d89e47804624/docs/SPEC.md) describes the pinned engine behavior.
+[OrgOps's spec](https://github.com/camplight/orgops/blob/f87d7c9a0a21066baf23ee8bd55aa54573c84ae6/docs/SPEC.md) describes the pinned engine behavior.
 
 ## Architecture
 
@@ -306,7 +306,7 @@ update the submodule pin. Include relevant checks with a pull request and update
 
 - [Product roadmap](docs/ROADMAP.md) — milestones, Figma references, acceptance criteria, and regression checks.
 - [Implementation spec](docs/SPEC.md) — ownership, runtime, APIs, data, and verification.
-- [OrgOps engine spec](https://github.com/camplight/orgops/blob/c78698d73155bca15cfbb1bc7831d89e47804624/docs/SPEC.md) — agents, events, runners, tools, and access.
+- [OrgOps engine spec](https://github.com/camplight/orgops/blob/f87d7c9a0a21066baf23ee8bd55aa54573c84ae6/docs/SPEC.md) — agents, events, runners, tools, and access.
 - [Use cases](docs/use-cases.md) — execution, collaboration, maintenance, and oversight.
 - [Wrapped agent invites](docs/WRAPPED_AGENT_INVITES.md) — connecting external runtimes.
 - [CLI guide](apps/cli/README.md) — terminal-based installation and operations.

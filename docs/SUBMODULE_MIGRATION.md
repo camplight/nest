@@ -104,3 +104,32 @@ on Linux and macOS. macOS also shows a shell-status timing failure. These tests
 run directly against untouched OrgOps, without Nest's gateway. Track/fix them
 upstream before treating an engine upgrade as fully verified; do not suppress
 or rewrite vendor tests in Nest.
+
+## Upstream update — 2026-10-09
+
+The current pin is `f87d7c9a0a21066baf23ee8bd55aa54573c84ae6`, advancing
+three commits from the initial pin. It includes upstream test fixes (#41),
+turn-failure rendering in upstream's user UI (#42), and multi-root skills,
+human-scoped secrets and delegated private ownership (#43). Nest keeps its own
+UI, so upstream UI changes are not automatically adopted.
+
+Engine migration `036_agent_skill_roots_and_owner_secrets.sql` adds two agent
+columns with defaults `[]` and disabled secret delegation. Existing launcher
+configuration explicitly sets the engine project root. No dependency manifests
+changed upstream; reconciling the parent npm lockfile produced no changes.
+
+Nest's 41 integration/unit tests, workspace type checks, both UI builds and
+Projects/Community browser suites pass. The upstream engine
+suite initially passed 189/193 tests on macOS. A single-worker rerun of the three
+failing files resolved both shell environment timeouts, leaving two failures:
+
+- `packages/skills/src/index.test.ts:134` assumes directory enumeration returns
+  `only-a` before `dup`; this filesystem returns the reverse order.
+- `apps/agent-runner/src/runner.test.ts:2709` still reports a short-lived process
+  running at its fixed-delay assertion, matching the previously recorded macOS
+  failure.
+
+No vendor code or tests have been patched or suppressed. The operator authorized
+merging and deploying this upgrade with these validation limits recorded.
+Production rollout uses the existing controller to back up both databases and
+restore the previous image and databases if health checks fail.
