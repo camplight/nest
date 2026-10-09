@@ -8,8 +8,8 @@ architectural changes. Keep them synchronized when APIs or runtime behavior chan
 
 - `apps/api`: Nest Hono API and WebSocket gateway. No engine DB reads here.
 - `packages/orgops-client`: all engine HTTP/credential adaptation.
-- `packages/db`: Nest SQLite settings, projects/tasks/reviews and product audit; never engine state.
-- `packages/schemas`: product schemas, currently branding.
+- `packages/db`: Nest SQLite settings, projects/tasks/reviews, private community packages/tokens and product audit; never engine state.
+- `packages/schemas`: product schemas for branding, projects and community.
 - `apps/admin-ui`, `apps/user-ui`, `apps/nest-brand`: Nest-owned React interfaces.
 - `apps/cli`: Nest installer/operator CLI using upstream LLM library.
 - `scripts/start-orgops.ts`: launcher/configuration adapter for upstream processes.

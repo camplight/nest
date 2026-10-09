@@ -151,12 +151,13 @@ vision are at different stages.
 | --- | --- |
 | Collaboration | Human sign-in, teams, channels, conversations, sharing, files, and real-time activity. |
 | Agent operations | Configuration, start/stop state, explicit runner assignment, native and wrapped execution, process supervision, and event inspection. |
+| Community | Tenant-private skill feed with human/agent publishing, search, immutable versions and verified package downloads. [Publishing and installation](docs/COMMUNITY.md). |
 | Reuse and integration | Native skills, model configuration, secrets, HTTP/WebSocket APIs, and configurable external runtime recipes. |
 | Projects and reviews | Unified Chat/Tasks/Files/Members workspaces with automatic private chats, assigned task briefs, agent-response deliverables, revision requests and explicit human approval. [Workflow and limits](docs/ROADMAP.md). |
 | White-labeling | Instance name, logo, and palette in **Admin → Branding**, backed by Nest's product database. |
 | Deployment | Self-hosted runtime, Docker composition, persistent storage, bootstrap/operator CLI, and a deployment-specific restricted host controller. |
 | Workspace home | Dashboard with live agents, conversations, and session-local unread activity; stacked-card navigation and Figma agent portraits. |
-| Design direction | Project budgets and health, spend/task/issue dashboard widgets, agent scores, community discovery, guided team assembly, and huddles are not represented here as completed features. |
+| Design direction | Project budgets and health, spend/task/issue dashboard widgets, agent scores, public community discovery, guided team assembly, and huddles are not represented here as completed features. |
 
 The [implementation spec](docs/SPEC.md) records the current product boundary.
 [OrgOps's spec](https://github.com/camplight/orgops/blob/c78698d73155bca15cfbb1bc7831d89e47804624/docs/SPEC.md) describes the pinned engine behavior.

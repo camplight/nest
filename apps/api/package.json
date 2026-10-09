@@ -14,6 +14,7 @@
     "@nest/schemas": "file:../../packages/schemas",
     "@nest/orgops-client": "file:../../packages/orgops-client",
     "hono": "^4.13.8",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "yaml": "^2.8.1"
   }
 }

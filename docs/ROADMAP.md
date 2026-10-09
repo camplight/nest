@@ -115,8 +115,25 @@ progress, costs or time estimates.
 
 ### 5. Discovery and finishing
 
-Product skills catalog, guided onboarding and first task, then community reuse
-and publishing. Refine global navigation, topbar controls and layout customization.
+Tenant-private Community is implemented locally against Figma `963:26`: composer,
+category feed, skill detail/version selection, package download/install instructions,
+search and agent publishing access. Original assets: `793:30` (Community icon) and
+`793:235` (cover artwork). Product SQLite owns the catalog; OrgOps is unchanged.
+
+Acceptance: people and authorized agents publish; conflicting versions cannot be
+overwritten; other publishers cannot edit packages; anonymous and revoked-token
+access fails; downloaded versions pass integrity checks and install without
+executing scripts. Community selection and skill links survive reload/history;
+desktop/mobile layouts use shared Nest tokens and original Figma assets.
+
+Intentional differences: tenant-only visibility, recently published instead of
+invented trending metrics, contributors counted within displayed results, and
+explicit host installation. Discussion, reactions, install telemetry, remote
+activation and guided onboarding remain future work. See [Community](COMMUNITY.md).
+This slice has not yet been deployed.
+
+Run `npm run test:ui:community` for the isolated real-engine browser workflow,
+including agent token issuance/revocation and exported-package installation.
 
 ## Guardrails for every feature PR
 

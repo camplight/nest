@@ -11,7 +11,7 @@ Nest does not keep a second copy of the engine or apply source patches.
 | Admin/user interfaces and branding | Nest | `apps/admin-ui`, `apps/user-ui`, `apps/nest-brand` |
 | Product API / backend-for-frontend | Nest | `apps/api` |
 | Engine HTTP/auth compatibility adapter | Nest | `packages/orgops-client` |
-| Product settings, projects, tasks, reviews and audit persistence | Nest | `packages/db`, `.nest-product/nest.sqlite` |
+| Product settings, projects, tasks, reviews, community and audit persistence | Nest | `packages/db`, `.nest-product/nest.sqlite` |
 | Product schemas | Nest | `packages/schemas` |
 | Bootstrap CLI | Nest | `apps/cli` |
 | Agents, humans, sessions, events, runners, skills, execution | OrgOps | `vendor/orgops` |
@@ -292,3 +292,52 @@ exercises the project/revision/approval flow in a browser against isolated real
 product/engine HTTP handlers. It simulates runner-authored responses without a
 model invocation. `apps/api/src/projects.test.ts` additionally covers authorization,
 immutable reviews, malformed input, idempotency and restart recovery.
+
+## Private Community catalog
+
+Nest owns reusable package metadata, immutable releases, package bytes and scoped
+publishing credentials in the product DB. Migration `003_community.sql` adds
+`community_skills`, `community_versions` and `community_tokens`. This is separate
+from installed OrgOps skills and never reads or modifies the engine database.
+One deployment/product DB is the tenant boundary; there is no cross-tenant index.
+
+Community uses verified human engine sessions, excluding runner credentials, or a
+`Bearer nest_community_…` token. Only its SHA-256 hash is persisted. Tokens expire
+in 30 days, are explicitly revocable, and bind the issuing human and agent identity.
+Issuance requires agent ownership or instance ownership. Agent credentials cannot
+manage tokens or authenticate to other Nest APIs. Agent deletion does not revoke
+a token; revoke it explicitly. All catalog reads require authentication.
+
+| Method | Endpoint | Behavior |
+|---|---|---|
+| GET | `/api/community/skills` | Search `q`, filter `category`, paginate `offset`/`limit` (default 30, maximum 100). |
+| POST | `/api/community/skills` | Publish `{schemaVersion:1,manifest,files}` with validated frontmatter and content. |
+| GET | `/api/community/skills/:name` | Detail, file content and version history; optional `version`. |
+| GET | `/api/community/skills/:name/download` | JSON attachment with optional `version`, file hashes and package digest. |
+| GET | `/api/community/tokens` | Human's issued tokens, without secrets. |
+| POST | `/api/community/tokens` | Human-only `{agentName}`; returns token secret once. |
+| DELETE | `/api/community/tokens/:id` | Issuing human revokes token. |
+
+The schema in `packages/schemas/src/community.ts` defines metadata, file paths and
+content limits. POST requires JSON and caps requests at 1 MB. Packages contain up
+to 64 files, 512 KB decoded total, 128 KB per file and 64 KB for UTF-8 `SKILL.md`.
+YAML frontmatter must match manifest name, description and license. File traversal,
+hidden path components, case-insensitive duplicates and file/directory overlaps
+are rejected. The digest covers normalized metadata and sorted file descriptors
+including SHA-256 content hashes; publishing never executes files.
+
+The original human owns the slug. Its publishing agent may update its own packages;
+the owning human may update those too. Releases are immutable, monotonically
+increasing stable semantic versions. A same-version/same-digest retry succeeds;
+conflicting content returns 409. Publication and token changes produce product
+audit entries. Validation fails with 400, unauthenticated access with 401, and
+unauthorized updates with 403. Catalog responses are not cached.
+
+The user UI uses `?view=community` and optional `&skill=<name>` with sidebar
+selection and browser history support. Its Figma feed uses real catalog content,
+category filters, agent author portraits and original cover/icon assets. Historical
+versions are selectable within detail. Installation downloads an immutable bundle;
+`scripts/community.mjs` verifies content and installs into an explicit host directory
+without executing scripts or overwriting an existing package. Native skills still
+need enabling through OrgOps; wrapped agents follow their external runtime's rules.
+See [Community authoring and installation](COMMUNITY.md).
