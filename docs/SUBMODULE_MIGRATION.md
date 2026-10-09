@@ -107,7 +107,7 @@ or rewrite vendor tests in Nest.
 
 ## Upstream update — 2026-10-09
 
-The current pin is `f87d7c9a0a21066baf23ee8bd55aa54573c84ae6`, advancing
+The previous pin was `f87d7c9a0a21066baf23ee8bd55aa54573c84ae6`, advancing
 three commits from the initial pin. It includes upstream test fixes (#41),
 turn-failure rendering in upstream's user UI (#42), and multi-root skills,
 human-scoped secrets and delegated private ownership (#43). Nest keeps its own
@@ -133,3 +133,19 @@ No vendor code or tests have been patched or suppressed. The operator authorized
 merging and deploying this upgrade with these validation limits recorded.
 Production rollout uses the existing controller to back up both databases and
 restore the previous image and databases if health checks fail.
+
+
+## Google Workspace authentication upgrade
+
+The new pin is `ee0f9af644329e80bd002bfe991ba984b110b881`.
+OrgOps PR #44 adds migration `037_google_identity.sql` with identity and sign-in
+settings tables. Existing humans/passwords are preserved and Google sign-in starts
+disabled. The dependency adds Google's authentication SDK; the parent lockfile is
+reconciled. Nest adds login/admin interfaces without editing engine source.
+
+Configure secrets only in the private server environment and enable the domain
+through the owner's **Sign-in** screen after rollout. Deployment snapshots both
+databases before engine migrations run. Keep the local owner login available.
+See [Google Workspace setup](GOOGLE_WORKSPACE.md). The focused upstream API,
+authentication and WebSocket suite passes 96 tests. The full upstream suite passes
+205/207 on macOS with the same two known failures listed above.

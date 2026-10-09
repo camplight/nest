@@ -24,6 +24,7 @@ const NAV_ITEMS: { screen: Screen; label: string }[] = [
   { screen: "api-keys", label: "API keys" },
   { screen: "agent-invites", label: "Agent invites" },
   { screen: "humans", label: "Humans" },
+  { screen: "authentication", label: "Sign-in" },
   { screen: "branding", label: "Branding" },
   { screen: "profile", label: "Profile" }
 ];

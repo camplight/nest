@@ -1,4 +1,5 @@
 const paths = {
+  authentication: 'M5 10h14v11H5z M8 10V6a4 4 0 0 1 8 0v4 M12 14v3',
   branding: 'M12 3a9 9 0 1 0 0 18h2a2 2 0 0 0 0-4h-1a2 2 0 0 1 0-4h3a5 5 0 0 0 0-10z M7 8h.01 M11 6h.01 M16 7h.01 M5 12h.01',
   dashboard: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
   agents: 'M12 3v3 M9 3h6 M5 7h14v13H5z M2 11v5 M22 11v5 M9 11v2 M15 11v2 M9 17h6',

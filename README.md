@@ -151,6 +151,7 @@ vision are at different stages.
 | --- | --- |
 | Collaboration | Human sign-in, teams, channels, conversations, sharing, files, and real-time activity. |
 | Agent operations | Configuration, start/stop state, explicit runner assignment, native and wrapped execution, process supervision, and event inspection. |
+| Workspace sign-in | Optional domain-restricted Google sign-in, automatic accounts and default team membership. [Setup and limits](docs/GOOGLE_WORKSPACE.md). |
 | Community | Tenant-private skill feed with human/agent publishing, search, immutable versions and verified package downloads. [Publishing and installation](docs/COMMUNITY.md). |
 | Reuse and integration | Native skills, model configuration, secrets, HTTP/WebSocket APIs, and configurable external runtime recipes. |
 | Projects and reviews | Unified Chat/Tasks/Files/Members workspaces with automatic private chats, assigned task briefs, agent-response deliverables, revision requests and explicit human approval. [Workflow and limits](docs/ROADMAP.md). |
@@ -160,7 +161,7 @@ vision are at different stages.
 | Design direction | Project budgets and health, spend/task/issue dashboard widgets, agent scores, public community discovery, guided team assembly, and huddles are not represented here as completed features. |
 
 The [implementation spec](docs/SPEC.md) records the current product boundary.
-[OrgOps's spec](https://github.com/camplight/orgops/blob/f87d7c9a0a21066baf23ee8bd55aa54573c84ae6/docs/SPEC.md) describes the pinned engine behavior.
+[OrgOps's spec](https://github.com/camplight/orgops/blob/ee0f9af644329e80bd002bfe991ba984b110b881/docs/SPEC.md) describes the pinned engine behavior.
 
 ## Architecture
 
@@ -304,9 +305,10 @@ update the submodule pin. Include relevant checks with a pull request and update
 
 ## Documentation
 
+- [Google Workspace sign-in](docs/GOOGLE_WORKSPACE.md) — OAuth setup, automatic accounts and session behavior.
 - [Product roadmap](docs/ROADMAP.md) — milestones, Figma references, acceptance criteria, and regression checks.
 - [Implementation spec](docs/SPEC.md) — ownership, runtime, APIs, data, and verification.
-- [OrgOps engine spec](https://github.com/camplight/orgops/blob/f87d7c9a0a21066baf23ee8bd55aa54573c84ae6/docs/SPEC.md) — agents, events, runners, tools, and access.
+- [OrgOps engine spec](https://github.com/camplight/orgops/blob/ee0f9af644329e80bd002bfe991ba984b110b881/docs/SPEC.md) — agents, events, runners, tools, and access.
 - [Use cases](docs/use-cases.md) — execution, collaboration, maintenance, and oversight.
 - [Wrapped agent invites](docs/WRAPPED_AGENT_INVITES.md) — connecting external runtimes.
 - [CLI guide](apps/cli/README.md) — terminal-based installation and operations.
