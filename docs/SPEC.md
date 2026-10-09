@@ -3,9 +3,10 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The current pin is `f87d7c9a0a21066baf23ee8bd55aa54573c84ae6`.
+The current pin is `ee0f9af644329e80bd002bfe991ba984b110b881` (OrgOps PR #44).
 
-This engine revision adds configured/per-agent skill roots, human-scoped secrets
+This engine revision includes Google Workspace authentication (migration `037`),
+configured/per-agent skill roots, human-scoped secrets
 and delegated private agent ownership. Migration `036` adds empty additional skill
 roots and disables owner-secret delegation for existing agents by default. Nest
 continues using its explicit runtime project root. These engine API capabilities
@@ -349,3 +350,31 @@ versions are selectable within detail. Installation downloads an immutable bundl
 without executing scripts or overwriting an existing package. Native skills still
 need enabling through OrgOps; wrapped agents follow their external runtime's rules.
 See [Community authoring and installation](COMMUNITY.md).
+
+
+## Google Workspace sign-in
+
+Nest provides a shared Google sign-in action on both login screens and an owner-only
+administration screen under **Sign-in**. The engine owns migration 037's
+`human_identities` and `google_auth_settings`; the product database is unchanged.
+The gateway forwards `/api/auth/google/{config,start,callback,settings}` through
+`packages/orgops-client`, preserving redirects and multiple Set-Cookie headers.
+The browser-binding `orgops_google_state` cookie is preserved; only the authenticated
+session is translated to `nest_session`.
+
+The bundled launcher translates `NEST_GOOGLE_CLIENT_ID`, `NEST_GOOGLE_CLIENT_SECRET`
+and `NEST_GOOGLE_REDIRECT_URI` to upstream names. Sign-in defaults disabled and
+requires server configuration plus owner-saved domain/team settings. A verified
+Workspace identity creates an engine human and team membership on first login.
+Google subjects remain stable identities; local email collisions are not auto-linked.
+Sessions expire after eight hours, and saving settings revokes Google sessions.
+WebSocket traffic checks the session before processing messages or sending events.
+Local owner sign-in remains available. There is no directory import, invitation
+email delivery or continuous Workspace suspension synchronization.
+
+See [Google Workspace setup](GOOGLE_WORKSPACE.md) for deployment and recovery.
+`npm run test:ui:auth` captures desktop/mobile login and settings screens and tests
+redirects/provisioning against real isolated engine/product APIs with a simulated
+Google SDK boundary. Product integration tests verify both cookies, session rotation,
+private data ownership and settings authorization. Live Google consent is a separate
+production smoke check.

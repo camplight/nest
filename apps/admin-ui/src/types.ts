@@ -249,4 +249,5 @@ export type Screen =
   | "agent-invites"
   | "humans"
   | "branding"
+  | "authentication"
   | "profile";

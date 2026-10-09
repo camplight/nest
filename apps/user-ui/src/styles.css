@@ -621,7 +621,7 @@ button {
   letter-spacing: -0.05em;
 }
 
-.login-copy span {
+.login-copy > span {
   display: block;
   max-width: 520px;
   margin-top: 22px;

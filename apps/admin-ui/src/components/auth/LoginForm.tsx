@@ -1,3 +1,5 @@
+import {GoogleSignIn} from '../../../../nest-brand/GoogleSignIn';
+import {apiUrl} from '../../config';
 import { useBranding } from "../../../../nest-brand/BrandingProvider";
 import { useState, type FormEvent } from "react";
 import { apiFetch } from "../../api";
@@ -39,6 +41,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
         <p className="text-sm text-slate-400">Welcome back</p>
         <h2>Sign in to {branding.displayName}</h2>
         <p className="text-sm text-slate-400">Manage your workspace with a clear view of what matters.</p>
+        <GoogleSignIn apiUrl={apiUrl} returnTo="/admin/" />
         {status && <p role="alert" className="nest-login-error">{status}</p>}
         <div className="space-y-2"><Label htmlFor="nest-username">Username</Label><Input id="nest-username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required /></div>
         <div className="space-y-2"><Label htmlFor="nest-password">Password</Label><Input id="nest-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></div>
