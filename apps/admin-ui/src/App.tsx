@@ -1,3 +1,4 @@
+import {AuthenticationScreen} from './screens/AuthenticationScreen';
 import { BrandingScreen } from "./screens/BrandingScreen";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -1362,6 +1363,7 @@ export default function App() {
           }}
         />
       )}
+      {activeScreen === "authentication" && <AuthenticationScreen />}
       {activeScreen === "branding" && <BrandingScreen />}
       {activeScreen === "profile" && (
         <ProfileScreen

@@ -1,3 +1,5 @@
+import {apiUrl} from './config';
+import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
 import { Community } from "./Community";
 import type { Project } from "@nest/schemas";
 import { Projects } from "./Projects";
@@ -1993,6 +1995,7 @@ export default function App() {
             <span>Welcome back</span>
             <strong>Sign in to {branding.displayName}</strong>
           </div>
+          <GoogleSignIn apiUrl={apiUrl} />
           {error ? <div className="notice error" role="alert">{error}</div> : null}
           <label>
             Username

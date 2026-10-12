@@ -46,7 +46,7 @@ export function AppLayout({
       />
       <div className="flex-1 min-w-0">
         <PageHeader
-          title={activeScreen}
+          title={activeScreen === "authentication" ? "Sign-in" : activeScreen}
           username={username}
           onOpenProfile={onOpenProfile}
           onLogout={onLogout}

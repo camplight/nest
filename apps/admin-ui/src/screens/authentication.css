@@ -1,0 +1,23 @@
+.authentication-help {
+  display: grid;
+  gap: 16px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.authentication-help h3 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.authentication-help pre {
+  margin: 0;
+  padding: 14px;
+  border-radius: 8px;
+  background: var(--nest-bg);
+  font-size: 12px;
+}
+.authentication-help ul {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
