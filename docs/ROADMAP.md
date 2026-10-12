@@ -14,7 +14,7 @@ File: [Nest case study](https://www.figma.com/design/Rqfq3v9a8nZfQKbM3Q0NZk/Port
 | Agents directory | `866:119` | `Agents.tsx`; list, search, real runtime counts and Manage. Scores, task totals, assignment and creation are deferred. |
 | Agent details | `849:574` | `Agents.tsx`; description and native instructions can be saved. Identity/resources are read-only; wrapped runtime configuration remains external/admin. |
 | Project workspace | `849:599` | `Projects.tsx`: one workspace with Chat/Tasks/Files/Members, automatic private chat creation, tasks and human review. Budgets remain pending. |
-| Onboarding | `860:680` | Pending. |
+| Onboarding | `860:680` | Project-first welcome and one primary creation action; guided agent setup remains pending. |
 
 Directory and detail references are flattened images in the case study. Use the
 existing Nest components, exported avatar assets and instance color tokens;
@@ -92,7 +92,7 @@ A successful agent turn alone must not imply human acceptance.
 - One visible project workspace with URL-backed Chat/Tasks/Files/Members.
 - Automatic private chat creation; durable recovery after lost responses.
 - Existing chat controls, upload browsing, member/sharing controls and task reviews.
-- Project chats appear under Projects; standalone/direct chats remain in Chats.
+- Projects is the sole work entry in navigation. Existing standalone/direct chats remain accessible in a collapsed Existing conversations section under Projects.
 - Legacy chat links resolve to the owned project. History and mobile are tested.
 - Shared project roles are still deferred: invited chat members do not gain tasks.
 
@@ -129,7 +129,7 @@ desktop/mobile layouts use shared Nest tokens and original Figma assets.
 Intentional differences: tenant-only visibility, recently published instead of
 invented trending metrics, contributors counted within displayed results, and
 explicit host installation. Discussion, reactions, install telemetry, remote
-activation and guided onboarding remain future work. See [Community](COMMUNITY.md).
+activation and guided agent setup remain future work. See [Community](COMMUNITY.md).
 This slice has not yet been deployed.
 
 Run `npm run test:ui:community` for the isolated real-engine browser workflow,
@@ -165,3 +165,14 @@ browser to real Nest/OrgOps handlers with temporary databases. It exercises
 project/task creation, assignment, dispatch, response selection, changes,
 approval, reload/history and mobile layout. It emits deterministic agent events
 without calling a model or touching production. Product CI runs both browser suites.
+
+## Project-first onboarding refinement
+
+The dashboard remains home. With no owned projects, a welcome panel explains
+name → add members → chat, with a direct Create your first project action.
+The sidebar and Cmd/Ctrl+K open project creation; there is no separate Chats
+nav or New chat action. Dashboard metrics count projects instead of standalone
+chats. Existing chat/share URLs and history remain compatible; no data is moved.
+Desktop/mobile browser checks cover onboarding, recovery, navigation and reviews.
+This refines the existing visual system; it does not claim a pixel match to the
+not-yet-implemented Figma onboarding wizard or automatic agent provisioning.

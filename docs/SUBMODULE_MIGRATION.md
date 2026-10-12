@@ -160,3 +160,16 @@ migration is introduced by those intervening changes.
 Validation against the merged pin on 2026-10-12: Nest's 43 product tests pass.
 `npm run test:engine` passes 206/208 tests, retaining only the two recorded macOS
 failures (shell-status timing and skill-directory enumeration).
+
+## Upstream update — project-first onboarding
+
+Pin `0b383c5507218ee78f8bc99b3d6184eb019ad1cc` advances three merged commits beyond PR #44:
+dependency remediation, upstream admin styling, and HUMAN channel participants
+in agent tools (#48). No migrations were added. The parent lockfile reconciles
+the runner's Vitest dependency; upstream admin styling remains upstream-owned.
+PR #49's Google membership migration is not merged and is not included.
+
+Validation: 43 Nest tests, full type checks, both UI builds and all four browser
+suites pass. Engine tests pass 209/211 on macOS; only the previously recorded
+shell-status fixed-delay assertion and skill-directory ordering assertion fail.
+No vendor files were edited.
