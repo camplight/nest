@@ -3,7 +3,7 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The current pin is `59fe050772ea2cac9df06e2028c4bb74882d83be` (OrgOps PR #44).
+The current pin is `0b383c5507218ee78f8bc99b3d6184eb019ad1cc` (OrgOps main through PR #48).
 
 This engine revision includes Google Workspace authentication (migration `037`),
 configured/per-agent skill roots, human-scoped secrets
@@ -133,7 +133,7 @@ task assignment, performance scores, avatar editing or resource configuration.
 `?view=projects&project=<id>&tab=chat` with Chat, Tasks, Files and Members sections.
 `tab=tasks&task=<id>` restores a task; older task URLs without `tab` still work.
 Tabs, reload and browser history preserve project context. Existing `?channel=`
-links for an owned project open its Chat section; other channels remain in Chats.
+links for an owned project open its Chat section; other channels remain accessible under Projects → Existing conversations.
 The sidebar and dashboard avoid listing owned project chats twice. The layout
 follows case-study reference `849:599` with shared tokens and original avatars;
 budget, health and time estimates remain deferred.
@@ -384,3 +384,18 @@ normalization and `/api/events/:id/reveal-sensitive` through the gateway. Reveal
 requires a local password and is not available to Google-only accounts. Upstream
 JSON-render and secret-input UI components remain upstream-owned and are not
 rendered automatically by Nest.
+
+## Project-first entry and onboarding
+
+The dashboard remains the default home. Humans without owned projects see a
+short welcome with one action to create their first project. Only its name is
+required; the brief is optional. Projects owns the work navigation, including
+legacy conversations in a collapsed Existing conversations section. Chat itself
+remains a project tab. Legacy standalone/shared links still open their existing
+workspace with Projects selected. New project and Cmd/Ctrl+K open the same form.
+No chat history, permissions or project ownership is changed by this UI update.
+
+The current upstream update adds HUMAN participant support in agent channel tools
+while preserving legacy agentName arguments and engine permission checks. No new
+engine migration is included. Upstream PR #49 (Google team membership repair) is
+still awaiting review and is not included in this pin.

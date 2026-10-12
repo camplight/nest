@@ -1430,7 +1430,7 @@ export default function App() {
     function handleShortcut(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        setShowConversationDialog(true);
+        selectProject(null, null, "new");
       }
       if (event.key === "Escape") {
         setShowConversationDialog(false);
@@ -2424,12 +2424,7 @@ export default function App() {
         <InstanceBrand />
         <nav className="product-nav" aria-label="Main navigation">
           <button aria-current={view === "dashboard" ? "page" : undefined} onClick={() => selectChannel(null)}><DesignIcon name="dashboard" />Dashboard</button>
-          <button aria-current={view === "projects" ? "page" : undefined} onClick={() => selectProject(null)}><DesignIcon name="conversations" />Projects</button>
-          <button aria-current={view === "workspace" ? "page" : undefined} onClick={() => {
-            const channel = standaloneChannels.find(channel => !channel.archivedAt);
-            if (channel) selectChannel(channel.id);
-            else setShowConversationDialog(true);
-          }}><DesignIcon name="conversations" />Chats</button>
+          <button aria-current={(view === "projects" || view === "workspace") ? "page" : undefined} onClick={() => selectProject(null)}><DesignIcon name="conversations" />Projects</button>
           <button aria-current={view === "agents" ? "page" : undefined} onClick={() => selectAgent(null)}><DesignIcon name="agents" />Agents</button>
           <button aria-current={view === "community" ? "page" : undefined} onClick={()=>selectCommunity(null)}><DesignIcon name="community" />Community</button>
         </nav>
@@ -2523,8 +2518,7 @@ export default function App() {
         </section>}
 
         <section className="sidebar-section start-conversation">
-          <button className="new-conversation-button" onClick={() => selectProject(null, null, "new")}><span>+ New project</span></button>
-          <button className="new-conversation-button" onClick={() => setShowConversationDialog(true)}><span>New chat</span><kbd>Cmd+K</kbd></button>
+          <button className="new-conversation-button" onClick={() => selectProject(null, null, "new")}><span>+ New project</span><kbd>Cmd+K</kbd></button>
         </section>
 
         <section className="sidebar-section account-actions">
@@ -2544,10 +2538,10 @@ export default function App() {
         />
       ) : null}
 
-      {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} members={<><button className="dashboard-action" disabled={!activeChannelManageable} onClick={() => setShowChannelManageDialog(true)}>Manage members and sharing</button>{chatMembers}</>} /> : view === "agents" ? <Agents agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
+      {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} members={<><button className="dashboard-action" disabled={!activeChannelManageable} onClick={() => setShowChannelManageDialog(true)}>Manage members and sharing</button>{chatMembers}</>} /> : view === "agents" ? <Agents agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
         channels={visibleChannels} projects={projectIndex} onProject={selectProject} agents={visibleAgents} teams={teams} unreadCounts={unreadCounts} onAgent={selectAgent}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}
-        onSelect={selectChannel} onCreate={() => setShowConversationDialog(true)}
+        onSelect={selectChannel} onCreate={() => selectProject(null, null, "new")}
         onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()}
       /> : <>{chatWorkspace}{chatMembers}</>}
 

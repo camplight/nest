@@ -7,7 +7,7 @@ import { apiJson, getApiHeaders } from './api';
 import { AgentAvatar } from './components/AgentAvatar';
 import './projects.css';
 
-type Props = {projectId: string | null; taskId: string | null; tab: string; agents: Agent[]; onSelect: (project: string | null, task?: string | null, tab?: string) => void; onLoaded: (project: Project) => void; onMenu: () => void; chat: ReactNode; members: ReactNode};
+type Props = {existingChats: {id:string;name:string;archived:boolean}[]; onChat:(id:string)=>void; projectId: string | null; taskId: string | null; tab: string; agents: Agent[]; onSelect: (project: string | null, task?: string | null, tab?: string) => void; onLoaded: (project: Project) => void; onMenu: () => void; chat: ReactNode; members: ReactNode};
 const statusLabel: Record<Task['status'],string> = {queued:'Ready to send',working:'Awaiting deliverable',needs_review:'Needs review',changes_requested:'Changes requested',done:'Approved'};
 function message(reason: unknown) {
   const text=reason instanceof Error ? reason.message : 'Unable to complete request';
@@ -48,7 +48,8 @@ export function Projects(props: Props) {
       {!projectId && <>
         {creating && <ProjectForm onCreated={p=>{onLoaded(p);onSelect(p.id);}} />}
         <div className="project-grid">{projects.map(project=><button className="dashboard-card project-summary" key={project.id} onClick={()=>onSelect(project.id)}><h2>{project.name}</h2><p>{project.description || 'Open the project to plan and review your team’s work.'}</p><span>Open project →</span></button>)}</div>
-        {!loading && !error && !projects.length && <div className="dashboard-card dashboard-empty"><h2>From a brief to an approved result</h2><p>Create a project, give an agent a task, and review the deliverable against your acceptance criteria.</p></div>}
+        {!loading && !error && !projects.length && !creating && <div className="dashboard-card dashboard-empty"><h2>From a brief to an approved result</h2><p>Name your project to get started. Add people or agents in Members, then use Chat. Tasks and reviews are there when you need them.</p></div>}
+        {props.existingChats.length > 0 && <details className="project-existing-chats"><summary>Existing conversations ({props.existingChats.length})</summary><p>These conversations are not linked to a project you own. Your history and shared access are preserved.</p><div className="dashboard-list">{props.existingChats.map(channel=><button className="dashboard-card project-summary" key={channel.id} onClick={()=>props.onChat(channel.id)}>{channel.name}{channel.archived ? ' · Archived' : ''} →</button>)}</div></details>}
       </>}
       {detail && <>
       <nav className="project-tabs" aria-label="Project sections">{['chat','tasks','files','members'].map(section => <button key={section} aria-current={tab === section ? 'page' : undefined} onClick={() => {setCreating(false);onSelect(detail.id,null,section);}}>{section[0].toUpperCase()+section.slice(1)}</button>)}</nav>
@@ -82,7 +83,7 @@ function ProjectForm({onCreated}:{onCreated:(p:Project)=>void}) {
     try {const project=await post<Project>('/api/projects',body);try {sessionStorage.removeItem('nest-new-project');} catch {} onCreated(project);}
     catch(reason){setError(message(reason));}finally{setBusy(false);}
   }
-  return <form className="dashboard-card project-form" onSubmit={submit}><h2>New project</h2>{error&&<p role="alert">{error}</p>}<fieldset disabled={busy}><label>Project name<input name="name" defaultValue={saved.name} required maxLength={120}/></label><label>Project brief<textarea name="description" defaultValue={saved.description} rows={3} maxLength={4000}/></label><p>A private chat is created for this project. Add your team in Members, then chat or assign a task.</p><button className="dashboard-action project-primary">{busy?'Creating…':'Create project'}</button></fieldset></form>;
+  return <form className="dashboard-card project-form" onSubmit={submit}><h2>New project</h2>{error&&<p role="alert">{error}</p>}<fieldset disabled={busy}><label>Project name<input name="name" defaultValue={saved.name} required maxLength={120}/></label><label>Project brief (optional)<textarea name="description" defaultValue={saved.description} rows={3} maxLength={4000}/></label><p>A private chat is created for this project. Add your team in Members, then chat or assign a task.</p><button className="dashboard-action project-primary">{busy?'Creating…':'Create project'}</button></fieldset></form>;
 }
 
 function ProjectFiles({channelId}:{channelId:string}) {

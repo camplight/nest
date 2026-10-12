@@ -161,7 +161,7 @@ vision are at different stages.
 | Design direction | Project budgets and health, spend/task/issue dashboard widgets, agent scores, public community discovery, guided team assembly, and huddles are not represented here as completed features. |
 
 The [implementation spec](docs/SPEC.md) records the current product boundary.
-[OrgOps's spec](https://github.com/camplight/orgops/blob/59fe050772ea2cac9df06e2028c4bb74882d83be/docs/SPEC.md) describes the pinned engine behavior.
+[OrgOps's spec](https://github.com/camplight/orgops/blob/0b383c5507218ee78f8bc99b3d6184eb019ad1cc/docs/SPEC.md) describes the pinned engine behavior.
 
 ## Architecture
 
@@ -245,7 +245,7 @@ and operator agent for bootstrap and recovery work.
 Open the site root for the dashboard, or choose **Dashboard** in the sidebar.
 Project links preserve the selected Chat, Tasks, Files or Members section. Older
 `?channel=…` links open the matching owned project’s chat; standalone chats remain
-available under **Chats**.
+available in **Projects → Existing conversations**.
 
 ## Make it your workspace
 
@@ -308,7 +308,7 @@ update the submodule pin. Include relevant checks with a pull request and update
 - [Google Workspace sign-in](docs/GOOGLE_WORKSPACE.md) — OAuth setup, automatic accounts and session behavior.
 - [Product roadmap](docs/ROADMAP.md) — milestones, Figma references, acceptance criteria, and regression checks.
 - [Implementation spec](docs/SPEC.md) — ownership, runtime, APIs, data, and verification.
-- [OrgOps engine spec](https://github.com/camplight/orgops/blob/59fe050772ea2cac9df06e2028c4bb74882d83be/docs/SPEC.md) — agents, events, runners, tools, and access.
+- [OrgOps engine spec](https://github.com/camplight/orgops/blob/0b383c5507218ee78f8bc99b3d6184eb019ad1cc/docs/SPEC.md) — agents, events, runners, tools, and access.
 - [Use cases](docs/use-cases.md) — execution, collaboration, maintenance, and oversight.
 - [Wrapped agent invites](docs/WRAPPED_AGENT_INVITES.md) — connecting external runtimes.
 - [CLI guide](apps/cli/README.md) — terminal-based installation and operations.

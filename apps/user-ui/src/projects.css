@@ -62,3 +62,11 @@
 .project-chat-page .workspace { height:100%; min-height:0; }
 .project-chat-page .project-about { max-height:100%; overflow-y:auto; box-sizing:border-box; }
 @media(max-width:1100px) { .project-chat-page .project-about { display:none; } }
+
+.project-welcome { padding:28px; margin-bottom:28px; }
+.project-welcome h2 { font-size:26px; margin:18px 0 12px; }
+.project-welcome p { max-width:60ch; line-height:1.6; color:var(--nest-muted); }
+.project-welcome ol { padding-left:22px; line-height:2; margin-bottom:24px; }
+.project-existing-chats { margin-top:28px; border-top:1px solid var(--nest-border); padding-top:20px; }
+.project-existing-chats summary { cursor:pointer; font-weight:600; }
+.project-existing-chats p { color:var(--nest-muted); line-height:1.6; }
