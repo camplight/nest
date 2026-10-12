@@ -1,3 +1,5 @@
+import { useMentionPicker } from "./components/useMentionPicker";
+import { mentionCandidates } from "./mentions";
 import type { OnboardingState } from "@nest/schemas";
 import {apiUrl} from './config';
 import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
@@ -734,6 +736,8 @@ export default function App() {
     [agents, visibleChannelAgentNames, userId]
   );
 
+  const mentionOptions = useMemo(() => mentionCandidates(visibleAgents, humans, activeChannel?.participants ?? []), [visibleAgents, humans, activeChannel?.participants]);
+
   const filteredChannels = useMemo(() => {
     const query = channelQuery.trim().toLowerCase();
     if (!query) return activeChannels;
@@ -776,6 +780,7 @@ export default function App() {
   const hasAttachmentErrors = pendingAttachments.some((item) => item.status === "error");
   const activeChannelManageable = canManageUserChannel(activeChannel, userId);
   const activeChannelCanPost = activeChannel ? activeChannel.canPost !== false : false;
+  const mentions = useMentionPicker({value:draft, onChange:setDraft, textareaRef:composerTextareaRef, candidates:mentionOptions, channelId:activeChannelId, disabled:!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending});
   const canStartConversation =
     Boolean(conversationName.trim()) || selectedConversationAgents.length === 1;
   const selectedConversationAgentRecords = useMemo(
@@ -2301,16 +2306,22 @@ export default function App() {
               ))}
             </div>
           ) : null}
+          <div className="mention-input">
+          {mentions.popup}
           <textarea
+            {...mentions.textareaProps}
             aria-label="Message"
             ref={composerTextareaRef}
             value={draft}
             onChange={(event) => {
               setDraft(event.target.value);
+              mentions.sync(event.currentTarget);
               resizeComposerTextarea(event.currentTarget);
             }}
             onPaste={handleComposerPaste}
             onKeyDown={(event) => {
+              if (mentions.onKeyDown(event)) return;
+              if (event.keyCode === 229) return;
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 event.currentTarget.form?.requestSubmit();
@@ -2330,6 +2341,7 @@ export default function App() {
             disabled={!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending}
             rows={isConversationEmpty ? 1 : 3}
           />
+          </div>
           <div className="composer-actions">
             <button
               type="button"
