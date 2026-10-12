@@ -11,10 +11,10 @@ File: [Nest case study](https://www.figma.com/design/Rqfq3v9a8nZfQKbM3Q0NZk/Port
 | Surface | Figma node | Implementation and intentional differences |
 |---|---|---|
 | Dashboard | `793:2`, Camplight `923:417` | `Dashboard.tsx`; currently counts agents, conversations and session-local unread messages, not spend/tasks/issues. |
-| Agents directory | `866:119` | `Agents.tsx`; list, search, real runtime counts and Manage. Scores, task totals, assignment and creation are deferred. |
-| Agent details | `849:574` | `Agents.tsx`; description and native instructions can be saved. Identity/resources are read-only; wrapped runtime configuration remains external/admin. |
+| Agents directory | `866:119` | `Agents.tsx`; list, search, real runtime counts and Manage. Personal agents are created here and labeled in Your team. Scores, task totals and assignment remain deferred. |
+| Agent details | `849:574` | `Agents.tsx`; description, native model and instructions can be saved; personal connected apps and private chat are available here. Identity and workspace remain read-only; wrapped runtime configuration remains external/admin. |
 | Project workspace | `849:599` | `Projects.tsx`: one workspace with Chat/Tasks/Files/Members, automatic private chat creation, tasks and human review. Budgets remain pending. |
-| Onboarding | `860:680` | Project-first welcome and one primary creation action; guided agent setup remains pending. |
+| Onboarding | `860:680` | New users enter Agents → Your team and can create their personal agent within this view. Project creation remains in Projects. |
 
 Directory and detail references are flattened images in the case study. Use the
 existing Nest components, exported avatar assets and instance color tokens;
@@ -39,8 +39,7 @@ Acceptance:
 - Existing conversation/share links continue to work; viewing Agents does not
   mark conversation messages read.
 
-This slice repaired navigation before the project workflow. Agent creation and
-full resource editing remain future work.
+This slice repaired navigation before the project workflow. Later milestones below add personal agent creation and native model editing; full resource editing remains future work.
 
 ## Milestones in agreed order
 
@@ -200,3 +199,11 @@ release commit. Full acceptance/configuration: [Personal agents](PERSONAL_AGENTS
 Local model tracer verified on 2026-10-12: one actual CLASSIC agent response via
 OpenRouter/Gemini 2.5 Flash after provisioning through Nest. Production release
 and real external-account consent remain pending; do not mark this deployed.
+
+### Personal-agent navigation consolidation
+
+Personal agents belong in Agents → Your team, not a separate My agent screen.
+New teammates use Add your agent within Agents; details hold model, instructions,
+connected apps and a link to private chat. Existing setup and OAuth return URLs
+remain compatible. Verify new creation, lost-response recovery, directory labels,
+settings links, browser history, mobile layout and both legacy callback paths.

@@ -8,20 +8,21 @@ screen is interactive React, not a flattened Figma screenshot.
 ## For a new teammate
 
 1. Sign in with the configured Google Workspace domain.
-2. Choose Puff, Moss, Muff, Pom or Pip; give the agent a unique name such as
-   `PuffVitaliy`; describe what you want help with.
-3. Optionally connect an app. Hosted Composio authentication happens outside Nest.
-   Back in Nest, refresh status and select the exact tools the agent may use.
-   Saving tool access is a separate action from signing into the provider.
-4. Open the private workspace and send a message. A reply requires a working
-   runner and model; workspace creation alone is not a successful model test.
+2. Open **Agents → Add your agent**, choose Puff, Moss, Muff, Pom or Pip, and give
+   your collaborator a name and brief. New teammates arrive in the Agents directory.
+3. Your agent appears in **Your team** with a **Your personal agent** label. Open its
+   details to choose a model, edit instructions, and manage **Connected apps**.
+4. Connect an app and grant specific tools when the core integration is available.
+   Authenticating an account and granting tools remain separate actions.
+5. Use **Open private chat** from agent details to start working together.
 
-**My agent** in navigation reopens setup/connections. Returning to Nest's home
-resumes unfinished setup for new users. Completed users return to the dashboard.
-Existing users with projects or owned agents keep their home; My agent lets them
-opt in. Existing deep links take priority and are not redirected. Completion is
-stored by immutable engine human ID, so changing a username does not create a
-new personal agent.
+There is no separate My agent navigation or standalone onboarding screen.
+`?view=agents&create=personal` opens creation within Agents. Existing
+`?view=onboarding` and `/onboarding` OAuth return links redirect to the existing
+agent's details, or creation if no agent exists. Incomplete reservations resume
+without creating a duplicate; after a lost creation response the details screen
+can finish setup when opening chat. Completed users keep the dashboard home.
+Explicit project/chat links retain their original destination.
 
 Only one onboarding-created agent per human is supported in this tracer bullet.
 Other engine agents remain unchanged. Avatar choice is saved in the engine's
@@ -68,7 +69,7 @@ NEST_COMPOSIO_AUTH_CONFIGS={"trello":"ac_configured_id","googledrive":"ac_config
 ```
 
 The callback is a fixed HTTPS path without query parameters. Nest canonicalizes
-it to `/?view=onboarding`. Callback parameters never prove a connection succeeded;
+it to the owning agent under `/?view=agents&agent=…`. Callback parameters never prove a connection succeeded;
 Nest asks the authenticated engine for current account status. No auth URL,
 provider tokens or service keys are saved in the product DB. Search is live from
 Composio's catalog. An app without an operator-configured auth config is labelled

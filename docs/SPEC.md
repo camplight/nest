@@ -408,12 +408,17 @@ retain the existing conservative recovery behavior.
 
 ## Personal-agent onboarding
 
-`?view=onboarding` and the `/onboarding` hosted-auth return path open **My agent**.
-New users on home with no projects/owned agents are guided through choosing an
-original Figma character, naming one private agent, optionally connecting apps,
-and opening the private workspace. Explicit deep links remain intact. Incomplete
-setup resumes; completed users return to home. Avatar choices use engine `icon`
-values and are reused in directory, dashboard and conversation participants.
+Personal agents live in **Agents → Your team**, with an owner label and the same
+settings surface as other agents. New teammates arrive in the Agents directory;
+**Add your agent** opens `?view=agents&create=personal` with the original Figma
+characters, name and brief. Creation opens the agent's details; model/instructions
+and Connected apps are configured there. **Open private chat** opens the original
+private workspace and completes any unfinished setup mapping.
+
+There is no My agent sidebar entry or standalone setup page. Legacy
+`?view=onboarding` and `/onboarding` OAuth return links normalize to the existing
+agent's detail URL, or creation when it has not been provisioned. Explicit project
+and conversation deep links remain intact; completed users keep dashboard home.
 
 `GET /api/onboarding` returns the current human's setup and availability.
 `POST /api/onboarding/agent` validates `{name, character, brief}`, reserves one

@@ -199,3 +199,11 @@ migrations are needed. Preserve existing model registry rows during rollout,
 register the desired new model separately, and configure
 `NEST_DEFAULT_AGENT_MODEL_ID` in the private environment. Follow normal dual-DB
 snapshot and rollback procedures. Existing agents are not bulk rewritten.
+
+## Personal agents in the team directory
+
+Personal-agent creation and connected-account controls now live under Agents.
+The existing onboarding endpoints, reservation IDs and engine ownership checks
+are unchanged. Old setup/OAuth return links redirect to the owning agent's
+settings, so existing connection callback configuration needs no migration.
+No upstream pin change, schema migration or bulk agent update is required.
