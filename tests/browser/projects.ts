@@ -36,7 +36,7 @@ try {
     const cookie=login.headers.get('set-cookie')!.split(';')[0];
     const headers={cookie,'content-type':'application/json'};
     let channelId:string;
-    const created=await product.app.request('/api/agents',{method:'POST',headers,body:JSON.stringify({name:'Builder',modelId:'test-model',workspacePath:join(dir,'workspace')})});assert.equal(created.status,201);
+    const created=await product.app.request('/api/agents',{method:'POST',headers,body:JSON.stringify({name:'Builder',visibility:'PRIVATE',modelId:'test-model',workspacePath:join(dir,'workspace')})});assert.equal(created.status,201);
     const direct=await product.app.request('/api/channels/direct/human-agent',{method:'POST',headers,body:JSON.stringify({agentName:'Builder'})});assert([200,201].includes(direct.status));
     await page.context().addCookies([{name:'nest_session',value:cookie.slice('nest_session='.length),url:'http://127.0.0.1:5298',httpOnly:true}]);
     // Relay browser requests into the real product + engine HTTP handlers. No

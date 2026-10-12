@@ -69,6 +69,18 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     if (!result.ok) throw new Error(`Engine request failed (${result.status})`);
     return result.json() as Promise<T>;
   }
-  return { request, currentHuman, isOwner, humanJson, baseUrl: base.origin };
+  async function humanRequest(path: string, input: HeadersInit, method = 'GET', body?: unknown) {
+    const headers = humanHeaders(input);
+    if (body !== undefined) headers.set('content-type', 'application/json');
+    return request(path, {headers, method, ...(body !== undefined ? {body:JSON.stringify(body)} : {})});
+  }
+  async function nativeModelReference(id: string, headers: HeadersInit) {
+    const models = await humanJson<{id:string; provider:string; modelName:string; enabled:boolean}[]>('/api/models', headers);
+    const model = models.find(m => m.enabled && (m.id === id || `${m.provider}:${m.modelName}` === id));
+    if (!model || !['openai', 'anthropic', 'openrouter', 'or'].includes(model.provider) || !model.modelName || model.modelName.includes(':')) return null;
+    // Agent modelId is a provider:model reference, not the model registry row ID.
+    return `${model.provider}:${model.modelName}`;
+  }
+  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModelReference, baseUrl: base.origin };
 }
 export type OrgOpsClient = ReturnType<typeof createOrgOpsClient>;

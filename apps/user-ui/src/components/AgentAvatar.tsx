@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 import "./agent-avatar.css";
 
 // Figma's original character identities. This is presentation only: it never
@@ -15,7 +15,7 @@ const aliases: Record<string, Character> = {
 
 export function agentCharacter(name: string): Character {
   const normalized = name.trim().toLowerCase();
-  const words = normalized.split(/[^a-z0-9]+/);
+  const words = name.trim().replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().split(/[^a-z0-9]+/);
   // Named characters take precedence over role-like names.
   const named = characters.find(character => words.includes(character));
   if (named) return named;
@@ -27,8 +27,12 @@ export function agentCharacter(name: string): Character {
   return characters[hash % characters.length];
 }
 
+const AvatarChoices = createContext<Record<string, string | null | undefined>>({});
+export const AgentAvatarChoices = AvatarChoices.Provider;
+
 export function AgentAvatar({ name, size = 48 }: { name: string; size?: number }) {
-  const character = agentCharacter(name);
+  const choice = useContext(AvatarChoices)[name];
+  const character = characters.includes(choice as Character) ? choice as Character : agentCharacter(name);
   const [failedSource, setFailedSource] = useState<string | null>(null);
   const src = `${import.meta.env.BASE_URL}design/avatars/${character}.png`;
   // Adjacent UI supplies the agent's accessible name; the portrait is decorative.

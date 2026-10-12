@@ -176,3 +176,27 @@ chats. Existing chat/share URLs and history remain compatible; no data is moved.
 Desktop/mobile browser checks cover onboarding, recovery, navigation and reviews.
 This refines the existing visual system; it does not claim a pixel match to the
 not-yet-implemented Figma onboarding wizard or automatic agent provisioning.
+
+## Personal agents — tracer bullets
+
+1. **Implemented for review:** Google login → choose an original character →
+   create one private personal agent and conversation → first chat. Durable
+   recovery and per-user setup; operator-selected model/runner; original avatars.
+2. **Implemented against candidate OrgOps PR #50, deployment pending:** discover
+   Composio apps → hosted auth → verify ACTIVE account → grant exact tools → revoke.
+   Nest degrades to an explicit skip path when the core/config is unavailable.
+3. **Next:** owner-controlled team delegation by requester/channel/tool/resource,
+   with credential-owner and requester audit. Talking to an agent alone grants
+   no access to its owner's applications.
+4. **Next:** exact-action approvals and multiple personal agents.
+
+Reference: Figma `866:225` within `860:680`. The original characters and staggered
+selection cards are adapted into a responsive interactive wizard, with real setup
+fields instead of the case study's preassigned five-agent team. No invented
+connections, performance scores or online claims. Status is not “deployed” until
+fresh Google signup, real model reply and consented connection checks pass on the
+release commit. Full acceptance/configuration: [Personal agents](PERSONAL_AGENTS.md).
+
+Local model tracer verified on 2026-10-12: one actual CLASSIC agent response via
+OpenRouter/Gemini 2.5 Flash after provisioning through Nest. Production release
+and real external-account consent remain pending; do not mark this deployed.

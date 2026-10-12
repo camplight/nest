@@ -103,6 +103,7 @@ it("preserves OAuth cookies and redirects, creates an engine human, and grants o
     username: "colleague@example.com",
     mustChangePassword: false,
   });
+  expect(await (await product.app.request('/api/teams/me',{headers})).json()).toEqual([expect.objectContaining({name:'Example team'})]);
   expect(
     (await product.app.request("/api/community/skills", { headers })).status,
   ).toBe(200);

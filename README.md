@@ -75,6 +75,18 @@ budget, and progress panels are design concepts.*
 | **Skill** | Reusable instructions and optional supporting assets or event definitions that extend native agents. |
 | **Wrapped runtime** | An external agent runtime or CLI that Nest coordinates through OrgOps's harness interface. |
 
+### A personal agent for each teammate
+
+New users can choose an original Nest character, name their personal agent, and
+start a private conversation. **My agent** resumes setup and manages connected
+apps. Composio connections require the configured core integration; users grant
+specific tools separately from authenticating an account. Team delegation and
+multiple personal agents remain follow-up milestones.
+
+See [personal-agent setup and rollout](docs/PERSONAL_AGENTS.md) for operator
+configuration, permission boundaries and release checks. The current source has
+the onboarding flow; this is not a claim that it is deployed on your instance.
+
 ### Agents have a place to run
 
 An agent belongs to an explicitly assigned runner. You can run several runners

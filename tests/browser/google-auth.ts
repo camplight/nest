@@ -199,8 +199,12 @@ try {
     });
     await page.getByRole("link", { name: "Continue with Google" }).click();
     await page
-      .getByRole("heading", { name: "Dashboard", exact: true })
+      .getByRole("heading", { name: "Meet your personal agent.", exact: true })
       .waitFor();
+    assert(await page.evaluate(async () => {
+      const teams = await (await fetch('/api/teams/me')).json();
+      return teams.some((team: {name: string}) => team.name === 'Example team');
+    }));
     assert.equal(
       await page.evaluate(async () => {
         const r = await fetch("/api/auth/me");
