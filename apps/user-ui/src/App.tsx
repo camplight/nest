@@ -1,6 +1,5 @@
 import { useMentionPicker } from "./components/useMentionPicker";
 import { mentionCandidates } from "./mentions";
-import { Onboarding } from "./Onboarding";
 import type { OnboardingState } from "@nest/schemas";
 import {apiUrl} from './config';
 import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
@@ -559,10 +558,12 @@ export default function App() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [personalSetup, setPersonalSetup] = useState<OnboardingState | null>(null);
+  const [creatingPersonalAgent, setCreatingPersonalAgent] = useState(() => new URL(window.location.href).searchParams.get("create") === "personal");
   const [humans, setHumans] = useState<Array<{ username: string }>>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
-  const [view, setView] = useState<"dashboard" | "workspace" | "agents" | "projects" | "community" | "onboarding">(() => readLinkedChannelId() ? "workspace" : new URL(window.location.href).searchParams.get("view") === "onboarding" || window.location.pathname === "/onboarding" ? "onboarding" : new URL(window.location.href).searchParams.get("view") === "agents" ? "agents" : new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : "dashboard");
+  const [view, setView] = useState<"dashboard" | "workspace" | "agents" | "projects" | "community">(() => readLinkedChannelId() ? "workspace" : new URL(window.location.href).searchParams.get("view") === "onboarding" || window.location.pathname === "/onboarding" ? "agents" : new URL(window.location.href).searchParams.get("view") === "agents" ? "agents" : new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : "dashboard");
   const [selectedCommunitySkill, setSelectedCommunitySkill] = useState<string|null>(()=>new URL(window.location.href).searchParams.get("skill"));
   const [projectIndex, setProjectIndex] = useState<Project[]>([]);
   const [projectTab, setProjectTab] = useState(readProjectTab);
@@ -823,21 +824,17 @@ export default function App() {
     setActiveChannelId(projectIndex.find(p => p.id === project)?.channelId ?? null); setView("projects"); setSelectedProject(project); setSelectedTask(task); setMobileSidebarOpen(false);
   }
 
-  function selectOnboarding(replace = false) {
-    const url = new URL(window.location.href);
-    url.pathname = '/'; url.search = ''; url.searchParams.set('view', 'onboarding');
-    if (replace) window.history.replaceState({}, '', url); else window.history.pushState({}, '', url);
-    setActiveChannelId(null); setView('onboarding'); setMobileSidebarOpen(false);
-  }
-
-  function selectAgent(name: string | null) {
+  function selectAgent(name: string | null, options: {replace?:boolean; create?:boolean} = {}) {
     const url = new URL(window.location.href);
     url.searchParams.delete("channel");
     url.searchParams.delete("project"); url.searchParams.delete("task"); url.searchParams.delete("tab"); url.searchParams.delete("create");
     url.searchParams.delete("skill");
+    url.pathname = "/";
     url.searchParams.set("view", "agents");
+    if(options.create) url.searchParams.set("create","personal");
+    setCreatingPersonalAgent(Boolean(options.create));
     if (name) url.searchParams.set("agent", name); else url.searchParams.delete("agent"); url.searchParams.delete("skill");
-    window.history.pushState(null, "", url);
+    window.history[options.replace ? "replaceState" : "pushState"](null, "", url);
     setActiveChannelId(null); setView("agents"); setSelectedAgent(name); setMobileSidebarOpen(false);
   }
 
@@ -929,6 +926,7 @@ export default function App() {
       setSelectedConversationAgents((current) =>
         current.filter((agentName) => nextVisibleAgents.some((agent) => agent.name === agentName))
       );
+      setPersonalSetup(nextOnboarding);
       const linkedChannelId = readLinkedChannelId();
       const preferredLinkedId = claimedShareChannelId ?? linkedChannelId;
       const linkedChannel = visibleChannels.find((channel) => channel.id === preferredLinkedId);
@@ -940,7 +938,8 @@ export default function App() {
       if (linkedChannel?.archivedAt) setShowArchivedChannels(true);
       const urlView = new URL(window.location.href).searchParams.get("view");
       if (!claimedShareChannelId && !linkedChannelId && (urlView === "onboarding" || window.location.pathname === "/onboarding" || (!urlView && nextOnboarding && !nextOnboarding.setup?.completedAt && (nextOnboarding.setup || (!nextProjects.length && !nextAgents.some(a=>a.ownerHumanId===userId)))))) {
-        selectOnboarding(true);
+        const legacySetupLink = urlView === "onboarding" || window.location.pathname === "/onboarding";
+        selectAgent(nextOnboarding?.setup?.channelId ? nextOnboarding.setup.name : null, {replace:true,create:legacySetupLink && !nextOnboarding?.setup?.channelId});
       } else if (!claimedShareChannelId && ["agents", "projects", "community"].includes(new URL(window.location.href).searchParams.get("view") ?? "") && !linkedChannelId) {
         setActiveChannelId(nextProjects.find(p => p.id === new URL(window.location.href).searchParams.get("project"))?.channelId ?? null); setView(new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : "agents");
       } else {
@@ -1470,8 +1469,9 @@ export default function App() {
       if (linkedChannel?.archivedAt) setShowArchivedChannels(true);
       setActiveChannelId(linkedChannel?.id ?? null);
       const url = new URL(window.location.href);
-      setView(linkedChannel ? "workspace" : url.searchParams.get("view") === "onboarding" ? "onboarding" : url.searchParams.get("view") === "agents" ? "agents" : url.searchParams.get("view") === "projects" ? "projects" : url.searchParams.get("view") === "community" ? "community" : "dashboard");
+      setView(linkedChannel ? "workspace" : url.searchParams.get("view") === "onboarding" ? "agents" : url.searchParams.get("view") === "agents" ? "agents" : url.searchParams.get("view") === "projects" ? "projects" : url.searchParams.get("view") === "community" ? "community" : "dashboard");
       setSelectedAgent(url.searchParams.get("agent"));
+      setCreatingPersonalAgent(url.searchParams.get("create") === "personal");
       setSelectedCommunitySkill(url.searchParams.get("skill"));
       setSelectedProject(url.searchParams.get("project")); setSelectedTask(url.searchParams.get("task"));
       setProjectTab(readProjectTab());
@@ -2450,7 +2450,6 @@ export default function App() {
         <nav className="product-nav" aria-label="Main navigation">
           <button aria-current={view === "dashboard" ? "page" : undefined} onClick={() => selectChannel(null)}><DesignIcon name="dashboard" />Dashboard</button>
           <button aria-current={(view === "projects" || view === "workspace") ? "page" : undefined} onClick={() => selectProject(null)}><DesignIcon name="conversations" />Projects</button>
-          <button aria-current={view === "onboarding" ? "page" : undefined} onClick={() => selectOnboarding()}><DesignIcon name="agents" />My agent</button>
           <button aria-current={view === "agents" ? "page" : undefined} onClick={() => selectAgent(null)}><DesignIcon name="agents" />Agents</button>
           <button aria-current={view === "community" ? "page" : undefined} onClick={()=>selectCommunity(null)}><DesignIcon name="community" />Community</button>
         </nav>
@@ -2564,7 +2563,7 @@ export default function App() {
         />
       ) : null}
 
-      {view === "onboarding" ? <Onboarding onMenu={()=>setMobileSidebarOpen(true)} onHome={()=>selectChannel(null)} onChat={id=>{selectChannel(id);void loadShell();}} /> : view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} members={<><button className="dashboard-action" disabled={!activeChannelManageable} onClick={() => setShowChannelManageDialog(true)}>Manage members and sharing</button>{chatMembers}</>} /> : view === "agents" ? <Agents agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
+      {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} members={<><button className="dashboard-action" disabled={!activeChannelManageable} onClick={() => setShowChannelManageDialog(true)}>Manage members and sharing</button>{chatMembers}</>} /> : view === "agents" ? <Agents setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={selectChannel} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
         channels={visibleChannels} projects={projectIndex} onProject={selectProject} agents={visibleAgents} teams={teams} unreadCounts={unreadCounts} onAgent={selectAgent}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}
         onSelect={selectChannel} onCreate={() => selectProject(null, null, "new")}

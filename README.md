@@ -78,8 +78,8 @@ budget, and progress panels are design concepts.*
 ### A personal agent for each teammate
 
 New users can choose an original Nest character, name their personal agent, and
-start a private conversation. **My agent** resumes setup and manages connected
-apps. Composio connections require the configured core integration; users grant
+start a private conversation. **Agents → Your team** includes your personal agent
+alongside other teammates; its details hold model settings and connected apps. Composio connections require the configured core integration; users grant
 specific tools separately from authenticating an account. Team delegation and
 multiple personal agents remain follow-up milestones.
 

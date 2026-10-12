@@ -26,3 +26,14 @@
 }
 
 .agent-settings select { min-width: 0; max-width: 100%; }
+
+.agent-owner-label { color: var(--instance-primary); font-size: 12px; font-weight: 600; }
+.agent-create { display: grid; gap: 28px; }
+.agent-create h2 { font-size: 24px; line-height: 1.4; }
+.agent-connections { margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--nest-border); }
+.agent-connections > p { color: var(--nest-muted); line-height: 1.7; max-width: 720px; }
+
+@media (max-width: 760px) {
+  .agents-page .dashboard-title { flex-wrap: wrap; }
+  .agents-page .dashboard-title .dashboard-action { display: inline-flex; }
+}

@@ -60,114 +60,39 @@ function message(e: unknown) {
   }
 }
 type Connection = { id: string; toolkit: string; status: string };
-export function Onboarding({
-  onMenu,
-  onChat,
-  onHome,
-}: {
-  onMenu: () => void;
-  onChat: (id: string) => void;
-  onHome: () => void;
-}) {
-  const [state, setState] = useState<OnboardingState | null>(null),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
-  const [name, setName] = useState(""),
-    [character, setCharacter] = useState<AgentCharacter>("puff"),
-    [brief, setBrief] = useState("");
-  const [step, setStep] = useState(0),
-    [attempt, setAttempt] = useState(0);
-  useEffect(() => {
+export function AgentSetupForm({onCreated}:{onCreated:(name:string)=>void}) {
+  const [state,setState] = useState<OnboardingState|null>(null);
+  const [error,setError] = useState("");
+  const [busy,setBusy] = useState(false);
+  const [attempt,setAttempt] = useState(0);
+  const [name,setName] = useState("");
+  const [character,setCharacter] = useState<AgentCharacter>("puff");
+  const [brief,setBrief] = useState("");
+  useEffect(()=>{
     const abort = new AbortController();
     setError("");
-    apiJson<OnboardingState>("/api/onboarding", { signal: abort.signal })
-      .then((s) => {
-        setState(s);
-        setName(s.setup?.name ?? s.suggestedName);
-        setCharacter(s.setup?.character ?? "puff");
-        setBrief(s.setup?.brief ?? "");
-        setStep(s.setup?.channelId ? 1 : 0);
-      })
-      .catch((e) => {
-        if (!abort.signal.aborted) setError(message(e));
-      });
-    return () => abort.abort();
-  }, [attempt]);
+    apiJson<OnboardingState>("/api/onboarding",{signal:abort.signal}).then(s=>{
+      setState(s);setName(s.setup?.name ?? s.suggestedName);setCharacter(s.setup?.character ?? "puff");setBrief(s.setup?.brief ?? "");
+      if(s.setup?.channelId && !s.problem)onCreated(s.setup.name);
+    }).catch(e=>{if(!abort.signal.aborted)setError(message(e));});
+    return ()=>abort.abort();
+  },[attempt]);
   async function create() {
-    if (busy) return;
-    setBusy(true);
-    setError("");
+    if(busy)return;
+    setBusy(true);setError("");
     try {
-      const setup: PersonalAgentSetup = await json("/api/onboarding/agent", {
-        name,
-        character,
-        brief,
-      });
-      setState((s) => (s ? { ...s, setup } : s));
-      setStep(1);
-    } catch (e) {
-      setError(message(e));
-    } finally {
-      setBusy(false);
-    }
+      const setup:PersonalAgentSetup=await json("/api/onboarding/agent",{name,character,brief});
+      setState(s=>s?{...s,setup}:s);
+      await json("/api/onboarding/complete",{});
+      onCreated(setup.name);
+    }catch(e){setError(message(e));}finally{setBusy(false);}
   }
-  async function finish() {
-    setBusy(true);
-    setError("");
-    try {
-      const setup: PersonalAgentSetup = await json(
-        "/api/onboarding/complete",
-        {},
-      );
-      if (setup.channelId) onChat(setup.channelId);
-    } catch (e) {
-      setError(message(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <section className="dashboard onboarding" aria-label="Personal agent setup">
-      <header className="dashboard-topbar">
-        <button className="sidebar-mobile-toggle" onClick={onMenu}>
-          Menu
-        </button>
-        <span>YOUR PERSONAL AGENT</span>
-        <button className="dashboard-action" onClick={onHome}>
-          Back to Nest
-        </button>
-      </header>
-      <div className="onboarding-content">
-        <ol className="onboarding-steps" aria-label="Setup progress">
-          {["Meet your agent", "Connect your apps", "Start together"].map(
-            (label, i) => (
-              <li key={label} aria-current={step === i ? "step" : undefined}>
-                <span>{i + 1}</span>
-                {label}
-              </li>
-            ),
-          )}
-        </ol>
-        {error && (
-          <div role="alert" className="onboarding-notice">
-            {error}{" "}
-            <button onClick={() => setAttempt((a) => a + 1)}>
-              Refresh setup
-            </button>
-          </div>
-        )}
-        {!state && !error && <p role="status">Loading your workspace…</p>}
-        {state && step === 0 && (
-          <>
-            <div className="onboarding-heading">
-              <p>A LITTLE HELP, MADE YOURS</p>
-              <h1>Meet your personal agent.</h1>
-              <p>
-                Choose a character, give them a name, and tell them what matters
-                to you. Start with one trusted collaborator.
-              </p>
-            </div>
-            <div className="onboarding-meet">
+  return <section className="onboarding agent-create" aria-label="Create a personal agent">
+    <div className="onboarding-heading"><h2>Add your agent to the team</h2><p>Choose a character, name your collaborator, and describe what you need. You can configure their model and connected apps in agent settings.</p></div>
+    {error && <div role="alert" className="onboarding-notice">{error} <button onClick={()=>setAttempt(n=>n+1)}>Refresh setup</button></div>}
+    {state?.problem && <p role="alert">{state.problem}</p>}
+    {!state && !error && <p role="status">Loading agent setup…</p>}
+    {state && (            <div className="onboarding-meet">
               <div
                 className="onboarding-character-list"
                 role="group"
@@ -252,85 +177,13 @@ export function Onboarding({
                     ? "Preparing your agent…"
                     : state.setup
                       ? "Resume setup"
-                      : "Create my agent →"}
+                      : "Create agent →"}
                 </button>
               </form>
-            </div>
-          </>
-        )}
-        {state && step === 1 && (
-          <>
-            <div className="onboarding-heading">
-              <AgentAvatar
-                name={state.setup?.character ?? character}
-                size={76}
-              />
-              <h1>Bring your tools along.</h1>
-              <p>
-                Connect the apps you use, then choose exactly what{" "}
-                {state.setup?.name} can do. You can skip this and return
-                whenever you’re ready.
-              </p>
-            </div>
-            {state.connectionsAvailable && state.setup ? (
-              <Connections agentName={state.setup.name} />
-            ) : (
-              <div className="dashboard-card onboarding-notice">
-                <h2>App connections are being prepared</h2>
-                <p>
-                  You can continue to your personal workspace now. Connections
-                  will appear here after your administrator finishes integration
-                  setup.
-                </p>
-              </div>
-            )}
-            <div className="onboarding-footer">
-              <p>Google sign-in does not connect your Drive or Gmail.</p>
-              <button className="onboarding-primary" onClick={() => setStep(2)}>
-                Continue →
-              </button>
-            </div>
-          </>
-        )}
-        {state && step === 2 && (
-          <div className="onboarding-ready dashboard-card">
-            <AgentAvatar
-              name={state.setup?.character ?? character}
-              size={144}
-            />
-            <h1>A place to think together.</h1>
-            <p>
-              Your private workspace with <strong>{state.setup?.name}</strong>{" "}
-              is ready. Try asking for help planning your week, or bring a
-              project you want to move forward.
-            </p>
-            <p className="onboarding-privacy">
-              Connected tools work only in your private conversation. Sharing
-              account access with teammates will require a separate delegation
-              feature.
-            </p>
-            {state.problem && <p role="alert">{state.problem}</p>}
-            <button
-              className="onboarding-primary"
-              disabled={busy || !!state.problem}
-              onClick={() => void finish()}
-            >
-              {busy ? "Opening…" : "Open my workspace →"}
-            </button>
-            <button className="dashboard-action" onClick={() => setStep(1)}>
-              Back to connections
-            </button>
-            <small>
-              Workspace created does not mean the agent is online. Replies
-              depend on the configured runner and model.
-            </small>
-          </div>
-        )}
-      </div>
-    </section>
-  );
+            </div>)}
+  </section>;
 }
-function Connections({ agentName }: { agentName: string }) {
+export function Connections({ agentName }: { agentName: string }) {
   const [connections, setConnections] = useState<Connection[]>([]),
     [kits, setKits] = useState<
       {

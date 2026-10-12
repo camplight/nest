@@ -107,8 +107,14 @@ const engine = createEngine({
 });
 if (previousRoot === undefined) delete process.env.ORGOPS_PROJECT_ROOT;
 else process.env.ORGOPS_PROJECT_ROOT = previousRoot;
-const orgops = createOrgOpsClient("http://engine", (async (url, init) =>
-  engine.app.fetch(new Request(url, init))) as typeof fetch);
+let failChannelCreation = true;
+const orgops = createOrgOpsClient("http://engine", (async (url, init) => {
+  if (failChannelCreation && new URL(String(url)).pathname === "/api/channels" && init?.method === "POST") {
+    failChannelCreation = false;
+    return Response.json({error:"Test: chat creation temporarily unavailable"},{status:503});
+  }
+  return engine.app.fetch(new Request(url, init));
+}) as typeof fetch);
 const product = createApp({
   personalAgent: {
     modelId: "test-model",
@@ -207,7 +213,7 @@ try {
           : {}),
       });
       if (
-        loseCreation &&
+        loseCreation && r.ok &&
         url.pathname === "/api/onboarding/agent" &&
         request.method() === "POST"
       ) {
@@ -227,9 +233,14 @@ try {
     await page.routeWebSocket("**/ws", (socket) => socket.close());
     await page.goto("http://127.0.0.1:5301/");
     await page
-      .getByRole("heading", { name: "Meet your personal agent." })
+      .getByRole("heading", { name: "Agents", exact:true })
       .waitFor();
-    assert.equal(new URL(page.url()).searchParams.get("view"), "onboarding");
+    assert.equal(new URL(page.url()).searchParams.get("view"), "agents");
+    assert.equal(await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'My agent',exact:true}).count(),0);
+    await page.setViewportSize({width:390,height:844});
+    await page.getByRole('button',{name:'Add your agent',exact:true}).click();
+    await page.setViewportSize({width:1440,height:1100});
+    assert.equal(new URL(page.url()).searchParams.get('create'),'personal');
     await page.getByLabel("Agent name", { exact: true }).fill("PuffVitaliy");
     await page
       .getByLabel("What would you like help with?")
@@ -256,14 +267,19 @@ try {
       fullPage: true,
     });
     await page.setViewportSize({ width: 1440, height: 1100 });
-    await page.getByRole("button", { name: "Create my agent" }).click();
+    await page.getByRole("button", { name: "Create agent" }).click();
+    await page.getByRole("alert").filter({hasText:"Setup could not finish"}).waitFor();
+    // Agent creation succeeded but its chat did not. A fresh visit must expose recovery.
+    await page.goto("http://127.0.0.1:5301/");
+    await page.getByRole("button",{name:"Resume agent setup",exact:true}).click();
+    await page.getByRole("button",{name:"Resume setup",exact:true}).click();
     await page
       .getByRole("alert")
       .filter({ hasText: "response lost" })
       .waitFor();
     await page.reload();
     await page
-      .getByRole("heading", { name: "Bring your tools along." })
+      .getByRole("heading", { name: "Agent details", exact:true })
       .waitFor();
     assert.equal(
       (
@@ -306,6 +322,7 @@ try {
       assert.deepEqual(grants, [
         { connectionId: "test-account", tools: ["TRELLO_GET_BOARDS"] },
       ]);
+      await page.getByRole("heading", {name:"Connected apps",exact:true}).evaluate(node => node.scrollIntoView({block:"start"}));
       await page.screenshot({
         path: join(screenshots, "connections-desktop.png"),
         fullPage: true,
@@ -316,6 +333,7 @@ try {
           () => document.documentElement.scrollWidth <= innerWidth,
         ),
       );
+      await page.getByRole("heading", {name:"Connected apps",exact:true}).evaluate(node => node.scrollIntoView({block:"start"}));
       await page.screenshot({
         path: join(screenshots, "connections-mobile.png"),
         fullPage: true,
@@ -338,15 +356,13 @@ try {
       await page
         .getByRole("heading", { name: "App connections are being prepared" })
         .waitFor();
-    await page.getByRole("button", { name: "Continue →", exact: true }).click();
-    await page
-      .getByRole("heading", { name: "A place to think together." })
-      .waitFor();
-    await page.screenshot({
-      path: join(screenshots, "ready-desktop.png"),
-      fullPage: true,
-    });
-    await page.getByRole("button", { name: "Open my workspace" }).click();
+    await page.getByRole('heading',{name:'Agent details',exact:true}).scrollIntoViewIfNeeded();
+    await page.screenshot({path:join(screenshots,'agent-settings-desktop.png'),fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    await page.screenshot({path:join(screenshots,'agent-settings-mobile.png'),fullPage:true});
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await page.getByRole('button',{name:'Open private chat',exact:true}).click();
+    await page.setViewportSize({width:1440,height:1100});
     await page
       .getByRole("textbox", { name: "Message", exact: true })
       .fill("Help me plan my week.");
@@ -386,17 +402,25 @@ try {
     await page
       .getByRole("heading", { name: "Dashboard", exact: true })
       .waitFor();
-    await page
-      .getByRole("navigation", { name: "Main navigation" })
-      .getByRole("button", { name: "My agent", exact: true })
-      .click();
-    await page
-      .getByRole("heading", { name: "Bring your tools along." })
-      .waitFor();
-    await page.goBack();
-    await page
-      .getByRole("heading", { name: "Dashboard", exact: true })
-      .waitFor();
+    await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Agents',exact:true}).click();
+    await page.getByText('Your personal agent',{exact:true}).waitFor();
+    await page.screenshot({path:join(screenshots,'team-desktop.png'),fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    await page.screenshot({path:join(screenshots,'team-mobile.png'),fullPage:true});
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await page.setViewportSize({width:1440,height:1100});
+    await page.getByRole('button',{name:'Manage PuffVitaliy',exact:true}).click();
+    await page.getByRole('heading',{name:'Agent details',exact:true}).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('agent'),'PuffVitaliy');
+    await page.goBack();await page.getByRole('heading',{name:'Agents',exact:true}).waitFor();
+    for(const path of ['/onboarding','/?view=onboarding']){
+      await page.goto('http://127.0.0.1:5301'+path);
+      await page.getByRole('heading',{name:'Agent details',exact:true}).waitFor();
+      assert.equal(new URL(page.url()).pathname,'/');
+      assert.equal(new URL(page.url()).searchParams.get('view'),'agents');
+      assert.equal(new URL(page.url()).searchParams.get('agent'),'PuffVitaliy');
+      assert.equal(await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Agents',exact:true}).getAttribute('aria-current'),'page');
+    }
     assert.deepEqual(errors, []);
     console.log(
       "Personal onboarding browser checks passed. Real engine; test-only provider transport; no live model call. Screenshots: " +
