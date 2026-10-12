@@ -137,7 +137,7 @@ restore the previous image and databases if health checks fail.
 
 ## Google Workspace authentication upgrade
 
-The new pin is `ee0f9af644329e80bd002bfe991ba984b110b881`.
+The new pin is `59fe050772ea2cac9df06e2028c4bb74882d83be`.
 OrgOps PR #44 adds migration `037_google_identity.sql` with identity and sign-in
 settings tables. Existing humans/passwords are preserved and Google sign-in starts
 disabled. The dependency adds Google's authentication SDK; the parent lockfile is
@@ -149,3 +149,14 @@ databases before engine migrations run. Keep the local owner login available.
 See [Google Workspace setup](GOOGLE_WORKSPACE.md). The focused upstream API,
 authentication and WebSocket suite passes 96 tests. The full upstream suite passes
 205/207 on macOS with the same two known failures listed above.
+
+The final pin uses the merged PR #44 commit, rather than its pre-merge branch tip.
+Its intervening upstream changes add sensitive-message event handling and upstream
+JSON-render/secret-input UI support. Nest still builds its own UI, so those upstream
+UI components are not automatically exposed here. Sensitive-message reveal requires
+a local password; Google-only accounts do not have one. No additional database
+migration is introduced by those intervening changes.
+
+Validation against the merged pin on 2026-10-12: Nest's 43 product tests pass.
+`npm run test:engine` passes 206/208 tests, retaining only the two recorded macOS
+failures (shell-status timing and skill-directory enumeration).

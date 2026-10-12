@@ -3,7 +3,7 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The current pin is `ee0f9af644329e80bd002bfe991ba984b110b881` (OrgOps PR #44).
+The current pin is `59fe050772ea2cac9df06e2028c4bb74882d83be` (OrgOps PR #44).
 
 This engine revision includes Google Workspace authentication (migration `037`),
 configured/per-agent skill roots, human-scoped secrets
@@ -378,3 +378,9 @@ redirects/provisioning against real isolated engine/product APIs with a simulate
 Google SDK boundary. Product integration tests verify both cookies, session rotation,
 private data ownership and settings authorization. Live Google consent is a separate
 production smoke check.
+
+The merged authentication pin also includes upstream sensitive-message event
+normalization and `/api/events/:id/reveal-sensitive` through the gateway. Reveal
+requires a local password and is not available to Google-only accounts. Upstream
+JSON-render and secret-input UI components remain upstream-owned and are not
+rendered automatically by Nest.

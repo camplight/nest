@@ -1,6 +1,6 @@
 # Google Workspace sign-in validation
 
-Captured from the implemented Nest UI on 2026-10-09 by `npm run test:ui:auth`,
+Captured from the implemented Nest UI on 2026-10-12 by `npm run test:ui:auth`,
 after typechecks, production builds and product tests passed. Desktop: 1440×1100;
 mobile: 390×844 (full-page capture). These are local implementation screenshots,
 not Figma mockups or production tenant data.
