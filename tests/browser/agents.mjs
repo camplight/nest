@@ -93,3 +93,6 @@ assert.deepEqual(errors,[]);console.log('PASS: directory, selected navigation, e
 console.log(`Screenshots: ${screenshotDir}`);
 } finally { await browser.close(); }
 } finally { server.kill('SIGTERM'); }
+
+// Keep inline composer completion in the existing browser CI entry point.
+await import('./mentions.mjs');
