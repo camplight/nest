@@ -15,7 +15,6 @@ describe("personal onboarding through the untouched engine", () => {
     settings: PersonalAgentConfig;
   let lose = "";
   let enginePaths: string[] = [];
-  let connectionFailure = false;
   const call = (path = "/api/onboarding", body?: unknown, h = headers) =>
     product.app.request(path, {
       headers: h,
@@ -31,7 +30,6 @@ describe("personal onboarding through the untouched engine", () => {
     dir = mkdtempSync(join(tmpdir(), "nest-onboarding-"));
     lose = "";
     enginePaths = [];
-    connectionFailure = false;
     engine = createEngine({
       projectRoot: dir,
       dataDir: dir,
@@ -43,7 +41,6 @@ describe("personal onboarding through the untouched engine", () => {
     client = createOrgOpsClient("http://engine", async (url, init) => {
       const path = new URL(String(url)).pathname;
       enginePaths.push(path);
-      if (connectionFailure && path === "/api/composio/config") return Response.json({error:"Unavailable"},{status:503});
       const r = await engine.app.fetch(new Request(url, init));
       if (lose === new URL(String(url)).pathname && init?.method === "POST") {
         lose = "";
@@ -113,12 +110,10 @@ describe("personal onboarding through the untouched engine", () => {
     expect(enginePaths).toEqual(["/api/auth/me"]);
     expect((await call("/api/onboarding/summary", undefined, {})).status).toBe(401);
   });
-  it("loads connection capability separately and distinguishes unconfigured from unavailable", async () => {
+  it("loads Nest connection capability without probing engine provider routes", async () => {
     enginePaths = [];
     expect(await (await call("/api/onboarding/connections")).json()).toEqual({available:false});
-    expect(enginePaths).toEqual(["/api/auth/me", "/api/composio/config"]);
-    connectionFailure = true;
-    expect((await call("/api/onboarding/connections")).status).toBe(502);
+    expect(enginePaths).toEqual(["/api/auth/me"]);
     expect((await call("/api/onboarding/connections", undefined, {})).status).toBe(401);
   });
   it("creates one private agent and owner conversation across concurrent retries and restarts", async () => {

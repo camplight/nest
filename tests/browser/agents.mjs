@@ -43,9 +43,9 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/events'){await notificationGate;data=[];}
  else if(path==='/api/onboarding/summary')data={setup:null};
  else if(path==='/api/onboarding'){fullHealthRequests++;return route.fulfill({status:503,json:{error:'Health is unavailable'}});}
- else if(path==='/api/onboarding/connections'){
+ else if(path==='/api/integrations/config'){
  connectionRequests++;await connectionGate;
- return route.fulfill(failConnections?{status:503,json:{error:'Unavailable'}}:{json:{available:false}});
+ return route.fulfill(failConnections?{status:503,json:{error:'Unavailable'}}:{json:{configured:false}});
  }
  else if(path==='/api/agents')data=agents;
  else if(path.startsWith('/api/agents/')){

@@ -85,6 +85,17 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     // Agent modelId is a provider:model reference, not the model registry row ID.
     return model.reference;
   }
-  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, baseUrl: base.origin };
+  async function connectionContext(agentName:string, serviceToken:string) {
+    if(!serviceToken)throw Error('Integration engine metadata access is not configured');
+    const headers={'x-orgops-runner-token':serviceToken};
+    async function get<T>(path:string):Promise<T>{const response=await request(path,{headers});if(!response.ok)throw Error('Engine context unavailable');return response.json() as Promise<T>;}
+    const [agent,channels,humans]=await Promise.all([
+      get<{id:string;name:string;ownerHumanId:string;visibility:string}>(`/api/agents/${encodeURIComponent(agentName)}`),
+      get<Array<{id:string;ownerHumanId:string;visibility:string;archivedAt?:number;participants:Array<{subscriberType:string;subscriberId:string}>;shares:unknown[]}>>('/api/channels?includeArchived=1'),
+      get<Array<{id:string;username:string}>>('/api/humans'),
+    ]);
+    return {agent,channels,humans};
+  }
+  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, connectionContext, baseUrl: base.origin };
 }
 export type OrgOpsClient = ReturnType<typeof createOrgOpsClient>;
