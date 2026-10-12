@@ -48,11 +48,27 @@ describe('project workflow against the unchanged engine',()=>{
     expect(results.every(r=>[200,201,409].includes(r.status))).toBe(true);
     const project=await (await request('/api/projects',body)).json();
     const channels=await (await request('/api/channels')).json();
-    const chats=channels.filter((c:any)=>c.name===body.name);
+    const chats=channels.filter((c:any)=>c.id===project.channelId);
     expect(chats).toHaveLength(1);
     expect(chats[0]).toMatchObject({id:project.channelId,visibility:'PRIVATE',canManage:true});
     expect(chats[0].participants).toContainEqual({subscriberType:'HUMAN',subscriberId:'owner'});
     expect((await request('/api/projects',{...body,name:'Changed'})).status).toBe(409);
+  });
+  it('isolates project titles from globally unique engine chat names',async()=>{
+    expect((await request('/api/channels',{name:'after-the-last-engineer',visibility:'PUBLIC'})).status).toBe(201);
+    const ids:string[]=[];
+    for(let i=0;i<2;i++) {
+      const body={id:randomUUID(),name:'after-the-last-engineer'};
+      const created=await request('/api/projects',body);
+      expect(created.status).toBe(201);
+      const project=await created.json();ids.push(project.channelId);
+      expect(project.name).toBe(body.name);
+      expect((await request('/api/projects',body)).status).toBe(200);
+    }
+    expect(new Set(ids).size).toBe(2);
+    const channels=await(await request('/api/channels')).json();
+    for(const id of ids) expect(channels.find((c:any)=>c.id===id)).toMatchObject({visibility:'PRIVATE',canManage:true});
+    expect(channels.filter((c:any)=>c.name==='after-the-last-engineer')).toHaveLength(1);
   });
   it('recovers chat creation after a lost engine response and product restart',async()=>{
     const body={id:randomUUID(),name:'Recovered chat'};
@@ -62,7 +78,7 @@ describe('project workflow against the unchanged engine',()=>{
     expect((await request('/api/projects',body)).status).toBe(201);
     expect((await request('/api/projects',body)).status).toBe(200);
     const channels=await (await request('/api/channels')).json();
-    expect(channels.filter((c:any)=>c.name===body.name)).toHaveLength(1);
+    expect(channels.filter((c:any)=>c.metadata?.nestProjectChat)).toHaveLength(1);
   });
   it('dispatches a targeted brief, snapshots a real agent deliverable and requires human approval',async()=>{
     const task=await dispatch();expect(task).toMatchObject({status:'working',attempt:1,version:1});
