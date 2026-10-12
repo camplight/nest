@@ -1,10 +1,12 @@
+import { Onboarding } from "./Onboarding";
+import type { OnboardingState } from "@nest/schemas";
 import {apiUrl} from './config';
 import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
 import { Community } from "./Community";
 import type { Project } from "@nest/schemas";
 import { Projects } from "./Projects";
 import { Agents } from "./Agents";
-import { AgentAvatar } from "./components/AgentAvatar";
+import { AgentAvatar, AgentAvatarChoices } from "./components/AgentAvatar";
 import { Dashboard, DesignIcon } from "./Dashboard";
 import { useBranding } from "../../nest-brand/BrandingProvider";
 import { PoweredByNest, InstanceBrand, ThemeToggle } from "../../nest-brand/Brand";
@@ -558,7 +560,7 @@ export default function App() {
   const [humans, setHumans] = useState<Array<{ username: string }>>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
-  const [view, setView] = useState<"dashboard" | "workspace" | "agents" | "projects" | "community">(() => readLinkedChannelId() ? "workspace" : new URL(window.location.href).searchParams.get("view") === "agents" ? "agents" : new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : "dashboard");
+  const [view, setView] = useState<"dashboard" | "workspace" | "agents" | "projects" | "community" | "onboarding">(() => readLinkedChannelId() ? "workspace" : new URL(window.location.href).searchParams.get("view") === "onboarding" || window.location.pathname === "/onboarding" ? "onboarding" : new URL(window.location.href).searchParams.get("view") === "agents" ? "agents" : new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : "dashboard");
   const [selectedCommunitySkill, setSelectedCommunitySkill] = useState<string|null>(()=>new URL(window.location.href).searchParams.get("skill"));
   const [projectIndex, setProjectIndex] = useState<Project[]>([]);
   const [projectTab, setProjectTab] = useState(readProjectTab);
@@ -816,6 +818,13 @@ export default function App() {
     setActiveChannelId(projectIndex.find(p => p.id === project)?.channelId ?? null); setView("projects"); setSelectedProject(project); setSelectedTask(task); setMobileSidebarOpen(false);
   }
 
+  function selectOnboarding(replace = false) {
+    const url = new URL(window.location.href);
+    url.pathname = '/'; url.search = ''; url.searchParams.set('view', 'onboarding');
+    if (replace) window.history.replaceState({}, '', url); else window.history.pushState({}, '', url);
+    setActiveChannelId(null); setView('onboarding'); setMobileSidebarOpen(false);
+  }
+
   function selectAgent(name: string | null) {
     const url = new URL(window.location.href);
     url.searchParams.delete("channel");
@@ -884,12 +893,13 @@ export default function App() {
           );
         }
       }
-      const [nextChannels, nextAgents, nextHumans, nextTeams, nextProjects] = await Promise.all([
+      const [nextChannels, nextAgents, nextHumans, nextTeams, nextProjects, nextOnboarding] = await Promise.all([
         apiJson<Channel[]>("/api/channels?includeArchived=1"),
         apiJson<Agent[]>("/api/agents"),
         apiJson<Array<{ username: string }>>("/api/humans").catch(() => []),
         apiJson<Team[]>("/api/teams/me").catch(() => []),
-        apiJson<Project[]>("/api/projects")
+        apiJson<Project[]>("/api/projects"),
+        apiJson<OnboardingState>("/api/onboarding").catch(() => null)
       ]);
       setProjectIndex(nextProjects);
       setChannels(nextChannels);
@@ -923,7 +933,10 @@ export default function App() {
           ? activeChannelId
           : null);
       if (linkedChannel?.archivedAt) setShowArchivedChannels(true);
-      if (!claimedShareChannelId && ["agents", "projects", "community"].includes(new URL(window.location.href).searchParams.get("view") ?? "") && !linkedChannelId) {
+      const urlView = new URL(window.location.href).searchParams.get("view");
+      if (!claimedShareChannelId && !linkedChannelId && (urlView === "onboarding" || window.location.pathname === "/onboarding" || (!urlView && nextOnboarding && !nextOnboarding.setup?.completedAt && (nextOnboarding.setup || (!nextProjects.length && !nextAgents.some(a=>a.ownerHumanId===userId)))))) {
+        selectOnboarding(true);
+      } else if (!claimedShareChannelId && ["agents", "projects", "community"].includes(new URL(window.location.href).searchParams.get("view") ?? "") && !linkedChannelId) {
         setActiveChannelId(nextProjects.find(p => p.id === new URL(window.location.href).searchParams.get("project"))?.channelId ?? null); setView(new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : "agents");
       } else {
         const project = nextProjects.find(p => p.channelId === nextActiveChannelId);
@@ -1452,7 +1465,7 @@ export default function App() {
       if (linkedChannel?.archivedAt) setShowArchivedChannels(true);
       setActiveChannelId(linkedChannel?.id ?? null);
       const url = new URL(window.location.href);
-      setView(linkedChannel ? "workspace" : url.searchParams.get("view") === "agents" ? "agents" : url.searchParams.get("view") === "projects" ? "projects" : url.searchParams.get("view") === "community" ? "community" : "dashboard");
+      setView(linkedChannel ? "workspace" : url.searchParams.get("view") === "onboarding" ? "onboarding" : url.searchParams.get("view") === "agents" ? "agents" : url.searchParams.get("view") === "projects" ? "projects" : url.searchParams.get("view") === "community" ? "community" : "dashboard");
       setSelectedAgent(url.searchParams.get("agent"));
       setSelectedCommunitySkill(url.searchParams.get("skill"));
       setSelectedProject(url.searchParams.get("project")); setSelectedTask(url.searchParams.get("task"));
@@ -2412,7 +2425,7 @@ export default function App() {
       </aside>;
 
   return (
-    <main className={`app-shell product-shell ${view !== "workspace" ? "dashboard-shell" : ""}`}>
+    <AgentAvatarChoices value={Object.fromEntries(agents.map(agent=>[agent.name, agent.icon]))}><main className={`app-shell product-shell ${view !== "workspace" ? "dashboard-shell" : ""}`}>
       <aside className={`sidebar ${mobileSidebarOpen ? "sidebar-mobile-open" : ""}`}>
         <button
           type="button"
@@ -2425,6 +2438,7 @@ export default function App() {
         <nav className="product-nav" aria-label="Main navigation">
           <button aria-current={view === "dashboard" ? "page" : undefined} onClick={() => selectChannel(null)}><DesignIcon name="dashboard" />Dashboard</button>
           <button aria-current={(view === "projects" || view === "workspace") ? "page" : undefined} onClick={() => selectProject(null)}><DesignIcon name="conversations" />Projects</button>
+          <button aria-current={view === "onboarding" ? "page" : undefined} onClick={() => selectOnboarding()}><DesignIcon name="agents" />My agent</button>
           <button aria-current={view === "agents" ? "page" : undefined} onClick={() => selectAgent(null)}><DesignIcon name="agents" />Agents</button>
           <button aria-current={view === "community" ? "page" : undefined} onClick={()=>selectCommunity(null)}><DesignIcon name="community" />Community</button>
         </nav>
@@ -2538,7 +2552,7 @@ export default function App() {
         />
       ) : null}
 
-      {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} members={<><button className="dashboard-action" disabled={!activeChannelManageable} onClick={() => setShowChannelManageDialog(true)}>Manage members and sharing</button>{chatMembers}</>} /> : view === "agents" ? <Agents agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
+      {view === "onboarding" ? <Onboarding onMenu={()=>setMobileSidebarOpen(true)} onHome={()=>selectChannel(null)} onChat={id=>{selectChannel(id);void loadShell();}} /> : view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} members={<><button className="dashboard-action" disabled={!activeChannelManageable} onClick={() => setShowChannelManageDialog(true)}>Manage members and sharing</button>{chatMembers}</>} /> : view === "agents" ? <Agents agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
         channels={visibleChannels} projects={projectIndex} onProject={selectProject} agents={visibleAgents} teams={teams} unreadCounts={unreadCounts} onAgent={selectAgent}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}
         onSelect={selectChannel} onCreate={() => selectProject(null, null, "new")}
@@ -2896,6 +2910,6 @@ export default function App() {
           </section>
         </div>
       ) : null}
-    </main>
+    </main></AgentAvatarChoices>
   );
 }

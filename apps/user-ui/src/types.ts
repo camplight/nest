@@ -23,6 +23,7 @@ export type Channel = {
 };
 
 export type Agent = {
+  icon?: string | null;
   id?: string;
   name: string;
   description?: string | null;

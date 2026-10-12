@@ -2,7 +2,7 @@ import { serve } from '@hono/node-server';
 import { resolve } from 'node:path';
 import { configureOrgOpsEnv } from './orgops-env';
 
-const {dataDir} = configureOrgOpsEnv();
+const {dataDir} = configureOrgOpsEnv(process.argv[2] === 'runner' ? 'runner' : 'api');
 if (process.argv[2] === 'runner') {
   process.env.ORGOPS_API_URL = process.env.NEST_RUNNER_API_URL ?? process.env.NEST_API_URL ?? process.env.ORGOPS_URL ?? 'http://127.0.0.1:8788';
   const deadline = Date.now() + 180_000;

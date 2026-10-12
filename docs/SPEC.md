@@ -3,7 +3,7 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The current pin is `0b383c5507218ee78f8bc99b3d6184eb019ad1cc` (OrgOps main through PR #48).
+The current pin is `3e3ed36` (OrgOps main through reviewed PR #49, including Google team membership repair).
 
 This engine revision includes Google Workspace authentication (migration `037`),
 configured/per-agent skill roots, human-scoped secrets
@@ -405,3 +405,34 @@ of the human-readable project title. OrgOps requires globally unique channel nam
 existing channels and other projects can therefore use the same product title
 without blocking creation or linking unrelated history. Ambiguous reservations
 retain the existing conservative recovery behavior.
+
+## Personal-agent onboarding
+
+`?view=onboarding` and the `/onboarding` hosted-auth return path open **My agent**.
+New users on home with no projects/owned agents are guided through choosing an
+original Figma character, naming one private agent, optionally connecting apps,
+and opening the private workspace. Explicit deep links remain intact. Incomplete
+setup resumes; completed users return to home. Avatar choices use engine `icon`
+values and are reused in directory, dashboard and conversation participants.
+
+`GET /api/onboarding` returns the current human's setup and availability.
+`POST /api/onboarding/agent` validates `{name, character, brief}`, reserves one
+setup per human and provisions/reconciles a private native agent and channel via
+human-authenticated engine HTTP calls. `POST /api/onboarding/complete` verifies
+current ownership and persists completion. Requests strip runner credentials;
+16 KB bodies and no-store responses apply. Migration `004_personal_agents`
+stores setup intent, configuration snapshot and engine mappings in Nest only.
+
+The instance's configured model and online runner are prerequisites. A reserved
+workspace and globally unique names allow safe reconciliation after lost responses.
+Removed/renamed resources or changed ownership are not silently replaced. The
+original setup fields cannot be changed by a replay. Product setup has no stored
+human credentials, engine DB access or provider tokens.
+
+Composio discovery, hosted links, exact-tool grants and revocation use the engine
+API through the existing adapter. Missing core/configuration is explicitly shown
+and can be skipped. OAuth completion is verified by querying connection status,
+never trusting return URL fields. Personal connections are private-context only;
+team delegation, action approvals and multiple personal agents are later slices.
+The launcher removes Composio service keys from the runner environment.
+See [PERSONAL_AGENTS.md](PERSONAL_AGENTS.md) for configuration, limits and release checks.

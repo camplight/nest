@@ -173,3 +173,20 @@ Validation: 43 Nest tests, full type checks, both UI builds and all four browser
 suites pass. Engine tests pass 209/211 on macOS; only the previously recorded
 shell-status fixed-delay assertion and skill-directory ordering assertion fail.
 No vendor files were edited.
+
+## Personal-agent onboarding dependency update
+
+The reviewed pin `3e3ed36` includes merged OrgOps PR #49. Migration `038` repairs
+Google memberships to use the engine's HUMAN/username representation; new Google
+logins receive valid team membership. Nest tests assert that membership after
+OAuth. No dependency manifests changed and the parent lockfile remains unchanged.
+
+Composio PR #50 remains a separate review dependency and is not included in this
+pin. Nest feature-detects its API and shows connections unavailable until it is
+installed/configured. Candidate-core browser tests use a separate checkout,
+never a patch to vendor. Rollout still snapshots both product and engine DBs.
+
+Validation of `3e3ed36`: 52 Nest product tests pass, full workspace/script typechecks
+and both UI builds pass. The unchanged engine suite passes 210/212 on macOS;
+only the previously documented process-status timing and skill-directory ordering
+assertions fail. No vendor source or tests are patched or suppressed.
