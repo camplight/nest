@@ -137,7 +137,7 @@ restore the previous image and databases if health checks fail.
 
 ## Google Workspace authentication upgrade
 
-The new pin is `59fe050772ea2cac9df06e2028c4bb74882d83be`.
+The Google authentication rollout pin was `59fe050772ea2cac9df06e2028c4bb74882d83be`.
 OrgOps PR #44 adds migration `037_google_identity.sql` with identity and sign-in
 settings tables. Existing humans/passwords are preserved and Google sign-in starts
 disabled. The dependency adds Google's authentication SDK; the parent lockfile is
@@ -160,3 +160,13 @@ migration is introduced by those intervening changes.
 Validation against the merged pin on 2026-10-12: Nest's 43 product tests pass.
 `npm run test:engine` passes 206/208 tests, retaining only the two recorded macOS
 failures (shell-status timing and skill-directory enumeration).
+
+## Google team membership correction
+
+The follow-up pin is `b37738246c248aed54dcf4ef8a3c44c7bece2b40` (OrgOps PR #49).
+
+The Google onboarding follow-up changes the membership identity to `HUMAN` plus
+the username, matching the engine team API and access checks. Migration `038`
+repairs malformed Google-linked memberships while preserving valid memberships.
+Nest verifies `/api/teams/me` through its real gateway and browser flow; row counts
+alone are insufficient to establish working team membership.
