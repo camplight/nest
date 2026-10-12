@@ -181,9 +181,10 @@ not-yet-implemented Figma onboarding wizard or automatic agent provisioning.
 1. **Implemented for review:** Google login → choose an original character →
    create one private personal agent and conversation → first chat. Durable
    recovery and per-user setup; operator-selected model/runner; original avatars.
-2. **Implemented against candidate OrgOps PR #50, deployment pending:** discover
-   Composio apps → hosted auth → verify ACTIVE account → grant exact tools → revoke.
-   Nest degrades to an explicit skip path when the core/config is unavailable.
+2. **Prototype; architecture revised:** discovery → hosted auth → verify ACTIVE
+   account → grant exact tools → revoke. OrgOps PR #50 is closed. Move the provider
+   adapter and instance skill layer into Nest before releasing connections; the
+   existing UI currently shows them unavailable on the pinned engine.
 3. **Next:** owner-controlled team delegation by requester/channel/tool/resource,
    with credential-owner and requester audit. Talking to an agent alone grants
    no access to its owner's applications.
@@ -207,3 +208,26 @@ New teammates use Add your agent within Agents; details hold model, instructions
 connected apps and a link to private chat. Existing setup and OAuth return URLs
 remain compatible. Verify new creation, lost-response recovery, directory labels,
 settings links, browser history, mobile layout and both legacy callback paths.
+
+## Simpler settings and independent capability loading — implemented
+
+Agent settings foreground the team description and model choice. Instructions
+and technical runtime details are collapsed under Advanced, an intentional
+simplification of Figma's always-expanded resource section. The owner-only
+Connected apps panel has independent loading/error/retry states. Navigation reads
+only the product setup summary; runtime/integration health is checked when needed.
+Personal-chat organization, mention delivery and runtime isolation are unchanged.
+
+## Integration ownership decision
+
+Mention delivery belongs in Nest using existing OrgOps event APIs; evaluate the
+existing `targetAgentName` field before adding any new delivery machinery.
+Personal-chat navigation and execution isolation remain deferred for discussion.
+The shared runner is an intentional deployment model, not per-agent OS isolation.
+
+Composio is an instance integration, not an OrgOps core dependency. PR #50 is
+closed and its branch retained for reference. The next implementation should use
+a Nest-owned provider adapter plus a reusable instance skill. Skill distribution
+through the private community repository is a proposal, not implemented behavior.
+Keep service credentials out of distributable skill files and preserve owner/tool
+permissions when moving the prototype. Adapter design remains to be agreed.

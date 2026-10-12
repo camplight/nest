@@ -1,5 +1,11 @@
 # Personal-agent onboarding
 
+**Integration design update:** OrgOps PR #50 is closed. Connections are not live;
+the Composio prototype will move into a Nest-owned adapter and instance skill
+layer. Provider configuration and candidate-core tests below document the prior
+prototype, not a current rollout procedure. Distribution/design is still under
+discussion; do not install the unmerged core to enable it.
+
 The first tracer bullet is **sign in → create one personal agent → optionally
 connect apps and grant tools → start a private conversation**. It uses Figma
 `866:225` as the character reference and Nest's existing layout/branding. The
@@ -12,7 +18,7 @@ screen is interactive React, not a flattened Figma screenshot.
    your collaborator a name and brief. New teammates arrive in the Agents directory.
 3. Your agent appears in **Your team** with a **Your personal agent** label. Open its
    details to choose a model, edit instructions, and manage **Connected apps**.
-4. Connect an app and grant specific tools when the core integration is available.
+4. Connect an app and grant specific tools when the Nest integration is available.
    Authenticating an account and granting tools remain separate actions.
 5. Use **Open private chat** from agent details to start working together.
 
@@ -50,16 +56,17 @@ put the value in source, browser onboarding forms, or screenshots.
 Nest resolves the model registry ID to the runner's `provider:model` reference
 and snapshots that reference for recovery. Nest checks the configured model is enabled and the runner is online before
 initial provisioning. It creates a PRIVATE CLASSIC agent with a unique workspace,
-12 model steps maximum, no enabled skills, no access outside its workspace and
-no owner-secret delegation. The shared model key is available to native agents through the engine secret
+12 model steps maximum, no enabled skills, `allowOutsideWorkspace=false` and
+no owner-secret delegation. The workspace flag controls file-tool paths; it is
+not an OS sandbox for shell commands. The shared model key is available to native agents through the engine secret
 context (including their shell environment); this is a trusted-team deployment,
 not per-user provider-key isolation. Users do not enter a model key into onboarding. A valid model record is not proof
 that provider billing/credentials work: perform a real reply check before inviting
 the team.
 
-Composio requires the reviewed/merged OrgOps core contribution, PR #50. Until an
-engine with that API is installed, Nest shows a truthful unavailable state and
-allows setup without connections. Once available, configure:
+The earlier prototype used OrgOps PR #50, now closed. Nest currently shows an
+unavailable state and allows setup without connections. The prototype used the
+following configuration; the Nest adapter design may revise it:
 
 ```dotenv
 NEST_COMPOSIO_API_KEY=<service-key-from-secret-store>
@@ -112,7 +119,8 @@ cross-database transaction, and partial resources are retained for recovery.
   workspace, context, grants and lifecycle. Do not duplicate agents on login.
 
 These three follow-ups are not implemented by the initial onboarding slice.
-Shared-conversation Composio execution remains denied by the core API.
+The retired core prototype denied shared-conversation Composio execution; the
+Nest adapter must define and test its own equivalent authorization boundary.
 
 ## Verification and release
 
@@ -131,8 +139,8 @@ Composio's external HTTP transport with labelled test data. It covers tool grant
 and revocation without authenticating real external accounts. The test does not
 invoke a live model. PR screenshots must say which mode was used.
 
-Before rollout: obtain upstream review, bump the untouched engine to the merged
-commit, rerun integration checks, configure secrets/defaults, and deploy with
+Before a future connections rollout: implement and review the Nest adapter/skill
+boundary, rerun integration checks, configure secrets/defaults, and deploy with
 snapshots of both databases. Then verify a fresh Google login, one real personal
 agent reply, an owner-authorized app connection, and a tool grant/revocation.
 Only call the platform ready for invitations after these live checks pass.

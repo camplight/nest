@@ -169,6 +169,18 @@ export function registerOnboardingRoutes(
       runners.some((r) => r.id === runnerId && r.online)
     );
   }
+  routes.get("/summary", (c) => {
+    const setup = row(c.get("human").id);
+    return c.json({setup: setup ? publicSetup(setup) : null});
+  });
+  routes.get("/connections", async (c) => {
+    const response = await orgops.humanRequest("/api/composio/config", c.req.raw.headers);
+    // The pinned engine may not have Composio yet. Other failures are retryable,
+    // not evidence that the administrator has left connections unconfigured.
+    if (response.status === 404) return c.json({available:false});
+    if (!response.ok) throw new HTTPException(502, {message:"Connection settings are temporarily unavailable."});
+    return c.json({available:Boolean((await response.json()).configured)});
+  });
   routes.get("/", async (c) => {
     const human = c.get("human"),
       r = row(human.id),

@@ -23,7 +23,14 @@ try {
 const page = await browser.newPage({viewport:{width:1440,height:1100}});
 page.setDefaultTimeout(10000);
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
-const agents=[{name:'NestSystem',description:'Your partner in building Nest.',runtimeState:'RUNNING',mode:'WRAPPED',workspacePath:'/workspace/nest',visibility:'PUBLIC'}, {name:'Research & Design',description:'Research the next release.',runtimeState:'STOPPED',mode:'CLASSIC',modelId:'test-model',systemInstructions:'Research carefully.',enabledSkills:['research'],visibility:'PUBLIC'}, {name:'PrivateAgent',visibility:'PRIVATE',ownerHumanId:'other',mode:'CLASSIC'}];
+const agents=[{name:'NestSystem',description:'Your partner in building Nest.',runtimeState:'RUNNING',mode:'WRAPPED',workspacePath:'/workspace/nest',visibility:'PUBLIC'}, {name:'Research & Design',description:'Research the next release.',runtimeState:'STOPPED',mode:'CLASSIC',modelId:'test-model',systemInstructions:'Research carefully.',enabledSkills:['research'],visibility:'PRIVATE',ownerHumanId:'me'}, {name:'PrivateAgent',visibility:'PRIVATE',ownerHumanId:'other',mode:'CLASSIC'}];
+let releaseNotifications;
+const notificationGate=new Promise(resolve=>{releaseNotifications=resolve;});
+let fullHealthRequests=0;
+let connectionRequests=0;
+let failConnections=true;
+let releaseConnections;
+const connectionGate=new Promise(resolve=>{releaseConnections=resolve;});
 let failModels=false;let failSave=false;const writes=[];
 await page.route('**/api/**',async route=>{
  const path=new URL(route.request().url()).pathname; let data=[];
@@ -32,6 +39,13 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/agent-models'){
  if(failModels)return route.fulfill({status:503,json:{error:'Unavailable'}});
  data={models:[{id:'kimi',name:'moonshotai/kimi-k3',provider:'openrouter',reference:'openrouter:moonshotai/kimi-k3'},{id:'gemini',name:'google/gemini-2.5-flash',provider:'openrouter',reference:'openrouter:google/gemini-2.5-flash'}],defaultModel:'openrouter:moonshotai/kimi-k3'};
+ }
+ else if(path==='/api/events'){await notificationGate;data=[];}
+ else if(path==='/api/onboarding/summary')data={setup:null};
+ else if(path==='/api/onboarding'){fullHealthRequests++;return route.fulfill({status:503,json:{error:'Health is unavailable'}});}
+ else if(path==='/api/onboarding/connections'){
+ connectionRequests++;await connectionGate;
+ return route.fulfill(failConnections?{status:503,json:{error:'Unavailable'}}:{json:{available:false}});
  }
  else if(path==='/api/agents')data=agents;
  else if(path.startsWith('/api/agents/')){
@@ -50,6 +64,8 @@ await page.goto(`${base}/`);
 await page.getByRole('heading',{name:'Dashboard',exact:true}).waitFor();
 await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Agents',exact:true}).click();
 await page.getByRole('button',{name:'Manage NestSystem'}).waitFor();
+assert.equal(await page.getByText('Loading agents…',{exact:true}).count(),0);
+releaseNotifications();
 assert.equal(new URL(page.url()).searchParams.get('view'),'agents');
 assert.equal(await page.getByRole('navigation').getByRole('button',{name:'Agents',exact:true}).getAttribute('aria-current'),'page');
 assert.equal(await page.getByText('PrivateAgent',{exact:true}).count(),0);
@@ -57,18 +73,30 @@ await page.waitForFunction(()=>Array.from(document.querySelectorAll('.agent-port
 await page.screenshot({path:join(screenshotDir, 'nest-agents-directory.png'),fullPage:true});
 await page.getByRole('button',{name:'Manage Research & Design',exact:true}).focus();
 await page.keyboard.press('Enter');
-await page.getByLabel('Description',{exact:true}).waitFor();
+await page.getByLabel('About this agent',{exact:true}).waitFor();
 assert.equal(new URL(page.url()).searchParams.get('agent'),'Research & Design');
-await page.reload();await page.getByLabel('Additional instructions',{exact:true}).waitFor();
+await page.reload();await page.getByLabel('About this agent',{exact:true}).waitFor();
+assert.equal(fullHealthRequests,0);
+assert.equal(await page.getByLabel('Additional instructions').isVisible(),false);
+assert.equal(await page.getByText('Runtime details',{exact:true}).isVisible(),false);
+// A stalled optional capability must not block editing or page navigation.
+await page.getByRole('status').filter({hasText:'Loading connection settings'}).waitFor();
+await page.getByLabel('About this agent',{exact:true}).fill('Editable while connections load');
+releaseConnections();await page.getByRole('button',{name:'Retry connections'}).waitFor();
+assert.equal(await page.getByLabel('About this agent',{exact:true}).inputValue(),'Editable while connections load');
+failConnections=false;await page.getByRole('button',{name:'Retry connections'}).click();
+await page.getByRole('heading',{name:'App connections are being prepared'}).waitFor();
+await page.locator('.agent-advanced > summary').focus();await page.keyboard.press('Enter');
+await page.getByLabel('Additional instructions',{exact:true}).waitFor();
 await page.getByLabel('Language model',{exact:true}).selectOption('openrouter:moonshotai/kimi-k3');
-await page.getByLabel('Description',{exact:true}).fill('Updated research description');
+await page.getByLabel('About this agent',{exact:true}).fill('Updated research description');
 await page.getByLabel('Additional instructions',{exact:true}).fill('Deliver sources and evidence.');
 await page.getByRole('button',{name:'Save settings'}).click();await page.getByText('Settings saved.',{exact:true}).waitFor();
 assert.deepEqual(writes.at(-1),{description:'Updated research description',systemInstructions:'Deliver sources and evidence.',modelId:'openrouter:moonshotai/kimi-k3'});
-await page.reload();assert.equal(await page.getByLabel('Description',{exact:true}).inputValue(),'Updated research description');
+await page.reload();assert.equal(await page.getByLabel('About this agent',{exact:true}).inputValue(),'Updated research description');
 assert.equal(await page.getByLabel('Language model').inputValue(),'openrouter:moonshotai/kimi-k3');
-failSave=true;await page.getByLabel('Description',{exact:true}).fill('Retain on error');await page.getByRole('button',{name:'Save settings'}).click();await page.getByRole('alert').filter({hasText:'Forbidden'}).waitFor();assert.equal(await page.getByLabel('Description',{exact:true}).inputValue(),'Retain on error');
-await page.getByLabel('Description',{exact:true}).fill('Updated research description');failSave=false;
+failSave=true;await page.getByLabel('About this agent',{exact:true}).fill('Retain on error');await page.getByRole('button',{name:'Save settings'}).click();await page.getByRole('alert').filter({hasText:'Forbidden'}).waitFor();assert.equal(await page.getByLabel('About this agent',{exact:true}).inputValue(),'Retain on error');
+await page.getByLabel('About this agent',{exact:true}).fill('Updated research description');failSave=false;
 await page.reload();await page.getByLabel('Language model').waitFor();
 await page.screenshot({path:join(screenshotDir, 'nest-agent-details.png'),fullPage:true});
 await page.setViewportSize({width:390,height:844});await page.screenshot({path:join(screenshotDir,'nest-agent-model-mobile.png'),fullPage:true});
@@ -76,20 +104,20 @@ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)
 failModels=true;await page.reload();await page.getByRole('button',{name:'Retry models'}).waitFor();assert(await page.getByLabel('Language model').isDisabled());
 failModels=false;await page.getByRole('button',{name:'Retry models'}).click();await page.getByLabel('Language model').selectOption('openrouter:moonshotai/kimi-k3');
 await page.getByRole('button',{name:'All agents'}).click();await page.getByRole('button',{name:'Manage NestSystem'}).click();
-await page.getByText('This wrapped agent manages',{exact:false}).waitFor();assert.equal(await page.getByLabel('Additional instructions').count(),0);
-await page.getByLabel('Description',{exact:true}).fill('Wrapped description');
+await page.locator('.agent-advanced > summary').click();await page.getByText('This wrapped agent manages',{exact:false}).waitFor();assert.equal(await page.getByLabel('Additional instructions').count(),0);
+await page.getByLabel('About this agent',{exact:true}).fill('Wrapped description');
 await page.getByRole('button',{name:'Save settings'}).click();await page.getByText('Settings saved.',{exact:true}).waitFor();
 assert.deepEqual(writes.at(-1),{description:'Wrapped description'});
 await page.goBack();await page.getByRole('heading',{name:'Agents',exact:true}).waitFor();
 await page.goForward();await page.getByRole('heading',{name:'Agent details'}).waitFor();
-await page.goto(`${base}/?view=agents&agent=PrivateAgent`);await page.getByLabel('Description',{exact:true}).waitFor();assert(await page.getByLabel('Description',{exact:true}).isDisabled());assert(await page.getByRole('button',{name:'Save settings'}).isDisabled());
+await page.goto(`${base}/?view=agents&agent=PrivateAgent`);await page.getByLabel('About this agent',{exact:true}).waitFor();assert(await page.getByLabel('About this agent',{exact:true}).isDisabled());assert(await page.getByRole('button',{name:'Save settings'}).isDisabled());
 await page.goto(`${base}/?view=agents&agent=missing`);await page.getByRole('alert').filter({hasText:'Not found'}).waitFor();
 await page.goto(`${base}/?channel=chat`);await page.getByRole('navigation').getByRole('button',{name:'Agents',exact:true}).click();assert(!new URL(page.url()).searchParams.has('channel'));
 await page.getByRole('navigation').getByRole('button',{name:'Dashboard',exact:true}).click();await page.getByRole('button',{name:'NestSystem',exact:true}).click();await page.getByRole('heading',{name:'Agent details'}).waitFor();
 await page.setViewportSize({width:390,height:844});await page.screenshot({path:join(screenshotDir, 'nest-agent-mobile.png'),fullPage:true});
 assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
 await page.getByRole('button',{name:'Menu',exact:true}).click();assert.equal(await page.getByRole('navigation').getByRole('button',{name:'Agents',exact:true}).getAttribute('aria-current'),'page');
-assert.deepEqual(errors,[]);console.log('PASS: directory, selected navigation, encoded direct links, reload, history, settings persistence, failed saves, private read-only, wrapped settings, missing agents, chat links, dashboard links, mobile and avatar assets.');
+assert.equal(fullHealthRequests,0);assert(connectionRequests>0);assert.deepEqual(errors,[]);console.log('PASS: directory, selected navigation, encoded direct links, reload, history, settings persistence, failed saves, private read-only, wrapped settings, missing agents, chat links, dashboard links, mobile and avatar assets.');
 console.log(`Screenshots: ${screenshotDir}`);
 } finally { await browser.close(); }
 } finally { server.kill('SIGTERM'); }

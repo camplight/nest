@@ -434,9 +434,11 @@ Removed/renamed resources or changed ownership are not silently replaced. The
 original setup fields cannot be changed by a replay. Product setup has no stored
 human credentials, engine DB access or provider tokens.
 
-Composio discovery, hosted links, exact-tool grants and revocation use the engine
-API through the existing adapter. Missing core/configuration is explicitly shown
-and can be skipped. OAuth completion is verified by querying connection status,
+The connection UI was prototyped against an unmerged Composio engine API.
+OrgOps PR #50 is now closed: provider integration will move to a Nest-owned
+adapter and instance skill layer, with no Composio dependency added to core.
+That migration is not implemented yet. The current compatibility probe reports
+connections unavailable on the pinned engine, and setup can continue without them. OAuth completion is verified by querying connection status,
 never trusting return URL fields. Personal connections are private-context only;
 team delegation, action approvals and multiple personal agents are later slices.
 The launcher removes Composio service keys from the runner environment.
@@ -457,3 +459,25 @@ with loading/retry/empty states and preservation of unknown current references.
 Changes use the existing engine PATCH and authorization; running turns keep their
 current configuration until the next turn. Onboarding reservations preserve their
 snapshotted reference across later default changes. No migration is required.
+
+## Settings and page loading
+
+Agent details keep the team description (**About this agent**) and native model
+selector visible. **Advanced** is closed initially and contains full system
+instructions and runtime/model/workspace/runner/skill details. Editing the team
+description does not change the agent's instructions. Saving, permission checks,
+unknown model references and wrapped-runtime ownership are unchanged.
+
+`GET /api/onboarding/summary` authenticates the human and returns only their
+product setup mapping (`{setup}`). Navigation uses this lightweight response;
+it does not probe models, runner health, agents, channels or Composio. Existing
+initial setup and legacy OAuth routing use the same mapping as before.
+
+`GET /api/onboarding/connections` checks only the engine connection capability.
+It returns `{available:false}` for an engine without that API (404) or an
+unconfigured integration; other upstream errors are retryable 502 responses.
+Only an owned private native agent's Connected apps panel requests it, with
+independent loading/error/retry states. It cannot block or reset settings edits.
+The complete `/api/onboarding` status remains available to agent creation, where
+provisioning readiness matters. Model catalogs load only for native agent details.
+Initial unread notification fetching no longer holds the shell's loading state.

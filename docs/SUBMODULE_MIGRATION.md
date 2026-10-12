@@ -181,10 +181,11 @@ Google memberships to use the engine's HUMAN/username representation; new Google
 logins receive valid team membership. Nest tests assert that membership after
 OAuth. No dependency manifests changed and the parent lockfile remains unchanged.
 
-Composio PR #50 remains a separate review dependency and is not included in this
-pin. Nest feature-detects its API and shows connections unavailable until it is
-installed/configured. Candidate-core browser tests use a separate checkout,
-never a patch to vendor. Rollout still snapshots both product and engine DBs.
+Composio PR #50 was subsequently closed; it must not be merged or added to the
+submodule as a release dependency. Connections will move to a Nest adapter and
+instance skill layer. The existing compatibility probe shows them unavailable
+on this pin. Candidate-core browser tests are historical prototype validation,
+not a deployment target. Rollout still snapshots both product and engine DBs.
 
 Validation of `3e3ed36`: 52 Nest product tests pass, full workspace/script typechecks
 and both UI builds pass. The unchanged engine suite passes 210/212 on macOS;
@@ -207,3 +208,11 @@ The existing onboarding endpoints, reservation IDs and engine ownership checks
 are unchanged. Old setup/OAuth return links redirect to the owning agent's
 settings, so existing connection callback configuration needs no migration.
 No upstream pin change, schema migration or bulk agent update is required.
+
+## Lightweight setup navigation and settings
+
+The Nest API adds authenticated `/api/onboarding/summary` and
+`/api/onboarding/connections` read endpoints. These reuse the existing product
+setup mappings and engine HTTP capability check. No database migration, engine
+pin change or provider configuration is required. Deploy UI and API together;
+private setup recovery and existing OAuth return paths remain compatible.

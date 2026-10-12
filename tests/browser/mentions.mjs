@@ -45,6 +45,9 @@ try{
   assert.equal(writes.at(-1).payload.text,'@PuffVitaliy');assert.equal(writes.at(-1).channelId,'chat');
   await input.fill('@puff');await input.press('ArrowDown');await input.press('Tab');assert.equal(await input.inputValue(),'@PuffVitaliy ');assert.equal(writes.length,1);
   await input.fill('@naska');await popup.getByRole('option').filter({hasText:'naska@example.com'}).click();assert.equal(await input.inputValue(),'@naska@example.com ');
+  // Selection restores the caret on the next animation frame. Finish that UI
+  // interaction before replacing the draft for the next independent scenario.
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));
   await input.fill('Email vitaliy@example.com');assert.equal(await popup.count(),0);
   await input.fill('Hello @pu, thanks');await input.press('Home');for(let i=0;i<9;i++)await input.press('ArrowRight');
   await popup.getByRole('option').filter({hasText:'PuffVitaliy'}).click();assert.equal(await input.inputValue(),'Hello @PuffVitaliy, thanks');

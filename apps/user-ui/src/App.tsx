@@ -1,6 +1,6 @@
 import { useMentionPicker } from "./components/useMentionPicker";
 import { mentionCandidates } from "./mentions";
-import type { OnboardingState } from "@nest/schemas";
+import type { OnboardingSummary } from "@nest/schemas";
 import {apiUrl} from './config';
 import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
 import { Community } from "./Community";
@@ -558,7 +558,7 @@ export default function App() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
-  const [personalSetup, setPersonalSetup] = useState<OnboardingState | null>(null);
+  const [personalSetup, setPersonalSetup] = useState<OnboardingSummary | null>(null);
   const [creatingPersonalAgent, setCreatingPersonalAgent] = useState(() => new URL(window.location.href).searchParams.get("create") === "personal");
   const [humans, setHumans] = useState<Array<{ username: string }>>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
@@ -901,7 +901,7 @@ export default function App() {
         apiJson<Array<{ username: string }>>("/api/humans").catch(() => []),
         apiJson<Team[]>("/api/teams/me").catch(() => []),
         apiJson<Project[]>("/api/projects"),
-        apiJson<OnboardingState>("/api/onboarding").catch(() => null)
+        apiJson<OnboardingSummary>("/api/onboarding/summary").catch(() => null)
       ]);
       setProjectIndex(nextProjects);
       setChannels(nextChannels);
@@ -947,7 +947,8 @@ export default function App() {
         if (project) selectProject(project.id, null, "chat", true);
         else selectChannel(nextActiveChannelId, { replace: true });
       }
-      await loadMessageNotifications({ initialize: true });
+      // Unread-message refresh is optional; it must not hold the page loading state.
+      void loadMessageNotifications({ initialize: true });
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load workspace");
     } finally {
