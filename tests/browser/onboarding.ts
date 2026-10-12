@@ -107,8 +107,14 @@ const engine = createEngine({
 });
 if (previousRoot === undefined) delete process.env.ORGOPS_PROJECT_ROOT;
 else process.env.ORGOPS_PROJECT_ROOT = previousRoot;
-const orgops = createOrgOpsClient("http://engine", (async (url, init) =>
-  engine.app.fetch(new Request(url, init))) as typeof fetch);
+let failChannelCreation = true;
+const orgops = createOrgOpsClient("http://engine", (async (url, init) => {
+  if (failChannelCreation && new URL(String(url)).pathname === "/api/channels" && init?.method === "POST") {
+    failChannelCreation = false;
+    return Response.json({error:"Test: chat creation temporarily unavailable"},{status:503});
+  }
+  return engine.app.fetch(new Request(url, init));
+}) as typeof fetch);
 const product = createApp({
   personalAgent: {
     modelId: "test-model",
@@ -207,7 +213,7 @@ try {
           : {}),
       });
       if (
-        loseCreation &&
+        loseCreation && r.ok &&
         url.pathname === "/api/onboarding/agent" &&
         request.method() === "POST"
       ) {
@@ -262,6 +268,11 @@ try {
     });
     await page.setViewportSize({ width: 1440, height: 1100 });
     await page.getByRole("button", { name: "Create agent" }).click();
+    await page.getByRole("alert").filter({hasText:"Setup could not finish"}).waitFor();
+    // Agent creation succeeded but its chat did not. A fresh visit must expose recovery.
+    await page.goto("http://127.0.0.1:5301/");
+    await page.getByRole("button",{name:"Resume agent setup",exact:true}).click();
+    await page.getByRole("button",{name:"Resume setup",exact:true}).click();
     await page
       .getByRole("alert")
       .filter({ hasText: "response lost" })

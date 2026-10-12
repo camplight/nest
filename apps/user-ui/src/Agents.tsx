@@ -24,8 +24,8 @@ export function Agents({ setup, creating, onCreate, onCreated, onChat, agents, n
       {name || creating ? <button className="dashboard-action" onClick={() => onSelect(null)}>← All agents</button> : <label className="dashboard-search"><DesignIcon name="search" /><input aria-label="Search agents" placeholder="Search agents…" value={query} onChange={e => setQuery(e.target.value)} /></label>}
     </header>
     <div className="dashboard-content">
-      {creating ? <><div className="dashboard-title"><h1>Agents</h1></div><AgentSetupForm onCreated={onCreated}/></> : name ? <AgentDetails key={name} name={name} userId={userId} onSaved={onSaved} setup={setup} onChat={onChat} onRetry={onRetry}/> : <>
-        <div className="dashboard-title"><h1>Agents</h1>{!setup?.setup && <button className="dashboard-action" onClick={onCreate}>Add your agent</button>}{setup?.setup && !setup.setup.agentId && <button className="dashboard-action" onClick={onCreate}>Resume agent setup</button>}</div>
+      {creating ? <><div className="dashboard-title"><h1>Agents</h1></div><AgentSetupForm onCreated={onCreated}/></> : name ? <AgentDetails key={name} name={name} userId={userId} onSaved={onSaved} setup={setup} onChat={onChat} onRetry={onRetry} onResume={onCreate}/> : <>
+        <div className="dashboard-title"><h1>Agents</h1>{!setup?.setup && <button className="dashboard-action" onClick={onCreate}>Add your agent</button>}{setup?.setup && !setup.setup.channelId && <button className="dashboard-action" onClick={onCreate}>Resume agent setup</button>}</div>
         {error && <div role="alert">{error} <button onClick={onRetry}>Try again</button></div>}
         {loading && <p role="status">Loading agents…</p>}
         <div className="dashboard-stats agents-stats">{[["Total agents", agents.length], ["Running", agents.filter(a => a.runtimeState === "RUNNING").length], ["Stopped", agents.filter(a => a.runtimeState === "STOPPED").length]].map(([label, count]) => <article className="dashboard-card dashboard-stat" key={label}><h2>{label}</h2><span className="dashboard-stat-value">{loading || error ? "—" : count}</span></article>)}</div>
@@ -41,7 +41,7 @@ export function Agents({ setup, creating, onCreate, onCreated, onChat, agents, n
   </section>;
 }
 
-function AgentDetails({ name, userId, onSaved, setup, onChat, onRetry }: { name: string; userId: string | null; onSaved: (agent: Agent) => void; setup:OnboardingState|null; onChat:(id:string)=>void; onRetry:()=>void }) {
+function AgentDetails({ name, userId, onSaved, setup, onChat, onRetry, onResume }: { name: string; userId: string | null; onSaved: (agent: Agent) => void; setup:OnboardingState|null; onChat:(id:string)=>void; onRetry:()=>void; onResume:()=>void }) {
   const [agent, setAgent] = useState<AgentSettings | null>(null);
   const [catalog, setCatalog] = useState<AgentModelCatalog | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
@@ -98,6 +98,7 @@ function AgentDetails({ name, userId, onSaved, setup, onChat, onRetry }: { name:
   }
   return <>
     <div className="dashboard-title"><h1>Agent details</h1>{setup?.setup?.name === name && setup.setup.channelId && <button className="dashboard-action" disabled={busy || !!setup.problem} onClick={()=>void openConversation()}>Open private chat</button>}</div>
+    {setup?.setup?.name === name && !setup.setup.channelId && <p role="status">Your agent was created, but its private chat still needs setup. <button className="dashboard-action" onClick={onResume}>Resume agent setup</button></p>}
     {error && <div className="notice error" role="alert">{error}{!agent && <button onClick={() => setAttempt(a => a + 1)}>Try again</button>}</div>}
     {!agent && !error && <p role="status">Loading agent settings…</p>}
     {agent && <form className="agent-settings" onSubmit={save}>
