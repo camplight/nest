@@ -1,3 +1,5 @@
+import type { AgentModelCatalog } from "@nest/schemas";
+import { apiFetch } from "../api";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   Agent,
@@ -49,7 +51,7 @@ const DEFAULT_WRAPPED_CONFIG = JSON.stringify(
 
 const DEFAULT_AGENT_FORM: AgentForm = {
   name: "",
-  modelId: "openai:gpt-4o-mini",
+  modelId: "",
   visibility: "PUBLIC",
   mode: "CLASSIC",
   memoryContextMode: "PER_CHANNEL_CROSS_CHANNEL",
@@ -167,6 +169,16 @@ export function AgentsScreen({
   onFocusAgentApplied,
   drawerOnly = false
 }: AgentsScreenProps) {
+  const [modelCatalog, setModelCatalog] = useState<AgentModelCatalog | null>(null);
+  const [modelError, setModelError] = useState(false);
+  const [modelAttempt, setModelAttempt] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setModelError(false);
+    void apiFetch('/api/agent-models', {signal:controller.signal}).then(r => r.json()).then(setModelCatalog)
+      .catch(() => {if (!controller.signal.aborted) setModelError(true);});
+    return () => controller.abort();
+  }, [modelAttempt]);
   const [selectedAgentName, setSelectedAgentName] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [activeTab, setActiveTab] = useState<"details" | "events" | "workspace">(
@@ -246,7 +258,7 @@ export function AgentsScreen({
   const headerValidationMessage =
     !form.name.trim()
       ? "Name is required."
-      : !isWrappedMode && !form.modelId.trim()
+      : !isWrappedMode && !form.modelId.trim() && !(isCreating && modelCatalog?.defaultModel)
         ? "Model is required."
         : !form.workspacePath.trim()
           ? "Workspace directory is required."
@@ -267,7 +279,7 @@ export function AgentsScreen({
     if (isFormDirty) return;
     setForm({
       name: selectedAgent.name,
-      modelId: selectedAgent.modelId ?? "openai:gpt-4o-mini",
+      modelId: selectedAgent.modelId ?? "",
       visibility: selectedAgent.visibility === "PRIVATE" ? "PRIVATE" : "PUBLIC",
       mode: selectedAgent.mode ?? "CLASSIC",
       memoryContextMode: selectedAgent.memoryContextMode ?? "PER_CHANNEL_CROSS_CHANNEL",
@@ -550,7 +562,7 @@ export function AgentsScreen({
   };
 
   const handleSubmit = async () => {
-    if (!form.name.trim() || (!isWrappedMode && !form.modelId.trim()) || !form.workspacePath.trim()) {
+    if (!form.name.trim() || (!isWrappedMode && !form.modelId.trim() && !(isCreating && modelCatalog?.defaultModel)) || !form.workspacePath.trim()) {
       return;
     }
     setIsSubmitting(true);
@@ -564,7 +576,7 @@ export function AgentsScreen({
         : parseOptionalPositiveIntInput(form.contextSessionGapMs, "Context session gap");
       const wrappedConfig =
         isWrappedMode ? parseWrappedConfigJson(form.wrappedConfigJson) : {};
-      const modelId = isWrappedMode ? "wrapped:none" : form.modelId.trim();
+      const modelId = isWrappedMode ? "wrapped:none" : form.modelId.trim() || modelCatalog?.defaultModel || "";
       const memoryContextMode = isWrappedMode ? "OFF" : form.memoryContextMode;
       const emitAuditEvents = isWrappedMode ? true : form.emitAuditEvents;
       const soulContents = isWrappedMode ? "" : form.soulContents;
@@ -922,7 +934,7 @@ export function AgentsScreen({
                       isSubmitting ||
                       (!isCreating && !isFormDirty) ||
                       !form.name.trim() ||
-                      (!isWrappedMode && !form.modelId.trim()) ||
+                      (!isWrappedMode && !form.modelId.trim() && !(isCreating && modelCatalog?.defaultModel)) ||
                       !form.workspacePath.trim() ||
                       Boolean(wrappedConfigValidationMessage)
                     }
@@ -1049,15 +1061,24 @@ export function AgentsScreen({
                     {!isWrappedMode ? (
                     <div className="space-y-1">
                       <div className="text-sm text-slate-400">Model</div>
-                      <Input
+                      <select
+                        aria-label="Language model"
                         value={form.modelId}
+                        disabled={!modelCatalog}
                         onChange={(e) => {
                           setIsFormDirty(true);
                           setSaveStatus(null);
                           setForm((prev) => ({ ...prev, modelId: e.target.value }));
                         }}
-                        placeholder="openai:gpt-4o-mini"
-                      />
+                        className="w-full min-w-0 rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                      >
+                        {isCreating && <option value="">{modelCatalog?.defaultModel ? `Instance default · ${modelCatalog.defaultModel}` : 'Choose a model'}</option>}
+                        {!isCreating && !modelCatalog?.models.some(m => m.reference === form.modelId) && <option value={form.modelId}>{form.modelId || 'Not configured'} (current)</option>}
+                        {modelCatalog?.models.map(m => <option key={m.id} value={m.reference}>{m.name} · {m.provider}</option>)}
+                      </select>
+                      {!modelCatalog && !modelError && <p role="status">Loading models…</p>}
+                      {modelError && <p role="alert">Could not load models. <button type="button" onClick={() => setModelAttempt(n => n + 1)}>Retry models</button></p>}
+                      {modelCatalog?.models.length === 0 && <p>No enabled models. Configure a model before creating a native agent.</p>}
                     </div>
                     ) : null}
                     <div className="space-y-1">
@@ -1100,10 +1121,10 @@ export function AgentsScreen({
                             ...prev,
                             mode: nextMode,
                             modelId:
-                              nextMode === "WRAPPED" && prev.modelId === "openai:gpt-4o-mini"
+                              nextMode === "WRAPPED"
                                 ? "wrapped:none"
-                                : nextMode !== "WRAPPED" && prev.modelId === "wrapped:none"
-                                  ? "openai:gpt-4o-mini"
+                                : prev.modelId === "wrapped:none"
+                                  ? ""
                                   : prev.modelId
                           }));
                         }}

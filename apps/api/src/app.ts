@@ -1,3 +1,4 @@
+import { registerAgentModelRoutes } from './agent-models';
 import { registerOnboardingRoutes, type PersonalAgentConfig } from './onboarding';
 import { registerCommunityRoutes } from './community';
 import { registerProjectRoutes } from './projects';
@@ -9,7 +10,7 @@ import { openProductDb, type ProductDb } from '@nest/db';
 import { BrandingSchema } from '@nest/schemas';
 import { createOrgOpsClient, productHeaders, type OrgOpsClient } from '@nest/orgops-client';
 
-export function createApp(config: { personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string } = {}) {
+export function createApp(config: { defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string } = {}) {
   const store = config.store ?? openProductDb(config.dbPath ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_PRODUCT_DB_PATH ?? '.nest-product/nest.sqlite'));
   const orgops = config.orgops ?? createOrgOpsClient(config.orgopsUrl ?? process.env.ORGOPS_URL ?? 'http://127.0.0.1:8788');
   const app = new Hono();
@@ -38,7 +39,9 @@ export function createApp(config: { personalAgent?: PersonalAgentConfig; store?:
     if (!value.success) return c.json({error: 'Invalid branding'}, 400);
     return c.json(store.saveBranding(value.data, user.id));
   });
-  registerOnboardingRoutes(app, {store, orgops, config:config.personalAgent});
+  const defaultAgentModelId = config.defaultAgentModelId ?? process.env.NEST_DEFAULT_AGENT_MODEL_ID ?? config.personalAgent?.modelId ?? process.env.NEST_PERSONAL_AGENT_MODEL_ID;
+  registerAgentModelRoutes(app, orgops, defaultAgentModelId);
+  registerOnboardingRoutes(app, {store, orgops, config:config.personalAgent && {...config.personalAgent, modelId:defaultAgentModelId ?? config.personalAgent.modelId}, defaultModelId:defaultAgentModelId});
   registerProjectRoutes(app, {store, orgops});
   registerCommunityRoutes(app, {store, orgops});
   // Unknown product endpoints do not fall through to a privileged service account.

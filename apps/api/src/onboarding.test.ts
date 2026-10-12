@@ -141,6 +141,13 @@ describe("personal onboarding through the untouched engine", () => {
         .status,
     ).toBe(409);
   });
+  it("uses the common default for new onboarding instead of the legacy personal default", async () => {
+    await call('/api/models',{id:'new-default',provider:'openrouter',modelName:'new-test',enabled:true});
+    product.store.close();
+    product = createApp({orgops:client, dbPath:join(dir,'product.sqlite'),personalAgent:settings,defaultAgentModelId:'new-default'});
+    expect((await call('/api/onboarding/agent',input)).status).toBe(200);
+    expect(await (await call('/api/agents/PuffOwner')).json()).toMatchObject({modelId:'openrouter:new-test'});
+  });
   for (const path of ["/api/agents", "/api/channels"])
     it(`recovers after losing ${path} response`, async () => {
       lose = path;
@@ -150,10 +157,12 @@ describe("personal onboarding through the untouched engine", () => {
         orgops: client,
         dbPath: join(dir, "product.sqlite"),
         personalAgent: settings,
+        defaultAgentModelId: "later-unavailable-default",
       });
       expect((await call("/api/onboarding/agent", input)).status).toBe(200);
       expect(await (await call("/api/channels")).json()).toHaveLength(1);
       expect(await (await call("/api/agents")).json()).toHaveLength(1);
+      expect(await (await call("/api/agents/PuffOwner")).json()).toMatchObject({modelId:"openrouter:test-only"});
     });
   it("does not overwrite existing agents or accept runtime configuration from the browser", async () => {
     expect(

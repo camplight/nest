@@ -35,11 +35,12 @@
     "engine:install": "git submodule update --init --recursive vendor/orgops",
     "test:engine": "cd vendor/orgops && node ../../node_modules/vitest/vitest.mjs run --config ../../vitest.engine.config.ts",
     "migrate:product": "node --import tsx scripts/migrate-product-data.ts",
-    "test:ui:agents": "node tests/browser/agents.mjs",
+    "test:ui:agents": "node tests/browser/agents.mjs && node --import tsx tests/browser/agent-models.ts",
     "test:ui:projects": "node --import tsx tests/browser/projects.ts",
     "test:ui:community": "node --import tsx tests/browser/community.ts",
     "test:ui:auth": "node --import tsx tests/browser/google-auth.ts",
-    "test:ui:onboarding": "node --import tsx tests/browser/onboarding.ts"
+    "test:ui:onboarding": "node --import tsx tests/browser/onboarding.ts",
+    "test:ui:models": "node --import tsx tests/browser/agent-models.ts"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",

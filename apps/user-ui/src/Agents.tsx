@@ -1,3 +1,4 @@
+import type { AgentModelCatalog } from "@nest/schemas";
 import { useEffect, useState, type FormEvent } from "react";
 import { apiJson, getApiHeaders } from "./api";
 import { AgentAvatar } from "./components/AgentAvatar";
@@ -40,6 +41,17 @@ export function Agents({ agents, name, userId, loading, error, onSelect, onMenu,
 
 function AgentDetails({ name, userId, onSaved }: { name: string; userId: string | null; onSaved: (agent: Agent) => void }) {
   const [agent, setAgent] = useState<AgentSettings | null>(null);
+  const [catalog, setCatalog] = useState<AgentModelCatalog | null>(null);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const [modelAttempt, setModelAttempt] = useState(0);
+  const [model, setModel] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    setModelError(null); setCatalog(null);
+    void apiJson<AgentModelCatalog>('/api/agent-models', {signal:controller.signal}).then(setCatalog)
+      .catch(reason => {if (!controller.signal.aborted) setModelError(errorMessage(reason));});
+    return () => controller.abort();
+  }, [modelAttempt]);
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -50,13 +62,13 @@ function AgentDetails({ name, userId, onSaved }: { name: string; userId: string 
     const controller = new AbortController();
     setError(null);
     void apiJson<AgentSettings>(`/api/agents/${encodeURIComponent(name)}`, { signal: controller.signal }).then(value => {
-      setAgent(value); setDescription(value.description ?? ""); setInstructions(value.systemInstructions ?? "");
+      setAgent(value); setModel(value.modelId ?? ""); setDescription(value.description ?? ""); setInstructions(value.systemInstructions ?? "");
     }).catch(reason => { if (!controller.signal.aborted) setError(errorMessage(reason)); });
     return () => controller.abort();
   }, [name, attempt]);
   const editable = Boolean(agent && (agent.visibility !== "PRIVATE" || Boolean(userId && agent.ownerHumanId === userId)));
   const wrapped = agent?.mode === "WRAPPED";
-  const dirty = Boolean(agent && (description !== (agent.description ?? "") || (!wrapped && instructions !== (agent.systemInstructions ?? ""))));
+  const dirty = Boolean(agent && (description !== (agent.description ?? "") || (!wrapped && (instructions !== (agent.systemInstructions ?? "") || model !== (agent.modelId ?? "")))));
   useEffect(() => {
     if (!dirty) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
@@ -68,7 +80,7 @@ function AgentDetails({ name, userId, onSaved }: { name: string; userId: string 
     if (!agent || !editable || busy) return;
     setBusy(true); setSaved(false); setError(null);
     try {
-      const changes = { description, ...(!wrapped ? { systemInstructions: instructions } : {}) };
+      const changes = { description, ...(!wrapped ? { systemInstructions: instructions, ...(model !== (agent.modelId ?? "") ? {modelId:model} : {}) } : {}) };
       await apiJson(`/api/agents/${encodeURIComponent(name)}`, { method: "PATCH", headers: getApiHeaders(), body: JSON.stringify(changes) });
       const next = { ...agent, ...changes }; setAgent(next); onSaved(next); setSaved(true);
     } catch (reason) { setError(errorMessage(reason)); }
@@ -83,6 +95,17 @@ function AgentDetails({ name, userId, onSaved }: { name: string; userId: string 
       <div className="agent-settings-fields">
         <div className="agent-field"><label htmlFor="agent-name">Name</label><input id="agent-name" value={name} readOnly aria-describedby="agent-name-help" /><small id="agent-name-help">Agent names are permanent identifiers.</small></div>
         <div className="agent-field"><label htmlFor="agent-description">Description</label><textarea id="agent-description" rows={3} value={description} disabled={!editable || busy} onChange={e => { setDescription(e.target.value); setSaved(false); }} /></div>
+        {!wrapped && <div className="agent-field">
+          <label htmlFor="agent-model">Language model</label>
+          <select id="agent-model" value={model} disabled={!editable || busy || !catalog} onChange={e => {setModel(e.target.value); setSaved(false);}} aria-describedby="agent-model-help">
+            {!catalog?.models.some(m => m.reference === model) && <option value={model}>{model ? `${model} (current)` : 'Not configured'}</option>}
+            {catalog?.models.map(m => <option key={m.id} value={m.reference}>{m.name} · {m.provider}{m.reference === catalog.defaultModel ? ' · Default for new agents' : ''}</option>)}
+          </select>
+          <small id="agent-model-help">Changes apply on the next agent turn. Models are enabled by your administrator.</small>
+          {!catalog && !modelError && <small role="status">Loading models…</small>}
+          {modelError && <small role="alert">Could not load models. <button type="button" onClick={() => setModelAttempt(n => n + 1)}>Retry models</button></small>}
+          {catalog && catalog.models.length === 0 && <small>No enabled models. Your current setting is preserved.</small>}
+        </div>}
         <section><h2>Agent resources</h2><dl className="agent-resources">
           <dt>Runtime</dt><dd>{agent.mode ?? "CLASSIC"} · {agent.runtimeState ?? "Unknown"}</dd>
           <dt>Model</dt><dd>{wrapped ? "Managed by external runtime" : agent.modelId || "Not configured"}</dd>

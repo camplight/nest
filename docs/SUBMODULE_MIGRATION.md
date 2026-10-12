@@ -190,3 +190,12 @@ Validation of `3e3ed36`: 52 Nest product tests pass, full workspace/script typec
 and both UI builds pass. The unchanged engine suite passes 210/212 on macOS;
 only the previously documented process-status timing and skill-directory ordering
 assertions fail. No vendor source or tests are patched or suppressed.
+
+## Model selection overlay
+
+Nest's model catalog/default and selectors use the existing model registry and
+agent HTTP endpoints at the unchanged `3e3ed36` pin. No engine source changes or
+migrations are needed. Preserve existing model registry rows during rollout,
+register the desired new model separately, and configure
+`NEST_DEFAULT_AGENT_MODEL_ID` in the private environment. Follow normal dual-DB
+snapshot and rollback procedures. Existing agents are not bulk rewritten.

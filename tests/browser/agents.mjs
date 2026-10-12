@@ -24,11 +24,15 @@ const page = await browser.newPage({viewport:{width:1440,height:1100}});
 page.setDefaultTimeout(10000);
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
 const agents=[{name:'NestSystem',description:'Your partner in building Nest.',runtimeState:'RUNNING',mode:'WRAPPED',workspacePath:'/workspace/nest',visibility:'PUBLIC'}, {name:'Research & Design',description:'Research the next release.',runtimeState:'STOPPED',mode:'CLASSIC',modelId:'test-model',systemInstructions:'Research carefully.',enabledSkills:['research'],visibility:'PUBLIC'}, {name:'PrivateAgent',visibility:'PRIVATE',ownerHumanId:'other',mode:'CLASSIC'}];
-let failSave=false;const writes=[];
+let failModels=false;let failSave=false;const writes=[];
 await page.route('**/api/**',async route=>{
  const path=new URL(route.request().url()).pathname; let data=[];
  if(path==='/api/branding')data={displayName:'Camplight',logoUrl:'/brand/camplight-logo-white.svg',primaryColor:'#350956',accentColor:'#ff7557',backgroundColor:'#f8f4ff'};
  else if(path==='/api/auth/me')data={id:'me',username:'admin'};
+ else if(path==='/api/agent-models'){
+ if(failModels)return route.fulfill({status:503,json:{error:'Unavailable'}});
+ data={models:[{id:'kimi',name:'moonshotai/kimi-k3',provider:'openrouter',reference:'openrouter:moonshotai/kimi-k3'},{id:'gemini',name:'google/gemini-2.5-flash',provider:'openrouter',reference:'openrouter:google/gemini-2.5-flash'}],defaultModel:'openrouter:moonshotai/kimi-k3'};
+ }
  else if(path==='/api/agents')data=agents;
  else if(path.startsWith('/api/agents/')){
  const name=decodeURIComponent(path.slice('/api/agents/'.length));const agent=agents.find(a=>a.name===name);
@@ -56,14 +60,21 @@ await page.keyboard.press('Enter');
 await page.getByLabel('Description',{exact:true}).waitFor();
 assert.equal(new URL(page.url()).searchParams.get('agent'),'Research & Design');
 await page.reload();await page.getByLabel('Additional instructions',{exact:true}).waitFor();
+await page.getByLabel('Language model',{exact:true}).selectOption('openrouter:moonshotai/kimi-k3');
 await page.getByLabel('Description',{exact:true}).fill('Updated research description');
 await page.getByLabel('Additional instructions',{exact:true}).fill('Deliver sources and evidence.');
 await page.getByRole('button',{name:'Save settings'}).click();await page.getByText('Settings saved.',{exact:true}).waitFor();
-assert.deepEqual(writes.at(-1),{description:'Updated research description',systemInstructions:'Deliver sources and evidence.'});
+assert.deepEqual(writes.at(-1),{description:'Updated research description',systemInstructions:'Deliver sources and evidence.',modelId:'openrouter:moonshotai/kimi-k3'});
 await page.reload();assert.equal(await page.getByLabel('Description',{exact:true}).inputValue(),'Updated research description');
+assert.equal(await page.getByLabel('Language model').inputValue(),'openrouter:moonshotai/kimi-k3');
 failSave=true;await page.getByLabel('Description',{exact:true}).fill('Retain on error');await page.getByRole('button',{name:'Save settings'}).click();await page.getByRole('alert').filter({hasText:'Forbidden'}).waitFor();assert.equal(await page.getByLabel('Description',{exact:true}).inputValue(),'Retain on error');
 await page.getByLabel('Description',{exact:true}).fill('Updated research description');failSave=false;
+await page.reload();await page.getByLabel('Language model').waitFor();
 await page.screenshot({path:join(screenshotDir, 'nest-agent-details.png'),fullPage:true});
+await page.setViewportSize({width:390,height:844});await page.screenshot({path:join(screenshotDir,'nest-agent-model-mobile.png'),fullPage:true});
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.setViewportSize({width:1440,height:1100});
+failModels=true;await page.reload();await page.getByRole('button',{name:'Retry models'}).waitFor();assert(await page.getByLabel('Language model').isDisabled());
+failModels=false;await page.getByRole('button',{name:'Retry models'}).click();await page.getByLabel('Language model').selectOption('openrouter:moonshotai/kimi-k3');
 await page.getByRole('button',{name:'All agents'}).click();await page.getByRole('button',{name:'Manage NestSystem'}).click();
 await page.getByText('This wrapped agent manages',{exact:false}).waitFor();assert.equal(await page.getByLabel('Additional instructions').count(),0);
 await page.getByLabel('Description',{exact:true}).fill('Wrapped description');
