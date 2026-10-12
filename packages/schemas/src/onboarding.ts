@@ -38,3 +38,6 @@ export type OnboardingState = {
   runtimeState: string | null;
   problem: string | null;
 };
+
+/** Product setup mapping only; no runtime or provider health checks. */
+export type OnboardingSummary = Pick<OnboardingState, "setup">;

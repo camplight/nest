@@ -37,3 +37,16 @@
   .agents-page .dashboard-title { flex-wrap: wrap; }
   .agents-page .dashboard-title .dashboard-action { display: inline-flex; }
 }
+
+.agent-advanced { border-top: 1px solid var(--nest-border); padding-top: 20px; }
+.agent-advanced > summary { cursor: pointer; font-weight: 600; }
+.agent-advanced > summary span { color: var(--nest-muted); font-size: 12px; font-weight: 400; margin-left: 10px; }
+.agent-advanced > summary:focus-visible { outline: 2px solid var(--instance-primary); outline-offset: 5px; }
+.agent-advanced-content { display: grid; gap: 24px; padding-top: 24px; }
+@media (max-width: 760px) {
+  .agent-settings > aside { display: flex; align-items: center; gap: 16px; }
+  .agent-settings > aside h2 { display: none; }
+  .agent-settings > aside .agent-portrait { width: 64px !important; height: 64px !important; }
+  .agent-settings > aside p { margin: 0; }
+  .agent-advanced > summary span { display: block; margin: 6px 0 0 16px; }
+}
