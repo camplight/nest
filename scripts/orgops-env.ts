@@ -9,14 +9,11 @@ function ensureLink(target: string, path: string) {
 }
 
 export function configureOrgOpsEnv(component: 'api' | 'runner' = 'api') {
+  // Provider service credentials belong only to the Nest API, not OrgOps or skills.
+  for(const key of Object.keys(process.env))if(key.startsWith('NEST_COMPOSIO_')||key.startsWith('ORGOPS_COMPOSIO_')||key.endsWith('CONNECTION_METADATA_TOKEN'))delete process.env[key];
   // Translate configuration at the process boundary, never in upstream source.
   for (const [key, value] of Object.entries(process.env)) {
     if (key.startsWith('NEST_') && value !== undefined) process.env[`ORGOPS_${key.slice(5)}`] = value;
-  }
-  // The Composio service credential belongs to the API, never agent shells.
-  if (component === 'runner') {
-    delete process.env.NEST_COMPOSIO_API_KEY;
-    delete process.env.ORGOPS_COMPOSIO_API_KEY;
   }
   const dataDir = resolve(repoRoot, process.env.NEST_ENGINE_DATA_DIR ?? '.nest-data');
   const projectRoot = resolve(dataDir, 'engine');
@@ -26,6 +23,8 @@ export function configureOrgOpsEnv(component: 'api' | 'runner' = 'api') {
   }
   const skills = resolve(projectRoot, 'skills');
   if (!existsSync(skills)) cpSync(resolve(repoRoot, 'vendor/orgops/skills'), skills, {recursive: true});
+  const connectionSkill=resolve(skills,'nest-connections');
+  if(!existsSync(connectionSkill))cpSync(resolve(repoRoot,'skills/nest-connections'),connectionSkill,{recursive:true});
   const files = resolve(repoRoot, 'files'); mkdirSync(files, {recursive: true});
   ensureLink(files, resolve(projectRoot, 'files'));
   process.env.ORGOPS_PROJECT_ROOT = projectRoot;

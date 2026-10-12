@@ -434,15 +434,22 @@ Removed/renamed resources or changed ownership are not silently replaced. The
 original setup fields cannot be changed by a replay. Product setup has no stored
 human credentials, engine DB access or provider tokens.
 
-The connection UI was prototyped against an unmerged Composio engine API.
-OrgOps PR #50 is now closed: provider integration will move to a Nest-owned
-adapter and instance skill layer, with no Composio dependency added to core.
-That migration is not implemented yet. The current compatibility probe reports
-connections unavailable on the pinned engine, and setup can continue without them. OAuth completion is verified by querying connection status,
-never trusting return URL fields. Personal connections are private-context only;
-team delegation, action approvals and multiple personal agents are later slices.
-The launcher removes Composio service keys from the runner environment.
-See [PERSONAL_AGENTS.md](PERSONAL_AGENTS.md) for configuration, limits and release checks.
+Connections now belong to Nest's `/api/integrations` adapter and the bundled
+`nest-connections` instance skill. OrgOps PR #50 is closed; the engine pin is
+unchanged. Migration `005_integrations` stores provider account mappings, exact
+tool grants and hashed 30-day skill tokens in the product database. The engine's
+existing private secret API supplies the token to its agent. Provider credentials
+stay in Nest; engine processes have Composio configuration removed at launch.
+OAuth return fields are not trusted; status comes from the provider adapter.
+
+Human settings require current private-agent ownership. Skill execution validates
+that ownership, exact grants and provider account status. Without a core turn
+attestation API, access requires exactly one unshared owner-only private channel;
+additional subscriptions or sharing deny all connected-account calls for that
+agent. Runtime isolation remains deployment-owned. A correctly configured global
+engine metadata token and trusted shared runtime are prerequisites, not inferred
+security guarantees. See [PERSONAL_AGENTS.md](PERSONAL_AGENTS.md) for installation,
+configuration, expiry/renewal, limitations and live release checks.
 
 ## Agent model defaults and selection
 
@@ -473,11 +480,11 @@ product setup mapping (`{setup}`). Navigation uses this lightweight response;
 it does not probe models, runner health, agents, channels or Composio. Existing
 initial setup and legacy OAuth routing use the same mapping as before.
 
-`GET /api/onboarding/connections` checks only the engine connection capability.
-It returns `{available:false}` for an engine without that API (404) or an
-unconfigured integration; other upstream errors are retryable 502 responses.
-Only an owned private native agent's Connected apps panel requests it, with
-independent loading/error/retry states. It cannot block or reset settings edits.
-The complete `/api/onboarding` status remains available to agent creation, where
-provisioning readiness matters. Model catalogs load only for native agent details.
-Initial unread notification fetching no longer holds the shell's loading state.
+`GET /api/onboarding/connections` remains a compatibility availability response
+from local Nest adapter configuration. Agent settings use authenticated
+`GET /api/integrations/config` and have independent loading/error/retry states;
+connection setup cannot block or reset settings edits. No engine provider
+capability probe is needed. The complete `/api/onboarding` status remains
+available to agent creation, where provisioning readiness matters. Model catalogs
+load only for native agent details. Initial unread notification fetching no
+longer holds the shell's loading state.

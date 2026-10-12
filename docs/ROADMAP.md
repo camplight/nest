@@ -181,10 +181,11 @@ not-yet-implemented Figma onboarding wizard or automatic agent provisioning.
 1. **Implemented for review:** Google login → choose an original character →
    create one private personal agent and conversation → first chat. Durable
    recovery and per-user setup; operator-selected model/runner; original avatars.
-2. **Prototype; architecture revised:** discovery → hosted auth → verify ACTIVE
-   account → grant exact tools → revoke. OrgOps PR #50 is closed. Move the provider
-   adapter and instance skill layer into Nest before releasing connections; the
-   existing UI currently shows them unavailable on the pinned engine.
+2. **Implemented for review in Nest:** discovery → hosted auth → verify ACTIVE
+   account → grant exact tools → enable expiring skill access → revoke. OrgOps
+   PR #50 is closed; a provider adapter and reusable Nest skill run on the unchanged
+   engine. Real external-account consent and production tool execution still need
+   release verification.
 3. **Next:** owner-controlled team delegation by requester/channel/tool/resource,
    with credential-owner and requester audit. Talking to an agent alone grants
    no access to its owner's applications.
@@ -226,8 +227,11 @@ Personal-chat navigation and execution isolation remain deferred for discussion.
 The shared runner is an intentional deployment model, not per-agent OS isolation.
 
 Composio is an instance integration, not an OrgOps core dependency. PR #50 is
-closed and its branch retained for reference. The next implementation should use
-a Nest-owned provider adapter plus a reusable instance skill. Skill distribution
-through the private community repository is a proposal, not implemented behavior.
-Keep service credentials out of distributable skill files and preserve owner/tool
-permissions when moving the prototype. Adapter design remains to be agreed.
+closed and its branch retained for reference. The Nest implementation provides
+a provider adapter and a reusable instance skill compatible with private community
+packaging. No catalog entry is published automatically. Provider service keys stay
+in Nest; exact tool grants and expiring capabilities govern skill access. For now,
+any additional/shared conversation pauses connected-account access for the agent;
+a generic skill cannot attest the triggering conversation. Runtime isolation and
+Nest mention targeting are separate work. See PERSONAL_AGENTS.md for prerequisites
+and the global metadata-token requirement.

@@ -5,14 +5,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
-const { createApp: createEngine } = await import(
-  process.env.NEST_TEST_ENGINE_ROOT
-    ? pathToFileURL(
-        join(process.env.NEST_TEST_ENGINE_ROOT, "apps/api/src/app.ts"),
-      ).href
-    : "../../vendor/orgops/apps/api/src/app"
-);
+import { createApp as createEngine } from "../../vendor/orgops/apps/api/src/app";
+import { createComposioProvider } from "../../apps/api/src/integrations/composio";
 import { createOrgOpsClient } from "../../packages/orgops-client/src/index";
 import { createApp } from "../../apps/api/src/app";
 
@@ -22,9 +16,7 @@ const previousRoot = process.env.ORGOPS_PROJECT_ROOT;
 process.env.ORGOPS_PROJECT_ROOT = dir;
 let connectionActive = false;
 let externalUserId = "";
-const core = !!process.env.NEST_TEST_ENGINE_ROOT;
-const composio = core
-  ? {
+const composio = {
       apiKey: "test-only-key",
       instanceId: "test",
       callbackUrl: "https://nest.example/onboarding",
@@ -95,10 +87,9 @@ const composio = core
           });
         throw Error("Unexpected test transport call: " + path);
       },
-    }
-  : undefined;
+    };
+process.env.ORGOPS_MASTER_KEY = Buffer.alloc(32,171).toString('base64');
 const engine = createEngine({
-  composio,
   dbPath: join(dir, "engine.sqlite"),
   dataDir: dir,
   adminUser: "owner",
@@ -116,6 +107,8 @@ const orgops = createOrgOpsClient("http://engine", (async (url, init) => {
   return engine.app.fetch(new Request(url, init));
 }) as typeof fetch);
 const product = createApp({
+  connections: createComposioProvider(composio),
+  connectionEngineToken: "test-runner",
   personalAgent: {
     modelId: "test-model",
     runnerId: "test-runner",
@@ -289,14 +282,14 @@ try {
       ).n,
       1,
     );
-    if (core) {
+    {
       await page
         .getByRole("button", { name: "Connect account", exact: true })
         .waitFor();
-      // Exercise real engine hosted-link creation without navigating to/authorizing
+      // Exercise real Nest hosted-link creation without navigating to/authorizing
       // an external account. Only the Composio HTTP transport is a fixture.
       const link = await call(
-        "/api/composio/connections/link",
+        "/api/integrations/connections/link",
         { toolkit: "trello" },
         headers,
       );
@@ -315,13 +308,15 @@ try {
         .filter({ hasText: "Tool access saved" })
         .waitFor();
       const grants = (await (
-        await product.app.request("/api/composio/agents/PuffVitaliy/grants", {
+        await product.app.request("/api/integrations/agents/PuffVitaliy/grants", {
           headers,
         })
       ).json()) as any;
-      assert.deepEqual(grants, [
-        { connectionId: "test-account", tools: ["TRELLO_GET_BOARDS"] },
-      ]);
+      assert.equal(grants.length, 1);
+      assert.deepEqual(grants[0].tools, ["TRELLO_GET_BOARDS"]);
+      assert.notEqual(grants[0].connectionId, "test-account");
+      await page.getByRole("button",{name:"Enable skill access",exact:true}).click();
+      await page.getByRole("button",{name:"Renew skill access",exact:true}).waitFor();
       await page.getByRole("heading", {name:"Connected apps",exact:true}).evaluate(node => node.scrollIntoView({block:"start"}));
       await page.screenshot({
         path: join(screenshots, "connections-desktop.png"),
@@ -347,15 +342,12 @@ try {
         .getByText("No apps connected yet.", { exact: false })
         .waitFor();
       const revoked = await (
-        await product.app.request("/api/composio/agents/PuffVitaliy/grants", {
+        await product.app.request("/api/integrations/agents/PuffVitaliy/grants", {
           headers,
         })
       ).json();
       assert.deepEqual(revoked, []);
-    } else
-      await page
-        .getByRole("heading", { name: "App connections are being prepared" })
-        .waitFor();
+    }
     await page.getByRole('heading',{name:'Agent details',exact:true}).scrollIntoViewIfNeeded();
     await page.screenshot({path:join(screenshots,'agent-settings-desktop.png'),fullPage:true});
     await page.setViewportSize({width:390,height:844});

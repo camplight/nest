@@ -1,10 +1,9 @@
 # Personal-agent onboarding
 
-**Integration design update:** OrgOps PR #50 is closed. Connections are not live;
-the Composio prototype will move into a Nest-owned adapter and instance skill
-layer. Provider configuration and candidate-core tests below document the prior
-prototype, not a current rollout procedure. Distribution/design is still under
-discussion; do not install the unmerged core to enable it.
+Connections are a **Nest-owned adapter and instance skill**. OrgOps PR #50 is
+closed and is not a dependency. The engine remains unchanged at `3e3ed36`.
+This implementation requires operator configuration and live consent verification
+before connections can be offered to the team.
 
 The first tracer bullet is **sign in → create one personal agent → optionally
 connect apps and grant tools → start a private conversation**. It uses Figma
@@ -64,9 +63,7 @@ not per-user provider-key isolation. Users do not enter a model key into onboard
 that provider billing/credentials work: perform a real reply check before inviting
 the team.
 
-The earlier prototype used OrgOps PR #50, now closed. Nest currently shows an
-unavailable state and allows setup without connections. The prototype used the
-following configuration; the Nest adapter design may revise it:
+Nest's Composio adapter runs in the product API. Configure its credentials there:
 
 ```dotenv
 NEST_COMPOSIO_API_KEY=<service-key-from-secret-store>
@@ -77,14 +74,14 @@ NEST_COMPOSIO_AUTH_CONFIGS={"trello":"ac_configured_id","googledrive":"ac_config
 
 The callback is a fixed HTTPS path without query parameters. Nest canonicalizes
 it to the owning agent under `/?view=agents&agent=…`. Callback parameters never prove a connection succeeded;
-Nest asks the authenticated engine for current account status. No auth URL,
-provider tokens or service keys are saved in the product DB. Search is live from
+Nest asks its provider adapter for current account status. No auth URL,
+provider credentials or plaintext skill tokens are saved in the product DB. Search is live from
 Composio's catalog. An app without an operator-configured auth config is labelled
 “Admin setup needed.” Google login does not grant access to Google APIs.
 WordPress.com connectivity does not automatically connect self-hosted WordPress.
 
-The launcher removes the Composio service key from the runner environment before
-loading the engine runner. This prevents ordinary inheritance into agent shells;
+The launcher removes Composio configuration and the dedicated metadata token
+from both engine processes before loading them. This prevents ordinary inheritance into agent shells;
 it is not OS isolation between processes sharing a host/UID. Global runners and
 operators remain trusted. The old Composio skill/service-key package must not be
 enabled on personal agents. No credentials or old skill installations are
@@ -106,6 +103,65 @@ Changed ownership or visibility fails closed. Ambiguous requests can be retried;
 a manually deleted/renamed resource requires operator inspection. This is not a
 cross-database transaction, and partial resources are retained for recovery.
 
+## Connection adapter and skill boundary
+
+`apps/api/src/integrations/provider.ts` defines a small provider interface. The
+Composio REST implementation supplies catalog discovery, hosted authorization,
+account status, tool schemas and execution. Public Nest endpoints use
+`/api/integrations`; retired `/api/composio/*` paths return 410 and never proxy to
+OrgOps. Adding a provider should implement this interface without changing the
+engine or the agent skill. No SDK dependency is added to OrgOps.
+
+Migration `005_integrations.sql` stores local connection IDs, provider account
+mappings, exact per-agent tool grants, and hashed expiring skill capabilities.
+Human management uses engine sessions and current PRIVATE agent ownership.
+Connecting an app does not grant tools; granting tools does not enable execution.
+Owners explicitly enable the skill after granting tools in agent settings.
+
+Enabling installs a random 30-day token in the existing engine private-agent
+secret store and enables `nest-connections`. The browser receives only status
+and expiry. Renewal replaces access; revocation immediately invalidates tokens.
+The disabled token can remain in the encrypted engine secret store, but is no
+longer accepted. A single Nest API process owns the product SQLite file and
+serializes concurrent enable/revoke requests. Failed installation is fail-closed;
+retry Enable/Renew to recover. Model turns may retain an old token until the next
+turn after renewal.
+
+The skill checks grants through Nest for every execution; it never receives the
+Composio service key. Nest revalidates account ownership/status, current engine
+ownership/context, token expiry and exact tool grants. Audit records contain IDs,
+tool names and outcomes, not tool arguments, results or credentials. Ambiguous
+action failures are not retried automatically.
+
+**Private-context limitation:** a generic skill cannot attest which conversation
+caused a call. Nest conservatively requires the PRIVATE owned agent to be
+subscribed to exactly one unarchived, unshared PRIVATE owner-only conversation,
+with only its owner and itself as participants. Additional subscriptions (even
+archived), sharing, or changed ownership deny skill calls until resolved. This
+is an agent-wide restriction, not a verified current-turn identity. Shared/team
+connected-account use is not yet supported. Existing runtime isolation policy
+is unchanged; operators and co-resident processes remain trusted.
+
+For these checks the Nest API needs a **global engine metadata credential**:
+`NEST_CONNECTION_METADATA_TOKEN`, or the existing global `NEST_RUNNER_TOKEN`
+fallback. Configure only the engine's global runner token, never an agent- or
+runner-scoped credential whose filtered channel list could conceal subscriptions.
+The pinned engine does not expose credential scope introspection, so configuring
+this correctly is an operator requirement. It is used only by the HTTP adapter;
+Nest never reads engine SQLite. Remote runners also need
+`NEST_CONNECTIONS_URL=https://your-nest-host`; colocated Docker runners use
+`NEST_API_URL`. These values locate the product API, not the engine API.
+
+The launcher seeds `skills/nest-connections` into writable engine runtime skills
+on first use without overwriting existing installations. An external engine needs
+the same skill installed in its configured skill root. The source includes a
+`skill.json` manifest, so it can be packaged with
+`node scripts/community.mjs pack skills/nest-connections --out /tmp/nest-connections.json`
+and published through the existing private tenant community catalog. Publishing
+or installing a package does not create credentials or grants. Existing installed
+copies require an explicit reviewed update; no old Composio accounts, grants or
+service-key skills are automatically migrated.
+
 ## Next tracer bullets
 
 - **Team delegation:** people can converse with an agent separately from being
@@ -119,31 +175,23 @@ cross-database transaction, and partial resources are retained for recovery.
   workspace, context, grants and lifecycle. Do not duplicate agents on login.
 
 These three follow-ups are not implemented by the initial onboarding slice.
-The retired core prototype denied shared-conversation Composio execution; the
-Nest adapter must define and test its own equivalent authorization boundary.
+The Nest adapter currently denies all connected-account execution when its
+agent has shared or additional conversations.
 
 ## Verification and release
 
-`npm test` covers the real Nest/engine boundary, two human accounts, concurrent
-creation, lost-response/restart recovery, ownership changes and missing config.
-`npm run test:ui:onboarding` exercises the real pinned engine through the browser,
-including desktop/mobile, reload, navigation and the unavailable-integration path.
-For a candidate upstream checkout, run:
+`npm test` covers the real Nest/engine boundary, human and capability access,
+provider ownership, exact grants, expiry, renewal, revocation and private context.
+`npm run test:ui:onboarding` uses the untouched pinned engine and replaces only
+external Composio HTTP calls with test data. It covers account linking, grants,
+skill enablement, disconnect, onboarding recovery and desktop/mobile layouts.
+No candidate engine checkout is used. These tests do not invoke a live model or
+authorize a real external account.
 
-```sh
-NEST_TEST_ENGINE_ROOT=/absolute/path/to/orgops npm run test:ui:onboarding
-```
-
-That mode uses the candidate's real auth/routes/database and only replaces
-Composio's external HTTP transport with labelled test data. It covers tool grants
-and revocation without authenticating real external accounts. The test does not
-invoke a live model. PR screenshots must say which mode was used.
-
-Before a future connections rollout: implement and review the Nest adapter/skill
-boundary, rerun integration checks, configure secrets/defaults, and deploy with
-snapshots of both databases. Then verify a fresh Google login, one real personal
-agent reply, an owner-authorized app connection, and a tool grant/revocation.
-Only call the platform ready for invitations after these live checks pass.
+Before rollout, configure secrets/defaults and deploy with snapshots of both
+databases. Verify a fresh Google login, one real personal-agent reply, an
+owner-authorized app connection, and a tool grant/revocation. Only call the
+platform ready for invitations after these live checks pass.
 
 Local validation on 2026-10-12 also exercised one real CLASSIC personal-agent
 reply through `openrouter:google/gemini-2.5-flash`, using an isolated engine/product

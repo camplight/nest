@@ -183,9 +183,8 @@ OAuth. No dependency manifests changed and the parent lockfile remains unchanged
 
 Composio PR #50 was subsequently closed; it must not be merged or added to the
 submodule as a release dependency. Connections will move to a Nest adapter and
-instance skill layer. The existing compatibility probe shows them unavailable
-on this pin. Candidate-core browser tests are historical prototype validation,
-not a deployment target. Rollout still snapshots both product and engine DBs.
+instance skill layer. The Nest adapter below replaces the compatibility probe without upgrading core.
+Candidate-core browser tests were historical prototype validation. Rollout still snapshots both product and engine DBs.
 
 Validation of `3e3ed36`: 52 Nest product tests pass, full workspace/script typechecks
 and both UI builds pass. The unchanged engine suite passes 210/212 on macOS;
@@ -213,6 +212,23 @@ No upstream pin change, schema migration or bulk agent update is required.
 
 The Nest API adds authenticated `/api/onboarding/summary` and
 `/api/onboarding/connections` read endpoints. These reuse the existing product
-setup mappings and engine HTTP capability check. No database migration, engine
+setup mappings; the later connection adapter reads local Nest configuration. No database migration, engine
 pin change or provider configuration is required. Deploy UI and API together;
 private setup recovery and existing OAuth return paths remain compatible.
+
+## Nest-owned connections
+
+The pin remains `3e3ed36`. Product migration `005_integrations.sql` adds connection
+mappings, exact tool grants and hashed skill capabilities. No engine migration or
+source patch is required. The bundled Nest skill is seeded into writable runtime
+skills only if absent; existing copies are preserved. External engines need an
+explicit skill installation. Provider service configuration is stripped from both
+engine child processes. Configure the Nest API and remote-runner product URL as
+explained in [PERSONAL_AGENTS.md](PERSONAL_AGENTS.md).
+
+There is no automatic migration from the abandoned core Composio prototype or
+its service-key skill. Deploy UI and API together, preserve private agent secrets
+and existing skill roots, and snapshot both databases before product migration.
+Do not advertise live connectivity until OAuth, model execution and revocation
+have been verified with an owner-authorized test account. Runtime isolation and
+mention delivery remain outside this adapter change.

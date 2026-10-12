@@ -205,7 +205,7 @@ export function Connections({ agentName }: { agentName: string }) {
       do {
         const result: { items: Connection[]; nextCursor: string | null } =
           await apiJson(
-            "/api/composio/connections" +
+            "/api/integrations/connections" +
               (next ? `?cursor=${encodeURIComponent(next)}` : ""),
           );
         all.push(...result.items);
@@ -228,7 +228,7 @@ export function Connections({ agentName }: { agentName: string }) {
     const abort = new AbortController();
     const timeout = setTimeout(() => {
       apiJson<any>(
-        `/api/composio/toolkits?search=${encodeURIComponent(query)}`,
+        `/api/integrations/toolkits?search=${encodeURIComponent(query)}`,
         { signal: abort.signal },
       )
         .then((r) => {
@@ -248,16 +248,13 @@ export function Connections({ agentName }: { agentName: string }) {
     setBusy(slug);
     setError("");
     try {
-      const result = await json("/api/composio/connections/link", {
+      const result = await json("/api/integrations/connections/link", {
         toolkit: slug,
       });
       const url = new URL(result.redirectUrl);
       if (
         url.protocol !== "https:" ||
-        !(
-          url.hostname === "composio.dev" ||
-          url.hostname.endsWith(".composio.dev")
-        )
+        Boolean(url.username || url.password)
       )
         throw Error("Invalid connection URL");
       window.location.assign(url.toString());
@@ -277,7 +274,7 @@ export function Connections({ agentName }: { agentName: string }) {
     setError("");
     try {
       await json(
-        `/api/composio/connections/${encodeURIComponent(id)}/revoke`,
+        `/api/integrations/connections/${encodeURIComponent(id)}/revoke`,
         {},
       );
       await refresh();
@@ -363,7 +360,7 @@ export function Connections({ agentName }: { agentName: string }) {
           onClick={async () => {
             try {
               const r = await apiJson<any>(
-                `/api/composio/toolkits?search=${encodeURIComponent(query)}&cursor=${encodeURIComponent(cursor)}`,
+                `/api/integrations/toolkits?search=${encodeURIComponent(query)}&cursor=${encodeURIComponent(cursor)}`,
               );
               setKits((k) => [
                 ...k,
@@ -400,7 +397,7 @@ function ToolGrants({
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [saved, setSaved] = useState(false);
-  const path = `/api/composio/agents/${encodeURIComponent(agentName)}/grants`;
+  const path = `/api/integrations/agents/${encodeURIComponent(agentName)}/grants`;
   useEffect(() => {
     let cancelled = false;
     apiJson<{ connectionId: string; tools: string[] }[]>(path)
@@ -423,7 +420,7 @@ function ToolGrants({
     const abort = new AbortController();
     const timeout = setTimeout(() => {
       apiJson<any>(
-        `/api/composio/connections/${encodeURIComponent(connection.id)}/tools?search=${encodeURIComponent(query)}`,
+        `/api/integrations/connections/${encodeURIComponent(connection.id)}/tools?search=${encodeURIComponent(query)}`,
         { signal: abort.signal },
       )
         .then((r) => {
@@ -481,7 +478,7 @@ function ToolGrants({
           onClick={async () => {
             try {
               const r = await apiJson<any>(
-                `/api/composio/connections/${encodeURIComponent(connection.id)}/tools?search=${encodeURIComponent(query)}&cursor=${encodeURIComponent(cursor)}`,
+                `/api/integrations/connections/${encodeURIComponent(connection.id)}/tools?search=${encodeURIComponent(query)}&cursor=${encodeURIComponent(cursor)}`,
               );
               setTools((t) => [
                 ...t,

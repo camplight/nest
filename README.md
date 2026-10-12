@@ -79,8 +79,9 @@ budget, and progress panels are design concepts.*
 
 New users can choose an original Nest character, name their personal agent, and
 start a private conversation. **Agents → Your team** includes your personal agent
-alongside other teammates; its details hold model settings and connected apps. App connections await a Nest-owned provider adapter and instance skill layer; the proposed Composio core PR was closed. The connection UI is designed for users to grant
-specific tools separately from authenticating an account. Team delegation and
+alongside other teammates; its details hold model settings and connected apps.
+App connections use a Nest-owned provider adapter and instance skill layer; the
+Composio core PR is closed. After operator setup, users can grant specific tools separately from authenticating an account. Team delegation and
 multiple personal agents remain follow-up milestones.
 
 See [personal-agent setup and rollout](docs/PERSONAL_AGENTS.md) for operator

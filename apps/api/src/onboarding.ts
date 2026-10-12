@@ -52,7 +52,8 @@ export function registerOnboardingRoutes(
     orgops,
     config,
     defaultModelId,
-  }: { store: ProductDb; orgops: OrgOpsClient; config?: PersonalAgentConfig; defaultModelId?: string },
+    connectionsAvailable = false,
+  }: { store: ProductDb; orgops: OrgOpsClient; config?: PersonalAgentConfig; defaultModelId?: string; connectionsAvailable?:boolean },
 ) {
   const routes = new Hono<{ Variables: { human: Human } }>();
   const db = store.db;
@@ -173,25 +174,12 @@ export function registerOnboardingRoutes(
     const setup = row(c.get("human").id);
     return c.json({setup: setup ? publicSetup(setup) : null});
   });
-  routes.get("/connections", async (c) => {
-    const response = await orgops.humanRequest("/api/composio/config", c.req.raw.headers);
-    // The pinned engine may not have Composio yet. Other failures are retryable,
-    // not evidence that the administrator has left connections unconfigured.
-    if (response.status === 404) return c.json({available:false});
-    if (!response.ok) throw new HTTPException(502, {message:"Connection settings are temporarily unavailable."});
-    return c.json({available:Boolean((await response.json()).configured)});
-  });
+  // Compatibility for clients from the settings rollout; capability now belongs to Nest.
+  routes.get("/connections", c => c.json({available:connectionsAvailable}));
   routes.get("/", async (c) => {
     const human = c.get("human"),
       r = row(human.id),
       headers = c.req.raw.headers;
-    const connectionConfig = await orgops.humanRequest(
-      "/api/composio/config",
-      headers,
-    );
-    const connectionsAvailable =
-      connectionConfig.ok &&
-      Boolean((await connectionConfig.json()).configured);
     let runtimeState: string | null = null,
       problem: string | null = null;
     if (r?.agent_id) {

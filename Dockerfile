@@ -11,6 +11,7 @@ COPY vendor/orgops ./vendor/orgops
 COPY apps ./apps
 COPY packages ./packages
 COPY scripts ./scripts
+COPY skills ./skills
 COPY docs ./docs
 COPY README.md AGENTS.md tsconfig.base.json ./
 
