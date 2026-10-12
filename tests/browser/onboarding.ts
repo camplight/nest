@@ -311,7 +311,7 @@ try {
       assert.deepEqual(grants, [
         { connectionId: "test-account", tools: ["TRELLO_GET_BOARDS"] },
       ]);
-      await page.getByRole("heading", {name:"Connected apps",exact:true}).scrollIntoViewIfNeeded();
+      await page.getByRole("heading", {name:"Connected apps",exact:true}).evaluate(node => node.scrollIntoView({block:"start"}));
       await page.screenshot({
         path: join(screenshots, "connections-desktop.png"),
         fullPage: true,
@@ -322,7 +322,7 @@ try {
           () => document.documentElement.scrollWidth <= innerWidth,
         ),
       );
-      await page.getByRole("heading", {name:"Connected apps",exact:true}).scrollIntoViewIfNeeded();
+      await page.getByRole("heading", {name:"Connected apps",exact:true}).evaluate(node => node.scrollIntoView({block:"start"}));
       await page.screenshot({
         path: join(screenshots, "connections-mobile.png"),
         fullPage: true,
