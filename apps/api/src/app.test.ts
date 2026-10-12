@@ -20,7 +20,7 @@ describe('Nest product over unchanged OrgOps', () => {
     engine = createEngine({dbPath: join(dir, 'engine.sqlite'), dataDir: dir, adminUser: 'owner', adminPass: 'password', runnerToken: 'runner-secret'});
     if (previousRoot === undefined) delete process.env.ORGOPS_PROJECT_ROOT; else process.env.ORGOPS_PROJECT_ROOT = previousRoot;
     const client = createOrgOpsClient('http://engine', (async (url, init) => engine.app.fetch(new Request(url, init))) as typeof fetch);
-    product = createApp({orgops: client, dbPath: join(dir, 'product.sqlite')});
+    product = createApp({defaultAgentModelId:'default-test', orgops: client, dbPath: join(dir, 'product.sqlite')});
     const login = await product.app.request('http://nest/api/auth/login', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({username: 'owner', password: 'password'})});
     expect(login.status).toBe(200);
     cookie = login.headers.get('set-cookie')!.split(';')[0];
@@ -39,14 +39,42 @@ describe('Nest product over unchanged OrgOps', () => {
     const created = await product.app.request('/api/agents', {method:'POST', headers, body:JSON.stringify({name, modelId:'test-model', workspacePath:join(dir, 'workspace'), visibility:'PRIVATE', description:'Original', systemInstructions:'Original instructions'})});
     expect(created.status).toBe(201);
     const path = `/api/agents/${encodeURIComponent(name)}`;
-    expect((await product.app.request(path, {method:'PATCH', headers, body:JSON.stringify({description:'Changed', systemInstructions:'New instructions'})})).status).toBe(200);
-    expect(await (await product.app.request(path, {headers})).json()).toMatchObject({name, description:'Changed', systemInstructions:'New instructions', modelId:'test-model'});
+    expect((await product.app.request(path, {method:'PATCH', headers, body:JSON.stringify({description:'Changed', systemInstructions:'New instructions',modelId:'openrouter:updated'})})).status).toBe(200);
+    expect(await (await product.app.request(path, {headers})).json()).toMatchObject({name, description:'Changed', systemInstructions:'New instructions', modelId:'openrouter:updated'});
     const owner = engine.db.prepare('SELECT * FROM humans LIMIT 1').get() as any;
     engine.db.prepare('INSERT INTO humans (id, username, password_hash, must_change_password, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)').run('viewer', 'viewer', owner.password_hash, owner.created_at + 1, owner.created_at + 1);
     const login = await product.app.request('/api/auth/login', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({username:'viewer',password:'password'})});
     const viewerCookie = login.headers.get('set-cookie')!.split(';')[0];
-    expect((await product.app.request(path, {method:'PATCH', headers:{cookie:viewerCookie, 'content-type':'application/json'}, body:JSON.stringify({description:'Unauthorized'})})).status).toBe(403);
-    expect(await (await product.app.request(path, {headers})).json()).toMatchObject({description:'Changed'});
+    expect((await product.app.request(path, {method:'PATCH', headers:{cookie:viewerCookie, 'content-type':'application/json'}, body:JSON.stringify({description:'Unauthorized',modelId:'openrouter:unauthorized'})})).status).toBe(403);
+    expect(await (await product.app.request(path, {headers})).json()).toMatchObject({description:'Changed',modelId:'openrouter:updated'});
+  });
+  it('resolves enabled defaults for new native agents while preserving explicit and wrapped models', async () => {
+    const headers = {cookie, 'content-type':'application/json'};
+    const post = (path:string, body:unknown, h:HeadersInit=headers) => product.app.request(path,{method:'POST',headers:h,body:JSON.stringify(body)});
+    expect((await product.app.request('/api/agent-models')).status).toBe(401);
+    expect((await post('/api/agents',{name:'Anonymous',workspacePath:join(dir,'anonymous')},{})).status).toBe(401);
+    expect((await post('/api/agents',{name:'NoDefault',workspacePath:join(dir,'none')})).status).toBe(503);
+    for (const model of [
+      {id:'default-test',provider:'openrouter',modelName:'moonshotai/kimi-k3',enabled:true},
+      {id:'off',provider:'openrouter',modelName:'disabled',enabled:false},
+      {id:'unsupported',provider:'unsupported',modelName:'test',enabled:true}
+    ]) expect((await post('/api/models',model)).status).toBe(201);
+    const catalog = await product.app.request('/api/agent-models',{headers});
+    expect(catalog.headers.get('cache-control')).toBe('no-store');
+    expect(await catalog.json()).toEqual({models:[{id:'default-test',provider:'openrouter',name:'moonshotai/kimi-k3',reference:'openrouter:moonshotai/kimi-k3'}],defaultModel:'openrouter:moonshotai/kimi-k3'});
+    for (const [name,mode,explicit,expected] of [
+      ['Default','CLASSIC',undefined,'openrouter:moonshotai/kimi-k3'],
+      ['Blank','CLASSIC','','openrouter:moonshotai/kimi-k3'],
+      ['Repl','RLM_REPL',undefined,'openrouter:moonshotai/kimi-k3'],
+      ['Explicit','CLASSIC','openrouter:other','openrouter:other'],
+      ['Wrapped','WRAPPED','wrapped:none','wrapped:none']
+    ]) {
+      expect((await post('/api/agents',{name,mode,modelId:explicit,workspacePath:join(dir,name!)})).status).toBe(201);
+      expect(await (await product.app.request(`/api/agents/${name}`,{headers})).json()).toMatchObject({modelId:expected});
+    }
+    await product.app.request('/api/models/default-test',{method:'PATCH',headers,body:JSON.stringify({enabled:false})});
+    expect((await post('/api/agents',{name:'Disabled',workspacePath:join(dir,'disabled')})).status).toBe(503);
+    expect(await (await product.app.request('/api/agents/Default',{headers})).json()).toMatchObject({modelId:'openrouter:moonshotai/kimi-k3'});
   });
   it('stores branding and audit in the product DB only and retains them after reopen', async () => {
     expect(await (await product.app.request('/api/branding')).json()).toEqual(DEFAULT_BRANDING);

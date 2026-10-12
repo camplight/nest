@@ -51,16 +51,17 @@ export function registerOnboardingRoutes(
     store,
     orgops,
     config,
-  }: { store: ProductDb; orgops: OrgOpsClient; config?: PersonalAgentConfig },
+    defaultModelId,
+  }: { store: ProductDb; orgops: OrgOpsClient; config?: PersonalAgentConfig; defaultModelId?: string },
 ) {
   const routes = new Hono<{ Variables: { human: Human } }>();
   const db = store.db;
   const settings =
     config ??
-    (process.env.NEST_PERSONAL_AGENT_MODEL_ID &&
+    (defaultModelId &&
     process.env.NEST_PERSONAL_AGENT_RUNNER_ID
       ? {
-          modelId: process.env.NEST_PERSONAL_AGENT_MODEL_ID,
+          modelId: defaultModelId,
           runnerId: process.env.NEST_PERSONAL_AGENT_RUNNER_ID,
           workspaceRoot:
             process.env.NEST_PERSONAL_AGENT_WORKSPACE_ROOT ??

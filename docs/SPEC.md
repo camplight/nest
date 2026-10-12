@@ -436,3 +436,19 @@ never trusting return URL fields. Personal connections are private-context only;
 team delegation, action approvals and multiple personal agents are later slices.
 The launcher removes Composio service keys from the runner environment.
 See [PERSONAL_AGENTS.md](PERSONAL_AGENTS.md) for configuration, limits and release checks.
+
+## Agent model defaults and selection
+
+Nest exposes authenticated `GET /api/agent-models`, a sanitized enabled native
+model catalog from OrgOps plus the resolved instance default. No engine database
+or provider credentials are read. `NEST_DEFAULT_AGENT_MODEL_ID` (legacy fallback:
+`NEST_PERSONAL_AGENT_MODEL_ID`) resolves a registry ID to the runner's provider:model
+reference. Nest supplies it on native `POST /api/agents` only if modelId is absent
+or empty. Explicit references and WRAPPED creation retain engine semantics.
+Missing/disabled defaults return 503, rather than creating a broken native agent.
+
+User settings and admin creation use the catalog in a labelled model dropdown,
+with loading/retry/empty states and preservation of unknown current references.
+Changes use the existing engine PATCH and authorization; running turns keep their
+current configuration until the next turn. Onboarding reservations preserve their
+snapshotted reference across later default changes. No migration is required.

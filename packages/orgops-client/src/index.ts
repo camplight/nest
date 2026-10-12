@@ -74,13 +74,17 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     if (body !== undefined) headers.set('content-type', 'application/json');
     return request(path, {headers, method, ...(body !== undefined ? {body:JSON.stringify(body)} : {})});
   }
+  function nativeModels(rows: {id:string; provider:string; modelName:string; enabled:boolean}[]) {
+    return rows.filter(m => m.enabled && ['openai','anthropic','openrouter','or'].includes(m.provider) && m.modelName && !m.modelName.includes(':'))
+      .map(m => ({id:m.id, provider:m.provider, name:m.modelName, reference:`${m.provider}:${m.modelName}`}));
+  }
   async function nativeModelReference(id: string, headers: HeadersInit) {
     const models = await humanJson<{id:string; provider:string; modelName:string; enabled:boolean}[]>('/api/models', headers);
-    const model = models.find(m => m.enabled && (m.id === id || `${m.provider}:${m.modelName}` === id));
-    if (!model || !['openai', 'anthropic', 'openrouter', 'or'].includes(model.provider) || !model.modelName || model.modelName.includes(':')) return null;
+    const model = nativeModels(models).find(m => m.id === id || m.reference === id);
+    if (!model) return null;
     // Agent modelId is a provider:model reference, not the model registry row ID.
-    return `${model.provider}:${model.modelName}`;
+    return model.reference;
   }
-  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModelReference, baseUrl: base.origin };
+  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, baseUrl: base.origin };
 }
 export type OrgOpsClient = ReturnType<typeof createOrgOpsClient>;
