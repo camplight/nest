@@ -76,7 +76,7 @@ export function registerProjectRoutes(app: Hono, {store, orgops}: {store: Produc
     if (!channelId) {
       if (claimed) {
         const created=await orgops.humanJson<{id:string}>('/api/channels',c.req.raw.headers,{
-          name:body.name,description:body.description,visibility:'PRIVATE',metadata:{nestProjectChat:marker},
+          name:`nest-project-${reservation.marker}`,description:body.description,visibility:'PRIVATE',metadata:{nestProjectChat:marker},
         });
         channelId=created.id;
       } else {

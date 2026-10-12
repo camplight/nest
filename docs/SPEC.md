@@ -399,3 +399,9 @@ The current upstream update adds HUMAN participant support in agent channel tool
 while preserving legacy agentName arguments and engine permission checks. No new
 engine migration is included. Upstream PR #49 (Google team membership repair) is
 still awaiting review and is not included in this pin.
+
+Project chat names are internal (`nest-project-<reservation marker>`), independent
+of the human-readable project title. OrgOps requires globally unique channel names;
+existing channels and other projects can therefore use the same product title
+without blocking creation or linking unrelated history. Ambiguous reservations
+retain the existing conservative recovery behavior.
