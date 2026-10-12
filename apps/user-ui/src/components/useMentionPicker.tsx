@@ -21,7 +21,11 @@ export function useMentionPicker({value,onChange,textareaRef,candidates,channelI
   const open=Boolean(query);
   useEffect(()=>{setHighlight(0);},[query?.query,query?.start,channelId]);
   useEffect(()=>{listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({block:'nearest'});},[index,query?.query]);
-  useEffect(()=>{setFocused(false);},[channelId]);
+  useEffect(()=>{
+    const node=textareaRef.current;
+    setFocused(Boolean(node && document.activeElement===node));
+    if(node)setSelection({start:node.selectionStart,end:node.selectionEnd});
+  },[channelId,textareaRef]);
   const sync=(node:HTMLTextAreaElement)=>setSelection({start:node.selectionStart,end:node.selectionEnd});
   function choose(candidate:MentionCandidate) {
     if(!query)return;
