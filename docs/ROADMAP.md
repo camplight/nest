@@ -199,9 +199,13 @@ not-yet-implemented Figma onboarding wizard or automatic agent provisioning.
    PR #50 is closed; a provider adapter and reusable Nest skill run on the unchanged
    engine. Real external-account consent and production tool execution still need
    release verification.
-3. **Next:** owner-controlled team delegation by requester/channel/tool/resource,
-   with credential-owner and requester audit. Talking to an agent alone grants
-   no access to its owner's applications.
+3. **Implemented for review:** opt-in personal assistant profiles → Ask/@ request
+   → owner approves a brief → targeted private execution → owner selects/edits
+   and shares a reply → requester sees it in Requests. No guest chat subscription
+   or account grant. Product migration 007 and unchanged engine HTTP boundaries.
+   Remaining delegation: standing requester/tool/resource permissions, exact-action
+   approvals and automated correlation. Talking to an agent alone grants no access
+   to its owner's applications.
 4. **Next:** exact-action approvals and multiple personal agents.
 
 Reference: Figma `866:225` within `860:680`. The original characters and staggered
@@ -268,6 +272,26 @@ Acceptance includes real-engine targeted routing, human notification ownership,
 access changes, lost responses and restart recovery, desktop/mobile, IME/caret
 behavior, attachments and message deep links. Production rollout follows a
 reviewed PR and the normal dual-database backup process.
+
+
+## Personal-assistant request acceptance
+
+- Publication is off by default and exposes a separate owner-approved description.
+- Published assistants are discoverable in Agents and writable-chat @ suggestions.
+- External-assistant selection opens a request form, without bypassing chat membership.
+- Requests are visible only to the owner/requester; no guest prompt reaches the agent
+  until the owner approves it. Only the owner's edited, approved reply is released.
+- Native agent and private conversation IDs remain pinned and engine-authoritative.
+- Shared context or changed ownership/visibility denies work and private response access.
+- Lost creation/dispatch responses and restart retries recover without duplicate work.
+- Incoming/Outgoing, details, reload/history and desktop/mobile are verified.
+- CI includes the real-engine browser flow through the existing agents entry point.
+- No live OAuth/model/provider success or production deployment is inferred from fixtures.
+
+Visuals reuse the existing Figma agent layouts, original Puff avatar and instance
+branding tokens. The Requests workflow is a Nest extension; the case study has no
+editable request-review frame. This implements the approval-first slice described
+in [AGENT_REQUESTS.md](AGENT_REQUESTS.md), not full team delegation.
 
 ## Consistent header on connection-return chats
 

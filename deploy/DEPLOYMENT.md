@@ -60,3 +60,19 @@ cd /opt/nest
 docker compose ps
 docker compose logs --tail=100
 ```
+
+
+## 2026-10-13 — selected mentions and private connection access
+
+Deployed reviewed main `192dd85a8fca3e1d5a6d389a898d7f9ea683effa`, including
+merged PRs #20 and #21, through the existing host controller. Job
+`d483860894d44a549f8da8ae74a22a31` succeeded with phase `healthy`; image
+`nest:git-192dd85a8fca`. Both database snapshots are retained under
+`/opt/nest/backups/ops-d483860894d44a549f8da8ae74a22a31`.
+
+Public HTTPS health, owner login, integration/model/setup endpoints, connectable
+app catalog and installed runtime connection skill were verified after deployment.
+No external account consent, new tool grants or agent skill activation was done.
+Existing owners apply the lifecycle privacy fix by clicking Enable/Renew in their
+agent's connected-app settings. Runtime state and credentials remain preserved.
+Personal-assistant requests are a separate product PR, not part of this deployment.
