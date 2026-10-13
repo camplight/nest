@@ -494,6 +494,52 @@ try {
         .getByRole("button", { name: "Close workspace settings" })
         .click();
       await page.setViewportSize({ width: 1440, height: 1290 });
+      // Connected-account callbacks can return to a standalone personal chat.
+      // They must retain the product header without introducing a second one
+      // inside project chats or changing the underlying channel membership.
+      const personal = await request("/api/channels/direct/human-agent", {agentName:"Puff"});
+      await page.goto(`http://127.0.0.1:5312/?status=success&connected_account_id=synthetic-account&channel=${personal.id}`);
+      await page.getByRole("textbox", {name:"Message",exact:true}).waitFor();
+      assert.equal(await page.locator(".workspace-topbar").count(),1);
+      assert.equal(await controls.getByRole("button").count(),4);
+      await page.getByRole("button", {name:"Manage channel",exact:true}).waitFor();
+      assert.equal(await page.locator(".sidebar .mention-inbox,.sidebar .account-actions").count(),0);
+      await page.getByRole("textbox", {name:"Search channels",exact:true}).fill("unmatched-channel");
+      await page.getByText('No channels match "unmatched-channel".',{exact:true}).waitFor();
+      await page.getByRole("textbox", {name:"Search channels",exact:true}).fill("");
+      await page.getByRole("button", {name:"Account",exact:true}).click();
+      await page.getByRole("menu", {name:"Account menu"}).getByText("owner",{exact:true}).waitFor();
+      await page.keyboard.press("Escape");
+      await page.getByRole("button", {name:"Workspace settings",exact:true}).click();
+      await settings.getByRole("link",{name:"Open administration →"}).waitFor();
+      await page.getByRole("button",{name:"Close workspace settings"}).click();
+      await page.getByRole("button",{name:"Notifications",exact:true}).click();
+      await inbox.waitFor();
+      await page.keyboard.press("Escape");
+      await capture("standalone-chat-desktop.png");
+      await page.reload();
+      await page.getByRole("textbox", {name:"Message",exact:true}).waitFor();
+      assert.equal(new URL(page.url()).searchParams.get("channel"),personal.id);
+      assert.equal(await page.locator(".workspace-topbar").count(),1);
+      await page.setViewportSize({width:390,height:844});
+      await page.getByRole("button", {name:"Menu",exact:true}).click();
+      await nav.getByRole("button", {name:"Projects",exact:true}).waitFor();
+      await page.getByRole("button",{name:"Close",exact:true}).click();
+      await capture("standalone-chat-mobile.png");
+      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
+      const composer=await page.getByRole("textbox",{name:"Message",exact:true}).boundingBox();
+      assert(composer&&composer.y>=0&&composer.y+composer.height<=844,"Composer stays visible");
+      for(const name of ["Account","Workspace settings","Notifications"]) {
+        const box=await page.getByRole("button",{name,exact:true}).boundingBox();
+        assert(box&&box.x>=0&&box.x+box.width<=390,"Header controls stay visible");
+      }
+      await page.setViewportSize({width:1440,height:1290});
+      await nav.getByRole("button",{name:"Projects",exact:true}).click();
+      await page.locator(".project-summary").filter({hasText:"backend-infra"}).first().click();
+      await page.getByRole("textbox",{name:"Message",exact:true}).waitFor();
+      assert.equal(await page.locator(".workspace-topbar").count(),1,"Project chat has one header");
+      await nav.getByRole("button",{name:"Dashboard",exact:true}).click();
+      await page.waitForFunction(()=>document.querySelector('[aria-label="Finished tasks"]')?.textContent==="1");
       // A separate authenticated human gets personal settings but no owner link.
       const guest = await browser.newContext({
         viewport: { width: 390, height: 844 },

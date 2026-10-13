@@ -341,7 +341,7 @@ try {
       .locator("#message-" + events[0].id + ".message-highlight")
       .waitFor();
     await receiver.waitForFunction((id)=>{const node=document.getElementById('message-'+id);if(!node)return false;const r=node.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;},events[0].id);
-    await receiver.getByRole("button", { name: "Menu", exact: true }).click();
+    // Notifications stay directly available in the mobile chat header.
     await receiver
       .getByRole("button", { name: /^(Mentions|Notifications)$/, exact: true })
       .click();

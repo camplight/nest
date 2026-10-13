@@ -219,3 +219,14 @@
     padding: 20px;
   }
 }
+
+/* Channel deep links, including connection callbacks, use the same header. */
+.standalone-workspace > .workspace-topbar {
+  flex-shrink: 0;
+  margin: -24px -24px 0;
+}
+@media (max-width: 760px) {
+  .standalone-workspace > .workspace-topbar {
+    margin: -12px -12px 0;
+  }
+}
