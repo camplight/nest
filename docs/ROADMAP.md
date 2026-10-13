@@ -95,8 +95,8 @@ A successful agent turn alone must not imply human acceptance.
 - Legacy chat links resolve to the owned project. History and mobile are tested.
 - Shared project roles are still deferred: invited chat members do not gain tasks.
 
-Next: actionable review requests in Up next, persistent notification/read state
-across sessions. Release verification is recorded in the milestone PR; local
+Pending deliverables now appear as actionable review cards in Up next.
+Next: persistent notification/read state across sessions. Release verification is recorded in the milestone PR; local
 checks alone do not establish production deployment.
 
 ### 3. Complete agent experience
@@ -106,6 +106,15 @@ avatar selection and resource editing. Distinguish runtime online state from
 working on a task. Use existing engine APIs and their permission model.
 
 ### 4. Operational dashboard
+
+Implemented the Figma home structure (923:417): Spend/Tasks/Issues cards,
+SmoothUI Active projects and Up next stacks, Urgent issues area and original-art
+private community strip. Empty instances keep the same shell. Task metrics and
+approved-task progress come from owner/access-scoped product summaries. Pending
+reviews deep-link to the actual task; changes requested stay distinct from
+operational incidents. Desktop/mobile/dark and synthetic before/after captures
+are covered by `tests/browser/dashboard.ts`. Remaining design deviations are
+documented in [DASHBOARD_DESIGN.md](DASHBOARD_DESIGN.md).
 
 Replace temporary metrics with task/review/issue aggregates. Define how issues
 are created and resolved. Distinguish measured, estimated and unavailable spend,

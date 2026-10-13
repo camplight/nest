@@ -21,3 +21,16 @@ export type Task = z.infer<typeof NewTaskSchema> & {
 export type Deliverable = {id: string; taskId: string; attempt: number; eventId: string; text: string; submittedBy: string; createdAt: number};
 export type Review = {id: string; taskId: string; deliverableId: string; decision: 'approve' | 'request_changes'; feedback: string; reviewerId: string; createdAt: number};
 export type ProjectDetail = Project & {tasks: Task[]; deliverables: Deliverable[]; reviews: Review[]};
+
+// Product summaries only. Engine channels/agents remain authoritative upstream.
+export type ProjectOverview = {
+  project: Project; totalTasks: number; finishedTasks: number; needsReview: number;
+  changesRequested: number; workingTasks: number; assignedAgents: number;
+};
+export type DashboardTask = Pick<Task, 'id' | 'projectId' | 'title' | 'agentName' | 'updatedAt' | 'status'>;
+export type ProjectDashboard = {
+  projects: ProjectOverview[];
+  tasks: {total: number; finished: number; needsReview: number; changesRequested: number};
+  reviews: DashboardTask[];
+  changes: DashboardTask[];
+};

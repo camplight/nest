@@ -41,11 +41,13 @@ export function createProjectStore(db: Database.Database) {
       return true;
     })();
   }
+  function tasks(projectId: string) {
+    return (db.prepare('SELECT data_json FROM product_tasks WHERE project_id=? ORDER BY rowid').all(projectId) as {data_json:string}[]).map(row => JSON.parse(row.data_json) as Task);
+  }
   function detail(value: Project) {
-    const tasks = (db.prepare('SELECT data_json FROM product_tasks WHERE project_id=? ORDER BY rowid').all(value.id) as {data_json:string}[]).map(row => JSON.parse(row.data_json) as Task);
     const deliverables = db.prepare('SELECT d.id,d.task_id AS taskId,d.attempt,d.event_id AS eventId,d.text,d.submitted_by AS submittedBy,d.created_at AS createdAt FROM product_deliverables d JOIN product_tasks t ON t.id=d.task_id WHERE t.project_id=? ORDER BY d.created_at').all(value.id) as Deliverable[];
     const reviews = db.prepare('SELECT r.id,r.task_id AS taskId,r.deliverable_id AS deliverableId,r.decision,r.feedback,r.reviewer_id AS reviewerId,r.created_at AS createdAt FROM product_reviews r JOIN product_tasks t ON t.id=r.task_id WHERE t.project_id=? ORDER BY r.created_at').all(value.id) as Review[];
-    return {...value,tasks,deliverables,reviews};
+    return {...value,tasks:tasks(value.id),deliverables,reviews};
   }
-  return {project,projects,task,createProject,createTask,changeTask,detail};
+  return {project,projects,task,tasks,createProject,createTask,changeTask,detail};
 }
