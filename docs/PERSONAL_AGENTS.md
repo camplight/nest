@@ -129,7 +129,7 @@ under About this action. Search, pagination and Selected view retain off-page
 choices. Select all results includes every search match while keeping existing
 choices. Advanced selections require Save access; discard restores saved choices
 and failed saves retain pending choices. Bulk page failures or selections above
-the existing 100-action limit never apply partial choices or change saved access.
+the 2,000-action request bound never apply partial choices or change saved access.
 App access displays the saved permission count; selecting checkboxes is
 not a grant until Save access succeeds. Enable/Renew rejects zero saved
 permissions with 409, and the UI refreshes the count after saves/disconnects.

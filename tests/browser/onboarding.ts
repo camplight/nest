@@ -17,6 +17,8 @@ process.env.ORGOPS_PROJECT_ROOT = dir;
 let connectionActive = false;
 let externalUserId = "";
 let actionPageRequests = 0;
+let fullCatalog = false;
+const bulkFixtures = Array.from({length:175}, (_,index)=>({slug:`TRELLO_BULK_${index}`,name:`Bulk action ${index}`,description:"Synthetic large app catalog fixture.",toolkit:{slug:"trello"}}));
 const actionFixtures = [
   {slug:"TRELLO_GET_BOARDS",name:"List my boards",description:"Read the boards available to this account.",toolkit:{slug:"trello"}},
   {slug:"TRELLO_CREATE_CARD",name:"TRELLO_CREATE_CARD",description:"Create a card on a board with a title and description.",toolkit:{slug:"trello"}},
@@ -84,8 +86,9 @@ const composio = {
           actionPageRequests++;
           const query = url.searchParams.get("search")?.toLowerCase() ?? "";
           const many = query === "many actions";
-          const matching = many ? Array.from({length:101}, (_,index) => ({slug:`TRELLO_BULK_${index}`,name:`Bulk action ${index}`,description:"Synthetic catalog limit fixture.",toolkit:{slug:"trello"}})) : actionFixtures.filter(action => `${action.name} ${action.description} ${action.slug}`.toLowerCase().includes(query));
-          const size = many ? 50 : 3;
+          const overflow = query === "too many actions";
+          const matching = overflow ? Array.from({length:2001}, (_,index)=>({slug:`TRELLO_OVERFLOW_${index}`,name:`Overflow action ${index}`,description:"Synthetic request bound fixture.",toolkit:{slug:"trello"}})) : many ? bulkFixtures : [...actionFixtures,...(fullCatalog ? bulkFixtures : [])].filter(action => `${action.name} ${action.description} ${action.slug}`.toLowerCase().includes(query));
+          const size = many || overflow || fullCatalog ? 50 : 3;
           const start = Number(url.searchParams.get("cursor") ?? 0);
           return Response.json({items:matching.slice(start,start+size),next_cursor:matching.length>start+size ? String(start+size) : null});
         }
@@ -404,10 +407,39 @@ try {
       await page.setViewportSize({width:1440,height:1100});
       await picker.getByRole("button",{name:"Discard changes",exact:true}).click();
       await picker.getByRole("checkbox",{name:"List my boards",exact:true}).check();
+      fullCatalog=true;
       await query.fill("many actions");
       await picker.getByRole("checkbox",{name:"Bulk action 0",exact:true}).waitFor();
       await picker.getByRole("button",{name:"Select all results",exact:true}).click();
-      await access.getByRole("alert").filter({hasText:"exceed the 100-action limit"}).waitFor();
+      await picker.getByRole("status").filter({hasText:"176 actions selected"}).waitFor();
+      await picker.getByRole("button",{name:"Save access",exact:true}).click();
+      await access.getByRole("status").filter({hasText:"176 actions allowed"}).waitFor();
+      const largeSaved=await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any;
+      assert.equal(largeSaved[0].tools.length,176,"Advanced selection can save over 100 exact actions");
+      await query.fill("card");
+      await access.getByRole("button",{name:"Give all access",exact:true}).click();
+      await access.getByRole("status").filter({hasText:"179 actions allowed"}).waitFor();
+      assert(await access.getByRole("button",{name:"All access given",exact:true}).isDisabled());
+      const largeAll=await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any;
+      assert.deepEqual(largeAll[0].tools.sort(),[...actionFixtures,...bulkFixtures].map(action=>action.slug).sort(),"Give all ignores search and saves every page of a large catalog");
+      assert.equal(await access.getByRole("checkbox").count(),0);
+      await captureConnection("connections-large-all-desktop.png");
+      await page.setViewportSize({width:390,height:844});
+      await captureConnection("connections-large-all-mobile.png");
+      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      await page.setViewportSize({width:1440,height:1100});
+      await page.reload();
+      await access.getByRole("status").filter({hasText:"179 actions allowed"}).waitFor();
+      await access.getByText("Choose specific actions",{exact:true}).click();
+      await picker.getByRole("button",{name:"Clear all choices",exact:true}).click();
+      await picker.getByRole("button",{name:"Save access",exact:true}).click();
+      await access.getByRole("status").filter({hasText:"Not allowed yet"}).waitFor();
+      fullCatalog=false;
+      await picker.getByRole("checkbox",{name:"List my boards",exact:true}).check();
+      await query.fill("too many actions");
+      await picker.getByRole("checkbox",{name:"Overflow action 0",exact:true}).waitFor();
+      await picker.getByRole("button",{name:"Select all results",exact:true}).click();
+      await access.getByRole("alert").filter({hasText:"exceeds 2,000 actions"}).waitFor();
       await picker.getByRole("status").filter({hasText:"1 action selected"}).waitFor();
       assert.equal(await picker.getByRole("checkbox",{checked:true}).count(),0,"Oversized bulk selection must not add partial results");
       await query.fill("card");

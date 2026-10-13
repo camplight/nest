@@ -272,6 +272,15 @@ owner-only conversation. Lifecycle names alone are not authorization markers.
 This is a Nest adapter change: no engine source, pin, DB migration, or runner
 assignment changes. Existing agents apply it when their owner clicks Enable/Renew.
 
+## Larger connection grants
+
+The Nest UI and API now allow up to 2,000 exact actions per connected account.
+Large selections validate against provider catalog pages rather than individual
+schema lookups. Grant requests alone receive a 512 KB body bound. Existing saved
+grants, private-context checks, credentials and runtime skills remain unchanged;
+no migration or OrgOps update is needed. Give all remains an explicit snapshot of
+currently available actions, without future-tool permission. Deploy UI and API together.
+
 ## Nest-owned personal-assistant requests
 
 Product migration `007_agent_requests.sql` introduces opt-in assistant profiles

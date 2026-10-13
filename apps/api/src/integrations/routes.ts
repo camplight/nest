@@ -5,6 +5,8 @@ import { HTTPException } from "hono/http-exception";
 import { bodyLimit } from "hono/body-limit";
 import type { z } from "zod";
 import {
+  MAX_CONNECTION_CATALOG_PAGES,
+  MAX_CONNECTION_GRANT_BYTES,
   connectionLinkInput,
   connectionGrantInput,
   connectionToolInput,
@@ -72,10 +74,12 @@ export function registerIntegrationRoutes(
   );
   routes.use(
     "*",
-    bodyLimit({
-      maxSize: 64_000,
+    (c, next) => bodyLimit({
+      // Only exact action-list updates need the larger body allowance.
+      maxSize: c.req.method === "PUT" && /^\/api\/integrations\/agents\/[^/]+\/grants\/[^/]+$/.test(c.req.path)
+        ? MAX_CONNECTION_GRANT_BYTES : 64_000,
       onError: (c) => c.json({ error: "Request too large" }, 413),
-    }),
+    })(c, next),
   );
   routes.use("*", async (c, next) => {
     c.header("Cache-Control", "no-store");
@@ -268,15 +272,41 @@ export function registerIntegrationRoutes(
       r = connection(c.req.param("id"), owner);
     const input = await body(c, connectionGrantInput);
     await account(r);
-    for (const slug of new Set(input.tools)) {
-      if ((await service().tool(slug)).toolkit !== r.toolkit)
-        fail(400, "Tool does not belong to this connection");
+    const tools = [...new Set(input.tools)];
+    if (tools.length <= 20) {
+      // Narrow selections avoid traversing a large catalog.
+      for (const slug of tools) {
+        const tool = await service().tool(slug);
+        if (tool.slug !== slug || tool.toolkit !== r.toolkit)
+          fail(400, "Tool does not belong to this connection");
+      }
+    } else {
+      // A full app grant needs catalog pages, not one provider request per action.
+      // Only exact provider-confirmed IDs count; no prefix or wildcard grants.
+      const remaining = new Set(tools);
+      const visited = new Set<string>();
+      let cursor: string | undefined;
+      let pages = 0;
+      do {
+        if (++pages > MAX_CONNECTION_CATALOG_PAGES)
+          fail(503, "Could not verify all actions. Your saved access was kept.");
+        const page = await service().tools(r.toolkit, "", cursor);
+        for (const tool of page.items) {
+          if (tool.toolkit === r.toolkit) remaining.delete(tool.slug);
+        }
+        if (!remaining.size) break;
+        const next = page.nextCursor ?? fail(400, "Tool does not belong to this connection");
+        if (visited.has(next))
+          fail(503, "Could not verify all actions. Your saved access was kept.");
+        visited.add(next);
+        cursor = next;
+      } while (remaining.size);
     }
     await ownedAgent(a.name, owner, c.req.raw.headers);
     if (connection(r.id, owner).revoked_at) fail(409, "Connection was revoked");
     db.prepare(
       "INSERT INTO product_connection_grants VALUES(?,?,?,?) ON CONFLICT(agent_id,connection_id) DO UPDATE SET owner_id=excluded.owner_id,tools_json=excluded.tools_json",
-    ).run(a.id, owner, r.id, JSON.stringify([...new Set(input.tools)]));
+    ).run(a.id, owner, r.id, JSON.stringify(tools));
     audit("audit.connection.granted", owner, {
       agentId: a.id,
       connectionId: r.id,

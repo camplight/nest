@@ -318,6 +318,6 @@ Choose specific actions collapses search, Selected view and granular permission
 rows by default. Give all access fetches and saves every current provider action
 in one explicit click, independently of advanced search. Advanced choices still
 require Save access, with discard/clear and failed-save recovery. Pagination,
-search and bulk selection preserve choices. Page failures and the existing
-100-action limit never apply partial selections or grants. Desktop/mobile/dark,
+search and bulk selection preserve choices. Page failures and selections exceeding
+the 2,000-action request bound never apply partial selections or grants. Desktop/mobile/dark,
 local logo loading, default size and the real permission boundary are checked.
