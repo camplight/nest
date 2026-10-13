@@ -1,11 +1,20 @@
 import { beforeEach, afterEach, it, expect, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp as createEngine } from "../../../../vendor/orgops/apps/api/src/app";
 import { createOrgOpsClient } from "@nest/orgops-client";
 import { createApp } from "../app";
 import { createComposioProvider } from "./composio";
+import { generate } from "@orgops/llm";
+import { createTurnExecutor } from "../../../../vendor/orgops/apps/agent-runner/src/turn-executor";
+import { createRunnerApi } from "../../../../vendor/orgops/apps/agent-runner/src/runner/api";
+import { createRunnerState } from "../../../../vendor/orgops/apps/agent-runner/src/runner/state";
+vi.mock("@orgops/llm", async (original) => ({
+  ...await original<typeof import("@orgops/llm")>(),
+  generate: vi.fn(),
+}));
+vi.mock("models-dev-db", () => ({ getModel: async () => ({limit:{context:128000}}) }));
 let dir: string,
   engine: ReturnType<typeof createEngine>,
   product: ReturnType<typeof createApp>,
@@ -159,6 +168,8 @@ afterEach(() => {
   engine.db.close();
   rmSync(dir, { recursive: true, force: true });
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
 });
 async function enable() {
   expect(
@@ -397,6 +408,7 @@ it("denies other humans management and denies skill access once the private chat
   expect(executionCount).toBe(0);
 });
 it("rejects simultaneous credential changes rather than installing a revoked token", async () => {
+  await call("/api/integrations/agents/PuffOwner/grants/" + localId, "PUT", {tools:["TRELLO_GET_BOARDS"]});
   const results = await Promise.all([
     call("/api/integrations/agents/PuffOwner/skill", "POST", {}),
     call("/api/integrations/agents/PuffOwner/skill", "POST", {}),
@@ -607,4 +619,62 @@ it("fails closed if the runner first creates its public lifecycle channel after 
   const renewed = await enable();
   expect((await execute(original)).status).toBe(401);
   expect((await execute(renewed)).status).toBe(200);
+});
+
+it("distinguishes linked accounts from saved permissions and refuses empty skill activation", async () => {
+  const path = "/api/integrations/agents/PuffOwner/skill";
+  expect(await (await call(path)).json()).toMatchObject({enabled:false,grantedToolCount:0,preloadConfigured:false});
+  const denied = await call(path,"POST",{});
+  expect(denied.status).toBe(409);
+  expect(await denied.text()).toContain("Choose and save at least one tool");
+  expect(product.store.db.prepare("SELECT COUNT(*) n FROM product_connection_tokens").get()).toEqual({n:0});
+  await enable();
+  expect(await (await call(path)).json()).toMatchObject({enabled:true,grantedToolCount:1,preloadConfigured:true});
+  await call("/api/integrations/agents/PuffOwner/grants/"+localId,"PUT",{tools:[]});
+  expect(await (await call(path)).json()).toMatchObject({enabled:true,grantedToolCount:0});
+  expect((await call(path,"POST",{})).status).toBe(409);
+});
+
+it("renewal preserves other skills and preloads the helper through the real engine prompt", async () => {
+  await call("/api/agents/PuffOwner","PATCH",{enabledSkills:["coordination"],alwaysPreloadedSkills:["coordination"]});
+  await enable();
+  const agent = await (await call("/api/agents/PuffOwner")).json();
+  expect(agent.enabledSkills).toEqual(["coordination","nest-connections"]);
+  expect(agent.alwaysPreloadedSkills).toEqual(["coordination","nest-connections"]);
+  expect(agent.allowOutsideWorkspace).toBe(false);
+  // A legacy enabled token can be upgraded by the owner without granting any
+  // additional tools or altering the user's prompt or workspace permissions.
+  await call("/api/agents/PuffOwner","PATCH",{alwaysPreloadedSkills:["coordination"]});
+  expect(await (await call("/api/integrations/agents/PuffOwner/skill")).json()).toMatchObject({enabled:true,preloadConfigured:false});
+  await enable();
+  const refreshed = await (await call("/api/agents/PuffOwner")).json();
+  const roots = join(dir,"skills");
+  cpSync(join(process.cwd(),"skills/nest-connections"),join(roots,"nest-connections"),{recursive:true});
+  vi.stubGlobal("fetch", (url: string | URL | Request, init?: RequestInit) => {
+    expect(new URL(String(url)).origin).toBe("http://engine");
+    return engine.app.fetch(new Request(url,init));
+  });
+  const api=createRunnerApi({apiUrl:"http://engine",runnerToken:"runner",heartbeatIntervalMs:30000,runnerIdFile:join(dir,"runner-id"),runnerState:createRunnerState()});
+  const triggerResponse=await call("/api/messages","POST",{id:crypto.randomUUID(),channelId:channel,text:"What connected tools can you use?"});
+  expect(triggerResponse.status).toBe(201);
+  const trigger=await triggerResponse.json();
+  vi.mocked(generate).mockImplementation(async (_model,messages,options) => {
+    const prompt=JSON.stringify(messages);
+    expect(prompt).toContain("Always pre-loaded skills (full SKILL.md contents)");
+    expect(prompt).toContain("node scripts/connections.mjs list");
+    expect(prompt).toContain("Never try another account");
+    expect(prompt).not.toContain(options?.env?.NEST_CONNECTION_TOKEN);
+    expect(options?.env?.NEST_CONNECTION_TOKEN).toMatch(/^nest_connection_/);
+    return {text:JSON.stringify({type:"message.created",payload:{text:"Synthetic connected-tool reply."}}),toolCalls:[],toolResults:[]};
+  });
+  await createTurnExecutor({projectRoot:dir,skillRoots:[{path:roots}],llmCallTimeoutMs:5000,api})(
+    {...refreshed,memoryContextMode:"OFF"},
+    [{id:trigger.id,type:"message.created",source:"human:owner",channelId:channel,payload:{text:"What connected tools can you use?"}}],
+  );
+  expect(generate).toHaveBeenCalledTimes(1);
+  const completed=await (await call("/api/events?channelId="+channel+"&type=agent.turn.completed")).json();
+  expect(completed).toHaveLength(1);
+  expect(completed[0].payload).not.toHaveProperty("completedWithFallback");
+  const messages=await (await call("/api/events?channelId="+channel+"&type=message.created")).json();
+  expect(messages.some((e:any)=>e.source==="agent:PuffOwner"&&e.payload.text==="Synthetic connected-tool reply.")).toBe(true);
 });

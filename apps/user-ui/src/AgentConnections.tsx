@@ -12,6 +12,7 @@ export function AgentConnections({ name }: { name: string }) {
   const [skillAvailable, setSkillAvailable] = useState(false);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [permissionsRevision, setPermissionsRevision] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     setAvailable(null);
@@ -54,8 +55,8 @@ export function AgentConnections({ name }: { name: string }) {
         <p role="status">Loading connection settings…</p>
       ) : available ? (
         <>
-          <ConnectionSkill key={name} name={name} available={skillAvailable} />
-          <Connections agentName={name} />
+          <ConnectionSkill key={name} name={name} available={skillAvailable} revision={permissionsRevision} />
+          <Connections agentName={name} onPermissionsChanged={() => setPermissionsRevision(value => value + 1)} />
         </>
       ) : (
         <div className="dashboard-card onboarding-notice">
@@ -73,9 +74,11 @@ export function AgentConnections({ name }: { name: string }) {
 function ConnectionSkill({
   name,
   available,
+  revision,
 }: {
   name: string;
   available: boolean;
+  revision: number;
 }) {
   const [state, setState] = useState<ConnectionSkillStatus | null>(null);
   const [error, setError] = useState("");
@@ -83,6 +86,8 @@ function ConnectionSkill({
   const path = `/api/integrations/agents/${encodeURIComponent(name)}/skill`;
   useEffect(() => {
     const abort = new AbortController();
+    setState(null);
+    setError("");
     void apiJson<ConnectionSkillStatus>(path, { signal: abort.signal })
       .then((result) => {
         if (!abort.signal.aborted) setState(result);
@@ -91,7 +96,7 @@ function ConnectionSkill({
         if (!abort.signal.aborted) setError("Could not load skill access.");
       });
     return () => abort.abort();
-  }, [path]);
+  }, [path, revision]);
   async function change(enabled: boolean) {
     setBusy(true);
     setError("");
@@ -101,7 +106,7 @@ function ConnectionSkill({
         headers: { "content-type": "application/json" },
         body: enabled ? "{}" : undefined,
       });
-      setState(enabled ? result : { enabled: false, expiresAt: null });
+      setState(current => enabled ? result : current ? { ...current, enabled: false, expiresAt: null } : null);
     } catch (failure) {
       let message = "Could not update skill access. Please retry.";
       if (failure instanceof Error) {
@@ -121,14 +126,18 @@ function ConnectionSkill({
     <article className="dashboard-card onboarding-notice">
       <h3>Agent skill access</h3>
       <p>
-        Enable access after choosing tools below. Nest also makes the agent’s
-        lifecycle channel private. Access pauses if another conversation is
-        added, either channel is shared, or the lifecycle channel becomes
-        public.
+        Connect an account, choose and save tools below, then enable access for {name}.
+        Connected tools pause if the agent’s private chat is shared or it joins another conversation.
       </p>
-      {state?.enabled && (
-        <p>Enabled until {new Date(state.expiresAt!).toLocaleDateString()}.</p>
-      )}
+      {state && <p>Saved tool permissions: <strong>{state.grantedToolCount}</strong></p>}
+      {state && state.grantedToolCount === 0 && <p role="status">
+        No tools are allowed yet. Choose tools below and click Save tool access.
+      </p>}
+      {state?.enabled && <>
+        <p>Access enabled until {new Date(state.expiresAt!).toLocaleDateString()}.</p>
+        {state.preloadConfigured ? <p>The connection guide will load for the next request.</p> :
+          <p role="status">Renew skill access to load the connection guide for the next request.</p>}
+      </>}
       {error && <p role="alert">{error}</p>}
       {!available && (
         <p>Ask your administrator to configure connection skill access.</p>
@@ -136,7 +145,7 @@ function ConnectionSkill({
       <div className="connection-skill-actions">
         <button
           className="dashboard-action"
-          disabled={busy || !state || !available}
+          disabled={busy || !state || !available || state.grantedToolCount === 0}
           onClick={() => void change(true)}
         >
           {busy

@@ -22,4 +22,8 @@ export type ConnectionCapability = {
 export type ConnectionSkillStatus = {
   enabled: boolean;
   expiresAt: number | null;
+  /** Saved permissions on locally nonrevoked accounts; not provider availability. */
+  grantedToolCount: number;
+  /** Whether the enabled skill is configured for preloading on the next turn. */
+  preloadConfigured: boolean;
 };

@@ -117,9 +117,19 @@ mappings, exact per-agent tool grants, and hashed expiring skill capabilities.
 Human management uses engine sessions and current PRIVATE agent ownership.
 Connecting an app does not grant tools; granting tools does not enable execution.
 Owners explicitly enable the skill after granting tools in agent settings.
+Agent skill access displays the saved permission count; selecting checkboxes is
+not a grant until Save tool access succeeds. Enable/Renew rejects zero saved
+permissions with 409, and the UI refreshes the count after saves/disconnects.
+The count excludes locally revoked accounts and reflects saved choices, not live
+provider availability or current private-context eligibility.
 
 Enabling installs a random 30-day token in the existing engine private-agent
-secret store and enables `nest-connections`. The browser receives only status
+secret store and enables `nest-connections`. It also adds the skill to OrgOps's existing
+`alwaysPreloadedSkills`, preserving other enabled/preloaded skills. The runner
+includes the helper's full instructions on the next turn; it does not widen
+workspace permissions or rewrite the user's prompt. Older activated agents can
+load these instructions by saving tool permissions and clicking Renew skill
+access after upgrading. Existing turns keep their original prompt. The browser receives only status
 and expiry. Renewal replaces access; revocation immediately invalidates tokens.
 The disabled token can remain in the encrypted engine secret store, but is no
 longer accepted. A single Nest API process owns the product SQLite file and

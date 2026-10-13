@@ -296,12 +296,22 @@ try {
       assert.equal(link.status, 201);
       connectionActive = true;
       await page.getByRole("button", { name: "Refresh status" }).click();
+      await page.getByText("No tools are allowed yet.", {exact:false}).waitFor();
+      assert(await page.getByRole("button",{name:"Enable skill access",exact:true}).isDisabled());
+      await page.getByRole("heading",{name:"Agent skill access",exact:true}).evaluate(node => (node.closest("article") ?? node).scrollIntoView({block:"start"}));
+      await page.screenshot({path:join(screenshots,"connected-no-tools-desktop.png")});
+      await page.setViewportSize({width:390,height:844});
+      await page.getByRole("heading",{name:"Agent skill access",exact:true}).evaluate(node => (node.closest("article") ?? node).scrollIntoView({block:"start"}));
+      await page.screenshot({path:join(screenshots,"connected-no-tools-mobile.png")});
+      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      await page.setViewportSize({width:1440,height:1100});
       await page
         .getByText("Choose tools for PuffVitaliy", { exact: false })
         .click();
       await page
         .getByRole("checkbox", { name: "List my boards", exact: false })
         .check();
+      assert(await page.getByRole("button",{name:"Enable skill access",exact:true}).isDisabled(),"Unsaved selection grants no access");
       await page.getByRole("button", { name: "Save tool access" }).click();
       await page
         .getByRole("status")
@@ -328,8 +338,24 @@ try {
         method: "POST", headers: runnerHeaders,
         body: JSON.stringify({ subscriberType: "AGENT", subscriberId: "PuffVitaliy" }),
       })).ok);
+      await page.waitForFunction(()=>!([...document.querySelectorAll('button')].find(button=>button.textContent==='Enable skill access') as HTMLButtonElement)?.disabled);
       await page.getByRole("button",{name:"Enable skill access",exact:true}).click();
       await page.getByRole("button",{name:"Renew skill access",exact:true}).waitFor();
+      await page.getByText("The connection guide will load for the next request.",{exact:true}).waitFor();
+      const enabledAgent=await (await product.app.request("/api/agents/PuffVitaliy",{headers})).json();
+      assert(enabledAgent.alwaysPreloadedSkills.includes("nest-connections"));
+      // Older credentials remain owner-controlled; Renewal installs the preload.
+      assert((await product.app.request("/api/agents/PuffVitaliy",{method:"PATCH",headers,body:JSON.stringify({alwaysPreloadedSkills:[]})})).ok);
+      await page.getByRole("button",{name:"Refresh status",exact:true}).click();
+      await page.getByText("Renew skill access to load the connection guide for the next request.",{exact:true}).waitFor();
+      await page.getByRole("button",{name:"Renew skill access",exact:true}).click();
+      await page.getByText("The connection guide will load for the next request.",{exact:true}).waitFor();
+      await page.getByRole("heading",{name:"Agent skill access",exact:true}).evaluate(node => (node.closest("article") ?? node).scrollIntoView({block:"start"}));
+      await page.screenshot({path:join(screenshots,"saved-tools-enabled-desktop.png")});
+      await page.setViewportSize({width:390,height:844});
+      await page.getByRole("heading",{name:"Agent skill access",exact:true}).evaluate(node => (node.closest("article") ?? node).scrollIntoView({block:"start"}));
+      await page.screenshot({path:join(screenshots,"saved-tools-enabled-mobile.png")});
+      await page.setViewportSize({width:1440,height:1100});
       const secured = (await (await product.app.request("/api/channels", { headers })).json()).find((channel: any) => channel.id === lifecycleId);
       assert.equal(secured.visibility, "PRIVATE");
       assert(secured.ownerHumanId);

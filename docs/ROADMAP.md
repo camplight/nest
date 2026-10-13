@@ -277,3 +277,12 @@ remain visible; channel search filters the existing sidebar. Chat management and
 the composer are preserved, and project chats render only their outer header.
 Desktop/mobile browser acceptance covers callback URLs, reload, real direct-chat
 access, menus, search, mobile navigation and composer visibility.
+
+## Connection readiness after authentication
+
+Connected-app settings show saved tool permission counts, prevent zero-grant
+activation and refresh after permission saves/account changes. Enable/Renew
+configures the instance helper for preloading through the unchanged engine API;
+legacy agents upgrade by owner renewal. Consent stays explicit. See
+[the investigation](CONNECTION_READINESS.md) for the separate final-event format
+fallback and the limits of the production evidence.

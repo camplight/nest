@@ -26,6 +26,12 @@ live engine channel access checks. It adds no engine endpoint, DB migration,
 runner change or source overlay. Cost/operational issue data is explicitly
 unavailable; private community previews use Nest's existing catalog API.
 
+Connection activation uses the unchanged engine's `alwaysPreloadedSkills` field
+so the next turn receives Nest's helper instructions. Upgrades add no migration
+or engine patch. Existing owners must save at least one tool grant and use Renew
+skill access to enable preloading; there is no automatic account consent or
+credential rotation. Installed runtime skill copies remain untouched.
+
 ## Existing installations
 
 The CLI refuses automatic upgrade of a legacy installation with the branding
