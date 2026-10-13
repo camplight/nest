@@ -119,7 +119,10 @@ Connecting an app does not grant tools; granting tools does not enable execution
 Owners explicitly enable app access after choosing actions in agent settings.
 The picker uses action cards with friendly provider names and a Selected view;
 full descriptions and exact action references are available under About this
-action. Search and pagination retain off-page choices. Save access grants only
+action. Search and pagination retain off-page choices. Select all includes later
+pages; Select all results includes all search matches and keeps existing choices.
+Bulk selection fails without changing choices if a page fails or the combined
+set exceeds 100 actions. Save access grants only
 those exact tools; selection itself is not permission. Discard changes restores
 the saved set, and a failed save retains choices for retry.
 App access displays the saved permission count; selecting checkboxes is

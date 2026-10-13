@@ -76,9 +76,11 @@ const composio = {
           });
         if (path === "/tools") {
           const query = url.searchParams.get("search")?.toLowerCase() ?? "";
-          const matching = actionFixtures.filter(action => `${action.name} ${action.description} ${action.slug}`.toLowerCase().includes(query));
-          const start = url.searchParams.get("cursor") ? 3 : 0;
-          return Response.json({items:matching.slice(start,start+3),next_cursor:matching.length>start+3 ? "next-page" : null});
+          const many = query === "many actions";
+          const matching = many ? Array.from({length:101}, (_,index) => ({slug:`TRELLO_BULK_${index}`,name:`Bulk action ${index}`,description:"Synthetic catalog limit fixture.",toolkit:{slug:"trello"}})) : actionFixtures.filter(action => `${action.name} ${action.description} ${action.slug}`.toLowerCase().includes(query));
+          const size = many ? 50 : 3;
+          const start = Number(url.searchParams.get("cursor") ?? 0);
+          return Response.json({items:matching.slice(start,start+size),next_cursor:matching.length>start+size ? String(start+size) : null});
         }
         if (path.startsWith("/tools/")) {
           const action=actionFixtures.find(action=>path==="/tools/"+action.slug);
@@ -197,12 +199,18 @@ try {
       ]);
     let loseCreation = true;
     let rejectAccessSave = false;
+    let rejectBulkPage = false;
     await page.route("**/api/**", async (route) => {
       const request = route.request(),
         url = new URL(request.url());
       if (rejectAccessSave && request.method()==="PUT" && url.pathname.includes("/grants/")) {
         rejectAccessSave=false;
         await route.fulfill({status:503,json:{error:"Test: Saving access is temporarily unavailable."}});
+        return;
+      }
+      if (rejectBulkPage && url.pathname.endsWith("/tools") && url.searchParams.has("cursor")) {
+        rejectBulkPage=false;
+        await route.fulfill({status:503,json:{error:"Test: next action page unavailable."}});
         return;
       }
       const r = await product.app.request(url.pathname + url.search, {
@@ -326,6 +334,41 @@ try {
       await picker.getByRole("button",{name:"Discard changes",exact:true}).click();
       assert.equal(await picker.getByRole("checkbox",{checked:true}).count(),0);
       await picker.getByRole("checkbox",{name:"List my boards",exact:true}).check();
+      rejectBulkPage=true;
+      await picker.getByRole("button",{name:"Select all",exact:true}).click();
+      await picker.getByRole("alert").filter({hasText:"We couldn’t load all actions"}).waitFor();
+      assert.equal(await picker.getByRole("checkbox",{checked:true}).count(),1,"A failed page must not partially apply bulk choices");
+      await picker.getByRole("button",{name:"Select all",exact:true}).click();
+      await picker.getByRole("status").filter({hasText:"4 actions selected"}).waitFor();
+      assert.equal(await picker.getByRole("checkbox",{checked:true}).count(),4,"Select all includes unloaded provider pages");
+      assert(await picker.getByRole("checkbox",{name:"Find cards",exact:true}).isChecked());
+      assert(await picker.getByRole("button",{name:"Select all",exact:true}).isDisabled());
+      assert(await page.getByRole("button",{name:"Enable app access",exact:true}).isDisabled(),"Bulk selection grants no access until saved");
+      assert.equal((await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json()).length,0);
+      await captureActions("actions-all-desktop.png");
+      await page.setViewportSize({width:390,height:844});
+      await captureActions("actions-all-mobile.png");
+      await picker.locator(".connection-picker-footer").scrollIntoViewIfNeeded();
+      await page.screenshot({path:join(screenshots,"actions-all-mobile-footer.png"),animations:"disabled"});
+      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      await page.setViewportSize({width:1440,height:1100});
+      await picker.getByRole("button",{name:"Discard changes",exact:true}).click();
+      await picker.getByRole("checkbox",{name:"List my boards",exact:true}).check();
+      await query.fill("many actions");
+      await picker.getByRole("checkbox",{name:"Bulk action 0",exact:true}).waitFor();
+      await picker.getByRole("button",{name:"Select all results",exact:true}).click();
+      await picker.getByRole("alert").filter({hasText:"exceed the 100-action limit"}).waitFor();
+      await picker.getByRole("status").filter({hasText:"1 action selected"}).waitFor();
+      assert.equal(await picker.getByRole("checkbox",{checked:true}).count(),0,"Oversized bulk selection must not add partial results");
+      await query.fill("card");
+      await picker.getByRole("checkbox",{name:"Create card",exact:true}).waitFor();
+      await picker.getByRole("button",{name:"Select all results",exact:true}).click();
+      await picker.getByRole("status").filter({hasText:"4 actions selected"}).waitFor();
+      assert.equal(await picker.getByRole("checkbox",{checked:true}).count(),3,"Search bulk selection keeps the prior off-search choice");
+      await picker.getByRole("button",{name:"Discard changes",exact:true}).click();
+      await query.fill("");
+      await picker.getByRole("checkbox",{name:"List my boards",exact:true}).waitFor();
+      await picker.getByRole("checkbox",{name:"List my boards",exact:true}).check();
       await picker.getByRole("button",{name:"Show more actions",exact:true}).click();
       await picker.getByRole("checkbox",{name:"Find cards",exact:true}).check();
       await query.fill("List my boards");
@@ -379,6 +422,15 @@ try {
       assert.deepEqual(grants[0].tools, ["TRELLO_GET_BOARDS"]);
       assert.notEqual(grants[0].connectionId, "test-account");
       assert(await picker.getByRole("button",{name:"Save access",exact:true}).isDisabled());
+      await picker.getByRole("button",{name:"Select all",exact:true}).click();
+      await picker.getByRole("status").filter({hasText:"4 actions selected"}).waitFor();
+      await picker.getByRole("button",{name:"Save access",exact:true}).click();
+      await picker.getByRole("status").filter({hasText:"Access saved"}).waitFor();
+      const bulkGrants = await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any;
+      assert.deepEqual(bulkGrants[0].tools.sort(),actionFixtures.map(action=>action.slug).sort(),"Explicit bulk save persists exactly all catalog IDs");
+      for (const name of ["Create card", "Delete a card", "Find cards"]) await picker.getByRole("checkbox",{name,exact:true}).uncheck();
+      await picker.getByRole("button",{name:"Save access",exact:true}).click();
+      await picker.getByRole("status").filter({hasText:"Access saved"}).waitFor();
       await captureActions("actions-saved-desktop.png");
       await page.setViewportSize({width:390,height:844});
       await captureActions("actions-saved-mobile.png");

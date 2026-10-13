@@ -8,7 +8,15 @@ accounts, tenant content, credentials or external tool calls appear here.
 The browser scenario runs the real Nest API and untouched OrgOps engine. Composio
 catalog/account responses are test fixtures. A deliberate failed save is injected
 before the real grant handler; retry is checked against actual saved permissions.
+A separate second-page failure verifies that bulk selection never applies partial
+choices. A 101-action fixture checks the existing limit without changing choices.
+Explicit bulk saves are checked against all four exact catalog IDs, then restored
+to the single board permission before the activation/lifecycle checks.
 
+- `actions-all-desktop.png`: Select all includes all four actions across provider
+  pages, with saving still pending.
+- `actions-all-mobile.png`: responsive Select all control and scope explanation.
+- `actions-all-mobile-footer.png`: mobile pending choices and save/discard controls.
 - `actions-unsaved-desktop.png`: two pending choices; no access granted yet.
 - `actions-saved-desktop.png`: one saved action after retrying a failed save.
 - `actions-selected-desktop.png`: Selected view retains choices across search

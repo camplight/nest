@@ -293,4 +293,7 @@ Action cards replace the raw checkbox list. Accounts have readable app labels;
 search, Selected view, pagination, descriptive details and a visible Save access
 bar distinguish choices from saved permissions. Discard and clear choices do not
 write until saved. Failed saves retain choices, and explicit account access still
-uses the existing API. Desktop/mobile/dark and real grant preservation are checked.
+uses the existing API. Select all follows every provider page; search scopes bulk
+selection to matching actions while preserving prior choices. Page failures and
+the 100-action limit never apply partial selections. Desktop/mobile/dark and real
+grant preservation are checked.

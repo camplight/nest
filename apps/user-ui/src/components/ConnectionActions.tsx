@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { apiJson, getApiHeaders } from "../api";
 
@@ -55,6 +55,9 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [moreBusy, setMoreBusy] = useState(false);
+  const [allBusy, setAllBusy] = useState(false);
+  const [bulkError, setBulkError] = useState("");
+  const bulkAbort = useRef<AbortController | null>(null);
   const [error, setError] = useState("");
   const [catalogError, setCatalogError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -68,6 +71,10 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
   function remember(items: Action[]) {
     setKnown(previous => ({ ...previous, ...Object.fromEntries(items.map(item => [item.slug, item])) }));
   }
+  useEffect(() => {
+    setAllBusy(false); setBulkError("");
+    return () => { bulkAbort.current?.abort(); };
+  }, [catalogPath, path]);
   useEffect(() => {
     const abort = new AbortController();
     setError(""); setReady(false);
@@ -84,6 +91,7 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
     if (!expanded || filter !== "all") return;
     const abort = new AbortController();
     setLoading(true); setCatalogError(""); setCursor(null);
+    setBulkError("");
     const timeout = setTimeout(() => {
       void apiJson<ActionPage>(`${catalogPath}?search=${encodeURIComponent(query)}`, { signal: abort.signal })
         .then(page => {
@@ -119,6 +127,36 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
     } catch (reason) { setCatalogError(errorMessage(reason)); }
     finally { setMoreBusy(false); }
   }
+  async function selectAll() {
+    const abort = new AbortController();
+    bulkAbort.current = abort;
+    setAllBusy(true); setBulkError("");
+    const actions = new Map<string, Action>();
+    const combined = new Set(selected);
+    const visited = new Set<string>();
+    let next: string | null = null;
+    try {
+      do {
+        const page: ActionPage = await apiJson<ActionPage>(`${catalogPath}?search=${encodeURIComponent(query)}${next ? `&cursor=${encodeURIComponent(next)}` : ""}`, { signal: abort.signal });
+        if (abort.signal.aborted) return;
+        for (const action of page.items) { actions.set(action.slug, action); combined.add(action.slug); }
+        if (combined.size > 100) {
+          setBulkError("These actions exceed the 100-action limit. Narrow your search or choose actions individually. Your choices were kept.");
+          return;
+        }
+        next = page.nextCursor;
+        if (next && visited.has(next)) throw new Error("Repeated action page");
+        if (next) visited.add(next);
+      } while (next);
+      const items = [...actions.values()];
+      remember(items); setTools(items); setCursor(null);
+      setSelected([...combined]); setSaved(false);
+    } catch {
+      if (!abort.signal.aborted) setBulkError("We couldn’t load all actions. Please try again. Your choices were kept.");
+    } finally {
+      if (!abort.signal.aborted) setAllBusy(false);
+    }
+  }
   const choices = filter === "selected"
     ? selected.map(slug => known[slug] ?? {slug, name: slug, description: "A saved or selected action. Search for its name to load the full description."})
         .filter(action => `${actionName(action, connection.toolkit)} ${action.description} ${action.slug}`.toLowerCase().includes(query.trim().toLowerCase()))
@@ -134,12 +172,18 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
         <p>Pick the actions you want your agent to use. Your choices only take effect when you save them.</p></div>
       {error && <p className="connection-picker-error" role="alert">{error}{!ready && <button type="button" onClick={() => setAttempt(value => value + 1)}>Try again</button>}</p>}
       <div className="connection-picker-toolbar">
-        <label className="connection-action-search">Find an action<input value={query} disabled={moreBusy} onChange={event => setQuery(event.target.value)} placeholder="Try emails, boards or messages…" /></label>
+        <label className="connection-action-search">Find an action<input value={query} disabled={moreBusy || allBusy} onChange={event => setQuery(event.target.value)} placeholder="Try emails, boards or messages…" /></label>
         <div className="connection-action-filters" role="group" aria-label="Actions shown">
-          <button type="button" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>Available actions</button>
-          <button type="button" aria-pressed={filter === "selected"} onClick={() => setFilter("selected")}>Selected <span>{selected.length}</span></button>
+          <button type="button" disabled={allBusy || moreBusy} aria-pressed={filter === "all"} onClick={() => setFilter("all")}>Available actions</button>
+          <button type="button" disabled={allBusy || moreBusy} aria-pressed={filter === "selected"} onClick={() => setFilter("selected")}>Selected <span>{selected.length}</span></button>
         </div>
       </div>
+      {filter === "all" && <div className="connection-bulk-actions">
+        <button type="button" className="connection-discard" aria-describedby={`bulk-scope-${connection.id}`} disabled={!ready || busy || moreBusy || allBusy || loading || !!catalogError || !tools.length || (!cursor && tools.every(action => selected.includes(action.slug)))} onClick={() => void selectAll()}>{allBusy ? "Selecting…" : query.trim() ? "Select all results" : "Select all"}</button>
+        <span id={`bulk-scope-${connection.id}`}>{query.trim() ? "Selects every matching action, including other pages." : "Selects every available action, including other pages."} Save access to apply your choices.</span>
+      </div>}
+      {allBusy && <p role="status">Finding all actions…</p>}
+      {bulkError && <p className="connection-picker-error" role="alert">{bulkError}</p>}
       {catalogError && <p className="connection-picker-error" role="alert">{catalogError}<button type="button" onClick={() => setCatalogAttempt(value => value + 1)}>Reload actions</button></p>}
       {filter === "all" && loading ? <div className="connection-actions-loading" role="status">Finding available actions…</div> :
         <div className="connection-action-grid" role="group" tabIndex={0} aria-label="Available app actions">
@@ -148,7 +192,7 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
             const title = actionName(action, connection.toolkit);
             return <article key={action.slug} className={`connection-action-card${checked ? " is-selected" : ""}`}>
               <label className="connection-action-choice">
-                <input type="checkbox" aria-label={title} aria-describedby={`action-${connection.id}-${action.slug}`} checked={checked} disabled={!ready || busy || moreBusy || (!checked && selected.length >= 100)} onChange={event => choose(action.slug, event.target.checked)} />
+                <input type="checkbox" aria-label={title} aria-describedby={`action-${connection.id}-${action.slug}`} checked={checked} disabled={!ready || busy || moreBusy || allBusy || (!checked && selected.length >= 100)} onChange={event => choose(action.slug, event.target.checked)} />
                 <span><strong>{title}</strong><span className="connection-action-description" id={`action-${connection.id}-${action.slug}`}>{action.description ? <ReactMarkdown components={{ img: () => null }}>{descriptionPreview(action.description)}</ReactMarkdown> : "Open the details to review this action before choosing it."}</span></span>
               </label>
               <details className="connection-action-details"><summary>About this action</summary>
@@ -158,14 +202,14 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
           })}
           {!choices.length && !(filter === "all" && catalogError) && <div className="connection-actions-empty"><strong>{filter === "selected" && !selected.length ? "No actions selected" : "No matching actions"}</strong><p>{query ? "Try another word or clear your search." : filter === "selected" ? "Choose an action from Available actions to add it here." : "Try searching for the task you want your agent to do."}</p></div>}
         </div>}
-      {filter === "all" && cursor && !loading && <button type="button" className="connection-more-actions" disabled={moreBusy || busy} onClick={() => void more()}>{moreBusy ? "Loading more…" : "Show more actions"}</button>}
+      {filter === "all" && cursor && !loading && <button type="button" className="connection-more-actions" disabled={moreBusy || busy || allBusy} onClick={() => void more()}>{moreBusy ? "Loading more…" : "Show more actions"}</button>}
       {selected.length >= 100 && <p role="status">You can choose up to 100 actions per account. Remove a choice to add another.</p>}
       <div className="connection-picker-footer">
         <div className="connection-choice-status" role="status"><strong>{selected.length} {selected.length === 1 ? "action" : "actions"} selected</strong><span>{saved && !dirty ? "Access saved" : dirty ? "Changes not saved yet" : "Only saved actions are available to your agent."}</span></div>
         <div className="connection-picker-buttons">
-          {selected.length > 0 && <button type="button" className="connection-discard" disabled={busy || !ready} onClick={() => {setSelected([]); setSaved(false);}}>Clear all choices</button>}
-          {dirty && <button type="button" className="connection-discard" disabled={busy || !ready} onClick={() => {setSelected(savedChoices); setSaved(false);}}>Discard changes</button>}
-          <button type="button" className="connection-save" disabled={!ready || busy || !dirty || selected.length > 100} onClick={() => void save()}>{busy ? "Saving…" : "Save access"}</button>
+          {selected.length > 0 && <button type="button" className="connection-discard" disabled={busy || moreBusy || allBusy || !ready} onClick={() => {setSelected([]); setSaved(false);}}>Clear all choices</button>}
+          {dirty && <button type="button" className="connection-discard" disabled={busy || moreBusy || allBusy || !ready} onClick={() => {setSelected(savedChoices); setSaved(false);}}>Discard changes</button>}
+          <button type="button" className="connection-save" disabled={!ready || busy || allBusy || !dirty || selected.length > 100} onClick={() => void save()}>{busy ? "Saving…" : "Save access"}</button>
         </div>
       </div>
     </div>

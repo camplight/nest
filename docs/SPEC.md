@@ -514,8 +514,12 @@ The connected-app picker presents provider tools as selectable action cards,
 with readable titles, unchanged provider descriptions and optional exact action
 references. Saved access and unsaved choices are displayed separately. Search,
 provider pagination and a Selected view keep the full selected set intact; saves
-still send the exact existing tool IDs to the unchanged grant endpoint. No bulk
-permission presets or guessed read/write classifications are introduced.
+still send the exact existing tool IDs to the unchanged grant endpoint. Explicit
+Select all includes every provider page; with a search it selects all matching
+actions while preserving prior choices. Page failures or selections exceeding
+the existing 100-action limit leave choices intact. Bulk selection requires Save
+access, just like individual choices. No guessed read/write classifications are
+introduced.
 
 ## Agent model defaults and selection
 
