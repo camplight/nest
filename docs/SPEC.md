@@ -485,6 +485,17 @@ existing private secret API supplies the token to its agent. Provider credential
 stay in Nest; engine processes have Composio configuration removed at launch.
 OAuth return fields are not trusted; status comes from the provider adapter.
 
+`GET /api/integrations/agents/:name/skill` reports the existing token status plus
+`grantedToolCount` (saved permissions for this agent on locally nonrevoked accounts
+of the current provider) and `preloadConfigured` (the enabled connection skill is
+configured in `alwaysPreloadedSkills`). Neither reports live account eligibility.
+Enable/Renew requires at least one saved tool permission (409 when empty), then
+preserves other enabled/preloaded skills while adding `nest-connections` to both
+sets through the existing engine PATCH API. No prompt rewriting or workspace
+permission change is performed. Owners renew legacy credentials to opt into this
+preload; no existing agent/token is silently upgraded. Settings refresh status
+after saving tool grants or refreshing/disconnecting accounts.
+
 Human settings require current private-agent ownership. Skill execution validates
 that ownership, exact grants and provider account status. Without a core turn
 attestation API, access requires exactly one unshared owner-only private channel;

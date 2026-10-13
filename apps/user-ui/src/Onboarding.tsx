@@ -183,7 +183,7 @@ export function AgentSetupForm({onCreated}:{onCreated:(name:string)=>void}) {
             </div>)}
   </section>;
 }
-export function Connections({ agentName }: { agentName: string }) {
+export function Connections({ agentName, onPermissionsChanged }: { agentName: string; onPermissionsChanged?: () => void }) {
   const [connections, setConnections] = useState<Connection[]>([]),
     [kits, setKits] = useState<
       {
@@ -212,6 +212,7 @@ export function Connections({ agentName }: { agentName: string }) {
         next = result.nextCursor;
       } while (next);
       setConnections(all);
+      onPermissionsChanged?.();
       setLoaded(true);
       setError("");
     } catch (e) {
@@ -319,6 +320,7 @@ export function Connections({ agentName }: { agentName: string }) {
                 key={c.id + c.status}
                 agentName={agentName}
                 connection={c}
+                onSaved={onPermissionsChanged}
               />
             ) : (
               <p>Finish authentication or reconnect before granting tools.</p>
@@ -383,9 +385,11 @@ export function Connections({ agentName }: { agentName: string }) {
 function ToolGrants({
   agentName,
   connection,
+  onSaved,
 }: {
   agentName: string;
   connection: Connection;
+  onSaved?: () => void;
 }) {
   const [tools, setTools] = useState<
       { slug: string; name: string; description: string }[]
@@ -442,7 +446,8 @@ function ToolGrants({
         Choose tools for {agentName} · {selected.length} selected
       </summary>
       <p>
-        Only selected tools are allowed. Some can send messages, change or
+        Connecting this account does not give {agentName} access. Select tools
+        and click Save tool access, then enable the skill above. Some tools can send messages, change or
         delete data. Read each description before granting access.
       </p>
       {error && <p role="alert">{error}</p>}
@@ -520,6 +525,7 @@ function ToolGrants({
                 "PUT",
               );
               setSaved(true);
+              onSaved?.();
             } catch (e) {
               setError(message(e));
             } finally {
