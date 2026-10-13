@@ -232,3 +232,20 @@ and existing skill roots, and snapshot both databases before product migration.
 Do not advertise live connectivity until OAuth, model execution and revocation
 have been verified with an owner-authorized test account. Runtime isolation and
 mention delivery remain outside this adapter change.
+
+## Nest selected mention delivery
+
+The engine remains pinned to `3e3ed36`. Nest now uses the existing event ID,
+idempotency key and `payload.targetAgentName` API fields for selected mention
+routing. Product migration `006_mentions.sql` adds send-intent hashes, planned
+engine event IDs, delivery confirmations and human notification read state.
+No message text or attachments are duplicated into product storage and no engine
+migration, core mention parser or source patch is introduced.
+
+Deploy the user UI and Nest API together. Snapshot both databases using the
+existing operator deployment flow before applying the product migration. Preserve
+existing channels, runtime skills, connected-account configuration and private
+agent secrets. Native API/WS clients keep their original event semantics;
+notifications are generated for selected human mentions submitted through Nest.
+The generic skill private-context restriction and deployment isolation policy do
+not change.

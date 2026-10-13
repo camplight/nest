@@ -49,3 +49,14 @@ export function insertMention(value:string,mention:MentionQuery,name:string) {
   const inserted=`@${name}${after && /^[\s.,!?;:)\]}]/.test(after) ? '' : ' '}`;
   return {value:value.slice(0,mention.start)+inserted+after,caret:mention.start+inserted.length};
 }
+
+/** Keep selected identities only while their exact text survives an edit. */
+export function reconcileMentions(before:string,after:string,mentions:import('@nest/schemas').SelectedMention[]) {
+ let start=0;while(start<before.length&&start<after.length&&before[start]===after[start])start++;
+ let oldEnd=before.length,newEnd=after.length;while(oldEnd>start&&newEnd>start&&before[oldEnd-1]===after[newEnd-1]){oldEnd--;newEnd--;}
+ const delta=newEnd-oldEnd;
+ return mentions.flatMap(m=>{
+  const next=m.end<=start?m:m.start>=oldEnd?{...m,start:m.start+delta,end:m.end+delta}:null;
+  return next&&after.slice(next.start,next.end)==='@'+next.name?[next]:[];
+ });
+}

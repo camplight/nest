@@ -1,3 +1,4 @@
+import {registerMessageRoutes} from './messages';
 import {registerIntegrationRoutes} from "./integrations/routes";
 import {composioConfigFromEnv,createComposioProvider} from "./integrations/composio";
 import type {ConnectionProvider} from "./integrations/provider";
@@ -48,6 +49,7 @@ export function createApp(config: { connections?: ConnectionProvider | null; con
   const defaultAgentModelId = config.defaultAgentModelId ?? process.env.NEST_DEFAULT_AGENT_MODEL_ID ?? config.personalAgent?.modelId ?? process.env.NEST_PERSONAL_AGENT_MODEL_ID;
   registerAgentModelRoutes(app, orgops, defaultAgentModelId);
   registerOnboardingRoutes(app, {store, orgops, config:config.personalAgent && {...config.personalAgent, modelId:defaultAgentModelId ?? config.personalAgent.modelId}, defaultModelId:defaultAgentModelId, connectionsAvailable:Boolean(provider)});
+  registerMessageRoutes(app, {store,orgops});
   registerProjectRoutes(app, {store, orgops});
   registerCommunityRoutes(app, {store, orgops});
   // Unknown product endpoints do not fall through to a privileged service account.

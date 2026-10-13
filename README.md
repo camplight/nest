@@ -88,6 +88,14 @@ See [personal-agent setup and rollout](docs/PERSONAL_AGENTS.md) for operator
 configuration, permission boundaries and release checks. The current source has
 the onboarding flow; this is not a claim that it is deployed on your instance.
 
+### Direct a request with mentions
+
+Select an agent from the @ menu to direct your message to it, and select people
+who should receive an in-app notification. Nest validates conversation membership
+and supports one agent target plus multiple people per message. The sidebar's
+Mentions inbox keeps read state and links to the exact message. Mentioning someone
+does not add them to a conversation or grant access to connected accounts.
+
 ### Agents have a place to run
 
 An agent belongs to an explicitly assigned runner. You can run several runners
