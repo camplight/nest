@@ -6,6 +6,7 @@ import { createApp as createEngine } from "../../../../vendor/orgops/apps/api/sr
 import { createOrgOpsClient } from "@nest/orgops-client";
 import { createApp } from "../app";
 import { createComposioProvider } from "./composio";
+import { MAX_CONNECTION_ACTIONS, MAX_CONNECTION_GRANT_BYTES, MAX_CONNECTION_CATALOG_PAGES } from "@nest/schemas";
 import { generate } from "@orgops/llm";
 import { createTurnExecutor } from "../../../../vendor/orgops/apps/agent-runner/src/turn-executor";
 import { createRunnerApi } from "../../../../vendor/orgops/apps/agent-runner/src/runner/api";
@@ -27,6 +28,12 @@ let executionCount = 0,
   foreign = false,
   disabled = false,
   failExecute = false;
+let catalogTools: {slug:string;toolkit:{slug:string}}[] = [];
+let catalogMode: "normal" | "failure" | "repeated" | "endless" = "normal";
+let duringCatalog: (()=>Promise<void>) | undefined;
+const largeTools = (count = 175) => Array.from({length:count}, (_, i) => ({
+  slug: `TRELLO_${i}_${"A".repeat(180)}`, toolkit: {slug:"trello"},
+}));
 const requests: { path: string; body: any }[] = [];
 const call = (path: string, method = "GET", body?: unknown, h = headers) =>
   product.app.request(path, {
@@ -51,6 +58,7 @@ beforeEach(async () => {
   disabled = false;
   failExecute = false;
   requests.length = 0;
+  catalogTools = []; catalogMode = "normal"; duringCatalog = undefined;
   engine = createEngine({
     projectRoot: dir,
     dataDir: dir,
@@ -88,6 +96,13 @@ beforeEach(async () => {
           redirect_url: "https://connect.composio.dev/fixture",
         });
       if (path.endsWith("/revoke")) return Response.json({ ok: true });
+      if (path === "/tools") {
+        const cursor = Number(u.searchParams.get("cursor") ?? 0);
+        if (duringCatalog) { const action = duringCatalog; duringCatalog = undefined; await action(); }
+        if (catalogMode === "failure" && cursor >= 50) return Response.json({}, {status:503});
+        return Response.json({items:catalogMode === "endless" ? [] : catalogTools.slice(cursor,cursor+50),
+          next_cursor: catalogMode === "endless" ? String(cursor+50) : catalogMode === "repeated" ? "50" : catalogTools.length>cursor+50 ? String(cursor+50) : null});
+      }
       if (path === "/tools/TRELLO_GET_BOARDS")
         return Response.json({
           slug: "TRELLO_GET_BOARDS",
@@ -305,6 +320,57 @@ it("validates exact grants, cross-toolkit tools, provider ownership and revocati
     {},
   );
   expect((await execute(h)).status).toBe(403);
+});
+it("saves a 2,000-action catalog over 64 KB using pages rather than individual lookups", async () => {
+  const capabilityHeaders = await enable();
+  catalogTools = largeTools(MAX_CONNECTION_ACTIONS);
+  const tools = catalogTools.map(tool=>tool.slug);
+  const path = "/api/integrations/agents/PuffOwner/grants/"+localId;
+  expect(JSON.stringify({tools}).length).toBeGreaterThan(64_000);
+  requests.length = 0;
+  expect((await call(path,"PUT",{tools})).status).toBe(200);
+  expect(requests.filter(request=>request.path === "/tools")).toHaveLength(40);
+  expect(requests.some(request=>request.path.startsWith("/tools/"))).toBe(false);
+  expect((await (await call("/api/integrations/agents/PuffOwner/grants")).json())[0].tools).toEqual(tools);
+  // Future additions and forged IDs are never implicitly granted.
+  expect((await call("/api/integrations/skill/execute","POST",{connectionId:localId,tool:"TRELLO_FUTURE_ACTION",arguments:{}}, capabilityHeaders)).status).toBe(403);
+});
+it("rejects unknown and foreign tools in large lists without changing saved grants", async () => {
+  const path = "/api/integrations/agents/PuffOwner/grants/"+localId;
+  await call(path,"PUT",{tools:["TRELLO_GET_BOARDS"]});
+  catalogTools = largeTools();
+  const tools = catalogTools.map(tool=>tool.slug);
+  expect((await call(path,"PUT",{tools:[...tools,"TRELLO_FORGED"]})).status).toBe(400);
+  catalogTools[0].toolkit.slug = "slack";
+  expect((await call(path,"PUT",{tools})).status).toBe(400);
+  expect((await (await call("/api/integrations/agents/PuffOwner/grants")).json())[0].tools).toEqual(["TRELLO_GET_BOARDS"]);
+});
+it.each(["failure","repeated","endless"] as const)("keeps saved grants when large catalog validation has a %s", async mode => {
+  const path = "/api/integrations/agents/PuffOwner/grants/"+localId;
+  await call(path,"PUT",{tools:["TRELLO_GET_BOARDS"]});
+  catalogTools = largeTools(); catalogMode = mode;
+  const response = await call(path,"PUT",{tools:catalogTools.map(tool=>tool.slug)});
+  expect(response.status).toBe(mode === "failure" ? 502 : 503);
+  if (mode === "endless") expect(requests.filter(request=>request.path === "/tools")).toHaveLength(MAX_CONNECTION_CATALOG_PAGES);
+  expect((await (await call("/api/integrations/agents/PuffOwner/grants")).json())[0].tools).toEqual(["TRELLO_GET_BOARDS"]);
+});
+it.each(["revoke","public"] as const)("rechecks %s after paged validation before saving", async change => {
+  catalogTools = largeTools();
+  duringCatalog = async () => {
+    const response = change === "revoke"
+      ? await call("/api/integrations/connections/"+localId+"/revoke","POST",{})
+      : await call("/api/agents/PuffOwner","PATCH",{visibility:"PUBLIC"});
+    expect(response.ok).toBe(true);
+  };
+  const response = await call("/api/integrations/agents/PuffOwner/grants/"+localId,"PUT",{tools:catalogTools.map(tool=>tool.slug)});
+  expect(response.status).toBe(change === "revoke" ? 409 : 403);
+  expect(product.store.db.prepare("SELECT * FROM product_connection_grants").all()).toEqual([]);
+});
+it("bounds action-list counts and bytes without enlarging execution requests", async () => {
+  const path = "/api/integrations/agents/PuffOwner/grants/"+localId;
+  expect((await call(path,"PUT",{tools:largeTools(MAX_CONNECTION_ACTIONS+1).map(tool=>tool.slug)})).status).toBe(400);
+  expect((await call(path,"PUT",{tools:[],padding:"x".repeat(MAX_CONNECTION_GRANT_BYTES)})).status).toBe(413);
+  expect((await call("/api/integrations/skill/execute","POST",{padding:"x".repeat(64_000)})).status).toBe(413);
 });
 it("denies changed ownership and additional conversations, including archived chats", async () => {
   const h = await enable();

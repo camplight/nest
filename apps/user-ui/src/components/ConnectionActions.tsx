@@ -1,3 +1,4 @@
+import { MAX_CONNECTION_ACTIONS, MAX_CONNECTION_CATALOG_PAGES } from "@nest/schemas";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { apiJson, getApiHeaders } from "../api";
@@ -31,8 +32,11 @@ function errorMessage(reason: unknown) {
   }
   return "We couldn’t load or save these choices. Please try again.";
 }
-const sameChoices = (left: string[], right: string[]) =>
-  left.length === right.length && left.every(slug => right.includes(slug));
+const sameChoices = (left: string[], right: string[]) => {
+  if (left.length !== right.length) return false;
+  const choices = new Set(right);
+  return left.every(slug => choices.has(slug));
+};
 
 export function ConnectionActions({ agentName, connection, onSaved }: {
   agentName: string;
@@ -138,13 +142,15 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
     const visited = new Set<string>();
     let next: string | null = null;
     let saving = false;
+    let pages = 0;
     try {
       do {
+        if (++pages > MAX_CONNECTION_CATALOG_PAGES) throw new Error("Too many action pages");
         const page: ActionPage = await apiJson<ActionPage>(`${catalogPath}?search=${encodeURIComponent(search)}${next ? `&cursor=${encodeURIComponent(next)}` : ""}`, { signal: abort.signal });
         if (abort.signal.aborted) return;
         for (const action of page.items) { actions.set(action.slug, action); combined.add(action.slug); }
-        if (combined.size > 100) {
-          setBulkError("These actions exceed the 100-action limit. Choose specific actions to select a smaller set. Your choices were kept.");
+        if (combined.size > MAX_CONNECTION_ACTIONS) {
+          setBulkError(`This selection exceeds ${MAX_CONNECTION_ACTIONS.toLocaleString()} actions. Choose a smaller set. Your choices were kept.`);
           return;
         }
         next = page.nextCursor;
@@ -168,6 +174,7 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
       if (!abort.signal.aborted) setBulkMode(null);
     }
   }
+  const selectedSet = new Set(selected);
   const choices = filter === "selected"
     ? selected.map(slug => known[slug] ?? {slug, name: slug, description: "A saved or selected action. Search for its name to load the full description."})
         .filter(action => `${actionName(action, connection.toolkit)} ${action.description} ${action.slug}`.toLowerCase().includes(query.trim().toLowerCase()))
@@ -192,7 +199,7 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
         </div>
       </div>
       {filter === "all" && <div className="connection-bulk-actions">
-        <button type="button" className="connection-discard" aria-describedby={`bulk-scope-${connection.id}`} disabled={!ready || busy || moreBusy || allBusy || loading || !!catalogError || !tools.length || (!cursor && tools.every(action => selected.includes(action.slug)))} onClick={() => void selectAll()}>{allBusy ? "Selecting…" : query.trim() ? "Select all results" : "Select all"}</button>
+        <button type="button" className="connection-discard" aria-describedby={`bulk-scope-${connection.id}`} disabled={!ready || busy || moreBusy || allBusy || loading || !!catalogError || !tools.length || (!cursor && tools.every(action => selectedSet.has(action.slug)))} onClick={() => void selectAll()}>{allBusy ? "Selecting…" : query.trim() ? "Select all results" : "Select all"}</button>
         <span id={`bulk-scope-${connection.id}`}>{query.trim() ? "All search results, across pages." : "All available actions, across pages."}</span>
       </div>}
       {allBusy && <p role="status">Finding all actions…</p>}
@@ -200,11 +207,11 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
       {filter === "all" && loading ? <div className="connection-actions-loading" role="status">Finding available actions…</div> :
         <div className="connection-action-grid" role="group" tabIndex={0} aria-label="Available app actions">
           {choices.map(action => {
-            const checked = selected.includes(action.slug);
+            const checked = selectedSet.has(action.slug);
             const title = actionName(action, connection.toolkit);
             return <article key={action.slug} className={`connection-action-card${checked ? " is-selected" : ""}`}>
               <label className="connection-action-choice">
-                <input type="checkbox" aria-label={title} aria-describedby={`action-${connection.id}-${action.slug}`} checked={checked} disabled={!ready || busy || moreBusy || allBusy || (!checked && selected.length >= 100)} onChange={event => choose(action.slug, event.target.checked)} />
+                <input type="checkbox" aria-label={title} aria-describedby={`action-${connection.id}-${action.slug}`} checked={checked} disabled={!ready || busy || moreBusy || allBusy || (!checked && selected.length >= MAX_CONNECTION_ACTIONS)} onChange={event => choose(action.slug, event.target.checked)} />
                 <strong>{title}</strong>
               </label>
               <details className="connection-action-details"><summary>About this action</summary>
@@ -215,13 +222,13 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
           {!choices.length && !(filter === "all" && catalogError) && <div className="connection-actions-empty"><strong>{filter === "selected" && !selected.length ? "No actions selected" : "No matching actions"}</strong><p>{query ? "Try another word or clear your search." : filter === "selected" ? "Choose an action from Available actions to add it here." : "Try searching for the task you want your agent to do."}</p></div>}
         </div>}
       {filter === "all" && cursor && !loading && <button type="button" className="connection-more-actions" disabled={moreBusy || busy || allBusy} onClick={() => void more()}>{moreBusy ? "Loading more…" : "Show more actions"}</button>}
-      {selected.length >= 100 && <p role="status">You can choose up to 100 actions per account. Remove a choice to add another.</p>}
+      {selected.length >= MAX_CONNECTION_ACTIONS && <p role="status">You can choose up to {MAX_CONNECTION_ACTIONS.toLocaleString()} actions per account. Remove a choice to add another.</p>}
       <div className="connection-picker-footer">
         <div className="connection-choice-status" role="status"><strong>{selected.length} {selected.length === 1 ? "action" : "actions"} selected</strong><span>{saved && !dirty ? "Access saved" : dirty ? "Changes not saved yet" : "Only saved actions are available to your agent."}</span></div>
         <div className="connection-picker-buttons">
           {selected.length > 0 && <button type="button" className="connection-discard" disabled={busy || moreBusy || allBusy || !ready} onClick={() => {setSelected([]); setSaved(false);}}>Clear all choices</button>}
           {dirty && <button type="button" className="connection-discard" disabled={busy || moreBusy || allBusy || !ready} onClick={() => {setSelected(savedChoices); setSaved(false);}}>Discard changes</button>}
-          <button type="button" className="connection-save" disabled={!ready || busy || allBusy || !dirty || selected.length > 100} onClick={() => void save()}>{busy ? "Saving…" : "Save access"}</button>
+          <button type="button" className="connection-save" disabled={!ready || busy || allBusy || !dirty || selected.length > MAX_CONNECTION_ACTIONS} onClick={() => void save()}>{busy ? "Saving…" : "Save access"}</button>
         </div>
       </div>
     </div>}

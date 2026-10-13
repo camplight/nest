@@ -529,7 +529,16 @@ through the existing grant endpoint in one explicit click. It ignores advanced
 search filters, reports success only after saving and does not grant future tools
 automatically. Advanced choices require Save access, and bulk Select all results
 keeps existing selections across search and pagination. Page failures or sets
-exceeding the existing 100-action limit never partially select or grant tools.
+exceeding the 2,000-action request bound never partially select or grant tools.
+UI and API share a 2,000-action bound per account. Grant PUT requests accept up to
+512,000 bytes (all other integration bodies retain their 64,000-byte limit).
+Selections over 20 actions are validated against paged provider catalog IDs
+instead of one lookup per action. Catalog traversal stops once every requested
+ID is verified, rejects missing/foreign tools, and bounds/rejects repeated pages.
+Ownership and local revocation are rechecked after validation before writing;
+provider failures leave the previous grant intact. No wildcard or future-tool
+permission is introduced and no engine change or migration is required.
+
 Saved access remains distinct from pending advanced choices; discarding restores
 saved choices. No guessed read/write classifications are introduced.
 

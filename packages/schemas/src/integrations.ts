@@ -1,10 +1,15 @@
 import { z } from "zod";
+
+// Exact grants remain bounded, but full app catalogs routinely exceed 100 actions.
+export const MAX_CONNECTION_ACTIONS = 2_000;
+export const MAX_CONNECTION_GRANT_BYTES = 512_000;
+export const MAX_CONNECTION_CATALOG_PAGES = 100;
 export const integrationToolName = z.string().regex(/^[A-Za-z0-9_-]{1,200}$/);
 export const connectionLinkInput = z
   .object({ toolkit: integrationToolName })
   .strict();
 export const connectionGrantInput = z
-  .object({ tools: z.array(integrationToolName).max(100) })
+  .object({ tools: z.array(integrationToolName).max(MAX_CONNECTION_ACTIONS) })
   .strict();
 export const connectionToolInput = z
   .object({
