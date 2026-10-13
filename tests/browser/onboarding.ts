@@ -16,6 +16,12 @@ const previousRoot = process.env.ORGOPS_PROJECT_ROOT;
 process.env.ORGOPS_PROJECT_ROOT = dir;
 let connectionActive = false;
 let externalUserId = "";
+const actionFixtures = [
+  {slug:"TRELLO_GET_BOARDS",name:"List my boards",description:"Read the boards available to this account.",toolkit:{slug:"trello"}},
+  {slug:"TRELLO_CREATE_CARD",name:"TRELLO_CREATE_CARD",description:"Create a card on a board with a title and description.",toolkit:{slug:"trello"}},
+  {slug:"TRELLO_DELETE_CARD",name:"Delete a card",description:"Delete the selected card. This removes it from the board.",toolkit:{slug:"trello"}},
+  {slug:"TRELLO_FIND_CARDS",name:"Find cards",description:"Find cards matching a phrase on your boards.",toolkit:{slug:"trello"}},
+];
 const composio = {
       apiKey: "test-only-key",
       instanceId: "test",
@@ -68,23 +74,16 @@ const composio = {
               },
             ],
           });
-        if (path === "/tools")
-          return Response.json({
-            items: [
-              {
-                slug: "TRELLO_GET_BOARDS",
-                name: "List my boards",
-                description: "Read the boards available to this account.",
-                toolkit: { slug: "trello" },
-              },
-            ],
-          });
-        if (path === "/tools/TRELLO_GET_BOARDS")
-          return Response.json({
-            slug: "TRELLO_GET_BOARDS",
-            toolkit: { slug: "trello" },
-            input_parameters: { type: "object" },
-          });
+        if (path === "/tools") {
+          const query = url.searchParams.get("search")?.toLowerCase() ?? "";
+          const matching = actionFixtures.filter(action => `${action.name} ${action.description} ${action.slug}`.toLowerCase().includes(query));
+          const start = url.searchParams.get("cursor") ? 3 : 0;
+          return Response.json({items:matching.slice(start,start+3),next_cursor:matching.length>start+3 ? "next-page" : null});
+        }
+        if (path.startsWith("/tools/")) {
+          const action=actionFixtures.find(action=>path==="/tools/"+action.slug);
+          if(action) return Response.json({...action,input_parameters:{type:"object"}});
+        }
         throw Error("Unexpected test transport call: " + path);
       },
     };
@@ -166,6 +165,8 @@ try {
     );
     const cookie = login.headers.getSetCookie()[0].split(";")[0],
       headers = { cookie, "content-type": "application/json" };
+    const branding=await product.app.request("/api/branding",{method:"PUT",headers,body:JSON.stringify({displayName:"Camplight",logoUrl:"/brand/camplight-logo-white.svg",primaryColor:"#350956",accentColor:"#ff7557",backgroundColor:"#f8f4ff"})});
+    assert(branding.ok);
     await call(
       "/api/models",
       {
@@ -195,9 +196,15 @@ try {
         },
       ]);
     let loseCreation = true;
+    let rejectAccessSave = false;
     await page.route("**/api/**", async (route) => {
       const request = route.request(),
         url = new URL(request.url());
+      if (rejectAccessSave && request.method()==="PUT" && url.pathname.includes("/grants/")) {
+        rejectAccessSave=false;
+        await route.fulfill({status:503,json:{error:"Test: Saving access is temporarily unavailable."}});
+        return;
+      }
       const r = await product.app.request(url.pathname + url.search, {
         method: request.method(),
         headers: request.headers(),
@@ -296,26 +303,70 @@ try {
       assert.equal(link.status, 201);
       connectionActive = true;
       await page.getByRole("button", { name: "Refresh status" }).click();
-      await page.getByText("No tools are allowed yet.", {exact:false}).waitFor();
-      assert(await page.getByRole("button",{name:"Enable skill access",exact:true}).isDisabled());
-      await page.getByRole("heading",{name:"Agent skill access",exact:true}).evaluate(node => (node.closest("article") ?? node).scrollIntoView({block:"start"}));
+      await page.getByText("No actions are allowed yet.", {exact:false}).waitFor();
+      assert(await page.getByRole("button",{name:"Enable app access",exact:true}).isDisabled());
+      await page.getByRole("heading",{name:"App access",exact:true}).evaluate(node => (node.closest("article") ?? node).scrollIntoView({block:"start"}));
       await page.screenshot({path:join(screenshots,"connected-no-tools-desktop.png")});
       await page.setViewportSize({width:390,height:844});
-      await page.getByRole("heading",{name:"Agent skill access",exact:true}).evaluate(node => (node.closest("article") ?? node).scrollIntoView({block:"start"}));
+      await page.getByRole("heading",{name:"App access",exact:true}).evaluate(node => (node.closest("article") ?? node).scrollIntoView({block:"start"}));
       await page.screenshot({path:join(screenshots,"connected-no-tools-mobile.png")});
       assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
       await page.setViewportSize({width:1440,height:1100});
       await page
-        .getByText("Choose tools for PuffVitaliy", { exact: false })
+        .getByText("Choose actions for PuffVitaliy", { exact: false })
         .click();
       await page
         .getByRole("checkbox", { name: "List my boards", exact: false })
         .check();
-      assert(await page.getByRole("button",{name:"Enable skill access",exact:true}).isDisabled(),"Unsaved selection grants no access");
-      await page.getByRole("button", { name: "Save tool access" }).click();
+      assert(await page.getByRole("button",{name:"Enable app access",exact:true}).isDisabled(),"Unsaved selection grants no access");
+      const picker=page.locator(".connection-picker");
+      const query=picker.getByRole("textbox",{name:"Find an action",exact:true});
+      await picker.getByRole("checkbox",{name:"Create card",exact:true}).check();
+      await picker.getByText("Changes not saved yet",{exact:true}).waitFor();
+      await picker.getByRole("button",{name:"Discard changes",exact:true}).click();
+      assert.equal(await picker.getByRole("checkbox",{checked:true}).count(),0);
+      await picker.getByRole("checkbox",{name:"List my boards",exact:true}).check();
+      await picker.getByRole("button",{name:"Show more actions",exact:true}).click();
+      await picker.getByRole("checkbox",{name:"Find cards",exact:true}).check();
+      await query.fill("List my boards");
+      await picker.getByRole("button",{name:/^Selected/}).click();
+      assert.equal(await picker.getByRole("checkbox").count(),1);
+      await query.fill("");
+      await picker.getByRole("checkbox",{name:"Find cards",exact:true}).waitFor();
+      assert.equal(await picker.getByRole("checkbox",{checked:true}).count(),2,"Search/page changes preserve choices");
+      await picker.getByRole("checkbox",{name:"Find cards",exact:true}).click();
+      assert.equal(await picker.getByRole("checkbox").count(),1);
+      await picker.getByRole("button",{name:"Available actions",exact:true}).click();
+      await picker.getByRole("checkbox",{name:"Create card",exact:true}).waitFor();
+      await query.fill("nothing-matches");
+      await picker.getByText("No matching actions",{exact:true}).waitFor();
+      await query.fill("");
+      await picker.getByRole("checkbox",{name:"Create card",exact:true}).waitFor();
+      const details=picker.locator(".connection-action-card").filter({hasText:"Delete a card"});
+      await details.getByText("About this action",{exact:true}).click();
+      await details.getByText("Action reference:",{exact:false}).waitFor();
+      await details.getByText("About this action",{exact:true}).click();
+      await picker.getByRole("checkbox",{name:"Create card",exact:true}).check();
+      async function captureActions(name:string) {
+        await page.evaluate(()=>document.fonts.ready);
+        await picker.evaluate(node=>node.scrollIntoView({block:"start"}));
+        await page.screenshot({path:join(screenshots,name)});
+      }
+      await captureActions("actions-unsaved-desktop.png");
+      await page.setViewportSize({width:390,height:844});
+      await captureActions("actions-unsaved-mobile.png");
+      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      await page.setViewportSize({width:1440,height:1100});
+      await picker.getByRole("checkbox",{name:"Create card",exact:true}).uncheck();
+      rejectAccessSave=true;
+      await picker.getByRole("button",{name:"Save access",exact:true}).click();
+      await picker.getByRole("alert").filter({hasText:"Saving access is temporarily unavailable"}).waitFor();
+      assert(await picker.getByRole("checkbox",{name:"List my boards",exact:true}).isChecked());
+      assert.equal((await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json()).length,0,"Failed save grants no actions");
+      await picker.getByRole("button",{name:"Save access",exact:true}).click();
       await page
         .getByRole("status")
-        .filter({ hasText: "Tool access saved" })
+        .filter({ hasText: "Access saved" })
         .waitFor();
       const grants = (await (
         await product.app.request("/api/integrations/agents/PuffVitaliy/grants", {
@@ -325,6 +376,20 @@ try {
       assert.equal(grants.length, 1);
       assert.deepEqual(grants[0].tools, ["TRELLO_GET_BOARDS"]);
       assert.notEqual(grants[0].connectionId, "test-account");
+      assert(await picker.getByRole("button",{name:"Save access",exact:true}).isDisabled());
+      await captureActions("actions-saved-desktop.png");
+      await page.setViewportSize({width:390,height:844});
+      await captureActions("actions-saved-mobile.png");
+      await picker.locator(".connection-picker-footer").scrollIntoViewIfNeeded();
+      await page.screenshot({path:join(screenshots,"actions-saved-mobile-footer.png")});
+      await picker.getByRole("button",{name:"Clear all choices",exact:true}).click();
+      assert.equal(await picker.getByRole("checkbox",{checked:true}).count(),0);
+      await picker.getByRole("button",{name:"Discard changes",exact:true}).click();
+      assert(await picker.getByRole("checkbox",{name:"List my boards",exact:true}).isChecked());
+      await page.setViewportSize({width:1440,height:1100});
+      await page.getByRole("button",{name:"Switch to dark theme",exact:true}).click();
+      await captureActions("actions-dark-desktop.png");
+      await page.getByRole("button",{name:"Switch to light theme",exact:true}).click();
       // Reproduce the automatic runner channel that previously blocked every
       // running personal agent. Exercise the real engine HTTP endpoints.
       const runnerHeaders = { "content-type": "application/json", "x-orgops-runner-token": "test-runner" };
@@ -338,22 +403,22 @@ try {
         method: "POST", headers: runnerHeaders,
         body: JSON.stringify({ subscriberType: "AGENT", subscriberId: "PuffVitaliy" }),
       })).ok);
-      await page.waitForFunction(()=>!([...document.querySelectorAll('button')].find(button=>button.textContent==='Enable skill access') as HTMLButtonElement)?.disabled);
-      await page.getByRole("button",{name:"Enable skill access",exact:true}).click();
-      await page.getByRole("button",{name:"Renew skill access",exact:true}).waitFor();
+      await page.waitForFunction(()=>!([...document.querySelectorAll('button')].find(button=>button.textContent==='Enable app access') as HTMLButtonElement)?.disabled);
+      await page.getByRole("button",{name:"Enable app access",exact:true}).click();
+      await page.getByRole("button",{name:"Renew app access",exact:true}).waitFor();
       await page.getByText("The connection guide will load for the next request.",{exact:true}).waitFor();
       const enabledAgent=await (await product.app.request("/api/agents/PuffVitaliy",{headers})).json();
       assert(enabledAgent.alwaysPreloadedSkills.includes("nest-connections"));
       // Older credentials remain owner-controlled; Renewal installs the preload.
       assert((await product.app.request("/api/agents/PuffVitaliy",{method:"PATCH",headers,body:JSON.stringify({alwaysPreloadedSkills:[]})})).ok);
       await page.getByRole("button",{name:"Refresh status",exact:true}).click();
-      await page.getByText("Renew skill access to load the connection guide for the next request.",{exact:true}).waitFor();
-      await page.getByRole("button",{name:"Renew skill access",exact:true}).click();
+      await page.getByText("Renew app access to load the connection guide for the next request.",{exact:true}).waitFor();
+      await page.getByRole("button",{name:"Renew app access",exact:true}).click();
       await page.getByText("The connection guide will load for the next request.",{exact:true}).waitFor();
-      await page.getByRole("heading",{name:"Agent skill access",exact:true}).evaluate(node => (node.closest("article") ?? node).scrollIntoView({block:"start"}));
+      await page.getByRole("heading",{name:"App access",exact:true}).evaluate(node => (node.closest("article") ?? node).scrollIntoView({block:"start"}));
       await page.screenshot({path:join(screenshots,"saved-tools-enabled-desktop.png")});
       await page.setViewportSize({width:390,height:844});
-      await page.getByRole("heading",{name:"Agent skill access",exact:true}).evaluate(node => (node.closest("article") ?? node).scrollIntoView({block:"start"}));
+      await page.getByRole("heading",{name:"App access",exact:true}).evaluate(node => (node.closest("article") ?? node).scrollIntoView({block:"start"}));
       await page.screenshot({path:join(screenshots,"saved-tools-enabled-mobile.png")});
       await page.setViewportSize({width:1440,height:1100});
       const secured = (await (await product.app.request("/api/channels", { headers })).json()).find((channel: any) => channel.id === lifecycleId);
@@ -366,18 +431,18 @@ try {
       assert((await product.app.request(`/api/channels/${lifecycleId}/subscribe`, {
         method: "POST", headers, body: JSON.stringify({ subscriberType: "HUMAN", subscriberId: "observer" }),
       })).ok);
-      await page.getByRole("button", { name: "Renew skill access", exact: true }).click();
+      await page.getByRole("button", { name: "Renew app access", exact: true }).click();
       await page.getByRole("alert").filter({ hasText: "lifecycle channel must be private" }).waitFor();
-      await page.getByRole("heading", { name: "Agent skill access", exact: true }).evaluate(node => node.scrollIntoView({ block: "start" }));
+      await page.getByRole("heading", { name: "App access", exact: true }).evaluate(node => node.scrollIntoView({ block: "start" }));
       await page.screenshot({ path: join(screenshots, "skill-access-error-desktop.png"), fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
-      await page.getByRole("heading", { name: "Agent skill access", exact: true }).evaluate(node => node.scrollIntoView({ block: "start" }));
+      await page.getByRole("heading", { name: "App access", exact: true }).evaluate(node => node.scrollIntoView({ block: "start" }));
       await page.screenshot({ path: join(screenshots, "skill-access-error-mobile.png"), fullPage: true });
       await page.setViewportSize({ width: 1440, height: 1100 });
       assert((await product.app.request(`/api/channels/${lifecycleId}/unsubscribe`, {
         method: "POST", headers, body: JSON.stringify({ subscriberType: "HUMAN", subscriberId: "observer" }),
       })).ok);
-      await page.getByRole("button", { name: "Renew skill access", exact: true }).click();
+      await page.getByRole("button", { name: "Renew app access", exact: true }).click();
       await page.getByRole("alert").filter({ hasText: "lifecycle channel must be private" }).waitFor({ state: "hidden" });
       await page.getByRole("heading", {name:"Connected apps",exact:true}).evaluate(node => node.scrollIntoView({block:"start"}));
       await page.screenshot({

@@ -124,19 +124,19 @@ function ConnectionSkill({
   }
   return (
     <article className="dashboard-card onboarding-notice">
-      <h3>Agent skill access</h3>
+      <h3>App access</h3>
       <p>
-        Connect an account, choose and save tools below, then enable access for {name}.
+        Connect an account, choose and save actions below, then enable access for {name}.
         Connected tools pause if the agent’s private chat is shared or it joins another conversation.
       </p>
-      {state && <p>Saved tool permissions: <strong>{state.grantedToolCount}</strong></p>}
+      {state && <p>Saved actions: <strong>{state.grantedToolCount}</strong></p>}
       {state && state.grantedToolCount === 0 && <p role="status">
-        No tools are allowed yet. Choose tools below and click Save tool access.
+        No actions are allowed yet. Choose actions below and click Save access.
       </p>}
       {state?.enabled && <>
         <p>Access enabled until {new Date(state.expiresAt!).toLocaleDateString()}.</p>
         {state.preloadConfigured ? <p>The connection guide will load for the next request.</p> :
-          <p role="status">Renew skill access to load the connection guide for the next request.</p>}
+          <p role="status">Renew app access to load the connection guide for the next request.</p>}
       </>}
       {error && <p role="alert">{error}</p>}
       {!available && (
@@ -151,8 +151,8 @@ function ConnectionSkill({
           {busy
             ? "Updating…"
             : state?.enabled
-              ? "Renew skill access"
-              : "Enable skill access"}
+              ? "Renew app access"
+              : "Enable app access"}
         </button>
         {state?.enabled && (
           <button
@@ -160,7 +160,7 @@ function ConnectionSkill({
             disabled={busy}
             onClick={() => void change(false)}
           >
-            Revoke skill access
+            Turn off app access
           </button>
         )}
       </div>
