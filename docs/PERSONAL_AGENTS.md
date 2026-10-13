@@ -136,8 +136,15 @@ action failures are not retried automatically.
 **Private-context limitation:** a generic skill cannot attest which conversation
 caused a call. Nest conservatively requires the PRIVATE owned agent to be
 subscribed to exactly one unarchived, unshared PRIVATE owner-only conversation,
-with only its owner and itself as participants. Additional subscriptions (even
-archived), sharing, or changed ownership deny skill calls until resolved. This
+with only its owner and itself as participants. OrgOps also creates an
+`agent.lifecycle.<agent name>` GROUP for runtime events. Enable/Renew makes the
+canonical lifecycle channel PRIVATE and owned by the signed-in owner through
+OrgOps's channel API, provided it has no other participants or shares. Nest checks
+both channels on each call; execution never repairs permissions. A lifecycle
+channel becoming public, shared, archived or joined by others pauses access.
+Other subscriptions (even archived), sharing, or changed ownership deny skill
+calls until resolved. If the runner creates its default lifecycle channel after
+initial activation, click Renew to secure it; access stays paused in the meantime. This
 is an agent-wide restriction, not a verified current-turn identity. Shared/team
 connected-account use is not yet supported. Existing runtime isolation policy
 is unchanged; operators and co-resident processes remain trusted.

@@ -448,3 +448,163 @@ it("denies tampered execution bodies and reports an enabled Nest adapter indepen
   expect(schema.status).toBe(200);
   expect((await schema.json()).inputParameters).toEqual({ type: "object" });
 });
+
+// Match the unchanged runner's ensureLifecycleChannel HTTP contract. No DB seed.
+async function lifecycle(name = "agent.lifecycle.PuffOwner") {
+  const runnerHeaders = {
+    "content-type": "application/json",
+    "x-orgops-runner-token": "runner",
+  };
+  const created = await engine.app.request("/api/channels", {
+    method: "POST",
+    headers: runnerHeaders,
+    body: JSON.stringify({
+      name,
+      description: "Lifecycle bootstrap channel for PuffOwner",
+      kind: "GROUP",
+    }),
+  });
+  expect(created.status).toBe(201);
+  const id = (await created.json()).id;
+  expect(
+    (
+      await engine.app.request(`/api/channels/${id}/subscribe`, {
+        method: "POST",
+        headers: runnerHeaders,
+        body: JSON.stringify({
+          subscriberType: "AGENT",
+          subscriberId: "PuffOwner",
+        }),
+      })
+    ).ok,
+  ).toBe(true);
+  return id as string;
+}
+it("secures the actual runner lifecycle shape on activation and denies public execution", async () => {
+  const id = await lifecycle();
+  const tokenHeaders = await enable();
+  const channels = await (await call("/api/channels")).json();
+  const secured = channels.find((ch: any) => ch.id === id);
+  expect(secured.visibility).toBe("PRIVATE");
+  expect(secured.ownerHumanId).toBe(
+    (await (await call("/api/auth/me")).json()).id,
+  );
+  expect((await execute(tokenHeaders)).status).toBe(200);
+  expect(
+    (await call(`/api/channels/${id}`, "PATCH", { visibility: "PUBLIC" })).ok,
+  ).toBe(true);
+  expect((await execute(tokenHeaders)).status).toBe(403);
+  expect(executionCount).toBe(1);
+  const renewed = await enable();
+  expect((await execute(renewed)).status).toBe(200);
+});
+it("does not exempt lookalike lifecycle names or secure channels with other participants", async () => {
+  const id = await lifecycle("agent.lifecycle.PuffOwner.extra");
+  expect(
+    (await call("/api/integrations/agents/PuffOwner/skill", "POST", {})).status,
+  ).toBe(403);
+  expect(
+    (await (await call("/api/channels")).json()).find((ch: any) => ch.id === id)
+      .visibility,
+  ).toBe("PUBLIC");
+  await call(`/api/channels/${id}/unsubscribe`, "POST", {
+    subscriberType: "AGENT",
+    subscriberId: "PuffOwner",
+  });
+  await call("/api/humans/invite", "POST", {
+    username: "other",
+    tempPassword: "password",
+  });
+  const canonicalId = await lifecycle();
+  expect(
+    (
+      await call(`/api/channels/${canonicalId}/subscribe`, "POST", {
+        subscriberType: "HUMAN",
+        subscriberId: "other",
+      })
+    ).ok,
+  ).toBe(true);
+  const denied = await call(
+    "/api/integrations/agents/PuffOwner/skill",
+    "POST",
+    {},
+  );
+  expect(denied.status).toBe(403);
+  expect(await denied.text()).toContain("lifecycle channel");
+  expect(
+    (await (await call("/api/channels")).json()).find(
+      (ch: any) => ch.id === canonicalId,
+    ).visibility,
+  ).toBe("PUBLIC");
+});
+it("pauses calls when the secured lifecycle channel gets another subscriber or viewer", async () => {
+  const id = await lifecycle();
+  await call("/api/humans/invite", "POST", {
+    username: "other",
+    tempPassword: "password",
+  });
+  const tokenHeaders = await enable();
+  await call(`/api/channels/${id}/subscribe`, "POST", {
+    subscriberType: "HUMAN",
+    subscriberId: "other",
+  });
+  expect((await execute(tokenHeaders)).status).toBe(403);
+  expect(executionCount).toBe(0);
+  await call(`/api/channels/${id}/unsubscribe`, "POST", {
+    subscriberType: "HUMAN",
+    subscriberId: "other",
+  });
+  engine.db
+    .prepare("UPDATE humans SET must_change_password=0 WHERE username='other'")
+    .run();
+  const login = await call(
+    "/api/auth/login",
+    "POST",
+    { username: "other", password: "password" },
+    { "content-type": "application/json" },
+  );
+  const other = {
+    ...headers,
+    cookie: login.headers.getSetCookie()[0].split(";")[0],
+  };
+  // Ordinary humans cannot post to this now-private bookkeeping channel.
+  expect(
+    (
+      await call(
+        "/api/events",
+        "POST",
+        {
+          type: "message",
+          source: "human:other",
+          channelId: id,
+          payload: { text: "untrusted" },
+        },
+        other,
+      )
+    ).status,
+  ).toBe(403);
+  const share = await (
+    await call(`/api/channels/${id}/share-link`, "POST", {})
+  ).json();
+  expect(
+    (
+      await call(
+        `/api/channel-share-links/${share.token}/claim`,
+        "POST",
+        {},
+        other,
+      )
+    ).ok,
+  ).toBe(true);
+  expect((await execute(tokenHeaders)).status).toBe(403);
+  expect(executionCount).toBe(0);
+});
+
+it("fails closed if the runner first creates its public lifecycle channel after activation", async () => {
+  const original = await enable();
+  await lifecycle();
+  expect((await execute(original)).status).toBe(403);
+  const renewed = await enable();
+  expect((await execute(original)).status).toBe(401);
+  expect((await execute(renewed)).status).toBe(200);
+});
