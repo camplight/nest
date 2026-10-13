@@ -1,5 +1,5 @@
 import type { Agent, ChannelParticipant } from './types';
-export type MentionCandidate = {id:string; name:string; kind:'Agent'|'Person'; inConversation:boolean};
+export type MentionCandidate = {id:string; name:string; kind:'Agent'|'Person'; inConversation:boolean; assistantOwner?:string};
 export type MentionQuery = {start:number; end:number; query:string};
 export function findMention(value:string, caret:number, selectionEnd=caret): MentionQuery | null {
   if (caret !== selectionEnd) return null;

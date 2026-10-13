@@ -1,3 +1,4 @@
+import { createAgentRequestStore } from './agent-requests';
 import { createCommunityStore } from './community';
 import Database from 'better-sqlite3';
 import { mkdirSync, readFileSync } from 'node:fs';
@@ -21,7 +22,7 @@ export function openProductDb(path = '.nest-product/nest.sqlite') {
   db.pragma('foreign_keys = ON');
   db.exec('CREATE TABLE IF NOT EXISTS product_migrations (name TEXT PRIMARY KEY)');
   db.transaction(() => {
-    for (const name of ['001_projects', '002_project_chats', '003_community', '004_personal_agents', '005_integrations', '006_mentions']) {
+    for (const name of ['001_projects', '002_project_chats', '003_community', '004_personal_agents', '005_integrations', '006_mentions', '007_agent_requests']) {
       if (!db.prepare('SELECT name FROM product_migrations WHERE name=?').get(name)) {
         db.exec(readFileSync(new URL(`../migrations/${name}.sql`, import.meta.url), 'utf8'));
         db.prepare('INSERT INTO product_migrations VALUES (?)').run(name);
@@ -42,6 +43,8 @@ export function openProductDb(path = '.nest-product/nest.sqlite') {
     })();
     return parsed;
   }
-  return { db, projects, community:createCommunityStore(db), branding, saveBranding, close: () => db.close() };
+  return { db, projects, agentRequests:createAgentRequestStore(db), community:createCommunityStore(db), branding, saveBranding, close: () => db.close() };
 }
 export type ProductDb = ReturnType<typeof openProductDb>;
+
+export type { AgentRequestRow, OfferRow } from './agent-requests';

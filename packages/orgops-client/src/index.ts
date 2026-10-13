@@ -90,12 +90,26 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     const headers={'x-orgops-runner-token':serviceToken};
     async function get<T>(path:string):Promise<T>{const response=await request(path,{headers});if(!response.ok)throw Error('Engine context unavailable');return response.json() as Promise<T>;}
     const [agent,channels,humans]=await Promise.all([
-      get<{id:string;name:string;ownerHumanId:string;visibility:string}>(`/api/agents/${encodeURIComponent(agentName)}`),
+      get<{id:string;name:string;ownerHumanId:string;visibility:string;mode:string}>(`/api/agents/${encodeURIComponent(agentName)}`),
       get<Array<{id:string;name:string;description?:string;kind:string;ownerHumanId:string|null;visibility:string;archivedAt?:number;participants:Array<{subscriberType:string;subscriberId:string}>;shares:unknown[]}>>('/api/channels?includeArchived=1'),
       get<Array<{id:string;username:string}>>('/api/humans'),
     ]);
     return {agent,channels,humans};
   }
-  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, connectionContext, baseUrl: base.origin };
+  async function assistantDirectory(serviceToken: string) {
+    if (!serviceToken) throw Error('Assistant metadata access is not configured');
+    const headers = {'x-orgops-runner-token': serviceToken};
+    async function get<T>(path: string): Promise<T> {
+      const response = await request(path, {headers});
+      if (!response.ok) throw Error('Assistant directory unavailable');
+      return response.json() as Promise<T>;
+    }
+    const [agents, humans] = await Promise.all([
+      get<Array<{id:string;name:string;ownerHumanId:string|null;visibility:string;mode:string}>>('/api/agents'),
+      get<Array<{id:string;username:string}>>('/api/humans'),
+    ]);
+    return {agents,humans};
+  }
+  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, connectionContext, assistantDirectory, baseUrl: base.origin };
 }
 export type OrgOpsClient = ReturnType<typeof createOrgOpsClient>;

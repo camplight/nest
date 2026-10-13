@@ -115,7 +115,7 @@ Navigating to Agents clears the active conversation. Existing channel/share
 links retain their workspace behavior.
 
 The directory uses visibility-filtered agents, searchable by name/description.
-Counts describe total, RUNNING and STOPPED runtime records, not task activity or
+Team agent counts describe visible RUNNING and STOPPED runtime records, not task activity or
 quality scores. Details load through `GET /api/agents/:name`. Description and
 native system instructions save through `PATCH /api/agents/:name`; the existing
 engine authorization remains authoritative. Private non-owner settings are
@@ -537,3 +537,63 @@ HTTP polling, focus and realtime message activity refresh it.
 Runtime isolation, shared-account delegation and Composio's private-context rule
 are unchanged. Targeting a personal agent does not unlock connected accounts in
 a shared conversation. See PERSONAL_AGENTS.md for that separate permission boundary.
+
+## Personal-assistant requests
+
+Migration `007_agent_requests.sql` adds opt-in assistant offers and owner/requester
+work requests to Nest's product DB. Only an onboarding-mapped PRIVATE native agent
+with the same current engine ID and owner can be offered. Publication is off by
+default; the owner writes a separate public description. Authenticated discovery
+exposes only that description, agent name and current owner's username. Engine
+instructions, model, workspace, tool grants, account IDs and private chats are not
+published. Shared profiles are listed separately from the visibility-filtered team runtime counts. Missing metadata configuration returns a setup error without blocking
+ordinary agent settings.
+
+Agents contains All agents and Requests views. Shared personal assistants expose
+an Ask action. In a writable chat, the fuzzy @ picker can offer a published
+assistant outside that chat, labelled Request owner approval. Selecting it opens
+a request form with the human's draft text; it does not insert a selected engine
+recipient, publish a chat message, join a channel or grant account access. Existing
+in-chat selected mention delivery keeps its original semantics.
+
+`?view=agents&tab=requests` restores the inbox; `&assistant=<name>` restores a new
+request and `&request=<uuid>` restores details. Incoming and Outgoing lists poll
+20 seconds; details poll 15 seconds. Lists are participant-only and paginated at
+50 items by default (maximum 100). The browser retains an attempted creation's
+UUID and immutable brief in user-scoped tab storage, so retries after a lost
+response/reload recover one request. It does not store sessions or credentials.
+
+The first flow is explicitly human reviewed:
+
+1. Request creation saves a pending brief only in Nest; no guest prompt reaches
+   the privileged agent before its owner approves the work.
+2. The owner approves using their current human session. Nest verifies the pinned
+   personal mapping and the same private-context boundary as connected tools:
+   one unshared owner-only conversation plus a secured canonical lifecycle GROUP.
+   It never subscribes the requester. The approved engine event is sourced from
+   the approving human and targets the existing agent.
+3. A durable dispatch UUID and engine idempotency key survive a lost response or
+   Nest restart. Receipts must match the owner, channel, agent, request and brief.
+   Version checks serialize conflicting decisions. Unconfirmed delivery remains
+   explicitly retryable; confirmed delivery is not silently recreated.
+4. Only the owner can list private agent responses after dispatch. They select a
+   relevant response, edit an outgoing reply and explicitly share that text.
+   Replies are persisted product deliverables, not a mirror of engine history.
+   The requester sees only the human-approved text in Requests. No raw private
+   response/event/channel IDs, uploaded files or account credentials are returned.
+
+`pending` requests can be cancelled by their requester or declined by their
+owner. `dispatching` means private delivery is unconfirmed; `working` means a
+confirmed event was sent, not that a model/tool call succeeded. The human's reply
+marks `completed`. Turning publication off stops new requests, while existing
+requests remain available to their two participants. Changed ownership, visibility,
+engine IDs or private context fail closed for approval and response access.
+Audit stores IDs/status transitions, never briefs, private results or credentials.
+
+This slice approves a work brief using the agent's existing exact tool grants;
+it does not implement per-action/resource restrictions, standing permissions,
+automatic result correlation, external notifications, automatic team-chat reply
+publication or OS isolation. Private response selection is manual because another
+approved task or owner conversation may produce responses in the same chat.
+See [AGENT_REQUESTS.md](AGENT_REQUESTS.md) for the user flow and rollout checks.
+OrgOps source and the submodule pin remain untouched.

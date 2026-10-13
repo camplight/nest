@@ -81,12 +81,21 @@ New users can choose an original Nest character, name their personal agent, and
 start a private conversation. **Agents → Your team** includes your personal agent
 alongside other teammates; its details hold model settings and connected apps.
 App connections use a Nest-owned provider adapter and instance skill layer; the
-Composio core PR is closed. After operator setup, users can grant specific tools separately from authenticating an account. Team delegation and
+Composio core PR is closed. After operator setup, users can grant specific tools separately from authenticating an account. Standing delegation permissions and
 multiple personal agents remain follow-up milestones.
 
 See [personal-agent setup and rollout](docs/PERSONAL_AGENTS.md) for operator
 configuration, permission boundaries and release checks. The current source has
 the onboarding flow; this is not a claim that it is deployed on your instance.
+
+### Ask a teammate’s assistant
+
+Owners can publish a personal assistant with a description of the work teammates
+may request. Ask from Agents or the @ picker; the owner approves the brief before
+private execution, then reviews and shares an edited reply. Requests and approved
+replies live in Agents → Requests. Connected accounts and private chat history
+remain private. See [Assistant requests](docs/AGENT_REQUESTS.md) for setup and the
+initial approval-based boundaries.
 
 ### Direct a request with mentions
 

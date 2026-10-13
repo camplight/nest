@@ -259,3 +259,19 @@ Every skill call checks its privacy, membership and sharing alongside the single
 owner-only conversation. Lifecycle names alone are not authorization markers.
 This is a Nest adapter change: no engine source, pin, DB migration, or runner
 assignment changes. Existing agents apply it when their owner clicks Enable/Renew.
+
+## Nest-owned personal-assistant requests
+
+Product migration `007_agent_requests.sql` introduces opt-in assistant profiles
+and human-reviewed work requests. OrgOps remains at `3e3ed36`; Nest uses existing
+human-authenticated agent/channel/event APIs and the engine's targeting and
+idempotency fields. A shared Nest profile does not change engine agent visibility
+or subscriptions. The same private-context HTTP validator is used by connected
+account calls and owner-approved request dispatch.
+
+Deploy the Nest API and UI together with the usual snapshots of both databases.
+Existing agents, personal mappings, private chats, tool grants, runner assignments
+and runtime skill copies are preserved. All profiles start unpublished. Owners
+must explicitly describe and enable teammate requests. No Composio configuration
+or new runtime skill is required; existing connected accounts keep their current
+permissions. Follow [AGENT_REQUESTS.md](AGENT_REQUESTS.md) for release verification.
