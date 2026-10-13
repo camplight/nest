@@ -268,3 +268,12 @@ Acceptance includes real-engine targeted routing, human notification ownership,
 access changes, lost responses and restart recovery, desktop/mobile, IME/caret
 behavior, attachments and message deep links. Production rollout follows a
 reviewed PR and the normal dual-database backup process.
+
+## Consistent header on connection-return chats
+
+Standalone channel links (including personal-chat connection callbacks) now reuse
+the shared product header. Theme, mention notifications, settings and account
+remain visible; channel search filters the existing sidebar. Chat management and
+the composer are preserved, and project chats render only their outer header.
+Desktop/mobile browser acceptance covers callback URLs, reload, real direct-chat
+access, menus, search, mobile navigation and composer visibility.

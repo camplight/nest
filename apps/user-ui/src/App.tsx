@@ -1,5 +1,4 @@
-import {MentionInbox} from './components/MentionInbox';
-import {WorkspaceHeaderProvider} from './components/WorkspaceTopbar';
+import {WorkspaceHeaderProvider, WorkspaceTopbar} from './components/WorkspaceTopbar';
 import type {SelectedMention} from '@nest/schemas';
 import { useMentionPicker } from "./components/useMentionPicker";
 import { mentionCandidates, reconcileMentions } from "./mentions";
@@ -2139,15 +2138,15 @@ export default function App() {
     );
   }
 
-  const chatWorkspace = <section className="workspace">
+  const chatWorkspace = <section className={`workspace${view === "workspace" ? " standalone-workspace" : ""}`}>
+        {view === "workspace" && <WorkspaceTopbar
+          onMenu={() => setMobileSidebarOpen(true)}
+          search={<label className="dashboard-search"><DesignIcon name="search" /><input
+            aria-label="Search channels" placeholder="Search channels…" value={channelQuery}
+            onChange={event => setChannelQuery(event.target.value)}
+          /></label>}
+        />}
         <header className="workspace-header">
-          <button
-            type="button"
-            className="sidebar-mobile-toggle"
-            onClick={() => setMobileSidebarOpen(true)}
-          >
-            Menu
-          </button>
           <div>
             <span>Workspace</span>
             <div className="workspace-title-row">
@@ -2500,19 +2499,10 @@ export default function App() {
           <button aria-current={view === "community" && communityCategory === "skill" ? "page" : undefined} onClick={()=>selectCommunity(null,"skill")}><DesignIcon name="skills" />Skills</button>
           <button aria-current={view === "community" && communityCategory !== "skill" ? "page" : undefined} onClick={()=>selectCommunity(null,"")}><DesignIcon name="community" />Community</button>
         </nav>
-        {view === "workspace" && <MentionInbox onOpen={(channelId,eventId)=>{selectChannel(channelId);setFocusedMessage(eventId);const url=new URL(window.location.href);url.searchParams.set('message',eventId);window.history.replaceState(null,'',url);}}/>}
 
         {view === "projects" && <section className="sidebar-section project-sidebar-list" aria-label="Your projects">{projectIndex.map(project => <button key={project.id} aria-current={selectedProject === project.id ? "page" : undefined} onClick={() => selectProject(project.id)}># {project.name}{unreadCounts[project.channelId] ? ` (${unreadCounts[project.channelId]})` : ""}</button>)}</section>}
 
         {view === "workspace" && <section className="sidebar-section">
-          <label className="channel-search">
-            <span>Search channels</span>
-            <input
-              value={channelQuery}
-              onChange={(event) => setChannelQuery(event.target.value)}
-              placeholder="Search channels..."
-            />
-          </label>
           <div className="channel-list">
             {groupedChannels.map((group) => {
               const isCollapsed = !isSearchingChannels && collapsedChannelGroups[group.id];
@@ -2594,12 +2584,6 @@ export default function App() {
           <button className="new-conversation-button" onClick={() => selectProject(null, null, "new")}><span>+ New project</span><kbd>Cmd+K</kbd></button>
         </section>
 
-        {view === "workspace" && <section className="sidebar-section account-actions">
-          <ThemeToggle />
-          <button className="logout-button" onClick={() => void handleLogout()}>
-            Sign out {username ? `(${username})` : ""}
-          </button>
-        </section>}
         <div className="instance-sidebar-footer dashboard-attribution"><span>Powered by</span><DesignIcon name="nest-mark" /><img src={`${import.meta.env.BASE_URL}design/nest-wordmark.svg`} alt="Nest" /></div>
       </aside>
       {mobileSidebarOpen ? (

@@ -13,9 +13,9 @@ areas and community entirely. Private production content is excluded from PRs.
   produce three 360px metric cards with 24px gaps and two 552px work columns.
 - Header height is 74px. Section spacing is 32px. Cards use 8px corners, a light
   border, Unbounded titles and Inter content. Original Figma artwork stays local.
-- Shared top bars on Dashboard, Projects, Agents and Community use Figma's
+- Shared top bars on Dashboard, Projects, Agents, Community and standalone chats use Figma's
   search, MoonStars, BellRinging, GearSix and User controls. On mobile the icons
-  remain visible above a full-width search field. Each search filters its view.
+  remain visible above a full-width search field. Each search filters its view; chat search filters the sidebar channel list.
 - The bell opens actual selected-mention notifications and marks them read only
   when visited. Settings offers browser appearance, agent configuration and an
   owner-only administration link. Account shows the signed-in user and sign-out.
