@@ -20,16 +20,17 @@ try{
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   const writes=[];
   const agents=[{name:'PuffVitaliy',visibility:'PUBLIC'},{name:'PuffNaska',visibility:'PUBLIC'},{name:'Moss',visibility:'PUBLIC'},{name:'SecretAgent',visibility:'PRIVATE',ownerHumanId:'someone-else'}];
-  const participants=[{subscriberType:'AGENT',subscriberId:'PuffVitaliy'},{subscriberType:'AGENT',subscriberId:'PuffNaska'},{subscriberType:'HUMAN',subscriberId:'vitaliy@example.com'}];
+  const participants=[{subscriberType:'AGENT',subscriberId:'PuffVitaliy'},{subscriberType:'AGENT',subscriberId:'PuffNaska'},{subscriberType:'HUMAN',subscriberId:'vitaliy@example.com'},{subscriberType:'HUMAN',subscriberId:'naska@example.com'}];
   await page.routeWebSocket('**/ws',()=>{});
   await page.route('**/api/**',async route=>{
    const r=route.request(),u=new URL(r.url());let data=[];
    if(r.method()!=='GET'){
-    assert.equal(u.pathname,'/api/events');writes.push(r.postDataJSON());data={id:`event-${writes.length}`};
+    assert.equal(u.pathname,'/api/messages');writes.push(r.postDataJSON());data={id:`event-${writes.length}`};
    } else if(u.pathname==='/api/auth/me')data={id:'me',username:'demo'};
    else if(u.pathname==='/api/branding')data={displayName:'Camplight',logoUrl:'/brand/camplight-logo-white.svg',primaryColor:'#350956',accentColor:'#ff7557',backgroundColor:'#f8f4ff'};
    else if(u.pathname==='/api/agents')data=agents;
    else if(u.pathname==='/api/humans')data=[{username:'vitaliy@example.com'},{username:'naska@example.com'}];
+   else if(u.pathname==='/api/mentions')data={items:[]};
    else if(u.pathname==='/api/channels')data=[{id:'chat',name:'Product planning',visibility:'PUBLIC',canPost:true,participants},{id:'readonly',name:'Read only',visibility:'PUBLIC',canPost:false,participants}];
    await route.fulfill({json:data});
   });
@@ -42,7 +43,7 @@ try{
   await input.fill('@pffvtly');assert.equal(await popup.getByRole('option').count(),1);
   await input.press('Enter');assert.equal(await input.inputValue(),'@PuffVitaliy ');assert.equal(writes.length,0);
   await input.press('Enter');await page.waitForFunction(()=>document.querySelector('textarea[aria-label="Message"]').value==='');
-  assert.equal(writes.at(-1).payload.text,'@PuffVitaliy');assert.equal(writes.at(-1).channelId,'chat');
+  assert.equal(writes.at(-1).text,'@PuffVitaliy');assert.equal(writes.at(-1).channelId,'chat');
   await input.fill('@puff');await input.press('ArrowDown');await input.press('Tab');assert.equal(await input.inputValue(),'@PuffVitaliy ');assert.equal(writes.length,1);
   await input.fill('@naska');await popup.getByRole('option').filter({hasText:'naska@example.com'}).click();assert.equal(await input.inputValue(),'@naska@example.com ');
   // Selection restores the caret on the next animation frame. Finish that UI

@@ -1,5 +1,7 @@
+import {MentionInbox} from './components/MentionInbox';
+import type {SelectedMention} from '@nest/schemas';
 import { useMentionPicker } from "./components/useMentionPicker";
-import { mentionCandidates } from "./mentions";
+import { mentionCandidates, reconcileMentions } from "./mentions";
 import type { OnboardingSummary } from "@nest/schemas";
 import {apiUrl} from './config';
 import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
@@ -413,6 +415,7 @@ function channelVisibleToUserUi(
   }
   if (channel.visibility !== "PRIVATE") return true;
   if (Boolean(userId && channel.ownerHumanId === userId)) return true;
+  if (channelHasHumanParticipant(channel, username)) return true;
   if (channelHasTeamParticipant(channel, viewerTeamIds)) return true;
   return isSharedToHuman;
 }
@@ -445,6 +448,7 @@ function readPendingShareToken() {
 
 function updateChannelDeepLink(channelId: string | null, replace = false) {
   const url = new URL(window.location.href);
+  url.searchParams.delete("message");
   url.searchParams.delete("view");
   url.searchParams.delete("agent"); url.searchParams.delete("skill");
   url.searchParams.delete("project");
@@ -593,7 +597,14 @@ export default function App() {
   const [showConversationDialog, setShowConversationDialog] = useState(false);
   const [showParticipantsDialog, setShowParticipantsDialog] = useState(false);
   const [showChannelManageDialog, setShowChannelManageDialog] = useState(false);
-  const [draft, setDraft] = useState("");
+  const [draftState,setDraftState]=useState<{text:string;mentions:SelectedMention[]}>({text:'',mentions:[]});
+  const draft=draftState.text;
+  function setDraft(text:string){setDraftState(current=>({text,mentions:reconcileMentions(current.text,text,current.mentions)}));}
+  function chooseMention(text:string,mention:SelectedMention){setDraftState(current=>({text,mentions:[...reconcileMentions(current.text,text,current.mentions),mention]}));}
+  const draftRecipients=[...new Map(draftState.mentions.map(m=>[m.kind+':'+m.name,m])).values()];
+  const multipleAgentTargets=draftRecipients.filter(m=>m.kind==='AGENT').length>1;
+  const sendRequestRef=useRef<{fingerprint:string;id:string}|null>(null);
+  const [focusedMessage,setFocusedMessage]=useState<string|null>(()=>new URL(window.location.href).searchParams.get('message'));
   const [username, setUsername] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
   const [loginUsername, setLoginUsername] = useState("admin");
@@ -780,7 +791,7 @@ export default function App() {
   const hasAttachmentErrors = pendingAttachments.some((item) => item.status === "error");
   const activeChannelManageable = canManageUserChannel(activeChannel, userId);
   const activeChannelCanPost = activeChannel ? activeChannel.canPost !== false : false;
-  const mentions = useMentionPicker({value:draft, onChange:setDraft, textareaRef:composerTextareaRef, candidates:mentionOptions, channelId:activeChannelId, disabled:!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending});
+  const mentions = useMentionPicker({value:draft, onChange:setDraft, onChoose:chooseMention, targeted:true, textareaRef:composerTextareaRef, candidates:mentionOptions, channelId:activeChannelId, disabled:!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending});
   const canStartConversation =
     Boolean(conversationName.trim()) || selectedConversationAgents.length === 1;
   const selectedConversationAgentRecords = useMemo(
@@ -803,7 +814,9 @@ export default function App() {
   }, [activeChannel?.id, activeChannel?.visibility, activeChannel?.archivedAt]);
 
   function selectCommunity(name:string|null) {
+    setFocusedMessage(null);
     const url = new URL(window.location.href);
+    url.searchParams.delete('message');
     for (const key of ['channel','agent','project','task','tab','create']) url.searchParams.delete(key);
     url.searchParams.set('view','community');
     if (name) url.searchParams.set('skill',name); else url.searchParams.delete('skill');
@@ -812,7 +825,9 @@ export default function App() {
   }
 
   function selectProject(project: string | null, task: string | null = null, tab = task ? "tasks" : "chat", replace = false) {
+    setFocusedMessage(null);
     const url = new URL(window.location.href);
+    url.searchParams.delete('message');
     url.searchParams.delete("channel"); url.searchParams.delete("agent"); url.searchParams.delete("skill");
     url.searchParams.set("view", "projects");
     if (project) url.searchParams.set("project", project); else url.searchParams.delete("project");
@@ -825,7 +840,9 @@ export default function App() {
   }
 
   function selectAgent(name: string | null, options: {replace?:boolean; create?:boolean} = {}) {
+    setFocusedMessage(null);
     const url = new URL(window.location.href);
+    url.searchParams.delete('message');
     url.searchParams.delete("channel");
     url.searchParams.delete("project"); url.searchParams.delete("task"); url.searchParams.delete("tab"); url.searchParams.delete("create");
     url.searchParams.delete("skill");
@@ -839,6 +856,7 @@ export default function App() {
   }
 
   function selectChannel(channelId: string | null, options?: { replace?: boolean }) {
+    setFocusedMessage(null);
     const project = projectIndex.find(project => project.channelId === channelId);
     if (project) { selectProject(project.id, null, "chat", options?.replace); return; }
     setActiveChannelId(channelId);
@@ -943,9 +961,11 @@ export default function App() {
       } else if (!claimedShareChannelId && ["agents", "projects", "community"].includes(new URL(window.location.href).searchParams.get("view") ?? "") && !linkedChannelId) {
         setActiveChannelId(nextProjects.find(p => p.id === new URL(window.location.href).searchParams.get("project"))?.channelId ?? null); setView(new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : "agents");
       } else {
+        const linkedMessage=new URL(window.location.href).searchParams.get('message');
         const project = nextProjects.find(p => p.channelId === nextActiveChannelId);
         if (project) selectProject(project.id, null, "chat", true);
         else selectChannel(nextActiveChannelId, { replace: true });
+        if(linkedMessage&&linkedChannel){setFocusedMessage(linkedMessage);const link=new URL(window.location.href);link.searchParams.set('message',linkedMessage);window.history.replaceState(null,'',link);}
       }
       // Unread-message refresh is optional; it must not hold the page loading state.
       void loadMessageNotifications({ initialize: true });
@@ -1211,6 +1231,7 @@ export default function App() {
 
   function handleIncomingRealtimeEvent(event: EventRow) {
     if (!event.id || !rememberWsEvent(event.id)) return;
+    if(event.type==='message.created')window.dispatchEvent(new Event('nest-message'));
     const eventChannelId = event.channelId;
     if (!eventChannelId) return;
 
@@ -1300,6 +1321,7 @@ export default function App() {
     setShowParticipantsDialog(false);
     setShowChannelManageDialog(false);
     setPendingAttachments([]);
+    setDraftState({text:'',mentions:[]});sendRequestRef.current=null;
     setShareValue("");
     setShareLinkCopied(false);
     setShareRemovingKey(null);
@@ -1319,10 +1341,22 @@ export default function App() {
     });
   }, [activeChannelId, authenticated, mustChangePassword, projectTab]);
 
+  useEffect(()=>{
+    if(!authenticated||!activeChannelId||!focusedMessage||messagesLoading)return;
+    const abort=new AbortController();
+    void apiJson<EventRow>('/api/events/'+encodeURIComponent(focusedMessage),{signal:abort.signal}).then(event=>{
+      if(abort.signal.aborted)return;if(event.channelId!==activeChannelId)throw Error('Mention is in another conversation');
+      setEvents(current=>mergeEventsChronologically(current,[event]));
+      window.requestAnimationFrame(()=>{const node=document.getElementById('message-'+event.id);node?.scrollIntoView({block:'center'});node?.focus({preventScroll:true});});
+    }).catch(()=>{if(!abort.signal.aborted)setError('This mentioned message is no longer available.');});
+    return()=>abort.abort();
+  },[authenticated,activeChannelId,focusedMessage,messagesLoading]);
+
   useEffect(() => {
     if (!activeChannelId || messagesLoading) return;
     if (!forceScrollToBottomOnLoadRef.current) return;
     forceScrollToBottomOnLoadRef.current = false;
+    if(focusedMessage)return;
     // Run after paint to handle initial DOM/layout settling on hard reload.
     window.requestAnimationFrame(() => {
       scrollMessagesToBottom("auto");
@@ -1330,7 +1364,7 @@ export default function App() {
         scrollMessagesToBottom("auto");
       });
     });
-  }, [activeChannelId, messagesLoading, timelineItems.length]);
+  }, [activeChannelId, messagesLoading, timelineItems.length, focusedMessage]);
 
   useEffect(() => {
     if (!authenticated || mustChangePassword) return;
@@ -1470,6 +1504,7 @@ export default function App() {
       if (linkedChannel?.archivedAt) setShowArchivedChannels(true);
       setActiveChannelId(linkedChannel?.id ?? null);
       const url = new URL(window.location.href);
+      setFocusedMessage(url.searchParams.get("message"));
       setView(linkedChannel ? "workspace" : url.searchParams.get("view") === "onboarding" ? "agents" : url.searchParams.get("view") === "agents" ? "agents" : url.searchParams.get("view") === "projects" ? "projects" : url.searchParams.get("view") === "community" ? "community" : "dashboard");
       setSelectedAgent(url.searchParams.get("agent"));
       setCreatingPersonalAgent(url.searchParams.get("create") === "personal");
@@ -1574,7 +1609,7 @@ export default function App() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeChannelId || activeChannel?.archivedAt || !activeChannelCanPost) return;
-    if (uploadingAttachmentCount > 0) return;
+    if (uploadingAttachmentCount > 0 || multipleAgentTargets || sending) return;
     const trimmedText = draft.trim();
     if (!trimmedText && readyAttachments.length === 0) return;
 
@@ -1584,20 +1619,14 @@ export default function App() {
       const effectiveText =
         trimmedText ||
         `Attached ${readyAttachments.length} file${readyAttachments.length === 1 ? "" : "s"} for reference.`;
-      await apiFetch("/api/events", {
-        method: "POST",
-        headers: getApiHeaders(),
-        body: JSON.stringify({
-          type: "message.created",
-          payload: {
-            text: effectiveText,
-            ...(readyAttachments.length > 0 ? { attachments: readyAttachments } : {})
-          },
-          source: `human:${username || "user"}`,
-          channelId: activeChannelId
-        })
-      });
-      setDraft("");
+      const leading=draft.length-draft.trimStart().length;
+      const selected=draftState.mentions.map(m=>({...m,start:m.start-leading,end:m.end-leading}));
+      const message={channelId:activeChannelId,text:effectiveText,mentions:selected,attachments:readyAttachments.map(({fileId,name,mime,size})=>({fileId,name,mime,size}))};
+      const fingerprint=JSON.stringify(message);
+      if(sendRequestRef.current?.fingerprint!==fingerprint)sendRequestRef.current={fingerprint,id:crypto.randomUUID()};
+      await apiFetch('/api/messages',{method:'POST',headers:getApiHeaders(),body:JSON.stringify({id:sendRequestRef.current.id,...message})});
+      sendRequestRef.current=null;
+      setDraftState({text:'',mentions:[]});
       setPendingAttachments([]);
       setHasNewMessagesBelow(false);
       if (wsConnected) {
@@ -2165,11 +2194,12 @@ export default function App() {
                   const text = messageText(event);
                   const markdown = shouldRenderMarkdown(text);
                   return (
-                    <article className={`message message-${role}`} key={item.id}>
+                    <article tabIndex={focusedMessage===event.id?-1:undefined} id={`message-${event.id}`} className={`message message-${role}${focusedMessage===event.id?" message-highlight":""}`} key={item.id}>
                       <div className="message-meta">
                         <strong>{sourceLabel(event.source)}</strong>
                         <span>{formatTime(messageDisplayTime(event))}</span>
                       </div>
+                      {Boolean(event.payload)&&typeof event.payload==='object'&&event.payload!==null&&'targetAgentName' in event.payload&&<span className="message-target">To @{String(event.payload.targetAgentName)}</span>}
                       {markdown ? (
                         <div className="message-markdown">
                           <ReactMarkdown
@@ -2343,6 +2373,8 @@ export default function App() {
             rows={isConversationEmpty ? 1 : 3}
           />
           </div>
+          {draftRecipients.length>0&&<div className="mention-delivery" aria-label="Message recipients">{draftRecipients.map(m=><span key={m.kind+':'+m.name}>{m.kind==='AGENT'?'Ask':'Notify'} @{m.name}<button type="button" aria-label={'Remove mention @'+m.name} onClick={()=>{const spans=draftState.mentions.filter(x=>x.kind===m.kind&&x.name===m.name).sort((a,b)=>b.start-a.start);let next=draft;for(const span of spans)next=next.slice(0,span.start)+next.slice(span.end);setDraft(next);}}>×</button></span>)}</div>}
+          {multipleAgentTargets?<p className="mention-delivery-error" role="alert">Choose one agent target per message. You can notify multiple people.</p>:<p className="mention-delivery-hint">{draftRecipients.some(m=>m.kind==='AGENT')?'Only the selected agent receives this request.':'Select an @mention to direct a request or notify a person.'}</p>}
           <div className="composer-actions">
             <button
               type="button"
@@ -2357,7 +2389,7 @@ export default function App() {
                 !activeChannel ||
                 Boolean(activeChannel.archivedAt) ||
                 !activeChannelCanPost ||
-                sending ||
+                sending || multipleAgentTargets ||
                 uploadingAttachmentCount > 0 ||
                 (!draft.trim() && readyAttachments.length === 0)
               }
@@ -2454,6 +2486,7 @@ export default function App() {
           <button aria-current={view === "agents" ? "page" : undefined} onClick={() => selectAgent(null)}><DesignIcon name="agents" />Agents</button>
           <button aria-current={view === "community" ? "page" : undefined} onClick={()=>selectCommunity(null)}><DesignIcon name="community" />Community</button>
         </nav>
+        <MentionInbox onOpen={(channelId,eventId)=>{selectChannel(channelId);setFocusedMessage(eventId);const url=new URL(window.location.href);url.searchParams.set('message',eventId);window.history.replaceState(null,'',url);}}/>
 
         {view === "projects" && <section className="sidebar-section project-sidebar-list" aria-label="Your projects">{projectIndex.map(project => <button key={project.id} aria-current={selectedProject === project.id ? "page" : undefined} onClick={() => selectProject(project.id)}># {project.name}{unreadCounts[project.channelId] ? ` (${unreadCounts[project.channelId]})` : ""}</button>)}</section>}
 

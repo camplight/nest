@@ -488,3 +488,47 @@ capability probe is needed. The complete `/api/onboarding` status remains
 available to agent creation, where provisioning readiness matters. Model catalogs
 load only for native agent details. Initial unread notification fetching no
 longer holds the shell's loading state.
+
+## Selected mentions and message delivery
+
+Nest's composer sends `POST /api/messages` with a stable send UUID, channel, text,
+attachments and selected mention spans. A selected agent produces the existing
+engine `payload.targetAgentName`; no engine source changes are needed. At most
+one distinct agent can be targeted per message. Multiple selected people receive
+in-app mention notifications. Unselected @ text retains ordinary channel delivery
+and may still be interpreted by an agent's coordination instructions.
+
+The picker keeps human and agent identities distinct, supports names with spaces
+and email handles, and disables recipients outside the current conversation.
+Editing a selected name removes its routing metadata. Surrounding edits preserve
+it. The composer shows Ask/Notify recipients and prevents multiple-agent sends.
+Server validation checks span/text agreement, recipient membership, agent
+visibility, human identity and current channel posting rights. It derives source
+from the human session and never subscribes a recipient or expands tool grants.
+
+Migration `006_mentions.sql` stores Nest send intent hashes, a planned engine
+event UUID, delivery confirmations and notification read state. Text and
+attachments remain authoritative in the engine event log. A retry of unchanged
+content uses the same planned ID and engine idempotency key; HTTP receipt checks
+recover a committed event after a lost response or Nest restart. Changed content
+under the same send ID is rejected. Confirmed removed messages are not recreated.
+A failed response leaves the draft intact for retry; this is not an automatic
+background delivery queue or a cross-database transaction.
+
+`GET /api/mentions` reads the current human's product notification references and
+checks engine channel visibility and event receipts before returning previews.
+It shows at most 20 current items, unread first. Reading them lets earlier unread
+items surface. `POST /api/mentions/:id/read` checks recipient ownership and
+current engine access. Read state persists across sessions; deleted events and
+revoked visibility are omitted. Notifications cover selected human mentions sent
+through Nest, not arbitrary engine-native @ text. There are no email, browser-push
+or Slack notifications in this slice.
+
+The sidebar inbox opens the exact message with a `message` URL parameter,
+including an HTTP fetch when it is outside the loaded chat page. Reload and
+history restore the highlighted message. Inbox loading does not block the shell;
+HTTP polling, focus and realtime message activity refresh it.
+
+Runtime isolation, shared-account delegation and Composio's private-context rule
+are unchanged. Targeting a personal agent does not unlock connected accounts in
+a shared conversation. See PERSONAL_AGENTS.md for that separate permission boundary.

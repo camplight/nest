@@ -235,3 +235,23 @@ any additional/shared conversation pauses connected-account access for the agent
 a generic skill cannot attest the triggering conversation. Runtime isolation and
 Nest mention targeting are separate work. See PERSONAL_AGENTS.md for prerequisites
 and the global metadata-token requirement.
+
+## Targeted mentions and in-app notifications — implemented for review
+
+Selected mentions in the existing composer now carry structured identities and
+text spans. One agent target uses OrgOps's existing `targetAgentName`; any selected
+people receive in-app mention notifications. Nonmembers are disabled, multiple
+agent targets block Send, edited names lose their selection, and the server
+revalidates membership/visibility. No implicit subscription or account delegation.
+
+The sidebar inbox retains read state and opens the highlighted message through a
+reloadable URL. Stable send IDs and verified engine receipts recover uncertain
+responses without duplicate messages. This is Nest product behavior on the
+unchanged engine; coordination skills remain available for ordinary textual
+conventions. Multi-agent fan-out, OS isolation, push/email delivery and shared
+connected-account delegation remain separate decisions.
+
+Acceptance includes real-engine targeted routing, human notification ownership,
+access changes, lost responses and restart recovery, desktop/mobile, IME/caret
+behavior, attachments and message deep links. Production rollout follows a
+reviewed PR and the normal dual-database backup process.

@@ -26,3 +26,12 @@ describe('inline mention completion',()=>{
   expect(insertMention('@vi',findMention('@vi',3)!,'vitaliy@example.com').value).toBe('@vitaliy@example.com ');
  });
 });
+
+import {reconcileMentions} from './mentions';
+it('keeps structured mentions across surrounding edits and drops edited or deleted names',()=>{
+ const original='Ask @Research & Design, please';const mention={kind:'AGENT' as const,name:'Research & Design',start:4,end:22};
+ expect(reconcileMentions(original,'Today: '+original,[mention])).toEqual([{...mention,start:11,end:29}]);
+ expect(reconcileMentions(original,original+' now',[mention])).toEqual([mention]);
+ expect(reconcileMentions(original,'Ask @Research & Develop, please',[mention])).toEqual([]);
+ expect(reconcileMentions(original,'Ask , please',[mention])).toEqual([]);
+});

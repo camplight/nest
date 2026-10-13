@@ -41,6 +41,7 @@ await page.route('**/api/**',async route=>{
  data={models:[{id:'kimi',name:'moonshotai/kimi-k3',provider:'openrouter',reference:'openrouter:moonshotai/kimi-k3'},{id:'gemini',name:'google/gemini-2.5-flash',provider:'openrouter',reference:'openrouter:google/gemini-2.5-flash'}],defaultModel:'openrouter:moonshotai/kimi-k3'};
  }
  else if(path==='/api/events'){await notificationGate;data=[];}
+ else if(path==='/api/mentions')data={items:[]};
  else if(path==='/api/onboarding/summary')data={setup:null};
  else if(path==='/api/onboarding'){fullHealthRequests++;return route.fulfill({status:503,json:{error:'Health is unavailable'}});}
  else if(path==='/api/integrations/config'){
@@ -124,3 +125,4 @@ console.log(`Screenshots: ${screenshotDir}`);
 
 // Keep inline composer completion in the existing browser CI entry point.
 await import('./mentions.mjs');
+await import('./targeted-mentions.ts');
