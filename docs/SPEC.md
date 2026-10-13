@@ -510,16 +510,21 @@ engine metadata token and trusted shared runtime are prerequisites, not inferred
 security guarantees. See [PERSONAL_AGENTS.md](PERSONAL_AGENTS.md) for installation,
 configuration, expiry/renewal, limitations and live release checks.
 
-The connected-app picker presents provider tools as selectable action cards,
-with readable titles, unchanged provider descriptions and optional exact action
-references. Saved access and unsaved choices are displayed separately. Search,
-provider pagination and a Selected view keep the full selected set intact; saves
-still send the exact existing tool IDs to the unchanged grant endpoint. Explicit
-Select all includes every provider page; with a search it selects all matching
-actions while preserving prior choices. Page failures or selections exceeding
-the existing 100-action limit leave choices intact. Bulk selection requires Save
-access, just like individual choices. No guessed read/write classifications are
-introduced.
+Connected-app permissions default to a compact Give all access action, with
+locally served brand logos for the initial supported apps and a generic app icon
+for unknown providers. Choose specific actions expands the advanced search,
+Selected view and compact permission rows. Full provider descriptions and exact
+references remain under About this action; action titles are presentation only.
+The collapsed default does not fetch the catalog.
+
+Give all access loads every provider page and saves the exact current catalog
+through the existing grant endpoint in one explicit click. It ignores advanced
+search filters, reports success only after saving and does not grant future tools
+automatically. Advanced choices require Save access, and bulk Select all results
+keeps existing selections across search and pagination. Page failures or sets
+exceeding the existing 100-action limit never partially select or grant tools.
+Saved access remains distinct from pending advanced choices; discarding restores
+saved choices. No guessed read/write classifications are introduced.
 
 ## Agent model defaults and selection
 

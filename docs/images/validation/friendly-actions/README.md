@@ -1,33 +1,36 @@
-# Connected-app action picker validation
+# Connected-app access validation
 
 Captured from the final implementation by `npm run test:ui:onboarding` on
-2026-10-13 after lint, build and onboarding checks passed. The fixture uses
-synthetic Camplight branding, an owner named Vitaliy and PuffVitaliy; no production
-accounts, tenant content, credentials or external tool calls appear here.
+2026-10-13 after lint/build checks passed. The fixture uses synthetic Camplight
+branding, an owner named Vitaliy and PuffVitaliy. No production accounts, tenant
+content, credentials or external tool executions appear here.
 
-The browser scenario runs the real Nest API and untouched OrgOps engine. Composio
-catalog/account responses are test fixtures. A deliberate failed save is injected
-before the real grant handler; retry is checked against actual saved permissions.
-A separate second-page failure verifies that bulk selection never applies partial
-choices. A 101-action fixture checks the existing limit without changing choices.
-Explicit bulk saves are checked against all four exact catalog IDs, then restored
-to the single board permission before the activation/lifecycle checks.
+The browser runs the real Nest API and untouched OrgOps. Composio catalog/account
+responses are fixtures. Deliberate failed page/save responses verify no partial
+selection or grant, with successful retry checked against actual permissions.
+A 101-action fixture checks the existing limit. The default view is checked for
+hidden granular controls, no catalog requests, and a compact card (under 260 px
+on desktop / 360 px on mobile for this fixture). Brand images are checked to load
+locally; an unknown app exercises the generic icon fallback.
 
-- `actions-all-desktop.png`: Select all includes all four actions across provider
-  pages, with saving still pending.
-- `actions-all-mobile.png`: responsive Select all control and scope explanation.
-- `actions-all-mobile-footer.png`: mobile pending choices and save/discard controls.
-- `actions-unsaved-desktop.png`: two pending choices; no access granted yet.
-- `actions-saved-desktop.png`: one saved action after retrying a failed save.
-- `actions-selected-desktop.png`: Selected view retains choices across search
-  and provider pagination.
-- `actions-unsaved-mobile.png`: responsive action cards at 390 px.
-- `actions-saved-mobile-footer.png`: separate scrolled mobile view showing the
-  saved status and controls beneath the bounded action list.
-- `actions-dark-desktop.png`: dark theme, with transitions settled for capture.
+- `connections-compact-desktop.png`, `connections-compact-mobile.png`: default
+  Give all access action, collapsed advanced options and compact catalog logos.
+- `connections-all-given-desktop.png`, `connections-all-given-mobile.png`: all
+  four exact provider actions saved in one click, advanced options still hidden.
+- `connections-compact-dark.png`: default dark layout with one saved action.
+- `actions-unsaved-desktop.png`, `actions-unsaved-mobile.png`: advanced pending
+  choices, compact action rows and explicit Save access.
+- `actions-saved-desktop.png`, `actions-saved-mobile-footer.png`: one saved action
+  after retry; the mobile image is a scrolled view of the controls.
+- `actions-selected-desktop.png`: selected choices retained across search/pages.
+- `actions-all-desktop.png`, `actions-all-mobile.png`,
+  `actions-all-mobile-footer.png`: advanced Select all stages choices; mobile
+  footer is a separate scrolled view. This flow still requires Save access.
+- `actions-dark-desktop.png`: advanced options in the dark theme.
 
-These images show different UI states in the same implementation; they are not
-before/after revisions. Exact provider action IDs remain under About this action,
-and grants still use the existing API. The suite also checks discard/clear,
-no-match search, failed save retention, exact saved IDs, explicit activation,
-renewal and private-context lifecycle checks.
+These images show different states of the same final implementation; they are
+not before/after revisions. Give all ignores an advanced search and persists the
+whole current catalog. Advanced search/bulk selection keeps prior choices.
+Activation, renewal, next-message readiness and privacy lifecycle checks also
+pass. Give all grants a snapshot of current tools; it does not grant future tools
+or automatically activate the agent's connection capability.

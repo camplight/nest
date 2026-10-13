@@ -77,7 +77,7 @@ it to the owning agent under `/?view=agents&agent=…`. Callback parameters neve
 Nest asks its provider adapter for current account status. No auth URL,
 provider credentials or plaintext skill tokens are saved in the product DB. Search is live from
 Composio's catalog. An app without an operator-configured auth config is labelled
-“Admin setup needed.” Google login does not grant access to Google APIs.
+“Setup required.” Google login does not grant access to Google APIs.
 WordPress.com connectivity does not automatically connect self-hosted WordPress.
 
 The launcher removes Composio configuration and the dedicated metadata token
@@ -117,14 +117,19 @@ mappings, exact per-agent tool grants, and hashed expiring skill capabilities.
 Human management uses engine sessions and current PRIVATE agent ownership.
 Connecting an app does not grant tools; granting tools does not enable execution.
 Owners explicitly enable app access after choosing actions in agent settings.
-The picker uses action cards with friendly provider names and a Selected view;
-full descriptions and exact action references are available under About this
-action. Search and pagination retain off-page choices. Select all includes later
-pages; Select all results includes all search matches and keeps existing choices.
-Bulk selection fails without changing choices if a page fails or the combined
-set exceeds 100 actions. Save access grants only
-those exact tools; selection itself is not permission. Discard changes restores
-the saved set, and a failed save retains choices for retry.
+Connected accounts and the catalog use locally served app logos. Each account
+starts with a compact Give all access button; Choose specific actions is collapsed
+by default and does not fetch the action catalog until opened. Give all access
+fetches every provider page and saves the exact current catalog in one explicit
+click, regardless of an advanced search. It reports success only after saving.
+This is a snapshot of available tools, not permission for future additions.
+
+Advanced options use compact rows with full descriptions and exact references
+under About this action. Search, pagination and Selected view retain off-page
+choices. Select all results includes every search match while keeping existing
+choices. Advanced selections require Save access; discard restores saved choices
+and failed saves retain pending choices. Bulk page failures or selections above
+the existing 100-action limit never apply partial choices or change saved access.
 App access displays the saved permission count; selecting checkboxes is
 not a grant until Save access succeeds. Enable/Renew rejects zero saved
 permissions with 409, and the UI refreshes the count after saves/disconnects.

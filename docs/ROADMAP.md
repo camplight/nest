@@ -289,11 +289,11 @@ fallback and the limits of the production evidence.
 
 ## Friendly connected-app permissions
 
-Action cards replace the raw checkbox list. Accounts have readable app labels;
-search, Selected view, pagination, descriptive details and a visible Save access
-bar distinguish choices from saved permissions. Discard and clear choices do not
-write until saved. Failed saves retain choices, and explicit account access still
-uses the existing API. Select all follows every provider page; search scopes bulk
-selection to matching actions while preserving prior choices. Page failures and
-the 100-action limit never apply partial selections. Desktop/mobile/dark and real
-grant preservation are checked.
+Connected accounts use local app logos and a compact Give all access button.
+Choose specific actions collapses search, Selected view and granular permission
+rows by default. Give all access fetches and saves every current provider action
+in one explicit click, independently of advanced search. Advanced choices still
+require Save access, with discard/clear and failed-save recovery. Pagination,
+search and bulk selection preserve choices. Page failures and the existing
+100-action limit never apply partial selections or grants. Desktop/mobile/dark,
+local logo loading, default size and the real permission boundary are checked.

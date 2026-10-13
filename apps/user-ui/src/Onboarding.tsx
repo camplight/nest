@@ -7,6 +7,7 @@ import type {
 import { apiJson, getApiHeaders } from "./api";
 import { AgentAvatar } from "./components/AgentAvatar";
 import { ConnectionActions, connectionAppName } from "./components/ConnectionActions";
+import { IntegrationLogo } from "./components/IntegrationLogo";
 import "./onboarding.css";
 const characters: {
   id: AgentCharacter;
@@ -305,7 +306,7 @@ export function Connections({ agentName, onPermissionsChanged }: { agentName: st
           <article className="dashboard-card onboarding-connection" key={c.id}>
             <header>
               <div>
-                <span className="connection-app-mark" aria-hidden="true">{connectionAppName(c.toolkit).slice(0, 1)}</span><h3>{connectionAppName(c.toolkit)}</h3>
+                <IntegrationLogo toolkit={c.toolkit} /><h3>{connectionAppName(c.toolkit)}</h3>
                 <small className={`connection-account-status${c.status === "ACTIVE" ? " is-connected" : ""}`}>{c.status === "ACTIVE" ? "Connected" : c.status}</small>
               </div>
               <button
@@ -339,9 +340,8 @@ export function Connections({ agentName, onPermissionsChanged }: { agentName: st
       </label>
       <div className="onboarding-apps">
         {kits.map((kit) => (
-          <article className="dashboard-card" key={kit.slug}>
-            <h3>{kit.name}</h3>
-            <p>{kit.description}</p>
+          <article className="dashboard-card connection-app-option" key={kit.slug}>
+            <div className="connection-app-heading"><IntegrationLogo toolkit={kit.slug} /><div><h3>{kit.name}</h3><p>{kit.description}</p></div></div>
             <button
               className="dashboard-action"
               disabled={!!busy || !kit.connectable}
@@ -351,7 +351,7 @@ export function Connections({ agentName, onPermissionsChanged }: { agentName: st
                 ? "Opening…"
                 : kit.connectable
                   ? "Connect account"
-                  : "Admin setup needed"}
+                  : "Setup required"}
             </button>
           </article>
         ))}

@@ -16,6 +16,7 @@ const previousRoot = process.env.ORGOPS_PROJECT_ROOT;
 process.env.ORGOPS_PROJECT_ROOT = dir;
 let connectionActive = false;
 let externalUserId = "";
+let actionPageRequests = 0;
 const actionFixtures = [
   {slug:"TRELLO_GET_BOARDS",name:"List my boards",description:"Read the boards available to this account.",toolkit:{slug:"trello"}},
   {slug:"TRELLO_CREATE_CARD",name:"TRELLO_CREATE_CARD",description:"Create a card on a board with a title and description.",toolkit:{slug:"trello"}},
@@ -72,9 +73,15 @@ const composio = {
                 name: "Miro",
                 description: "Explore ideas together.",
               },
+              {slug:"gmail",name:"Gmail",description:"Work with your email."},
+              {slug:"slack",name:"Slack",description:"Stay connected with your team."},
+              {slug:"googledrive",name:"Google Drive",description:"Find and work with your files."},
+              {slug:"github",name:"GitHub",description:"Collaborate on your repositories."},
+              {slug:"custom_workspace",name:"Custom workspace",description:"Synthetic unknown app for generic-logo fallback."},
             ],
           });
         if (path === "/tools") {
+          actionPageRequests++;
           const query = url.searchParams.get("search")?.toLowerCase() ?? "";
           const many = query === "many actions";
           const matching = many ? Array.from({length:101}, (_,index) => ({slug:`TRELLO_BULK_${index}`,name:`Bulk action ${index}`,description:"Synthetic catalog limit fixture.",toolkit:{slug:"trello"}})) : actionFixtures.filter(action => `${action.name} ${action.description} ${action.slug}`.toLowerCase().includes(query));
@@ -320,9 +327,52 @@ try {
       await page.screenshot({path:join(screenshots,"connected-no-tools-mobile.png")});
       assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
       await page.setViewportSize({width:1440,height:1100});
-      await page
-        .getByText("Choose actions for PuffVitaliy", { exact: false })
-        .click();
+      const access=page.locator(".connection-permissions");
+      const card=page.locator(".onboarding-connection");
+      assert.equal(await access.getByRole("checkbox").count(),0,"Granular choices are collapsed by default");
+      assert.equal(await access.getByRole("textbox").count(),0);
+      assert.equal(actionPageRequests,0,"The default view does not fetch the action catalog");
+      assert((await card.boundingBox())!.height<260,"Default connected account stays compact on desktop");
+      async function captureConnection(name:string) {
+        await page.evaluate(()=>document.fonts.ready);
+        await page.locator(".onboarding-connections img").evaluateAll(images=>Promise.all(images.map(image=>(image as HTMLImageElement).decode().catch(()=>{}))));
+        await card.evaluate(node=>node.scrollIntoView({block:"start"}));
+        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await page.screenshot({path:join(screenshots,name),animations:"disabled"});
+      }
+      await captureConnection("connections-compact-desktop.png");
+      for (const image of await page.locator(".onboarding-connections img").all()) assert(await image.evaluate(node=>(node as HTMLImageElement).naturalWidth>0),"App logos load locally");
+      assert.equal(await page.locator(".connection-app-logo.is-generic").count(),1);
+      await page.setViewportSize({width:390,height:844});
+      await captureConnection("connections-compact-mobile.png");
+      assert((await card.boundingBox())!.height<360,"Default connected account stays compact on mobile");
+      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      await page.setViewportSize({width:1440,height:1100});
+      rejectBulkPage=true;
+      await access.getByRole("button",{name:"Give all access",exact:true}).click();
+      await access.getByRole("alert").filter({hasText:"We couldn’t load all actions"}).waitFor();
+      assert.equal((await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json()).length,0,"Give all does not write after a page failure");
+      rejectAccessSave=true;
+      await access.getByRole("button",{name:"Give all access",exact:true}).click();
+      await access.getByRole("alert").filter({hasText:"Saving access is temporarily unavailable"}).waitFor();
+      assert.equal((await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json()).length,0,"Give all only reports success after saving");
+      assert.equal(await access.getByRole("button",{name:"All access given",exact:true}).count(),0);
+      await access.getByRole("button",{name:"Give all access",exact:true}).click();
+      await access.getByRole("status").filter({hasText:"4 actions allowed"}).waitFor();
+      assert(await access.getByRole("button",{name:"All access given",exact:true}).isDisabled());
+      const directGrants=await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any;
+      assert.deepEqual(directGrants[0].tools.sort(),actionFixtures.map(action=>action.slug).sort(),"Give all saves all pages in one explicit action");
+      assert.equal(await access.getByRole("checkbox").count(),0);
+      await captureConnection("connections-all-given-desktop.png");
+      await page.setViewportSize({width:390,height:844});
+      await captureConnection("connections-all-given-mobile.png");
+      await page.setViewportSize({width:1440,height:1100});
+      await access.getByText("Choose specific actions",{exact:true}).click();
+      await access.getByRole("checkbox",{name:"List my boards",exact:true}).waitFor();
+      await access.getByRole("button",{name:"Clear all choices",exact:true}).click();
+      await access.getByRole("button",{name:"Save access",exact:true}).click();
+      await access.getByRole("status").filter({hasText:"Not allowed yet"}).waitFor();
+      await page.waitForFunction(()=>!!([...document.querySelectorAll('button')].find(button=>button.textContent==='Enable app access') as HTMLButtonElement)?.disabled);
       await page
         .getByRole("checkbox", { name: "List my boards", exact: false })
         .check();
@@ -336,7 +386,7 @@ try {
       await picker.getByRole("checkbox",{name:"List my boards",exact:true}).check();
       rejectBulkPage=true;
       await picker.getByRole("button",{name:"Select all",exact:true}).click();
-      await picker.getByRole("alert").filter({hasText:"We couldn’t load all actions"}).waitFor();
+      await access.getByRole("alert").filter({hasText:"We couldn’t load all actions"}).waitFor();
       assert.equal(await picker.getByRole("checkbox",{checked:true}).count(),1,"A failed page must not partially apply bulk choices");
       await picker.getByRole("button",{name:"Select all",exact:true}).click();
       await picker.getByRole("status").filter({hasText:"4 actions selected"}).waitFor();
@@ -344,7 +394,7 @@ try {
       assert(await picker.getByRole("checkbox",{name:"Find cards",exact:true}).isChecked());
       assert(await picker.getByRole("button",{name:"Select all",exact:true}).isDisabled());
       assert(await page.getByRole("button",{name:"Enable app access",exact:true}).isDisabled(),"Bulk selection grants no access until saved");
-      assert.equal((await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json()).length,0);
+      assert.deepEqual((await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any)[0].tools,[]);
       await captureActions("actions-all-desktop.png");
       await page.setViewportSize({width:390,height:844});
       await captureActions("actions-all-mobile.png");
@@ -357,7 +407,7 @@ try {
       await query.fill("many actions");
       await picker.getByRole("checkbox",{name:"Bulk action 0",exact:true}).waitFor();
       await picker.getByRole("button",{name:"Select all results",exact:true}).click();
-      await picker.getByRole("alert").filter({hasText:"exceed the 100-action limit"}).waitFor();
+      await access.getByRole("alert").filter({hasText:"exceed the 100-action limit"}).waitFor();
       await picker.getByRole("status").filter({hasText:"1 action selected"}).waitFor();
       assert.equal(await picker.getByRole("checkbox",{checked:true}).count(),0,"Oversized bulk selection must not add partial results");
       await query.fill("card");
@@ -405,9 +455,9 @@ try {
       await picker.getByRole("checkbox",{name:"Create card",exact:true}).uncheck();
       rejectAccessSave=true;
       await picker.getByRole("button",{name:"Save access",exact:true}).click();
-      await picker.getByRole("alert").filter({hasText:"Saving access is temporarily unavailable"}).waitFor();
+      await access.getByRole("alert").filter({hasText:"Saving access is temporarily unavailable"}).waitFor();
       assert(await picker.getByRole("checkbox",{name:"List my boards",exact:true}).isChecked());
-      assert.equal((await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json()).length,0,"Failed save grants no actions");
+      assert.deepEqual((await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any)[0].tools,[],"Failed save grants no actions");
       await picker.getByRole("button",{name:"Save access",exact:true}).click();
       await page
         .getByRole("status")
@@ -422,12 +472,17 @@ try {
       assert.deepEqual(grants[0].tools, ["TRELLO_GET_BOARDS"]);
       assert.notEqual(grants[0].connectionId, "test-account");
       assert(await picker.getByRole("button",{name:"Save access",exact:true}).isDisabled());
-      await picker.getByRole("button",{name:"Select all",exact:true}).click();
-      await picker.getByRole("status").filter({hasText:"4 actions selected"}).waitFor();
-      await picker.getByRole("button",{name:"Save access",exact:true}).click();
-      await picker.getByRole("status").filter({hasText:"Access saved"}).waitFor();
+      await query.fill("card");
+      await picker.getByRole("checkbox",{name:"Create card",exact:true}).waitFor();
+      await access.getByRole("button",{name:"Give all access",exact:true}).click();
+      await access.getByRole("status").filter({hasText:"4 actions allowed"}).waitFor();
+      assert.equal(await access.getByRole("textbox").count(),0,"Give all collapses advanced choices after success");
       const bulkGrants = await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any;
-      assert.deepEqual(bulkGrants[0].tools.sort(),actionFixtures.map(action=>action.slug).sort(),"Explicit bulk save persists exactly all catalog IDs");
+      assert.deepEqual(bulkGrants[0].tools.sort(),actionFixtures.map(action=>action.slug).sort(),"Give all ignores the advanced search and grants the full catalog");
+      await access.getByText("Choose specific actions",{exact:true}).click();
+      await picker.getByRole("checkbox",{name:"List my boards",exact:true}).waitFor();
+      await picker.getByRole("button",{name:"Show more actions",exact:true}).click();
+      await picker.getByRole("checkbox",{name:"Find cards",exact:true}).waitFor();
       for (const name of ["Create card", "Delete a card", "Find cards"]) await picker.getByRole("checkbox",{name,exact:true}).uncheck();
       await picker.getByRole("button",{name:"Save access",exact:true}).click();
       await picker.getByRole("status").filter({hasText:"Access saved"}).waitFor();
@@ -443,6 +498,8 @@ try {
       await page.setViewportSize({width:1440,height:1100});
       await page.getByRole("button",{name:"Switch to dark theme",exact:true}).click();
       await captureActions("actions-dark-desktop.png");
+      await access.getByText("Choose specific actions",{exact:true}).click();
+      await captureConnection("connections-compact-dark.png");
       await page.getByRole("button",{name:"Switch to light theme",exact:true}).click();
       // Reproduce the automatic runner channel that previously blocked every
       // running personal agent. Exercise the real engine HTTP endpoints.
@@ -460,15 +517,15 @@ try {
       await page.waitForFunction(()=>!([...document.querySelectorAll('button')].find(button=>button.textContent==='Enable app access') as HTMLButtonElement)?.disabled);
       await page.getByRole("button",{name:"Enable app access",exact:true}).click();
       await page.getByRole("button",{name:"Renew app access",exact:true}).waitFor();
-      await page.getByText("The connection guide will load for the next request.",{exact:true}).waitFor();
+      await page.getByText("Ready for your next message.",{exact:true}).waitFor();
       const enabledAgent=await (await product.app.request("/api/agents/PuffVitaliy",{headers})).json();
       assert(enabledAgent.alwaysPreloadedSkills.includes("nest-connections"));
       // Older credentials remain owner-controlled; Renewal installs the preload.
       assert((await product.app.request("/api/agents/PuffVitaliy",{method:"PATCH",headers,body:JSON.stringify({alwaysPreloadedSkills:[]})})).ok);
       await page.getByRole("button",{name:"Refresh status",exact:true}).click();
-      await page.getByText("Renew app access to load the connection guide for the next request.",{exact:true}).waitFor();
+      await page.getByText("Renew access before your next message.",{exact:true}).waitFor();
       await page.getByRole("button",{name:"Renew app access",exact:true}).click();
-      await page.getByText("The connection guide will load for the next request.",{exact:true}).waitFor();
+      await page.getByText("Ready for your next message.",{exact:true}).waitFor();
       await page.getByRole("heading",{name:"App access",exact:true}).evaluate(node => (node.closest("article") ?? node).scrollIntoView({block:"start"}));
       await page.screenshot({path:join(screenshots,"saved-tools-enabled-desktop.png")});
       await page.setViewportSize({width:390,height:844});

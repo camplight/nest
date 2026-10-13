@@ -25,12 +25,6 @@ function actionName(action: Action, toolkit: string) {
   return friendly === friendly.toUpperCase()
     ? friendly.toLowerCase().replace(/^./, char => char.toUpperCase()) : friendly;
 }
-function descriptionPreview(description: string) {
-  // Keep the original wording and a full description underneath; never infer
-  // read/write safety or summarize the meaning of a permission heuristically.
-  const paragraph = description.trim().split(/\n\s*\n/)[0] ?? "";
-  return paragraph.length > 180 ? paragraph.slice(0, 180).trimEnd() + "…" : paragraph;
-}
 function errorMessage(reason: unknown) {
   if (reason instanceof Error) {
     try { const value = JSON.parse(reason.message); if (typeof value.error === "string") return value.error; } catch { /* Use a friendly network fallback. */ }
@@ -55,7 +49,9 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [moreBusy, setMoreBusy] = useState(false);
-  const [allBusy, setAllBusy] = useState(false);
+  const [bulkMode, setBulkMode] = useState<"select" | "grant" | null>(null);
+  const allBusy = bulkMode !== null;
+  const [allChoices, setAllChoices] = useState<string[] | null>(null);
   const [bulkError, setBulkError] = useState("");
   const bulkAbort = useRef<AbortController | null>(null);
   const [error, setError] = useState("");
@@ -68,11 +64,12 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
   const path = `/api/integrations/agents/${encodeURIComponent(agentName)}/grants`;
   const catalogPath = `/api/integrations/connections/${encodeURIComponent(connection.id)}/tools`;
   const dirty = !sameChoices(selected, savedChoices);
+  const allGiven = !!allChoices?.length && sameChoices(allChoices, savedChoices);
   function remember(items: Action[]) {
     setKnown(previous => ({ ...previous, ...Object.fromEntries(items.map(item => [item.slug, item])) }));
   }
   useEffect(() => {
-    setAllBusy(false); setBulkError("");
+    setBulkMode(null); setAllChoices(null); setBulkError("");
     return () => { bulkAbort.current?.abort(); };
   }, [catalogPath, path]);
   useEffect(() => {
@@ -107,13 +104,17 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
     setSaved(false);
     setSelected(current => checked ? [...new Set([...current, slug])] : current.filter(value => value !== slug));
   }
+  async function persist(choices: string[], signal?: AbortSignal) {
+    await apiJson(path + "/" + encodeURIComponent(connection.id), {
+      method: "PUT", headers: getApiHeaders(), body: JSON.stringify({ tools: choices }), signal,
+    });
+    if (signal?.aborted) return;
+    setSelected(choices); setSavedChoices(choices); setSaved(true); onSaved?.();
+  }
   async function save() {
     setBusy(true); setError(""); setSaved(false);
     try {
-      await apiJson(path + "/" + encodeURIComponent(connection.id), {
-        method: "PUT", headers: getApiHeaders(), body: JSON.stringify({ tools: selected }),
-      });
-      setSavedChoices(selected); setSaved(true); onSaved?.();
+      await persist(selected);
     } catch (reason) { setError(errorMessage(reason)); }
     finally { setBusy(false); }
   }
@@ -127,21 +128,23 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
     } catch (reason) { setCatalogError(errorMessage(reason)); }
     finally { setMoreBusy(false); }
   }
-  async function selectAll() {
+  async function selectAll(grant = false) {
     const abort = new AbortController();
     bulkAbort.current = abort;
-    setAllBusy(true); setBulkError("");
+    setBulkMode(grant ? "grant" : "select"); setBulkError(""); setError("");
     const actions = new Map<string, Action>();
-    const combined = new Set(selected);
+    const search = grant ? "" : query;
+    const combined = new Set(grant ? [] : selected);
     const visited = new Set<string>();
     let next: string | null = null;
+    let saving = false;
     try {
       do {
-        const page: ActionPage = await apiJson<ActionPage>(`${catalogPath}?search=${encodeURIComponent(query)}${next ? `&cursor=${encodeURIComponent(next)}` : ""}`, { signal: abort.signal });
+        const page: ActionPage = await apiJson<ActionPage>(`${catalogPath}?search=${encodeURIComponent(search)}${next ? `&cursor=${encodeURIComponent(next)}` : ""}`, { signal: abort.signal });
         if (abort.signal.aborted) return;
         for (const action of page.items) { actions.set(action.slug, action); combined.add(action.slug); }
         if (combined.size > 100) {
-          setBulkError("These actions exceed the 100-action limit. Narrow your search or choose actions individually. Your choices were kept.");
+          setBulkError("These actions exceed the 100-action limit. Choose specific actions to select a smaller set. Your choices were kept.");
           return;
         }
         next = page.nextCursor;
@@ -149,28 +152,38 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
         if (next) visited.add(next);
       } while (next);
       const items = [...actions.values()];
-      remember(items); setTools(items); setCursor(null);
-      setSelected([...combined]); setSaved(false);
-    } catch {
-      if (!abort.signal.aborted) setBulkError("We couldn’t load all actions. Please try again. Your choices were kept.");
+      if (grant && !items.length) { setBulkError("No actions are available for this account yet."); return; }
+      if (grant) {
+        saving = true;
+        await persist([...combined], abort.signal);
+        if (abort.signal.aborted) return;
+        setExpanded(false); setQuery(""); setFilter("all");
+      } else { setSelected([...combined]); setSaved(false); }
+      remember(items);
+      if (search === query) { setTools(items); setCursor(null); }
+      if (!search) setAllChoices(items.map(action => action.slug));
+    } catch (reason) {
+      if (!abort.signal.aborted) setBulkError(saving ? errorMessage(reason) : "We couldn’t load all actions. Please try again. Your choices were kept.");
     } finally {
-      if (!abort.signal.aborted) setAllBusy(false);
+      if (!abort.signal.aborted) setBulkMode(null);
     }
   }
   const choices = filter === "selected"
     ? selected.map(slug => known[slug] ?? {slug, name: slug, description: "A saved or selected action. Search for its name to load the full description."})
         .filter(action => `${actionName(action, connection.toolkit)} ${action.description} ${action.slug}`.toLowerCase().includes(query.trim().toLowerCase()))
     : tools;
-  return <details className="connection-permissions" open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
-    <summary>
-      <span className="connection-permission-heading"><strong>Choose actions for {agentName}</strong>
-        <small>{!ready ? "Checking saved access…" : dirty ? "Changes not saved" : savedChoices.length ? `${savedChoices.length} ${savedChoices.length === 1 ? "action is" : "actions are"} allowed` : "No actions allowed yet"}</small></span>
-      <span className="connection-picker-label">{expanded ? "Hide choices" : "Choose access"}<span aria-hidden="true">{expanded ? "−" : "+"}</span></span>
-    </summary>
-    <div className="connection-picker">
-      <div className="connection-picker-intro"><h4>What can {agentName} do in {connectionAppName(connection.toolkit)}?</h4>
-        <p>Pick the actions you want your agent to use. Your choices only take effect when you save them.</p></div>
-      {error && <p className="connection-picker-error" role="alert">{error}{!ready && <button type="button" onClick={() => setAttempt(value => value + 1)}>Try again</button>}</p>}
+  return <div className="connection-permissions">
+    <div className="connection-quick-access">
+      <div><strong>Agent access</strong><span className="connection-access-status" role="status">{!ready ? "Checking access…" : savedChoices.length ? `${savedChoices.length} ${savedChoices.length === 1 ? "action" : "actions"} allowed` : "Not allowed yet"}</span>
+        <p id={`give-all-scope-${connection.id}`}>Allow {agentName} to use every available {connectionAppName(connection.toolkit)} action.</p></div>
+      <button type="button" className="connection-save" aria-describedby={`give-all-scope-${connection.id}`} disabled={!ready || busy || moreBusy || allBusy || allGiven} onClick={() => void selectAll(true)}>{bulkMode === "grant" ? "Giving access…" : allGiven ? "All access given" : "Give all access"}</button>
+    </div>
+    {error && <p className="connection-picker-error connection-access-error" role="alert">{error}{!ready && <button type="button" onClick={() => setAttempt(value => value + 1)}>Try again</button>}</p>}
+    {bulkError && <p className="connection-picker-error connection-access-error" role="alert">{bulkError}</p>}
+    <details className="connection-advanced" open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}>
+      <summary><span>Choose specific actions</span><small>{dirty ? "Unsaved changes" : "Advanced"}</small><span aria-hidden="true">{expanded ? "−" : "+"}</span></summary>
+    {expanded && <div className="connection-picker">
+      <p className="connection-advanced-hint">Select the actions you want, then save access.</p>
       <div className="connection-picker-toolbar">
         <label className="connection-action-search">Find an action<input value={query} disabled={moreBusy || allBusy} onChange={event => setQuery(event.target.value)} placeholder="Try emails, boards or messages…" /></label>
         <div className="connection-action-filters" role="group" aria-label="Actions shown">
@@ -180,10 +193,9 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
       </div>
       {filter === "all" && <div className="connection-bulk-actions">
         <button type="button" className="connection-discard" aria-describedby={`bulk-scope-${connection.id}`} disabled={!ready || busy || moreBusy || allBusy || loading || !!catalogError || !tools.length || (!cursor && tools.every(action => selected.includes(action.slug)))} onClick={() => void selectAll()}>{allBusy ? "Selecting…" : query.trim() ? "Select all results" : "Select all"}</button>
-        <span id={`bulk-scope-${connection.id}`}>{query.trim() ? "Selects every matching action, including other pages." : "Selects every available action, including other pages."} Save access to apply your choices.</span>
+        <span id={`bulk-scope-${connection.id}`}>{query.trim() ? "All search results, across pages." : "All available actions, across pages."}</span>
       </div>}
       {allBusy && <p role="status">Finding all actions…</p>}
-      {bulkError && <p className="connection-picker-error" role="alert">{bulkError}</p>}
       {catalogError && <p className="connection-picker-error" role="alert">{catalogError}<button type="button" onClick={() => setCatalogAttempt(value => value + 1)}>Reload actions</button></p>}
       {filter === "all" && loading ? <div className="connection-actions-loading" role="status">Finding available actions…</div> :
         <div className="connection-action-grid" role="group" tabIndex={0} aria-label="Available app actions">
@@ -193,10 +205,10 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
             return <article key={action.slug} className={`connection-action-card${checked ? " is-selected" : ""}`}>
               <label className="connection-action-choice">
                 <input type="checkbox" aria-label={title} aria-describedby={`action-${connection.id}-${action.slug}`} checked={checked} disabled={!ready || busy || moreBusy || allBusy || (!checked && selected.length >= 100)} onChange={event => choose(action.slug, event.target.checked)} />
-                <span><strong>{title}</strong><span className="connection-action-description" id={`action-${connection.id}-${action.slug}`}>{action.description ? <ReactMarkdown components={{ img: () => null }}>{descriptionPreview(action.description)}</ReactMarkdown> : "Open the details to review this action before choosing it."}</span></span>
+                <strong>{title}</strong>
               </label>
               <details className="connection-action-details"><summary>About this action</summary>
-                <div><ReactMarkdown components={{ img: () => null }}>{action.description || "No description was provided for this action."}</ReactMarkdown><small>Action reference: <code>{action.slug}</code></small></div>
+                <div id={`action-${connection.id}-${action.slug}`}><ReactMarkdown components={{ img: () => null }}>{action.description || "No description was provided for this action."}</ReactMarkdown><small>Action reference: <code>{action.slug}</code></small></div>
               </details>
             </article>;
           })}
@@ -212,6 +224,7 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
           <button type="button" className="connection-save" disabled={!ready || busy || allBusy || !dirty || selected.length > 100} onClick={() => void save()}>{busy ? "Saving…" : "Save access"}</button>
         </div>
       </div>
-    </div>
-  </details>;
+    </div>}
+    </details>
+  </div>;
 }

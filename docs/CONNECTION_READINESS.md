@@ -36,8 +36,9 @@ workspace restrictions, unrelated skills and installed skill copies are retained
 For the owner after upgrading:
 
 1. Open Agents, choose the personal agent and find Connected apps.
-2. Under each account, choose the specific tools the agent should use and click
-   Save access. Start with the read tools needed for the intended task.
+2. Under each account, click Give all access, or open Choose specific actions
+   and save only the actions the agent should use. For narrower access, start
+   with the read tools needed for the intended task.
 3. Click Enable app access, or Renew app access for an existing credential.
 4. Send a new request in the owner-only private chat. Changes do not update a
    model turn that is already running.
