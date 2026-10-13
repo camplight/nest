@@ -287,3 +287,11 @@ and runtime skill copies are preserved. All profiles start unpublished. Owners
 must explicitly describe and enable teammate requests. No Composio configuration
 or new runtime skill is required; existing connected accounts keep their current
 permissions. Follow [AGENT_REQUESTS.md](AGENT_REQUESTS.md) for release verification.
+
+## Community consolidation
+
+Community presents one reusable skill artifact and one navigation entry. Existing
+API category metadata, immutable package versions, hashes and publishing tokens
+are preserved. No product migration, engine pin change, skill installation or
+runtime change is required. Workflows are skill instructions; future recurring-run
+controls can adapt OrgOps's existing targeted scheduled triggers through HTTP.

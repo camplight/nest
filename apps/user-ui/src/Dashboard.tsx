@@ -198,16 +198,7 @@ export function Dashboard({
   const matchedSkills = (catalog?.skills ?? []).filter((skill) =>
     matches(`${skill.title} ${skill.description} ${skill.tags.join(" ")}`),
   );
-  // The featured tile follows the design's automation slot; the rest keep catalog order.
-  const featured =
-    matchedSkills.find((skill) => skill.category === "automation") ??
-    matchedSkills[0];
-  const skills = featured
-    ? [
-        featured,
-        ...matchedSkills.filter((skill) => skill.name !== featured.name),
-      ]
-    : [];
+  const skills = matchedSkills;
   const next = [
     ...reviews.map((task) => ({ id: `review:${task.id}`, task })),
     ...unread.map((channel) => ({ id: `chat:${channel.id}`, channel })),
@@ -299,12 +290,6 @@ export function Dashboard({
     );
   }
   function renderSkill(skill: CommunitySkill, i: number) {
-    const category =
-      skill.category === "automation"
-        ? "Automation"
-        : skill.category === "use-case"
-          ? "Use case"
-          : "Agent skill";
     const cover =
       skill.category === "automation"
         ? "automation"
@@ -331,7 +316,7 @@ export function Dashboard({
             alt=""
             aria-hidden="true"
           />
-          <span>{category}</span>
+          <span>Skill</span>
           <small>v{skill.version}</small>
         </span>
         <span className="dashboard-community-info">
@@ -596,7 +581,7 @@ export function Dashboard({
                     <span>
                       {query
                         ? "Search matches the latest eight packages. Browse all for the complete catalog."
-                        : "Turn your team’s know-how into skills and automations people and agents can reuse."}
+                        : "Turn your team’s know-how into skills people and agents can reuse."}
                     </span>
                     <button onClick={() => onCommunity(null)}>
                       Explore community →

@@ -5,10 +5,6 @@
 .community-compose {padding:24px;display:flex;align-items:center;gap:18px;text-align:left;color:var(--nest-muted);}
 .community-compose-icon {font-size:26px;color:var(--nest-accent);}
 .community-compose small,.community-byline small,.community-compact small {display:block;margin-top:6px;color:var(--nest-muted);font-size:12px;}
-.community-filters {display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--nest-border);padding-bottom:16px;}
-.community-filters button {background:transparent;color:var(--nest-text);border:0;border-radius:6px;padding:10px 12px;font:500 13px Inter,sans-serif;cursor:pointer;}
-.community-filters button[aria-pressed="true"] {background:var(--nest-surface);}
-.community-filters a {margin-left:auto;font-size:13px;}
 .community-card {overflow:hidden;}
 .community-card-banner {display:flex;justify-content:space-between;align-items:center;gap:16px;padding:22px 24px;background:var(--instance-primary);color:var(--instance-on-primary);font:500 13px Inter,sans-serif;}
 .community-card-body,.community-detail,.community-editor {padding:24px;}
@@ -42,7 +38,7 @@
 .community-editor label,.community-install label {display:grid;gap:8px;font:500 13px Inter,sans-serif;}
 .community-editor input,.community-editor textarea,.community-editor select,.community-install select {width:100%;box-sizing:border-box;border:1px solid var(--nest-border);border-radius:6px;padding:12px;background:var(--nest-surface);color:var(--nest-text);font:14px/1.5 Inter,sans-serif;}
 @media(max-width:1100px){.community-layout {grid-template-columns:minmax(0,1fr);}.community-aside {border-left:0;padding-left:0;grid-template-columns:repeat(2,minmax(0,1fr));}}
-@media(max-width:760px){.community-page .dashboard-topbar {flex-wrap:wrap;}.community-page .dashboard-title {flex-wrap:wrap;}.community-form-grid,.community-aside {grid-template-columns:1fr;}.community-card-body,.community-detail,.community-editor {padding:18px;}.community-filters a {margin-left:0;}.community-byline .dashboard-pill {margin-left:0;}.community-card-banner {padding:18px;}}
+@media(max-width:760px){.community-page .dashboard-topbar {flex-wrap:wrap;}.community-page .dashboard-title {flex-wrap:wrap;}.community-form-grid,.community-aside {grid-template-columns:1fr;}.community-card-body,.community-detail,.community-editor {padding:18px;}.community-byline .dashboard-pill {margin-left:0;}.community-card-banner {padding:18px;}}
 .community-editor fieldset {border:0;padding:0;margin:0;min-width:0;}
 .community-tenant-label {font-size:12px;color:var(--nest-muted);}
 .community-version {display:flex;gap:12px;align-items:center;font-size:13px;}

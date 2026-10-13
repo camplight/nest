@@ -43,7 +43,9 @@ try {
     await page.getByRole('heading',{name:'Build your shared skill library'}).waitFor();
     assert.equal(new URL(page.url()).searchParams.get('view'),'community');
     assert.equal(await nav.getByRole('button',{name:'Community',exact:true}).getAttribute('aria-current'),'page');
+    assert.equal(await nav.getByRole('button',{name:'Skills',exact:true}).count(),0);
     await page.getByRole('button',{name:'Share a skill +',exact:true}).click();
+    assert.equal(await page.getByRole('combobox',{name:'Category',exact:true}).count(),0);
     await page.getByRole('textbox',{name:'Skill name',exact:true}).fill('acceptance-review');
     await page.getByRole('textbox',{name:'Display title',exact:true}).fill('Acceptance Review');
     await page.getByRole('textbox',{name:'Description',exact:true}).fill('Review the deliverable against clear acceptance criteria.');
@@ -67,7 +69,7 @@ try {
     await page.getByRole('link',{name:'Download package ↓',exact:true}).click();
     const download=await downloadEvent;const path=join(dir,download.suggestedFilename());await download.saveAs(path);
     const {readFileSync}=await import('node:fs');const {verifyPackage,install}=await import('../../scripts/community.mjs');
-    const bundle=JSON.parse(readFileSync(path,'utf8'));assert.equal(verifyPackage(bundle).manifest.version,'1.0.0');
+    const bundle=JSON.parse(readFileSync(path,'utf8'));assert.equal(verifyPackage(bundle).manifest.version,'1.0.0');assert.equal(bundle.manifest.category,'skill');
     const installed=install(bundle,join(dir,'installed'));assert(readFileSync(join(installed.path,'SKILL.md'),'utf8').includes('unverified requirements'));
     await page.reload();await page.getByRole('button',{name:'Install skill',exact:true}).waitFor();
     await page.getByRole('button',{name:'All skills',exact:true}).click();
@@ -87,14 +89,26 @@ try {
     await page.getByRole('button',{name:'Weekly Product Pulse',exact:true}).waitFor();
     await page.waitForFunction(()=>Array.from(document.querySelectorAll('.community-card-banner img,.product-nav img')).every((image:any)=>image.complete&&image.naturalWidth>0));
     await page.screenshot({path:join(screenshots,'community-desktop.png'),fullPage:true});
-    await page.getByRole('button',{name:'Automations',exact:true}).click();
-    await page.waitForFunction(()=>document.querySelectorAll('.community-card').length===1);
-    await page.getByRole('button',{name:'Agent skills',exact:true}).click();
-    await page.getByRole('button',{name:'Acceptance Review',exact:true}).waitFor();
+    assert.equal(await page.getByRole('navigation',{name:'Community categories'}).count(),0);
+    await page.goto('http://127.0.0.1:5299/?view=community&category=automation');
+    await page.waitForFunction(()=>document.querySelectorAll('.community-card').length===2);
+    await page.getByRole('button',{name:'Weekly Product Pulse',exact:true}).click();
+    assert.equal(new URL(page.url()).searchParams.get('category'),null);
+    await page.getByRole('button',{name:'Install skill',exact:true}).waitFor();
+    const legacy=await product.app.request('/api/community/skills/weekly-product-pulse/download',{headers});
+    const legacyBundle=await legacy.json();assert.equal(verifyPackage(legacyBundle).manifest.category,'automation');
+    const legacyDigest=legacyBundle.digest;
+    await page.getByRole('button',{name:'Publish new version',exact:true}).click();
+    await page.getByRole('button',{name:'Publish version',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelector('select[aria-label="Skill version"]')?.value==='1.0.1');
+    const legacyUpdated=await (await product.app.request('/api/community/skills/weekly-product-pulse/download',{headers})).json();
+    assert.equal(verifyPackage(legacyUpdated).manifest.category,'automation');
+    const legacyOriginal=await (await product.app.request('/api/community/skills/weekly-product-pulse/download?version=1.0.0',{headers})).json();
+    assert.equal(legacyOriginal.digest,legacyDigest);
+    await page.getByRole('button',{name:'All skills',exact:true}).click();
     await page.getByRole('textbox',{name:'Search community',exact:true}).fill('missing-skill');
     await page.getByRole('heading',{name:'No matching skills'}).waitFor();
     await page.getByRole('textbox',{name:'Search community',exact:true}).fill('');
-    await page.getByRole('button',{name:'All',exact:true}).click();
     await page.getByRole('button',{name:'Acceptance Review',exact:true}).click();
     await page.getByRole('button',{name:'Install skill',exact:true}).waitFor();
     await page.goBack();await page.getByRole('button',{name:'Share a skill +',exact:true}).waitFor();
@@ -108,6 +122,6 @@ try {
     await page.screenshot({path:join(screenshots,'community-mobile.png'),fullPage:true});
     await page.getByRole('button',{name:'Menu',exact:true}).click();assert.equal(await nav.getByRole('button',{name:'Community',exact:true}).getAttribute('aria-current'),'page');
     assert.deepEqual(errors,[]);
-    console.log(`PASS: private community publication, immutable versions, verified download/install, agent token issue/revoke, search/categories, navigation/history, original Figma assets and mobile. Screenshots: ${screenshots}`);
+    console.log(`PASS: private community publication, immutable versions, verified download/install, agent token issue/revoke, search, unified legacy catalog, navigation/history, original Figma assets and mobile. Screenshots: ${screenshots}`);
   } finally {await browser.close();}
 } finally {await server.close();await new Promise<void>(resolve=>backend.close(()=>resolve()));product.store.close();engine.db.close();rmSync(dir,{recursive:true,force:true});}
