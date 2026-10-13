@@ -116,9 +116,14 @@ Migration `005_integrations.sql` stores local connection IDs, provider account
 mappings, exact per-agent tool grants, and hashed expiring skill capabilities.
 Human management uses engine sessions and current PRIVATE agent ownership.
 Connecting an app does not grant tools; granting tools does not enable execution.
-Owners explicitly enable the skill after granting tools in agent settings.
-Agent skill access displays the saved permission count; selecting checkboxes is
-not a grant until Save tool access succeeds. Enable/Renew rejects zero saved
+Owners explicitly enable app access after choosing actions in agent settings.
+The picker uses action cards with friendly provider names and a Selected view;
+full descriptions and exact action references are available under About this
+action. Search and pagination retain off-page choices. Save access grants only
+those exact tools; selection itself is not permission. Discard changes restores
+the saved set, and a failed save retains choices for retry.
+App access displays the saved permission count; selecting checkboxes is
+not a grant until Save access succeeds. Enable/Renew rejects zero saved
 permissions with 409, and the UI refreshes the count after saves/disconnects.
 The count excludes locally revoked accounts and reflects saved choices, not live
 provider availability or current private-context eligibility.

@@ -286,3 +286,11 @@ configures the instance helper for preloading through the unchanged engine API;
 legacy agents upgrade by owner renewal. Consent stays explicit. See
 [the investigation](CONNECTION_READINESS.md) for the separate final-event format
 fallback and the limits of the production evidence.
+
+## Friendly connected-app permissions
+
+Action cards replace the raw checkbox list. Accounts have readable app labels;
+search, Selected view, pagination, descriptive details and a visible Save access
+bar distinguish choices from saved permissions. Discard and clear choices do not
+write until saved. Failed saves retain choices, and explicit account access still
+uses the existing API. Desktop/mobile/dark and real grant preservation are checked.

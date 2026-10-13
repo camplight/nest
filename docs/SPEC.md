@@ -510,6 +510,13 @@ engine metadata token and trusted shared runtime are prerequisites, not inferred
 security guarantees. See [PERSONAL_AGENTS.md](PERSONAL_AGENTS.md) for installation,
 configuration, expiry/renewal, limitations and live release checks.
 
+The connected-app picker presents provider tools as selectable action cards,
+with readable titles, unchanged provider descriptions and optional exact action
+references. Saved access and unsaved choices are displayed separately. Search,
+provider pagination and a Selected view keep the full selected set intact; saves
+still send the exact existing tool IDs to the unchanged grant endpoint. No bulk
+permission presets or guessed read/write classifications are introduced.
+
 ## Agent model defaults and selection
 
 Nest exposes authenticated `GET /api/agent-models`, a sanitized enabled native

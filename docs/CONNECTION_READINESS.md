@@ -37,8 +37,8 @@ For the owner after upgrading:
 
 1. Open Agents, choose the personal agent and find Connected apps.
 2. Under each account, choose the specific tools the agent should use and click
-   Save tool access. Start with the read tools needed for the intended task.
-3. Click Enable skill access, or Renew skill access for an existing credential.
+   Save access. Start with the read tools needed for the intended task.
+3. Click Enable app access, or Renew app access for an existing credential.
 4. Send a new request in the owner-only private chat. Changes do not update a
    model turn that is already running.
 

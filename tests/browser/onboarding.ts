@@ -334,6 +334,7 @@ try {
       await query.fill("");
       await picker.getByRole("checkbox",{name:"Find cards",exact:true}).waitFor();
       assert.equal(await picker.getByRole("checkbox",{checked:true}).count(),2,"Search/page changes preserve choices");
+      await captureActions("actions-selected-desktop.png");
       await picker.getByRole("checkbox",{name:"Find cards",exact:true}).click();
       assert.equal(await picker.getByRole("checkbox").count(),1);
       await picker.getByRole("button",{name:"Available actions",exact:true}).click();
@@ -350,7 +351,8 @@ try {
       async function captureActions(name:string) {
         await page.evaluate(()=>document.fonts.ready);
         await picker.evaluate(node=>node.scrollIntoView({block:"start"}));
-        await page.screenshot({path:join(screenshots,name)});
+        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await page.screenshot({path:join(screenshots,name),animations:"disabled"});
       }
       await captureActions("actions-unsaved-desktop.png");
       await page.setViewportSize({width:390,height:844});
