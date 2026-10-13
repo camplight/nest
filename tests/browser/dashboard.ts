@@ -85,6 +85,24 @@ try {
       reducedMotion: "no-preference",
     });
     page.setDefaultTimeout(15000);
+    async function capture(name: string) {
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForFunction(() =>
+        [...document.images].every(
+          (image) => image.complete && image.naturalWidth > 0,
+        ),
+      );
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+      await page.screenshot({
+        path: join(screenshots, name),
+        animations: "disabled",
+      });
+    }
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     const login = await product.app.request("/api/auth/login", {
@@ -252,15 +270,9 @@ try {
     );
     await page.evaluate(() => document.fonts.ready);
     if (before) {
-      await page.screenshot({
-        path: join(screenshots, "dashboard-before-desktop.png"),
-        animations: "disabled",
-      });
+      await capture("dashboard-before-desktop.png");
       await page.setViewportSize({ width: 390, height: 844 });
-      await page.screenshot({
-        path: join(screenshots, "dashboard-before-mobile.png"),
-        animations: "disabled",
-      });
+      await capture("dashboard-before-mobile.png");
       console.log(
         `PASS: before reference with synthetic data. Screenshots: ${screenshots}`,
       );
@@ -297,10 +309,7 @@ try {
       await projects.getByText("50% done", { exact: true }).waitFor();
       await page.keyboard.press("Home");
       await page.locator(".dashboard-title h1").click();
-      await page.screenshot({
-        path: join(screenshots, "dashboard-desktop.png"),
-        animations: "disabled",
-      });
+      await capture("dashboard-desktop.png");
       await page.getByRole("button", { name: "Review →", exact: true }).click();
       assert.equal(
         new URL(page.url()).searchParams.get("project"),
@@ -346,28 +355,16 @@ try {
         .waitFor();
       assert.equal(new URL(page.url()).searchParams.get("view"), "dashboard");
       await page.getByRole("button", { name: "Switch to dark theme" }).click();
-      await page.screenshot({
-        path: join(screenshots, "dashboard-dark-desktop.png"),
-        animations: "disabled",
-      });
+      await capture("dashboard-dark-desktop.png");
       await page.getByRole("button", { name: "Switch to light theme" }).click();
       await page.setViewportSize({ width: 390, height: 844 });
-      await page.screenshot({
-        path: join(screenshots, "dashboard-mobile-top.png"),
-        animations: "disabled",
-      });
+      await capture("dashboard-mobile-top.png");
       await projects.scrollIntoViewIfNeeded();
-      await page.screenshot({
-        path: join(screenshots, "dashboard-mobile-work.png"),
-        animations: "disabled",
-      });
+      await capture("dashboard-mobile-work.png");
       await page
         .getByRole("region", { name: "Community", exact: true })
         .scrollIntoViewIfNeeded();
-      await page.screenshot({
-        path: join(screenshots, "dashboard-mobile-community.png"),
-        animations: "disabled",
-      });
+      await capture("dashboard-mobile-community.png");
       assert(
         await page.evaluate(() => {
           const main = document.querySelector(".dashboard")!;
@@ -396,10 +393,7 @@ try {
         await page.getByLabel("Finished tasks", { exact: true }).textContent(),
         "—",
       );
-      await page.screenshot({
-        path: join(screenshots, "dashboard-error-mobile.png"),
-        animations: "disabled",
-      });
+      await capture("dashboard-error-mobile.png");
       await page.unroute("**/api/projects/dashboard");
       await page.getByRole("button", { name: "Retry project metrics" }).click();
       await page.waitForFunction(
@@ -423,19 +417,13 @@ try {
         await page.getByLabel("Finished tasks", { exact: true }).textContent(),
         "0",
       );
-      await page.screenshot({
-        path: join(screenshots, "dashboard-empty-desktop.png"),
-        animations: "disabled",
-      });
+      await capture("dashboard-empty-desktop.png");
       await page.reload();
       await page
         .getByRole("heading", { name: "Your first project starts here" })
         .waitFor();
       await page.setViewportSize({ width: 390, height: 844 });
-      await page.screenshot({
-        path: join(screenshots, "dashboard-empty-mobile.png"),
-        animations: "disabled",
-      });
+      await capture("dashboard-empty-mobile.png");
       console.log(
         `PASS: dashboard real aggregates, access changes, task/community links, search, carousel keyboard, empty/error, reload, desktop/mobile/dark. Screenshots: ${screenshots}`,
       );
