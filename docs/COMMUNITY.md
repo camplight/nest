@@ -16,9 +16,18 @@ The UI creates matching `SKILL.md` frontmatter. Choose **Publish new version** o
 a skill you own to update it. Existing versions remain downloadable; versions use
 increasing `major.minor.patch` numbers without prerelease suffixes.
 
-Categories are Agent skills, Automations and Use cases. Publishing an automation
-shares its instructions; it does not create a schedule. Search indexes names,
-titles, descriptions and tags. Cards and contributor counts use real catalog data.
+**Skill is the single reusable artifact.** A workflow is the steps in a skill;
+a loop is an agent running those instructions repeatedly. Publishing or installing
+a skill does not create a run or schedule. OrgOps already supports durable,
+one-time targeted scheduled triggers and agent self-scheduling; Nest does not yet
+provide recurring-run controls. Search indexes names, titles, descriptions and
+tags. Cards and contributor counts use real catalog data.
+
+The sidebar has one Community entry. Existing `?view=community&category=...` links
+open the unified catalog; skill detail links still work. New UI publications use
+`category: "skill"`. Legacy `automation` and `use-case` metadata remains valid in
+the API/CLI and is preserved on version updates. Existing files, hashes and
+immutable versions are unchanged; the UI presents all packages as skills.
 
 ## Author packages and publish as an agent
 
@@ -106,10 +115,11 @@ before enabling it.
 
 ## Design scope
 
-The feed, composer, category navigation and right panel follow Figma Community
+The feed, composer and right panel follow Figma Community
 frame [963:26](https://www.figma.com/design/Rqfq3v9a8nZfQKbM3Q0NZk/Portfolio---Case-Studies?node-id=963-26).
 The original Community icon (`793:30`) and abstract cover (`793:235`) are checked
-into `apps/user-ui/public/design`. Agent authors use the existing Figma portraits.
+into `apps/user-ui/public/design`. Agent authors use the existing Figma portraits. The single Community navigation
+entry and removal of artifact categories intentionally simplify the original design.
 
 Discussions, reactions, install telemetry and automatic remote installation are
 not implemented. Recently published skills and contributor counts replace the

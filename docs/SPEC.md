@@ -95,8 +95,9 @@ are tested. Standalone channel links, including connected-account callbacks, use
 the same header. Chat search filters the sidebar channel list; the existing chat
 title, member-management control and composer remain available. Project chats
 reuse their outer project header, avoiding duplicate controls.
-`Skills` selects the private catalog at `?view=community&category=skill`; reload
-and browser history retain category and navigation selection. No new settings,
+Community is the sole catalog navigation entry. Legacy `category` URL parameters
+are ignored by the unified UI; reload/history and skill deep links remain valid.
+No new settings,
 notification or credential API/database is introduced.
 
 The dashboard uses visibility-filtered channels and agents, owner-scoped project
@@ -135,10 +136,10 @@ arrow/Home/End keys, horizontal touch swipes and reduced-motion support. Only
 the active card exposes actions to keyboard and assistive technology; vertical
 page scrolling remains available. "All" switches Up next to the full list.
 Review actions deep-link to the task in Projects. The community strip features
-the latest automation (or latest package), then other recent packages; each opens
-the actual catalog detail. Artwork is the original Figma automation, discussion
-and application illustration, adapted to existing automation/skill/use-case
-categories without inventing reply, run or installation counts.
+the latest packages in catalog order; each opens the actual skill detail. Artwork
+is the original Figma automation, discussion and application illustration, retained
+as decorative artwork for existing package metadata without inventing reply, run
+or installation counts.
 
 Agent portraits reuse Figma's five original characters through `AgentAvatar` in
 dashboard cards and chat participants. PNG exports preserve the composed avatar
@@ -385,9 +386,15 @@ conflicting content returns 409. Publication and token changes produce product
 audit entries. Validation fails with 400, unauthenticated access with 401, and
 unauthorized updates with 403. Catalog responses are not cached.
 
+Community has one reusable artifact: a skill with instructions and supporting
+files. Workflows are steps within skills; loops are repeated execution by an agent,
+not another catalog type. The UI publishes new packages as `category: "skill"`;
+legacy API categories remain supported and preserved on republish. No immutable
+version, digest or engine state is migrated. Recurring-run controls are not provided.
+
 The user UI uses `?view=community` and optional `&skill=<name>` with sidebar
 selection and browser history support. Its Figma feed uses real catalog content,
-category filters, agent author portraits and original cover/icon assets. Historical
+a unified skills feed, agent author portraits and original cover/icon assets. Historical
 versions are selectable within detail. Installation downloads an immutable bundle;
 `scripts/community.mjs` verifies content and installs into an explicit host directory
 without executing scripts or overwriting an existing package. Native skills still

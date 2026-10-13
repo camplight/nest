@@ -346,34 +346,13 @@ try {
           .evaluate((el) => el === document.activeElement),
       );
       const nav = page.getByRole("navigation", { name: "Main navigation" });
-      await nav.getByRole("button", { name: "Skills", exact: true }).click();
-      await page
-        .getByRole("button", { name: "Agent skills", exact: true })
-        .waitFor();
-      await page.waitForFunction(
-        () => document.querySelectorAll(".community-card").length === 1,
-      );
-      assert.equal(new URL(page.url()).searchParams.get("category"), "skill");
-      assert.equal(
-        await nav
-          .getByRole("button", { name: "Skills", exact: true })
-          .getAttribute("aria-current"),
-        "page",
-      );
-      await page.reload();
-      await page
-        .getByRole("button", { name: "Acceptance Review", exact: true })
-        .waitFor();
-      assert.equal(
-        await page
-          .getByRole("button", { name: "Agent skills", exact: true })
-          .getAttribute("aria-pressed"),
-        "true",
-      );
+      assert.equal(await nav.getByRole("button", { name: "Skills", exact: true }).count(), 0);
       await nav.getByRole("button", { name: "Community", exact: true }).click();
-      await page.waitForFunction(
-        () => document.querySelectorAll(".community-card").length === 3,
-      );
+      await page.waitForFunction(() => document.querySelectorAll(".community-card").length === 3);
+      assert.equal(new URL(page.url()).searchParams.get("category"), null);
+      assert.equal(await nav.getByRole("button", { name: "Community", exact: true }).getAttribute("aria-current"), "page");
+      await page.reload();
+      await page.waitForFunction(() => document.querySelectorAll(".community-card").length === 3);
       await nav.getByRole("button", { name: "Projects", exact: true }).click();
       await page
         .getByRole("textbox", { name: "Search projects" })

@@ -118,7 +118,7 @@ documented in [DASHBOARD_DESIGN.md](DASHBOARD_DESIGN.md).
 
 The shared top bar now supplies the original theme, notifications, settings and
 account controls across product views, with mobile search, real mention read
-state, owner-gated administration and a private-catalog Skills navigation entry.
+state, owner-gated administration and a single private-catalog Community navigation entry.
 
 Replace temporary metrics with task/review/issue aggregates. Define how issues
 are created and resolved. Distinguish measured, estimated and unavailable spend,
@@ -128,7 +128,7 @@ progress, costs or time estimates.
 ### 5. Discovery and finishing
 
 Tenant-private Community is implemented locally against Figma `963:26`: composer,
-category feed, skill detail/version selection, package download/install instructions,
+unified skill feed, skill detail/version selection, package download/install instructions,
 search and agent publishing access. Original assets: `793:30` (Community icon) and
 `793:235` (cover artwork). Product SQLite owns the catalog; OrgOps is unchanged.
 
@@ -142,7 +142,7 @@ Intentional differences: tenant-only visibility, recently published instead of
 invented trending metrics, contributors counted within displayed results, and
 explicit host installation. Discussion, reactions, install telemetry, remote
 activation and guided agent setup remain future work. See [Community](COMMUNITY.md).
-This slice has not yet been deployed.
+The original catalog is deployed; this consolidation simplifies its navigation and artifact labels.
 
 Run `npm run test:ui:community` for the isolated real-engine browser workflow,
 including agent token issuance/revocation and exported-package installation.
