@@ -183,7 +183,16 @@ export function registerIntegrationRoutes(
     ownerId: string,
     agentId?: string,
     channelId?: string,
-  ) {
+    activateHeaders?: Headers,
+  ): Promise<{
+    agent: {
+      id: string;
+      name: string;
+      ownerHumanId: string;
+      visibility: string;
+    };
+    channelId: string;
+  }> {
     if (!engineToken)
       fail(503, "Skill access requires engine metadata configuration");
     const { agent, channels, humans } = await orgops.connectionContext(
@@ -196,16 +205,26 @@ export function registerIntegrationRoutes(
       (agentId && agent.id !== agentId)
     )
       fail(403, "Agent ownership changed");
-    const owner = humans.find((h) => h.id === ownerId);
+    const owner =
+      humans.find((h) => h.id === ownerId) ??
+      fail(403, "Agent owner is unavailable");
     const subscribed = channels.filter((ch) =>
       ch.participants?.some(
         (p) => p.subscriberType === "AGENT" && p.subscriberId === agent.name,
       ),
     );
-    const ch = subscribed[0];
+    // The runner creates this GROUP for startup/schedule events. Its name is
+    // not an authorization boundary: require the canonical shape AND privacy.
+    const lifecycle = subscribed.filter(
+      (ch) =>
+        ch.name === `agent.lifecycle.${agent.name}` &&
+        ch.description === `Lifecycle bootstrap channel for ${agent.name}` &&
+        ch.kind === "GROUP",
+    );
+    const conversations = subscribed.filter((ch) => !lifecycle.includes(ch));
+    const ch = conversations[0];
     if (
-      !owner ||
-      subscribed.length !== 1 ||
+      conversations.length !== 1 ||
       !ch ||
       ch.archivedAt ||
       ch.ownerHumanId !== ownerId ||
@@ -230,6 +249,54 @@ export function registerIntegrationRoutes(
         403,
         "Skill access requires one unshared owner-only conversation. Remove other subscriptions or sharing before retrying.",
       );
+    if (
+      lifecycle.length > 1 ||
+      lifecycle.some(
+        (entry) =>
+          entry.archivedAt ||
+          !Array.isArray(entry.shares) ||
+          entry.shares.length > 0 ||
+          entry.participants.some(
+            (p) =>
+              !(
+                (p.subscriberType === "AGENT" &&
+                  p.subscriberId === agent.name) ||
+                (p.subscriberType === "HUMAN" &&
+                  p.subscriberId === owner.username)
+              ),
+          ) ||
+          ((entry.visibility !== "PRIVATE" || entry.ownerHumanId !== ownerId) &&
+            !(
+              activateHeaders &&
+              entry.visibility === "PUBLIC" &&
+              !entry.ownerHumanId
+            )),
+      )
+    )
+      fail(
+        403,
+        "The agent's lifecycle channel must be private, owned by you and unshared. Renew skill access to secure its default lifecycle channel.",
+      );
+    const unsecured = lifecycle.find((entry) => entry.visibility === "PUBLIC");
+    if (unsecured) {
+      const response = await orgops.humanRequest(
+        `/api/channels/${encodeURIComponent(unsecured.id)}`,
+        activateHeaders!,
+        "PATCH",
+        { visibility: "PRIVATE" },
+      );
+      if (!response.ok)
+        fail(
+          403,
+          "Could not secure the agent's lifecycle channel. Ask your administrator to check channel permissions.",
+        );
+      audit("audit.connection.lifecycle.secured", ownerId, {
+        agentId: agent.id,
+        channelId: unsecured.id,
+      });
+      // Re-read after mutation before issuing any credential. Execution never repairs.
+      return privateContext(agentName, ownerId, agentId, ch.id);
+    }
     return { agent, channelId: ch.id };
   }
   routes.get("/config", (c) => {
@@ -377,7 +444,13 @@ export function registerIntegrationRoutes(
     const owner = human(c).id,
       a = await ownedAgent(c.req.param("name"), owner, c.req.raw.headers);
     service();
-    const context = await privateContext(a.name, owner, a.id);
+    const context = await privateContext(
+      a.name,
+      owner,
+      a.id,
+      undefined,
+      c.req.raw.headers,
+    );
     const token = "nest_connection_" + randomBytes(32).toString("hex"),
       tokenId = randomUUID(),
       expires = Date.now() + 30 * 86400_000;

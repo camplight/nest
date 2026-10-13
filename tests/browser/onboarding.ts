@@ -315,8 +315,44 @@ try {
       assert.equal(grants.length, 1);
       assert.deepEqual(grants[0].tools, ["TRELLO_GET_BOARDS"]);
       assert.notEqual(grants[0].connectionId, "test-account");
+      // Reproduce the automatic runner channel that previously blocked every
+      // running personal agent. Exercise the real engine HTTP endpoints.
+      const runnerHeaders = { "content-type": "application/json", "x-orgops-runner-token": "test-runner" };
+      const lifecycleResponse = await engine.app.request("/api/channels", {
+        method: "POST", headers: runnerHeaders,
+        body: JSON.stringify({ name: "agent.lifecycle.PuffVitaliy", description: "Lifecycle bootstrap channel for PuffVitaliy", kind: "GROUP" }),
+      });
+      assert.equal(lifecycleResponse.status, 201);
+      const lifecycleId = (await lifecycleResponse.json()).id;
+      assert((await engine.app.request(`/api/channels/${lifecycleId}/subscribe`, {
+        method: "POST", headers: runnerHeaders,
+        body: JSON.stringify({ subscriberType: "AGENT", subscriberId: "PuffVitaliy" }),
+      })).ok);
       await page.getByRole("button",{name:"Enable skill access",exact:true}).click();
       await page.getByRole("button",{name:"Renew skill access",exact:true}).waitFor();
+      const secured = (await (await product.app.request("/api/channels", { headers })).json()).find((channel: any) => channel.id === lifecycleId);
+      assert.equal(secured.visibility, "PRIVATE");
+      assert(secured.ownerHumanId);
+      // A real eligibility error must survive the UI, rather than blaming runner setup.
+      assert((await product.app.request("/api/humans/invite", {
+        method: "POST", headers, body: JSON.stringify({ username: "observer", tempPassword: "test-password" }),
+      })).ok);
+      assert((await product.app.request(`/api/channels/${lifecycleId}/subscribe`, {
+        method: "POST", headers, body: JSON.stringify({ subscriberType: "HUMAN", subscriberId: "observer" }),
+      })).ok);
+      await page.getByRole("button", { name: "Renew skill access", exact: true }).click();
+      await page.getByRole("alert").filter({ hasText: "lifecycle channel must be private" }).waitFor();
+      await page.getByRole("heading", { name: "Agent skill access", exact: true }).evaluate(node => node.scrollIntoView({ block: "start" }));
+      await page.screenshot({ path: join(screenshots, "skill-access-error-desktop.png"), fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.getByRole("heading", { name: "Agent skill access", exact: true }).evaluate(node => node.scrollIntoView({ block: "start" }));
+      await page.screenshot({ path: join(screenshots, "skill-access-error-mobile.png"), fullPage: true });
+      await page.setViewportSize({ width: 1440, height: 1100 });
+      assert((await product.app.request(`/api/channels/${lifecycleId}/unsubscribe`, {
+        method: "POST", headers, body: JSON.stringify({ subscriberType: "HUMAN", subscriberId: "observer" }),
+      })).ok);
+      await page.getByRole("button", { name: "Renew skill access", exact: true }).click();
+      await page.getByRole("alert").filter({ hasText: "lifecycle channel must be private" }).waitFor({ state: "hidden" });
       await page.getByRole("heading", {name:"Connected apps",exact:true}).evaluate(node => node.scrollIntoView({block:"start"}));
       await page.screenshot({
         path: join(screenshots, "connections-desktop.png"),

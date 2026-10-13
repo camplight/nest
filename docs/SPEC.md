@@ -445,8 +445,13 @@ OAuth return fields are not trusted; status comes from the provider adapter.
 Human settings require current private-agent ownership. Skill execution validates
 that ownership, exact grants and provider account status. Without a core turn
 attestation API, access requires exactly one unshared owner-only private channel;
-additional subscriptions or sharing deny all connected-account calls for that
-agent. Runtime isolation remains deployment-owned. A correctly configured global
+additional conversation subscriptions or sharing deny all connected-account calls
+for that agent. The canonical runner lifecycle GROUP is allowed only while
+private, owner-owned, unarchived, unshared and limited to the agent and optionally
+its owner. Enable/Renew secures its default PUBLIC channel via the human's existing
+engine channel PATCH API, then re-reads metadata before issuing credentials.
+Execution never changes channel permissions and rejects a public lifecycle channel.
+A lifecycle name alone does not exempt a channel from privacy checks. Runtime isolation remains deployment-owned. A correctly configured global
 engine metadata token and trusted shared runtime are prerequisites, not inferred
 security guarantees. See [PERSONAL_AGENTS.md](PERSONAL_AGENTS.md) for installation,
 configuration, expiry/renewal, limitations and live release checks.

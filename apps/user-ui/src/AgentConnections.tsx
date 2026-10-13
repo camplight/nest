@@ -102,10 +102,17 @@ function ConnectionSkill({
         body: enabled ? "{}" : undefined,
       });
       setState(enabled ? result : { enabled: false, expiresAt: null });
-    } catch {
-      setError(
-        "Could not update skill access. The agent needs one unshared owner-only chat and an administrator-configured runner.",
-      );
+    } catch (failure) {
+      let message = "Could not update skill access. Please retry.";
+      if (failure instanceof Error) {
+        try {
+          const result = JSON.parse(failure.message);
+          if (typeof result.error === "string") message = result.error;
+        } catch {
+          /* Network failures use the fallback above. */
+        }
+      }
+      setError(message);
     } finally {
       setBusy(false);
     }
@@ -114,8 +121,10 @@ function ConnectionSkill({
     <article className="dashboard-card onboarding-notice">
       <h3>Agent skill access</h3>
       <p>
-        Enable the Nest connections skill after choosing tools below. Access
-        pauses if this agent joins another chat or its private chat is shared.
+        Enable access after choosing tools below. Nest also makes the agent’s
+        lifecycle channel private. Access pauses if another conversation is
+        added, either channel is shared, or the lifecycle channel becomes
+        public.
       </p>
       {state?.enabled && (
         <p>Enabled until {new Date(state.expiresAt!).toLocaleDateString()}.</p>

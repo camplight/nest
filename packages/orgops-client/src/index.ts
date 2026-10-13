@@ -91,7 +91,7 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     async function get<T>(path:string):Promise<T>{const response=await request(path,{headers});if(!response.ok)throw Error('Engine context unavailable');return response.json() as Promise<T>;}
     const [agent,channels,humans]=await Promise.all([
       get<{id:string;name:string;ownerHumanId:string;visibility:string}>(`/api/agents/${encodeURIComponent(agentName)}`),
-      get<Array<{id:string;ownerHumanId:string;visibility:string;archivedAt?:number;participants:Array<{subscriberType:string;subscriberId:string}>;shares:unknown[]}>>('/api/channels?includeArchived=1'),
+      get<Array<{id:string;name:string;description?:string;kind:string;ownerHumanId:string|null;visibility:string;archivedAt?:number;participants:Array<{subscriberType:string;subscriberId:string}>;shares:unknown[]}>>('/api/channels?includeArchived=1'),
       get<Array<{id:string;username:string}>>('/api/humans'),
     ]);
     return {agent,channels,humans};

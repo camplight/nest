@@ -249,3 +249,13 @@ agent secrets. Native API/WS clients keep their original event semantics;
 notifications are generated for selected human mentions submitted through Nest.
 The generic skill private-context restriction and deployment isolation policy do
 not change.
+
+## Personal connection skill lifecycle compatibility
+
+The runner creates a PUBLIC `agent.lifecycle.<name>` GROUP by default. Nest's
+connection activation uses the existing human-authenticated channel PATCH API to
+make the canonical channel private and owner-owned before issuing credentials.
+Every skill call checks its privacy, membership and sharing alongside the single
+owner-only conversation. Lifecycle names alone are not authorization markers.
+This is a Nest adapter change: no engine source, pin, DB migration, or runner
+assignment changes. Existing agents apply it when their owner clicks Enable/Renew.
