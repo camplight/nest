@@ -20,6 +20,12 @@ Do not edit `vendor/orgops`. Change Nest UI/API/client/launcher code for product
 features. Contribute engine changes to OrgOps separately, then update the gitlink.
 The parent npm lockfile locks the combined workspace dependency graph.
 
+The home dashboard summary (`GET /api/projects/dashboard`) lives in Nest's
+project API. It aggregates product tasks only after the existing human/owner and
+live engine channel access checks. It adds no engine endpoint, DB migration,
+runner change or source overlay. Cost/operational issue data is explicitly
+unavailable; private community previews use Nest's existing catalog API.
+
 ## Existing installations
 
 The CLI refuses automatic upgrade of a legacy installation with the branding

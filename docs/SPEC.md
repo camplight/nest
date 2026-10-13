@@ -75,27 +75,50 @@ browser Back/Forward restores the dashboard or conversation from the URL.
 Dashboard navigation clears the active channel so background messages are not
 treated as read merely because the home page is visible.
 
-The dashboard uses the existing visibility-filtered channels and agents, team
-membership, and session-local unread message counts. Unread counts follow the
+Explicit Dashboard navigation writes `?view=dashboard`, so reload and refresh
+preserve home even when agent onboarding is unfinished. A first visit to `/`
+can still offer personal-agent setup.
+
+The dashboard uses visibility-filtered channels and agents, owner-scoped project
+task summaries, the private community catalog and session-local unread counts.
+Unread counts follow the
 existing notification behavior: a fresh session establishes a baseline, then
 HTTP polling and WebSocket events track subsequent messages. They are not
-persisted read receipts. Search filters conversations and agents; archived and
-running filters use the engine's existing state. No new API or database is added.
+persisted read receipts. Search filters active projects, review/change tasks,
+unread chat labels and the eight most recent community packages. Browse all
+opens full catalog search. Project records remain private to their owner.
 
 Its visual reference is Figma file `Rqfq3v9a8nZfQKbM3Q0NZk`, Camplight dashboard
 `923:417` and Nest dashboard `793:2`. Shared instance branding supplies the logo
 and palette, with a separate Powered by Nest footer. Original exported icons
-are local in `apps/user-ui/public/design`. The first implementation adapts the
-reference's cards to available data: agents, conversations and unread messages.
-Spend, project progress, issues and community mock data are not implemented.
+are local in `apps/user-ui/public/design`. The dashboard follows the reference's
+three summary cards, Active projects/Up next columns, Urgent issues and Community
+strip, including empty instances. Tasks toggles approved and pending-review counts.
+Project completion is approved tasks divided by all tasks; no tasks means no
+percentage. Assigned-agent counts come from tasks, not channel membership.
+Spend and operational issues explicitly show unavailable with disabled filters;
+changes requested are a separate task state, never fabricated incidents.
 
-Conversation and unread-activity cards use a local adaptation of SmoothUI's
+`GET /api/projects/dashboard` returns `ProjectDashboard`: per-project counts,
+task totals and compact pending-review/change rows (no deliverable text, feedback
+or engine events). It uses the same human session, owner and current engine
+channel manage/post/unarchived checks as project routes. It reads only Nest's
+product task store. Engine failure returns 502, never a successful zero summary.
+The UI loads the summary and community catalog concurrently on home entry and
+manual Refresh, cancels obsolete requests, and clears failed summary values.
+
+Project, review/unread-activity and changes-requested cards use a local adaptation of SmoothUI's
 [Scrollable Card Stack](https://smoothui.dev/docs/components/scrollable-card-stack)
 in `apps/user-ui/src/components/smooth-ui`, with its MIT license retained. The
 component uses Motion for stack transitions, dots and previous/next controls,
 arrow/Home/End keys, horizontal touch swipes and reduced-motion support. Only
 the active card exposes actions to keyboard and assistive technology; vertical
-page scrolling remains available. "All" switches conversations to the full list.
+page scrolling remains available. "All" switches Up next to the full list.
+Review actions deep-link to the task in Projects. The community strip features
+the latest automation (or latest package), then other recent packages; each opens
+the actual catalog detail. Artwork is the original Figma automation, discussion
+and application illustration, adapted to existing automation/skill/use-case
+categories without inventing reply, run or installation counts.
 
 Agent portraits reuse Figma's five original characters through `AgentAvatar` in
 dashboard cards and chat participants. PNG exports preserve the composed avatar

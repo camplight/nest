@@ -60,12 +60,12 @@ try {
     const nav=page.getByRole('navigation',{name:'Main navigation'});
     assert.equal(await nav.getByRole('button',{name:'Chats',exact:true}).count(),0);
     assert.equal(await page.getByRole('button',{name:'New chat',exact:true}).count(),0);
-    await page.getByRole('heading',{name:'What would you like to work on?'}).waitFor();
+    await page.getByRole('heading',{name:'Your first project starts here'}).waitFor();
     await page.screenshot({path:join(screenshots,'onboarding-desktop.png'),fullPage:true});
     await page.setViewportSize({width:390,height:844});
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     await page.screenshot({path:join(screenshots,'onboarding-mobile.png'),fullPage:true});
-    await page.getByRole('button',{name:'Create your first project',exact:true}).click();
+    await page.getByRole('button',{name:'Create a project →',exact:true}).click();
     await page.setViewportSize({width:1440,height:1100});
     assert.equal(new URL(page.url()).searchParams.get('view'),'projects');
     await page.getByRole('textbox',{name:'Project name',exact:true}).fill('Website launch');

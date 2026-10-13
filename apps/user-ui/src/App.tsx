@@ -446,7 +446,7 @@ function readPendingShareToken() {
   return token?.trim() || null;
 }
 
-function updateChannelDeepLink(channelId: string | null, replace = false) {
+function updateChannelDeepLink(channelId: string | null, replace = false, dashboard = false) {
   const url = new URL(window.location.href);
   url.searchParams.delete("message");
   url.searchParams.delete("view");
@@ -457,6 +457,7 @@ function updateChannelDeepLink(channelId: string | null, replace = false) {
     url.searchParams.set("channel", channelId);
   } else {
     url.searchParams.delete("channel");
+    if (dashboard) url.searchParams.set("view", "dashboard");
   }
   const method = replace ? "replaceState" : "pushState";
   window.history[method](null, "", url);
@@ -862,7 +863,7 @@ export default function App() {
     setActiveChannelId(channelId);
     setView(channelId ? "workspace" : "dashboard");
     setMobileSidebarOpen(false);
-    updateChannelDeepLink(channelId, options?.replace);
+    updateChannelDeepLink(channelId, options?.replace, channelId === null);
   }
 
   async function loadSession() {
@@ -2598,7 +2599,7 @@ export default function App() {
       ) : null}
 
       {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} members={<><button className="dashboard-action" disabled={!activeChannelManageable} onClick={() => setShowChannelManageDialog(true)}>Manage members and sharing</button>{chatMembers}</>} /> : view === "agents" ? <Agents setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={selectChannel} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
-        channels={visibleChannels} projects={projectIndex} onProject={selectProject} agents={visibleAgents} teams={teams} unreadCounts={unreadCounts} onAgent={selectAgent}
+        channels={visibleChannels} projects={projectIndex} onProject={selectProject} agents={visibleAgents} unreadCounts={unreadCounts} onAgents={()=>selectAgent(null)} onCommunity={selectCommunity}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}
         onSelect={selectChannel} onCreate={() => selectProject(null, null, "new")}
         onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()}

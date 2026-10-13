@@ -4,7 +4,7 @@ import { HTTPException } from 'hono/http-exception';
 import { bodyLimit } from 'hono/body-limit';
 import type { ProductDb } from '@nest/db';
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
-import { NewProjectSchema, NewTaskSchema, TaskActionSchema, SubmitDeliverableSchema, ReviewSchema, type Task, type Project } from '@nest/schemas';
+import { NewProjectSchema, NewTaskSchema, TaskActionSchema, SubmitDeliverableSchema, ReviewSchema, type Task, type Project, type ProjectDashboard, type DashboardTask } from '@nest/schemas';
 
 type Channel = {id: string; canManage: boolean; canPost: boolean; archivedAt?: number | null; ownerHumanId?: string; metadata?: {nestProjectChat?: string}};
 type EngineEvent = {id: string; type: string; source: string; channelId: string; createdAt: number; payload?: {text?: unknown; nestTaskId?: unknown; nestTaskAttempt?: unknown; targetAgentName?: unknown}; idempotencyKey?: string};
@@ -55,6 +55,27 @@ export function registerProjectRoutes(app: Hono, {store, orgops}: {store: Produc
       task.dispatchedAt !== null && event.createdAt>task.dispatchedAt && typeof event.payload?.text==='string' && event.payload.text.trim().length>0;
   }
   routes.get('/api/projects', c => c.json(db.projects(c.get('human').id).filter(p=>available(c.get('channels'),p.channelId))));
+  routes.get('/api/projects/dashboard', c => {
+    const visible = db.projects(c.get('human').id).filter(p=>available(c.get('channels'),p.channelId));
+    const summary: ProjectDashboard = {projects:[],tasks:{total:0,finished:0,needsReview:0,changesRequested:0},reviews:[],changes:[]};
+    for (const project of visible) {
+      const tasks = db.tasks(project.id);
+      const finishedTasks = tasks.filter(t=>t.status==='done').length;
+      const needsReview = tasks.filter(t=>t.status==='needs_review').length;
+      const changesRequested = tasks.filter(t=>t.status==='changes_requested').length;
+      summary.projects.push({project,totalTasks:tasks.length,finishedTasks,needsReview,changesRequested,workingTasks:tasks.filter(t=>t.status==='working').length,assignedAgents:new Set(tasks.map(t=>t.agentName)).size});
+      summary.tasks.total+=tasks.length; summary.tasks.finished+=finishedTasks;
+      summary.tasks.needsReview+=needsReview; summary.tasks.changesRequested+=changesRequested;
+      for (const task of tasks) {
+        const item: DashboardTask = {id:task.id,projectId:project.id,title:task.title,agentName:task.agentName,updatedAt:task.updatedAt,status:task.status};
+        if (task.status==='needs_review') summary.reviews.push(item);
+        if (task.status==='changes_requested') summary.changes.push(item);
+      }
+    }
+    summary.reviews.sort((a,b)=>b.updatedAt-a.updatedAt || a.id.localeCompare(b.id));
+    summary.changes.sort((a,b)=>b.updatedAt-a.updatedAt || a.id.localeCompare(b.id));
+    return c.json(summary);
+  });
   routes.post('/api/projects', async c => {
     const body = parse(NewProjectSchema,await c.req.json().catch(()=>null));
     const human=c.get('human');
