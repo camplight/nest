@@ -93,7 +93,7 @@ function ConnectionSkill({
         if (!abort.signal.aborted) setState(result);
       })
       .catch(() => {
-        if (!abort.signal.aborted) setError("Could not load skill access.");
+        if (!abort.signal.aborted) setError("Could not load app access.");
       });
     return () => abort.abort();
   }, [path, revision]);
@@ -108,7 +108,7 @@ function ConnectionSkill({
       });
       setState(current => enabled ? result : current ? { ...current, enabled: false, expiresAt: null } : null);
     } catch (failure) {
-      let message = "Could not update skill access. Please retry.";
+      let message = "Could not update app access. Please retry.";
       if (failure instanceof Error) {
         try {
           const result = JSON.parse(failure.message);
@@ -123,25 +123,11 @@ function ConnectionSkill({
     }
   }
   return (
-    <article className="dashboard-card onboarding-notice">
-      <h3>Agent skill access</h3>
-      <p>
-        Connect an account, choose and save tools below, then enable access for {name}.
-        Connected tools pause if the agent’s private chat is shared or it joins another conversation.
-      </p>
-      {state && <p>Saved tool permissions: <strong>{state.grantedToolCount}</strong></p>}
-      {state && state.grantedToolCount === 0 && <p role="status">
-        No tools are allowed yet. Choose tools below and click Save tool access.
-      </p>}
-      {state?.enabled && <>
-        <p>Access enabled until {new Date(state.expiresAt!).toLocaleDateString()}.</p>
-        {state.preloadConfigured ? <p>The connection guide will load for the next request.</p> :
-          <p role="status">Renew skill access to load the connection guide for the next request.</p>}
-      </>}
-      {error && <p role="alert">{error}</p>}
-      {!available && (
-        <p>Ask your administrator to configure connection skill access.</p>
-      )}
+    <article className="dashboard-card connection-access-control">
+      <div className="connection-access-overview">
+      <h3>App access</h3>
+      <p>Allow apps below, then enable them for {name}.</p>
+      </div>
       <div className="connection-skill-actions">
         <button
           className="dashboard-action"
@@ -151,8 +137,8 @@ function ConnectionSkill({
           {busy
             ? "Updating…"
             : state?.enabled
-              ? "Renew skill access"
-              : "Enable skill access"}
+              ? "Renew app access"
+              : "Enable app access"}
         </button>
         {state?.enabled && (
           <button
@@ -160,10 +146,19 @@ function ConnectionSkill({
             disabled={busy}
             onClick={() => void change(false)}
           >
-            Revoke skill access
+            Turn off app access
           </button>
         )}
       </div>
+      <div className="connection-access-footer">
+        <div className="connection-access-meta">
+          {state && (state.grantedToolCount === 0 ? <span role="status">No actions are allowed yet.</span> : <span>{state.grantedToolCount} {state.grantedToolCount === 1 ? "action" : "actions"} allowed</span>)}
+          {state?.enabled && <><span>Expires {new Date(state.expiresAt!).toLocaleDateString()}</span><span role="status">{state.preloadConfigured ? "Ready for your next message." : "Renew access before your next message."}</span></>}
+        </div>
+        <details className="connection-access-help"><summary>How access works</summary><p>Connected apps work in your unshared private chat with {name}. Access pauses if that chat is shared or the agent joins another conversation. Changes take effect on your next message.</p></details>
+      </div>
+      {error && <p className="connection-access-notice" role="alert">{error}</p>}
+      {!available && <p className="connection-access-notice">Ask your administrator to enable app connections.</p>}
     </article>
   );
 }

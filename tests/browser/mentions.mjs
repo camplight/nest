@@ -52,6 +52,8 @@ try{
   await input.fill('Email vitaliy@example.com');assert.equal(await popup.count(),0);
   await input.fill('Hello @pu, thanks');await input.press('Home');for(let i=0;i<9;i++)await input.press('ArrowRight');
   await popup.getByRole('option').filter({hasText:'PuffVitaliy'}).click();assert.equal(await input.inputValue(),'Hello @PuffVitaliy, thanks');
+  // Finish caret restoration before replacing this draft as well.
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));
   await input.fill('@notfound');await page.getByText('No matches. Try another name.').waitFor();await input.press('Enter');assert.equal(writes.length,1);
   await input.press('Escape');assert.equal(await popup.count(),0);assert.equal(await input.inputValue(),'@notfound');
   await input.fill('@pu');await input.dispatchEvent('keydown',{key:'Enter',code:'Enter',isComposing:true});assert.equal(writes.length,1);assert.equal(await input.inputValue(),'@pu');

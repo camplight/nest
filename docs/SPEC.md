@@ -510,6 +510,22 @@ engine metadata token and trusted shared runtime are prerequisites, not inferred
 security guarantees. See [PERSONAL_AGENTS.md](PERSONAL_AGENTS.md) for installation,
 configuration, expiry/renewal, limitations and live release checks.
 
+Connected-app permissions default to a compact Give all access action, with
+locally served brand logos for the initial supported apps and a generic app icon
+for unknown providers. Choose specific actions expands the advanced search,
+Selected view and compact permission rows. Full provider descriptions and exact
+references remain under About this action; action titles are presentation only.
+The collapsed default does not fetch the catalog.
+
+Give all access loads every provider page and saves the exact current catalog
+through the existing grant endpoint in one explicit click. It ignores advanced
+search filters, reports success only after saving and does not grant future tools
+automatically. Advanced choices require Save access, and bulk Select all results
+keeps existing selections across search and pagination. Page failures or sets
+exceeding the existing 100-action limit never partially select or grant tools.
+Saved access remains distinct from pending advanced choices; discarding restores
+saved choices. No guessed read/write classifications are introduced.
+
 ## Agent model defaults and selection
 
 Nest exposes authenticated `GET /api/agent-models`, a sanitized enabled native

@@ -286,3 +286,14 @@ configures the instance helper for preloading through the unchanged engine API;
 legacy agents upgrade by owner renewal. Consent stays explicit. See
 [the investigation](CONNECTION_READINESS.md) for the separate final-event format
 fallback and the limits of the production evidence.
+
+## Friendly connected-app permissions
+
+Connected accounts use local app logos and a compact Give all access button.
+Choose specific actions collapses search, Selected view and granular permission
+rows by default. Give all access fetches and saves every current provider action
+in one explicit click, independently of advanced search. Advanced choices still
+require Save access, with discard/clear and failed-save recovery. Pagination,
+search and bulk selection preserve choices. Page failures and the existing
+100-action limit never apply partial selections or grants. Desktop/mobile/dark,
+local logo loading, default size and the real permission boundary are checked.
