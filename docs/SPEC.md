@@ -79,6 +79,23 @@ Explicit Dashboard navigation writes `?view=dashboard`, so reload and refresh
 preserve home even when agent onboarding is unfinished. A first visit to `/`
 can still offer personal-agent setup.
 
+Dashboard, Projects, Agents and Community share `WorkspaceTopbar`: each view's
+search plus the original Figma theme/bell/settings/account icons. Browser theme
+preferences synchronize between mounted controls and across tabs using storage
+events. The bell reuses the existing human mention inbox; opening an entry marks
+it read and restores its project/channel plus message link. Known project names
+replace internal engine chat names in header notifications.
+
+Workspace settings is a native dialog with appearance, an agent-settings shortcut
+and an owner-only `/admin/` link gated by existing `GET /api/branding/access`.
+An unavailable access check offers Retry without blocking personal preferences.
+The account menu shows the authenticated username, agent/settings shortcuts and
+the existing session logout. Escape/focus restoration and keyboard navigation
+are tested. Standalone legacy chats keep their existing toolbar/sidebar controls.
+`Skills` selects the private catalog at `?view=community&category=skill`; reload
+and browser history retain category and navigation selection. No new settings,
+notification or credential API/database is introduced.
+
 The dashboard uses visibility-filtered channels and agents, owner-scoped project
 task summaries, the private community catalog and session-local unread counts.
 Unread counts follow the

@@ -292,7 +292,7 @@ try {
     const receiver = await bob.newPage();
     await receiver.goto(base + "/");
     await receiver
-      .getByRole("button", { name: "Mentions", exact: true })
+      .getByRole("button", { name: /^(Mentions|Notifications)$/, exact: true })
       .click();
     await receiver
       .getByText("demo-alice mentioned you", { exact: true })
@@ -304,11 +304,11 @@ try {
     );
     assert(
       await receiver
-        .getByRole("button", { name: "Mentions", exact: true })
+        .getByRole("button", { name: /^(Mentions|Notifications)$/, exact: true })
         .evaluate((node) => node === document.activeElement),
     );
     await receiver
-      .getByRole("button", { name: "Mentions", exact: true })
+      .getByRole("button", { name: /^(Mentions|Notifications)$/, exact: true })
       .press("Enter");
     await receiver.getByRole("dialog", { name: "Your mentions" }).waitFor();
     await receiver.screenshot({
@@ -343,7 +343,7 @@ try {
     await receiver.waitForFunction((id)=>{const node=document.getElementById('message-'+id);if(!node)return false;const r=node.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;},events[0].id);
     await receiver.getByRole("button", { name: "Menu", exact: true }).click();
     await receiver
-      .getByRole("button", { name: "Mentions", exact: true })
+      .getByRole("button", { name: /^(Mentions|Notifications)$/, exact: true })
       .click();
     await receiver
       .getByRole("button")

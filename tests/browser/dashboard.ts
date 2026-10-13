@@ -277,6 +277,274 @@ try {
         `PASS: before reference with synthetic data. Screenshots: ${screenshots}`,
       );
     } else {
+      const controls = page.getByRole("group", { name: "Workspace controls" });
+      assert.equal(await controls.getByRole("button").count(), 4);
+      assert.deepEqual(
+        await controls.locator("img").evaluateAll((images) =>
+          images.map((img) => {
+            const r = img.getBoundingClientRect();
+            return [r.width, r.height];
+          }),
+        ),
+        [
+          [42, 41],
+          [40, 42],
+          [42, 40],
+          [41, 40],
+        ],
+      );
+      await page.getByRole("button", { name: "Account", exact: true }).click();
+      await page
+        .getByRole("menu", { name: "Account menu" })
+        .getByText("owner", { exact: true })
+        .waitFor();
+      await capture("header-account-desktop.png");
+      await page.keyboard.press("Escape");
+      assert(
+        await page
+          .getByRole("button", { name: "Account", exact: true })
+          .evaluate((el) => el === document.activeElement),
+      );
+      await page.route("**/api/branding/access", (route) =>
+        route.fulfill({ status: 503, json: { error: "Test: unavailable" } }),
+      );
+      await page
+        .getByRole("button", { name: "Workspace settings", exact: true })
+        .click();
+      const settings = page.getByRole("dialog", { name: "Workspace settings" });
+      await settings.getByRole("alert").waitFor();
+      await settings
+        .getByRole("button", { name: "Switch to dark theme" })
+        .click();
+      await page.waitForFunction(
+        () => document.documentElement.dataset.theme === "dark",
+      );
+      assert.equal(
+        await page
+          .locator(".workspace-controls > .nest-theme-toggle")
+          .getAttribute("aria-label"),
+        "Switch to light theme",
+      );
+      await settings
+        .getByRole("button", { name: "Switch to light theme" })
+        .click();
+      await page.unroute("**/api/branding/access");
+      await settings
+        .getByRole("button", { name: "Retry access check" })
+        .click();
+      assert.equal(
+        await settings
+          .getByRole("link", { name: "Open administration →" })
+          .getAttribute("href"),
+        "/admin/",
+      );
+      await capture("header-settings-desktop.png");
+      await page.keyboard.press("Escape");
+      assert(
+        await page
+          .getByRole("button", { name: "Workspace settings", exact: true })
+          .evaluate((el) => el === document.activeElement),
+      );
+      const nav = page.getByRole("navigation", { name: "Main navigation" });
+      await nav.getByRole("button", { name: "Skills", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Agent skills", exact: true })
+        .waitFor();
+      await page.waitForFunction(
+        () => document.querySelectorAll(".community-card").length === 1,
+      );
+      assert.equal(new URL(page.url()).searchParams.get("category"), "skill");
+      assert.equal(
+        await nav
+          .getByRole("button", { name: "Skills", exact: true })
+          .getAttribute("aria-current"),
+        "page",
+      );
+      await page.reload();
+      await page
+        .getByRole("button", { name: "Acceptance Review", exact: true })
+        .waitFor();
+      assert.equal(
+        await page
+          .getByRole("button", { name: "Agent skills", exact: true })
+          .getAttribute("aria-pressed"),
+        "true",
+      );
+      await nav.getByRole("button", { name: "Community", exact: true }).click();
+      await page.waitForFunction(
+        () => document.querySelectorAll(".community-card").length === 3,
+      );
+      await nav.getByRole("button", { name: "Projects", exact: true }).click();
+      await page
+        .getByRole("textbox", { name: "Search projects" })
+        .fill("backend");
+      await page.waitForFunction(
+        () =>
+          document.querySelectorAll(".project-grid .project-summary").length ===
+          1,
+      );
+      await nav.getByRole("button", { name: "Agents", exact: true }).click();
+      assert.equal(
+        await page
+          .getByRole("group", { name: "Workspace controls" })
+          .getByRole("button")
+          .count(),
+        4,
+      );
+      await nav.getByRole("button", { name: "Dashboard", exact: true }).click();
+      const room = (await request(`/api/projects/${reviewProject}`)).channelId;
+      await request("/api/humans/invite", {
+        username: "header-reviewer",
+        tempPassword: "test-password",
+      });
+      // Complete the invited human's required password change through the real API.
+      const reviewerResponse = await product.app.request("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          username: "header-reviewer",
+          password: "test-password",
+        }),
+      });
+      let reviewerCookie = reviewerResponse.headers
+        .get("set-cookie")!
+        .split(";")[0];
+      const reviewerHeaders = {
+        cookie: reviewerCookie,
+        "content-type": "application/json",
+      };
+      const changed = await product.app.request("/api/auth/profile", {
+        method: "PATCH",
+        headers: reviewerHeaders,
+        body: JSON.stringify({
+          username: "header-reviewer",
+          newPassword: "reviewer-test-password",
+        }),
+      });
+      assert.equal(changed.status, 200);
+      reviewerCookie =
+        changed.headers.get("set-cookie")?.split(";")[0] ?? reviewerCookie;
+      reviewerHeaders.cookie = reviewerCookie;
+      await request(`/api/channels/${room}/subscribe`, {
+        subscriberType: "HUMAN",
+        subscriberId: "header-reviewer",
+      });
+      await request(
+        "/api/messages",
+        {
+          id: randomUUID(),
+          channelId: room,
+          text: "@owner Please review the launch proposal.",
+          mentions: [{ kind: "HUMAN", name: "owner", start: 0, end: 6 }],
+        },
+        "POST",
+        reviewerHeaders,
+      );
+      await page
+        .getByRole("button", { name: "Notifications", exact: true })
+        .click();
+      const inbox = page.getByRole("dialog", { name: "Your mentions" });
+      await inbox
+        .getByText("header-reviewer mentioned you", { exact: true })
+        .waitFor();
+      await inbox.getByText("backend-infra", { exact: true }).waitFor();
+      await capture("header-notifications-desktop.png");
+      await inbox
+        .getByRole("button")
+        .filter({ hasText: "header-reviewer mentioned you" })
+        .click();
+      await page.waitForURL(
+        (url) =>
+          url.searchParams.get("project") === reviewProject &&
+          Boolean(url.searchParams.get("message")),
+      );
+      assert.equal(
+        new URL(page.url()).searchParams.get("project"),
+        reviewProject,
+      );
+      assert(new URL(page.url()).searchParams.get("message"));
+      const notices = await request("/api/mentions");
+      assert(notices.items[0].readAt);
+      await nav.getByRole("button", { name: "Dashboard", exact: true }).click();
+      await page.waitForFunction(
+        () =>
+          document.querySelector('[aria-label="Finished tasks"]')
+            ?.textContent === "1",
+      );
+      await page.setViewportSize({ width: 390, height: 844 });
+      assert.equal(await controls.getByRole("button").count(), 4);
+      await capture("header-mobile.png");
+      await page.getByRole("button", { name: "Account", exact: true }).click();
+      await capture("header-account-mobile.png");
+      await page.keyboard.press("Escape");
+      await page
+        .getByRole("button", { name: "Notifications", exact: true })
+        .click();
+      await page.getByRole("dialog", { name: "Your mentions" }).waitFor();
+      await capture("header-notifications-mobile.png");
+      await page.keyboard.press("Escape");
+      await page
+        .getByRole("button", { name: "Workspace settings", exact: true })
+        .click();
+      await settings
+        .getByRole("link", { name: "Open administration →" })
+        .waitFor();
+      await capture("header-settings-mobile.png");
+      await settings
+        .getByRole("button", { name: "Close workspace settings" })
+        .click();
+      await page.setViewportSize({ width: 1440, height: 1290 });
+      // A separate authenticated human gets personal settings but no owner link.
+      const guest = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+      });
+      await guest.addCookies([
+        {
+          name: "nest_session",
+          value: reviewerCookie.slice("nest_session=".length),
+          url: "http://127.0.0.1:5312",
+          httpOnly: true,
+        },
+      ]);
+      const guestPage = await guest.newPage();
+      await guestPage.routeWebSocket("**/ws", (socket) => socket.close());
+      await guestPage.goto("http://127.0.0.1:5312/?view=dashboard");
+      await guestPage
+        .getByRole("button", { name: "Workspace settings", exact: true })
+        .click();
+      const guestSettings = guestPage.getByRole("dialog", {
+        name: "Workspace settings",
+      });
+      await guestSettings
+        .getByText("Instance settings are managed by your administrator.")
+        .waitFor();
+      assert.equal(
+        await guestSettings
+          .getByRole("link", { name: "Open administration →" })
+          .count(),
+        0,
+      );
+      await guestSettings
+        .getByRole("button", { name: "Close workspace settings" })
+        .click();
+      await guestPage
+        .getByRole("button", { name: "Account", exact: true })
+        .click();
+      await guestPage
+        .getByRole("menu", { name: "Account menu" })
+        .getByText("header-reviewer", { exact: true })
+        .waitFor();
+      await guestPage
+        .getByRole("menuitem", { name: "Sign out", exact: true })
+        .click();
+      await guestPage
+        .getByRole("button", { name: "Continue", exact: true })
+        .waitFor();
+      assert.equal(
+        (await guest.request.get("http://127.0.0.1:5312/api/auth/me")).status(),
+        401,
+      );
+      await guest.close();
       assert.equal(
         await page.getByLabel("Finished tasks", { exact: true }).textContent(),
         "1",

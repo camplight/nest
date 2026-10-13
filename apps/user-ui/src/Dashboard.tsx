@@ -10,7 +10,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { apiJson } from "./api";
 import { AgentAvatar } from "./components/AgentAvatar";
 import { ScrollableCardStack } from "./components/smooth-ui/ScrollableCardStack";
-import type { Agent, Channel } from "./types";
+import type { Channel } from "./types";
+import { WorkspaceTopbar } from "./components/WorkspaceTopbar";
 import "./dashboard.css";
 
 export function DesignIcon({ name }: { name: string }) {
@@ -27,7 +28,6 @@ export function DesignIcon({ name }: { name: string }) {
 type Props = {
   channels: Channel[];
   projects: Project[];
-  agents: Agent[];
   unreadCounts: Record<string, number>;
   loading: boolean;
   error: string | null;
@@ -35,7 +35,6 @@ type Props = {
   onSelect: (id: string) => void;
   onProject: (id: string | null, task?: string | null, tab?: string) => void;
   onCommunity: (name: string | null) => void;
-  onAgents: () => void;
   onCreate: () => void;
   onMenu: () => void;
   onRetry: () => void;
@@ -115,9 +114,7 @@ export function Dashboard({
   projects,
   onProject,
   onCommunity,
-  onAgents,
   channels,
-  agents,
   unreadCounts,
   loading,
   error,
@@ -363,36 +360,20 @@ export function Dashboard({
 
   return (
     <section className="dashboard" aria-label="Dashboard">
-      <header className="dashboard-topbar">
-        <button
-          type="button"
-          className="sidebar-mobile-toggle"
-          onClick={onMenu}
-        >
-          Menu
-        </button>
-        <label className="dashboard-search">
-          <DesignIcon name="search" />
-          <input
-            aria-label="Search dashboard"
-            placeholder="Search…"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </label>
-        <button
-          className="dashboard-team-shortcut"
-          onClick={onAgents}
-          aria-label="View your agents"
-        >
-          <span className="dashboard-team-avatars" aria-hidden="true">
-            {agents.slice(0, 3).map((agent) => (
-              <AgentAvatar key={agent.name} name={agent.name} size={28} />
-            ))}
-          </span>
-          <span>Your agents</span>
-        </button>
-      </header>
+      <WorkspaceTopbar
+        onMenu={onMenu}
+        search={
+          <label className="dashboard-search">
+            <DesignIcon name="search" />
+            <input
+              aria-label="Search dashboard"
+              placeholder="Search…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+        }
+      />
       <div className="dashboard-content" aria-busy={pending}>
         <div className="dashboard-title">
           <h1>Dashboard</h1>
@@ -513,7 +494,7 @@ export function Dashboard({
           <section aria-label="Up next">
             <SectionTitle
               title="Up next"
-            count={overview && !pending && !error ? next.length : undefined}
+              count={overview && !pending && !error ? next.length : undefined}
               action={
                 next.length > 1 && (
                   <button
