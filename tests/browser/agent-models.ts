@@ -53,6 +53,11 @@ try {
    await new Promise(r=>setTimeout(r,100));
   }throw Error('Agent not created');
  });
+ // The engine insert completes before the creation drawer hydrates. Wait for
+ // the saved model in the edit form before changing it; otherwise hydration
+ // can overwrite the edit on faster Linux runners.
+ await page.getByRole('button',{name:'Save Details',exact:true}).waitFor();
+ await page.waitForFunction(() => document.querySelector<HTMLSelectElement>('select[aria-label="Language model"]')?.value === 'openrouter:moonshotai/kimi-k3');
  await page.getByLabel('Language model').selectOption('openrouter:qwen/qwen3.8-27b');
  await page.getByRole('button',{name:'Save Details',exact:true}).click();
  await page.getByText('Agent "PuffTest" was saved successfully.',{exact:true}).first().waitFor();
