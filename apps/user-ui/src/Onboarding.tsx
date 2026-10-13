@@ -6,6 +6,8 @@ import type {
 } from "@nest/schemas";
 import { apiJson, getApiHeaders } from "./api";
 import { AgentAvatar } from "./components/AgentAvatar";
+import { ConnectionActions, connectionAppName } from "./components/ConnectionActions";
+import { IntegrationLogo } from "./components/IntegrationLogo";
 import "./onboarding.css";
 const characters: {
   id: AgentCharacter;
@@ -183,7 +185,7 @@ export function AgentSetupForm({onCreated}:{onCreated:(name:string)=>void}) {
             </div>)}
   </section>;
 }
-export function Connections({ agentName }: { agentName: string }) {
+export function Connections({ agentName, onPermissionsChanged }: { agentName: string; onPermissionsChanged?: () => void }) {
   const [connections, setConnections] = useState<Connection[]>([]),
     [kits, setKits] = useState<
       {
@@ -212,6 +214,7 @@ export function Connections({ agentName }: { agentName: string }) {
         next = result.nextCursor;
       } while (next);
       setConnections(all);
+      onPermissionsChanged?.();
       setLoaded(true);
       setError("");
     } catch (e) {
@@ -303,8 +306,8 @@ export function Connections({ agentName }: { agentName: string }) {
           <article className="dashboard-card onboarding-connection" key={c.id}>
             <header>
               <div>
-                <h3>{c.toolkit}</h3>
-                <small>{c.status === "ACTIVE" ? "Connected" : c.status}</small>
+                <IntegrationLogo toolkit={c.toolkit} /><h3>{connectionAppName(c.toolkit)}</h3>
+                <small className={`connection-account-status${c.status === "ACTIVE" ? " is-connected" : ""}`}>{c.status === "ACTIVE" ? "Connected" : c.status}</small>
               </div>
               <button
                 className="dashboard-action"
@@ -315,10 +318,11 @@ export function Connections({ agentName }: { agentName: string }) {
               </button>
             </header>
             {c.status === "ACTIVE" ? (
-              <ToolGrants
+              <ConnectionActions
                 key={c.id + c.status}
                 agentName={agentName}
                 connection={c}
+                onSaved={onPermissionsChanged}
               />
             ) : (
               <p>Finish authentication or reconnect before granting tools.</p>
@@ -336,9 +340,8 @@ export function Connections({ agentName }: { agentName: string }) {
       </label>
       <div className="onboarding-apps">
         {kits.map((kit) => (
-          <article className="dashboard-card" key={kit.slug}>
-            <h3>{kit.name}</h3>
-            <p>{kit.description}</p>
+          <article className="dashboard-card connection-app-option" key={kit.slug}>
+            <div className="connection-app-heading"><IntegrationLogo toolkit={kit.slug} /><div><h3>{kit.name}</h3><p>{kit.description}</p></div></div>
             <button
               className="dashboard-action"
               disabled={!!busy || !kit.connectable}
@@ -348,7 +351,7 @@ export function Connections({ agentName }: { agentName: string }) {
                 ? "Opening…"
                 : kit.connectable
                   ? "Connect account"
-                  : "Admin setup needed"}
+                  : "Setup required"}
             </button>
           </article>
         ))}
@@ -378,159 +381,5 @@ export function Connections({ agentName }: { agentName: string }) {
         </button>
       )}
     </div>
-  );
-}
-function ToolGrants({
-  agentName,
-  connection,
-}: {
-  agentName: string;
-  connection: Connection;
-}) {
-  const [tools, setTools] = useState<
-      { slug: string; name: string; description: string }[]
-    >([]),
-    [selected, setSelected] = useState<string[]>([]),
-    [query, setQuery] = useState(""),
-    [cursor, setCursor] = useState<string | null>(null),
-    [ready, setReady] = useState(false),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState(""),
-    [saved, setSaved] = useState(false);
-  const path = `/api/integrations/agents/${encodeURIComponent(agentName)}/grants`;
-  useEffect(() => {
-    let cancelled = false;
-    apiJson<{ connectionId: string; tools: string[] }[]>(path)
-      .then((all) => {
-        if (!cancelled) {
-          setSelected(
-            all.find((g) => g.connectionId === connection.id)?.tools ?? [],
-          );
-          setReady(true);
-        }
-      })
-      .catch((e) => {
-        if (!cancelled) setError(message(e));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [path, connection.id]);
-  useEffect(() => {
-    const abort = new AbortController();
-    const timeout = setTimeout(() => {
-      apiJson<any>(
-        `/api/integrations/connections/${encodeURIComponent(connection.id)}/tools?search=${encodeURIComponent(query)}`,
-        { signal: abort.signal },
-      )
-        .then((r) => {
-          setTools(r.items);
-          setCursor(r.nextCursor);
-        })
-        .catch((e) => {
-          if (!abort.signal.aborted) setError(message(e));
-        });
-    }, 250);
-    return () => {
-      clearTimeout(timeout);
-      abort.abort();
-    };
-  }, [query, connection.id]);
-  return (
-    <details>
-      <summary>
-        Choose tools for {agentName} · {selected.length} selected
-      </summary>
-      <p>
-        Only selected tools are allowed. Some can send messages, change or
-        delete data. Read each description before granting access.
-      </p>
-      {error && <p role="alert">{error}</p>}
-      <label>
-        Search tools
-        <input value={query} onChange={(e) => setQuery(e.target.value)} />
-      </label>
-      <div className="onboarding-tools">
-        {tools.map((tool) => (
-          <label key={tool.slug}>
-            <input
-              type="checkbox"
-              disabled={!ready || busy}
-              checked={selected.includes(tool.slug)}
-              onChange={(e) => {
-                setSaved(false);
-                setSelected((s) =>
-                  e.target.checked
-                    ? [...s, tool.slug]
-                    : s.filter((t) => t !== tool.slug),
-                );
-              }}
-            />
-            <span>
-              <strong>{tool.name || tool.slug}</strong>
-              <small>{tool.description}</small>
-            </span>
-          </label>
-        ))}
-      </div>
-      {cursor && (
-        <button
-          onClick={async () => {
-            try {
-              const r = await apiJson<any>(
-                `/api/integrations/connections/${encodeURIComponent(connection.id)}/tools?search=${encodeURIComponent(query)}&cursor=${encodeURIComponent(cursor)}`,
-              );
-              setTools((t) => [
-                ...t,
-                ...r.items.filter(
-                  (i: any) => !t.some((old) => old.slug === i.slug),
-                ),
-              ]);
-              setCursor(r.nextCursor);
-            } catch (e) {
-              setError(message(e));
-            }
-          }}
-        >
-          More tools
-        </button>
-      )}
-      <div className="onboarding-footer">
-        <button
-          className="dashboard-action"
-          disabled={!ready || busy}
-          onClick={() => {
-            setSelected([]);
-            setSaved(false);
-          }}
-        >
-          Clear selection
-        </button>
-        <button
-          className="dashboard-action"
-          disabled={!ready || busy || selected.length > 100}
-          onClick={async () => {
-            setBusy(true);
-            setError("");
-            setSaved(false);
-            try {
-              await json(
-                `${path}/${encodeURIComponent(connection.id)}`,
-                { tools: selected },
-                "PUT",
-              );
-              setSaved(true);
-            } catch (e) {
-              setError(message(e));
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy ? "Saving…" : "Save tool access"}
-        </button>
-        {saved && <span role="status">Tool access saved</span>}
-      </div>
-    </details>
   );
 }

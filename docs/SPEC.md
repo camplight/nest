@@ -75,27 +75,70 @@ browser Back/Forward restores the dashboard or conversation from the URL.
 Dashboard navigation clears the active channel so background messages are not
 treated as read merely because the home page is visible.
 
-The dashboard uses the existing visibility-filtered channels and agents, team
-membership, and session-local unread message counts. Unread counts follow the
+Explicit Dashboard navigation writes `?view=dashboard`, so reload and refresh
+preserve home even when agent onboarding is unfinished. A first visit to `/`
+can still offer personal-agent setup.
+
+Dashboard, Projects, Agents, Community and standalone chats share `WorkspaceTopbar`: each view's
+search plus the original Figma theme/bell/settings/account icons. Browser theme
+preferences synchronize between mounted controls and across tabs using storage
+events. The bell reuses the existing human mention inbox; opening an entry marks
+it read and restores its project/channel plus message link. Known project names
+replace internal engine chat names in header notifications.
+
+Workspace settings is a native dialog with appearance, an agent-settings shortcut
+and an owner-only `/admin/` link gated by existing `GET /api/branding/access`.
+An unavailable access check offers Retry without blocking personal preferences.
+The account menu shows the authenticated username, agent/settings shortcuts and
+the existing session logout. Escape/focus restoration and keyboard navigation
+are tested. Standalone channel links, including connected-account callbacks, use
+the same header. Chat search filters the sidebar channel list; the existing chat
+title, member-management control and composer remain available. Project chats
+reuse their outer project header, avoiding duplicate controls.
+`Skills` selects the private catalog at `?view=community&category=skill`; reload
+and browser history retain category and navigation selection. No new settings,
+notification or credential API/database is introduced.
+
+The dashboard uses visibility-filtered channels and agents, owner-scoped project
+task summaries, the private community catalog and session-local unread counts.
+Unread counts follow the
 existing notification behavior: a fresh session establishes a baseline, then
 HTTP polling and WebSocket events track subsequent messages. They are not
-persisted read receipts. Search filters conversations and agents; archived and
-running filters use the engine's existing state. No new API or database is added.
+persisted read receipts. Search filters active projects, review/change tasks,
+unread chat labels and the eight most recent community packages. Browse all
+opens full catalog search. Project records remain private to their owner.
 
 Its visual reference is Figma file `Rqfq3v9a8nZfQKbM3Q0NZk`, Camplight dashboard
 `923:417` and Nest dashboard `793:2`. Shared instance branding supplies the logo
 and palette, with a separate Powered by Nest footer. Original exported icons
-are local in `apps/user-ui/public/design`. The first implementation adapts the
-reference's cards to available data: agents, conversations and unread messages.
-Spend, project progress, issues and community mock data are not implemented.
+are local in `apps/user-ui/public/design`. The dashboard follows the reference's
+three summary cards, Active projects/Up next columns, Urgent issues and Community
+strip, including empty instances. Tasks toggles approved and pending-review counts.
+Project completion is approved tasks divided by all tasks; no tasks means no
+percentage. Assigned-agent counts come from tasks, not channel membership.
+Spend and operational issues explicitly show unavailable with disabled filters;
+changes requested are a separate task state, never fabricated incidents.
 
-Conversation and unread-activity cards use a local adaptation of SmoothUI's
+`GET /api/projects/dashboard` returns `ProjectDashboard`: per-project counts,
+task totals and compact pending-review/change rows (no deliverable text, feedback
+or engine events). It uses the same human session, owner and current engine
+channel manage/post/unarchived checks as project routes. It reads only Nest's
+product task store. Engine failure returns 502, never a successful zero summary.
+The UI loads the summary and community catalog concurrently on home entry and
+manual Refresh, cancels obsolete requests, and clears failed summary values.
+
+Project, review/unread-activity and changes-requested cards use a local adaptation of SmoothUI's
 [Scrollable Card Stack](https://smoothui.dev/docs/components/scrollable-card-stack)
 in `apps/user-ui/src/components/smooth-ui`, with its MIT license retained. The
 component uses Motion for stack transitions, dots and previous/next controls,
 arrow/Home/End keys, horizontal touch swipes and reduced-motion support. Only
 the active card exposes actions to keyboard and assistive technology; vertical
-page scrolling remains available. "All" switches conversations to the full list.
+page scrolling remains available. "All" switches Up next to the full list.
+Review actions deep-link to the task in Projects. The community strip features
+the latest automation (or latest package), then other recent packages; each opens
+the actual catalog detail. Artwork is the original Figma automation, discussion
+and application illustration, adapted to existing automation/skill/use-case
+categories without inventing reply, run or installation counts.
 
 Agent portraits reuse Figma's five original characters through `AgentAvatar` in
 dashboard cards and chat participants. PNG exports preserve the composed avatar
@@ -442,6 +485,17 @@ existing private secret API supplies the token to its agent. Provider credential
 stay in Nest; engine processes have Composio configuration removed at launch.
 OAuth return fields are not trusted; status comes from the provider adapter.
 
+`GET /api/integrations/agents/:name/skill` reports the existing token status plus
+`grantedToolCount` (saved permissions for this agent on locally nonrevoked accounts
+of the current provider) and `preloadConfigured` (the enabled connection skill is
+configured in `alwaysPreloadedSkills`). Neither reports live account eligibility.
+Enable/Renew requires at least one saved tool permission (409 when empty), then
+preserves other enabled/preloaded skills while adding `nest-connections` to both
+sets through the existing engine PATCH API. No prompt rewriting or workspace
+permission change is performed. Owners renew legacy credentials to opt into this
+preload; no existing agent/token is silently upgraded. Settings refresh status
+after saving tool grants or refreshing/disconnecting accounts.
+
 Human settings require current private-agent ownership. Skill execution validates
 that ownership, exact grants and provider account status. Without a core turn
 attestation API, access requires exactly one unshared owner-only private channel;
@@ -455,6 +509,22 @@ A lifecycle name alone does not exempt a channel from privacy checks. Runtime is
 engine metadata token and trusted shared runtime are prerequisites, not inferred
 security guarantees. See [PERSONAL_AGENTS.md](PERSONAL_AGENTS.md) for installation,
 configuration, expiry/renewal, limitations and live release checks.
+
+Connected-app permissions default to a compact Give all access action, with
+locally served brand logos for the initial supported apps and a generic app icon
+for unknown providers. Choose specific actions expands the advanced search,
+Selected view and compact permission rows. Full provider descriptions and exact
+references remain under About this action; action titles are presentation only.
+The collapsed default does not fetch the catalog.
+
+Give all access loads every provider page and saves the exact current catalog
+through the existing grant endpoint in one explicit click. It ignores advanced
+search filters, reports success only after saving and does not grant future tools
+automatically. Advanced choices require Save access, and bulk Select all results
+keeps existing selections across search and pagination. Page failures or sets
+exceeding the existing 100-action limit never partially select or grant tools.
+Saved access remains distinct from pending advanced choices; discarding restores
+saved choices. No guessed read/write classifications are introduced.
 
 ## Agent model defaults and selection
 

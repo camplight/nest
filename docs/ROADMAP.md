@@ -95,8 +95,8 @@ A successful agent turn alone must not imply human acceptance.
 - Legacy chat links resolve to the owned project. History and mobile are tested.
 - Shared project roles are still deferred: invited chat members do not gain tasks.
 
-Next: actionable review requests in Up next, persistent notification/read state
-across sessions. Release verification is recorded in the milestone PR; local
+Pending deliverables now appear as actionable review cards in Up next.
+Next: persistent notification/read state across sessions. Release verification is recorded in the milestone PR; local
 checks alone do not establish production deployment.
 
 ### 3. Complete agent experience
@@ -106,6 +106,19 @@ avatar selection and resource editing. Distinguish runtime online state from
 working on a task. Use existing engine APIs and their permission model.
 
 ### 4. Operational dashboard
+
+Implemented the Figma home structure (923:417): Spend/Tasks/Issues cards,
+SmoothUI Active projects and Up next stacks, Urgent issues area and original-art
+private community strip. Empty instances keep the same shell. Task metrics and
+approved-task progress come from owner/access-scoped product summaries. Pending
+reviews deep-link to the actual task; changes requested stay distinct from
+operational incidents. Desktop/mobile/dark and synthetic before/after captures
+are covered by `tests/browser/dashboard.ts`. Remaining design deviations are
+documented in [DASHBOARD_DESIGN.md](DASHBOARD_DESIGN.md).
+
+The shared top bar now supplies the original theme, notifications, settings and
+account controls across product views, with mobile search, real mention read
+state, owner-gated administration and a private-catalog Skills navigation entry.
 
 Replace temporary metrics with task/review/issue aggregates. Define how issues
 are created and resolved. Distinguish measured, estimated and unavailable spend,
@@ -279,3 +292,32 @@ Visuals reuse the existing Figma agent layouts, original Puff avatar and instanc
 branding tokens. The Requests workflow is a Nest extension; the case study has no
 editable request-review frame. This implements the approval-first slice described
 in [AGENT_REQUESTS.md](AGENT_REQUESTS.md), not full team delegation.
+
+## Consistent header on connection-return chats
+
+Standalone channel links (including personal-chat connection callbacks) now reuse
+the shared product header. Theme, mention notifications, settings and account
+remain visible; channel search filters the existing sidebar. Chat management and
+the composer are preserved, and project chats render only their outer header.
+Desktop/mobile browser acceptance covers callback URLs, reload, real direct-chat
+access, menus, search, mobile navigation and composer visibility.
+
+## Connection readiness after authentication
+
+Connected-app settings show saved tool permission counts, prevent zero-grant
+activation and refresh after permission saves/account changes. Enable/Renew
+configures the instance helper for preloading through the unchanged engine API;
+legacy agents upgrade by owner renewal. Consent stays explicit. See
+[the investigation](CONNECTION_READINESS.md) for the separate final-event format
+fallback and the limits of the production evidence.
+
+## Friendly connected-app permissions
+
+Connected accounts use local app logos and a compact Give all access button.
+Choose specific actions collapses search, Selected view and granular permission
+rows by default. Give all access fetches and saves every current provider action
+in one explicit click, independently of advanced search. Advanced choices still
+require Save access, with discard/clear and failed-save recovery. Pagination,
+search and bulk selection preserve choices. Page failures and the existing
+100-action limit never apply partial selections or grants. Desktop/mobile/dark,
+local logo loading, default size and the real permission boundary are checked.

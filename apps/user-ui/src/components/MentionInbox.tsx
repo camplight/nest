@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { MentionNotification } from "@nest/schemas";
 import { apiJson } from "../api";
 import "./mentions.css";
 export function MentionInbox({
   onOpen,
+  icon,
+  channelLabel,
 }: {
   onOpen: (channelId: string, eventId: string) => void;
+  icon?: ReactNode;
+  channelLabel?: (channelId:string, fallback:string)=>string;
 }) {
   const [items, setItems] = useState<MentionNotification[]>([]),
     [open, setOpen] = useState(false),
@@ -64,17 +68,18 @@ export function MentionInbox({
   }
   const unread = items.some((item) => !item.readAt);
   return (
-    <section className="mention-inbox" aria-label="Mention notifications">
+    <section className={`mention-inbox ${icon ? "mention-inbox-header" : ""}`} aria-label="Mention notifications">
       <button
         className="mention-inbox-toggle"
-        aria-label="Mentions"
+        aria-label={icon ? "Notifications" : "Mentions"}
+        title={icon ? "Notifications" : "Mentions"}
         aria-expanded={open}
         onClick={() => {
           setOpen(!open);
           void load();
         }}
       >
-        Mentions{" "}
+        {icon ?? "Mentions"}{" "}
         {unread && (
           <span className="mention-unread-dot" aria-label="Unread mentions" />
         )}
@@ -118,7 +123,7 @@ export function MentionInbox({
                 onClick={() => void visit(item)}
               >
                 <strong>{item.sender} mentioned you</strong>
-                <span>{item.channelName}</span>
+                <span>{channelLabel?.(item.channelId,item.channelName) ?? item.channelName}</span>
                 <p>{item.text}</p>
                 <small>{new Date(item.createdAt).toLocaleString()}</small>
               </button>

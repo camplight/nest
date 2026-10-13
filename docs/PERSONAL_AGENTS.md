@@ -77,7 +77,7 @@ it to the owning agent under `/?view=agents&agent=…`. Callback parameters neve
 Nest asks its provider adapter for current account status. No auth URL,
 provider credentials or plaintext skill tokens are saved in the product DB. Search is live from
 Composio's catalog. An app without an operator-configured auth config is labelled
-“Admin setup needed.” Google login does not grant access to Google APIs.
+“Setup required.” Google login does not grant access to Google APIs.
 WordPress.com connectivity does not automatically connect self-hosted WordPress.
 
 The launcher removes Composio configuration and the dedicated metadata token
@@ -116,10 +116,33 @@ Migration `005_integrations.sql` stores local connection IDs, provider account
 mappings, exact per-agent tool grants, and hashed expiring skill capabilities.
 Human management uses engine sessions and current PRIVATE agent ownership.
 Connecting an app does not grant tools; granting tools does not enable execution.
-Owners explicitly enable the skill after granting tools in agent settings.
+Owners explicitly enable app access after choosing actions in agent settings.
+Connected accounts and the catalog use locally served app logos. Each account
+starts with a compact Give all access button; Choose specific actions is collapsed
+by default and does not fetch the action catalog until opened. Give all access
+fetches every provider page and saves the exact current catalog in one explicit
+click, regardless of an advanced search. It reports success only after saving.
+This is a snapshot of available tools, not permission for future additions.
+
+Advanced options use compact rows with full descriptions and exact references
+under About this action. Search, pagination and Selected view retain off-page
+choices. Select all results includes every search match while keeping existing
+choices. Advanced selections require Save access; discard restores saved choices
+and failed saves retain pending choices. Bulk page failures or selections above
+the existing 100-action limit never apply partial choices or change saved access.
+App access displays the saved permission count; selecting checkboxes is
+not a grant until Save access succeeds. Enable/Renew rejects zero saved
+permissions with 409, and the UI refreshes the count after saves/disconnects.
+The count excludes locally revoked accounts and reflects saved choices, not live
+provider availability or current private-context eligibility.
 
 Enabling installs a random 30-day token in the existing engine private-agent
-secret store and enables `nest-connections`. The browser receives only status
+secret store and enables `nest-connections`. It also adds the skill to OrgOps's existing
+`alwaysPreloadedSkills`, preserving other enabled/preloaded skills. The runner
+includes the helper's full instructions on the next turn; it does not widen
+workspace permissions or rewrite the user's prompt. Older activated agents can
+load these instructions by saving tool permissions and clicking Renew skill
+access after upgrading. Existing turns keep their original prompt. The browser receives only status
 and expiry. Renewal replaces access; revocation immediately invalidates tokens.
 The disabled token can remain in the encrypted engine secret store, but is no
 longer accepted. A single Nest API process owns the product SQLite file and

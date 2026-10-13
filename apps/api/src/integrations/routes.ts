@@ -147,6 +147,7 @@ export function registerIntegrationRoutes(
       visibility: string;
       mode: string;
       enabledSkills?: string[];
+      alwaysPreloadedSkills?: string[];
     };
     if (
       a.ownerHumanId !== owner ||
@@ -310,6 +311,12 @@ export function registerIntegrationRoutes(
     });
     return c.json({ ok: true });
   });
+  function grantedToolCount(agentId: string, owner: string) {
+    const grants = db.prepare(
+      "SELECT g.tools_json FROM product_connection_grants g JOIN product_connections c ON c.id=g.connection_id WHERE g.agent_id=? AND g.owner_id=? AND c.owner_id=? AND c.revoked_at IS NULL AND c.provider=?",
+    ).all(agentId, owner, owner, provider?.id ?? "") as { tools_json: string }[];
+    return grants.reduce((count, grant) => count + JSON.parse(grant.tools_json).length, 0);
+  }
   routes.get("/agents/:name/skill", async (c) => {
     const owner = human(c).id,
       a = await ownedAgent(c.req.param("name"), owner, c.req.raw.headers);
@@ -321,6 +328,9 @@ export function registerIntegrationRoutes(
     return c.json({
       enabled: Boolean(token),
       expiresAt: token?.expires_at ?? null,
+      grantedToolCount: grantedToolCount(a.id, owner),
+      preloadConfigured: (a.enabledSkills ?? []).includes("nest-connections") &&
+        (a.alwaysPreloadedSkills ?? []).includes("nest-connections"),
     });
   });
   routes.post("/agents/:name/skill", async (c) => {
@@ -334,6 +344,8 @@ export function registerIntegrationRoutes(
       undefined,
       c.req.raw.headers,
     );
+    const toolCount = grantedToolCount(a.id, owner);
+    if (!toolCount) fail(409, "Choose and save at least one tool for this agent before enabling skill access. Connecting an account does not grant tool access.");
     const token = "nest_connection_" + randomBytes(32).toString("hex"),
       tokenId = randomUUID(),
       expires = Date.now() + 30 * 86400_000;
@@ -370,6 +382,11 @@ export function registerIntegrationRoutes(
           enabledSkills: [
             ...new Set([...(a.enabledSkills ?? []), "nest-connections"]),
           ],
+          // Preload the connection workflow through the existing engine contract,
+          // so the agent does not need to discover its setup instructions.
+          alwaysPreloadedSkills: [
+            ...new Set([...(a.alwaysPreloadedSkills ?? []), "nest-connections"]),
+          ],
         },
       );
       if (!enabled.ok) throw Error("Could not enable skill");
@@ -387,7 +404,7 @@ export function registerIntegrationRoutes(
       agentId: a.id,
       expiresAt: expires,
     });
-    return c.json({ enabled: true, expiresAt: expires });
+    return c.json({ enabled: true, expiresAt: expires, grantedToolCount: toolCount, preloadConfigured: true });
   });
   routes.delete("/agents/:name/skill", async (c) => {
     const owner = human(c).id,

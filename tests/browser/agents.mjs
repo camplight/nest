@@ -42,6 +42,8 @@ await page.route('**/api/**',async route=>{
  }
  else if(path==='/api/events'){await notificationGate;data=[];}
  else if(path==='/api/mentions')data={items:[]};
+ else if(path==='/api/projects/dashboard')data={projects:[],tasks:{total:0,finished:0,needsReview:0,changesRequested:0},reviews:[],changes:[]};
+ else if(path==='/api/community/skills')data={skills:[],total:0,offset:0,limit:8};
  else if(path==='/api/onboarding/summary')data={setup:null};
  else if(path==='/api/onboarding'){fullHealthRequests++;return route.fulfill({status:503,json:{error:'Health is unavailable'}});}
  else if(path==='/api/integrations/config'){
@@ -114,7 +116,7 @@ await page.goForward();await page.getByRole('heading',{name:'Agent details'}).wa
 await page.goto(`${base}/?view=agents&agent=PrivateAgent`);await page.getByLabel('About this agent',{exact:true}).waitFor();assert(await page.getByLabel('About this agent',{exact:true}).isDisabled());assert(await page.getByRole('button',{name:'Save settings'}).isDisabled());
 await page.goto(`${base}/?view=agents&agent=missing`);await page.getByRole('alert').filter({hasText:'Not found'}).waitFor();
 await page.goto(`${base}/?channel=chat`);await page.getByRole('navigation').getByRole('button',{name:'Agents',exact:true}).click();assert(!new URL(page.url()).searchParams.has('channel'));
-await page.getByRole('navigation').getByRole('button',{name:'Dashboard',exact:true}).click();await page.getByRole('button',{name:'NestSystem',exact:true}).click();await page.getByRole('heading',{name:'Agent details'}).waitFor();
+await page.getByRole('navigation').getByRole('button',{name:'Dashboard',exact:true}).click();await page.getByRole('button',{name:'Account',exact:true}).click();await page.getByRole('menuitem',{name:'Your agents',exact:true}).click();await page.getByRole('button',{name:'Manage NestSystem',exact:true}).click();await page.getByRole('heading',{name:'Agent details'}).waitFor();
 await page.setViewportSize({width:390,height:844});await page.screenshot({path:join(screenshotDir, 'nest-agent-mobile.png'),fullPage:true});
 assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
 await page.getByRole('button',{name:'Menu',exact:true}).click();assert.equal(await page.getByRole('navigation').getByRole('button',{name:'Agents',exact:true}).getAttribute('aria-current'),'page');

@@ -41,6 +41,27 @@ describe('project workflow against the unchanged engine',()=>{
     expect(r.status).toBe(201);return r.json();
   }
   async function submit(version:number,eventId:string){const r=await request(`${taskPath()}/deliverables`,{version,eventId});expect(r.status).toBe(200);return r.json();}
+  it('summarizes approved work and pending reviews without exposing deliverable text',async()=>{
+    let summary=await (await request('/api/projects/dashboard')).json();
+    expect(summary.tasks).toEqual({total:1,finished:0,needsReview:0,changesRequested:0});
+    expect(summary.projects[0]).toMatchObject({totalTasks:1,finishedTasks:0,assignedAgents:1});
+    const task=await dispatch();const event=await response('Private deliverable text');const pending=await submit(task.version,event.id);
+    summary=await (await request('/api/projects/dashboard')).json();
+    expect(summary.tasks.needsReview).toBe(1);
+    expect(summary.reviews).toEqual([{id:taskId,projectId,title:'Build page',agentName:'Builder',updatedAt:pending.updatedAt,status:'needs_review'}]);
+    expect(JSON.stringify(summary)).not.toContain('Private deliverable text');
+    await request(`${taskPath()}/reviews`,{version:pending.version,decision:'approve'});
+    summary=await (await request('/api/projects/dashboard')).json();
+    expect(summary.tasks).toEqual({total:1,finished:1,needsReview:0,changesRequested:0});
+    expect(summary.reviews).toEqual([]);
+  });
+  it('distinguishes changes requested from operational incidents',async()=>{
+    const task=await dispatch();const event=await response();const pending=await submit(task.version,event.id);
+    await request(`${taskPath()}/reviews`,{version:pending.version,decision:'request_changes',feedback:'Needs keyboard access'});
+    const summary=await (await request('/api/projects/dashboard')).json();
+    expect(summary.tasks.changesRequested).toBe(1);expect(summary.changes[0]).toMatchObject({id:taskId,status:'changes_requested'});
+    expect(summary).not.toHaveProperty('issues');
+  });
   it('creates a private project chat once, including concurrent retries',async()=>{
     const body={id:randomUUID(),name:'Automatic project',description:'One workspace'};
     const results=await Promise.all([request('/api/projects',body),request('/api/projects',body)]);
@@ -155,12 +176,18 @@ describe('project workflow against the unchanged engine',()=>{
     const login=await request('/api/auth/login',{username:'other',password:'password'});
     const otherHeaders={'content-type':'application/json',cookie:login.headers.get('set-cookie')!.split(';')[0],'x-nest-runner-token':'runner-secret'};
     expect(await (await request('/api/projects',undefined,otherHeaders)).json()).toEqual([]);
+    const overview=await (await request('/api/projects/dashboard',undefined,otherHeaders)).json();
+    expect(overview.projects).toEqual([]);expect(overview.tasks.total).toBe(0);
+    expect((await request('/api/projects/dashboard',undefined,{})).status).toBe(401);
+    expect((await request('/api/projects/dashboard',undefined,{'x-nest-runner-token':'runner-secret'})).status).toBe(401);
     expect((await request(`/api/projects/${projectId}`,undefined,otherHeaders)).status).toBe(404);
     expect((await request(`${taskPath()}/dispatch`,{version:0},otherHeaders)).status).toBe(404);
     expect((await request('/api/projects',{id:randomUUID(),name:'Forbidden',channelId},otherHeaders)).status).toBe(403);
   });
   it('hides projects whose engine conversation has been archived',async()=>{
     expect((await request(`/api/channels/${channelId}/archive`,{})).status).toBe(200);
+    const overview=await (await request('/api/projects/dashboard')).json();
+    expect(overview.projects).toEqual([]);expect(overview.reviews).toEqual([]);expect(overview.tasks.total).toBe(0);
     expect(await (await request('/api/projects')).json()).toEqual([]);
     expect((await request(`${taskPath()}/dispatch`,{version:0})).status).toBe(404);
   });

@@ -1,4 +1,5 @@
 import { AgentRequests, SharedAssistants, AssistantSharing, type AgentRequestLocation } from "./AgentRequests";
+import {WorkspaceTopbar} from "./components/WorkspaceTopbar";
 import { AgentSetupForm } from "./Onboarding";
 import { AgentConnections } from "./AgentConnections";
 import type { OnboardingSummary } from "@nest/schemas";
@@ -31,9 +32,8 @@ function errorMessage(reason: unknown) {
 export function Agents({ requestLocation,onRequests,setup, creating, onCreate, onCreated, onChat, agents, name, userId, loading, error, onSelect, onMenu, onRetry, onSaved }: Props) {
   const [query, setQuery] = useState("");
   return <section className="dashboard agents-page" aria-label="Agents">
-    <header className="dashboard-topbar"><button className="sidebar-mobile-toggle" onClick={onMenu}>Menu</button>
-      {name || creating ? <button className="dashboard-action" onClick={() => onSelect(null)}>← All agents</button> : requestLocation.active ? <span>Agents / Requests</span> : <label className="dashboard-search"><DesignIcon name="search" /><input aria-label="Search agents" placeholder="Search agents…" value={query} onChange={e => setQuery(e.target.value)} /></label>}
-    </header>
+    <WorkspaceTopbar onMenu={onMenu} leading={name || creating ? <button className="dashboard-action" onClick={() => onSelect(null)}>← All agents</button> : requestLocation.active ? <span>Agents / Requests</span> : undefined} search={<label className="dashboard-search"><DesignIcon name="search"/><input aria-label="Search agents" placeholder="Search…" value={query} onChange={event=>{setQuery(event.target.value);if(name||creating||requestLocation.active)onSelect(null);}}/></label>}/>
+
     <div className="dashboard-content">
       {!name&&!creating&&<nav className="agent-request-nav" aria-label="Agent views"><button className="dashboard-action" aria-pressed={!requestLocation.active} onClick={()=>onSelect(null)}>All agents</button><button className="dashboard-action" aria-pressed={requestLocation.active} onClick={()=>onRequests()}>Requests</button></nav>}
       {creating ? <><div className="dashboard-title"><h1>Agents</h1></div><AgentSetupForm onCreated={onCreated}/></> : name ? <AgentDetails key={name} name={name} userId={userId} onSaved={onSaved} setup={setup} onChat={onChat} onResume={onCreate}/> : requestLocation.active ? <><div className="dashboard-title"><h1>Requests</h1></div><AgentRequests location={requestLocation} userId={userId} onSelect={onRequests}/></> : <>
