@@ -1,3 +1,5 @@
+import {WorkspaceTopbar} from "./components/WorkspaceTopbar";
+import {DesignIcon} from "./Dashboard";
 import { useEffect, useRef, useState, type ReactNode, type FormEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -17,6 +19,7 @@ async function post<T>(path: string, value: unknown) {return apiJson<T>(path,{me
 
 export function Projects(props: Props) {
   const {projectId,taskId,onSelect,onMenu,agents,tab,onLoaded,chat,members}=props;
+  const [query,setQuery]=useState("");
   const [projects,setProjects]=useState<Project[]>([]);
   const [detail,setDetail]=useState<ProjectDetail|null>(null);
   const [error,setError]=useState<string|null>(null);
@@ -39,15 +42,18 @@ export function Projects(props: Props) {
   },[projectId,refresh,createRequested]);
   useEffect(() => { if (detail) onLoaded(detail); }, [detail?.id, detail?.channelId, onLoaded]);
   const selected=detail?.tasks.find(t=>t.id===taskId);
+  const filteredProjects=projects.filter(project=>`${project.name} ${project.description}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return <section className={`dashboard projects-page${projectId && tab === 'chat' ? ' project-chat-page' : ''}`} aria-label="Projects">
-    <header className="dashboard-topbar"><button className="sidebar-mobile-toggle" onClick={onMenu}>Menu</button><button className="dashboard-action" onClick={()=>onSelect(null)}>All projects</button></header>
+    <WorkspaceTopbar onMenu={onMenu} leading={<button className="dashboard-action" onClick={()=>onSelect(null)}>All projects</button>} search={<label className="dashboard-search"><DesignIcon name="search"/><input aria-label="Search projects" placeholder="Search…" value={query} onChange={event=>{setQuery(event.target.value);if(projectId)onSelect(null);}}/></label>}/>
+
     <div className="dashboard-content">
       <div className="dashboard-title"><h1>{detail?.name ?? (projectId ? 'Project' : 'Projects')}</h1>{(!projectId || tab === "tasks") && <button className="dashboard-action project-create" onClick={()=>setCreating(!creating)}>{creating ? 'Cancel' : projectId ? 'New task +' : 'New project +'}</button>}</div>
       {error && <div className="notice error" role="alert">{error} <button onClick={()=>setRefresh(n=>n+1)}>Refresh</button></div>}
       {loading && <p role="status">Loading projects…</p>}
       {!projectId && <>
         {creating && <ProjectForm onCreated={p=>{onLoaded(p);onSelect(p.id);}} />}
-        <div className="project-grid">{projects.map(project=><button className="dashboard-card project-summary" key={project.id} onClick={()=>onSelect(project.id)}><h2>{project.name}</h2><p>{project.description || 'Open the project to plan and review your team’s work.'}</p><span>Open project →</span></button>)}</div>
+        <div className="project-grid">{filteredProjects.map(project=><button className="dashboard-card project-summary" key={project.id} onClick={()=>onSelect(project.id)}><h2>{project.name}</h2><p>{project.description || 'Open the project to plan and review your team’s work.'}</p><span>Open project →</span></button>)}</div>
+        {!loading && !error && projects.length>0 && !filteredProjects.length && <div className="dashboard-card dashboard-empty"><h2>No matching projects</h2><p>Try a different project name or description.</p></div>}
         {!loading && !error && !projects.length && !creating && <div className="dashboard-card dashboard-empty"><h2>From a brief to an approved result</h2><p>Name your project to get started. Add people or agents in Members, then use Chat. Tasks and reviews are there when you need them.</p></div>}
         {props.existingChats.length > 0 && <details className="project-existing-chats"><summary>Existing conversations ({props.existingChats.length})</summary><p>These conversations are not linked to a project you own. Your history and shared access are preserved.</p><div className="dashboard-list">{props.existingChats.map(channel=><button className="dashboard-card project-summary" key={channel.id} onClick={()=>props.onChat(channel.id)}>{channel.name}{channel.archived ? ' · Archived' : ''} →</button>)}</div></details>}
       </>}

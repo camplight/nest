@@ -116,6 +116,10 @@ operational incidents. Desktop/mobile/dark and synthetic before/after captures
 are covered by `tests/browser/dashboard.ts`. Remaining design deviations are
 documented in [DASHBOARD_DESIGN.md](DASHBOARD_DESIGN.md).
 
+The shared top bar now supplies the original theme, notifications, settings and
+account controls across product views, with mobile search, real mention read
+state, owner-gated administration and a private-catalog Skills navigation entry.
+
 Replace temporary metrics with task/review/issue aggregates. Define how issues
 are created and resolved. Distinguish measured, estimated and unavailable spend,
 especially for subscription-backed wrapped runtimes. No fabricated scores,
