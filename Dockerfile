@@ -13,7 +13,9 @@ COPY packages ./packages
 COPY scripts ./scripts
 COPY skills ./skills
 COPY docs ./docs
-COPY README.md AGENTS.md tsconfig.base.json ./
+COPY README.md AGENTS.md tsconfig.base.json LICENSE LICENSING.md NOTICE ./
+COPY LICENSES ./LICENSES
+RUN chmod 0755 /app/LICENSES && chmod 0644 /app/LICENSE /app/LICENSING.md /app/NOTICE /app/LICENSES/*
 
 RUN npm ci
 RUN VITE_UI_BASE_PATH=/admin/ npm run admin-ui:build

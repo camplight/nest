@@ -19,3 +19,7 @@ memory/
 
 .nest-product/
 __pycache__/
+
+# Local assistant handoff notes may contain private deployment context.
+SESSION_RESUME.md
+CLAUDE_BRIEF.md
