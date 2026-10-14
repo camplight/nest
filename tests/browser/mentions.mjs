@@ -45,6 +45,8 @@ try{
   await input.press('Enter');await page.waitForFunction(()=>document.querySelector('textarea[aria-label="Message"]').value==='');
   assert.equal(writes.at(-1).text,'@PuffVitaliy');assert.equal(writes.at(-1).channelId,'chat');
   await input.fill('@puff');await input.press('ArrowDown');await input.press('Tab');assert.equal(await input.inputValue(),'@PuffVitaliy ');assert.equal(writes.length,1);
+  // Let keyboard selection finish restoring the caret before fill selects all.
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)));
   await input.fill('@naska');await popup.getByRole('option').filter({hasText:'naska@example.com'}).click();assert.equal(await input.inputValue(),'@naska@example.com ');
   // Selection restores the caret on the next animation frame. Finish that UI
   // interaction before replacing the draft for the next independent scenario.
