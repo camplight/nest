@@ -1,3 +1,4 @@
+import {loadChatDraft,saveChatDraft,clearSentDraft,clearOwnerDrafts,rememberProject,recentProject,type ChatDraft} from './drafts';
 import { prepareAssistantRequest, readAgentRequestLocation } from "./AgentRequests";
 import {WorkspaceHeaderProvider, WorkspaceTopbar} from './components/WorkspaceTopbar';
 import type {SelectedMention} from '@nest/schemas';
@@ -606,6 +607,8 @@ export default function App() {
   const [showParticipantsDialog, setShowParticipantsDialog] = useState(false);
   const [showChannelManageDialog, setShowChannelManageDialog] = useState(false);
   const [draftState,setDraftState]=useState<{text:string;mentions:SelectedMention[]}>({text:'',mentions:[]});
+  const [draftScope,setDraftScope]=useState<{owner:string;channel:string}|null>(null);
+  const [draftStored,setDraftStored]=useState(true);
   const draft=draftState.text;
   function setDraft(text:string){setDraftState(current=>({text,mentions:reconcileMentions(current.text,text,current.mentions)}));}
   function chooseMention(text:string,mention:SelectedMention){setDraftState(current=>({text,mentions:[...reconcileMentions(current.text,text,current.mentions),mention]}));}
@@ -1351,13 +1354,21 @@ export default function App() {
     setExpandedTraceEventId(null);
     setShowParticipantsDialog(false);
     setShowChannelManageDialog(false);
-    setPendingAttachments([]);
-    setDraftState({text:'',mentions:[]});sendRequestRef.current=null;
+    const saved=userId&&activeChannelId?loadChatDraft(userId,activeChannelId):null;
+    setPendingAttachments(saved?.attachments.map(file=>({localId:file.fileId,name:file.name,mime:file.mime??'application/octet-stream',size:file.size??0,status:'ready' as const,uploaded:{localId:file.fileId,fileId:file.fileId,name:file.name,mime:file.mime??'application/octet-stream',size:file.size??0}}))??[]);
+    setDraftState(saved?{text:saved.text,mentions:saved.mentions}:{text:'',mentions:[]});sendRequestRef.current=saved?.request??null;
+    setDraftScope(userId&&activeChannelId?{owner:userId,channel:activeChannelId}:null);
     setShareValue("");
     setShareLinkCopied(false);
     setShareRemovingKey(null);
     setShareSubmitting(false);
-  }, [activeChannelId]);
+  }, [activeChannelId,userId]);
+
+  useEffect(()=>{
+    if(!authenticated||!userId||!activeChannelId||draftScope?.owner!==userId||draftScope.channel!==activeChannelId)return;
+    setDraftStored(saveChatDraft(userId,activeChannelId,{...draftState,attachments:readyAttachments.map(({fileId,name,mime,size})=>({fileId,name,mime,size})),...(sendRequestRef.current?{request:sendRequestRef.current}:{})}));
+  },[draftState,pendingAttachments,draftScope,userId,activeChannelId,authenticated]);
+  useEffect(()=>{if(userId&&view==='projects'&&selectedProject&&projectIndex.some(p=>p.id===selectedProject))rememberProject(userId,selectedProject);},[userId,view,selectedProject,projectIndex]);
 
   useEffect(() => {
     if (!authenticated || mustChangePassword) return;
@@ -1575,6 +1586,7 @@ export default function App() {
 
   async function handleLogout() {
     await apiFetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    if(userId)clearOwnerDrafts(userId);
     setAuthenticated(false);
     setUsername("");
     setUserId(null);
@@ -1656,10 +1668,16 @@ export default function App() {
       const message={channelId:activeChannelId,text:effectiveText,mentions:selected,attachments:readyAttachments.map(({fileId,name,mime,size})=>({fileId,name,mime,size}))};
       const fingerprint=JSON.stringify(message);
       if(sendRequestRef.current?.fingerprint!==fingerprint)sendRequestRef.current={fingerprint,id:crypto.randomUUID()};
-      await apiFetch('/api/messages',{method:'POST',headers:getApiHeaders(),body:JSON.stringify({id:sendRequestRef.current.id,...message})});
-      sendRequestRef.current=null;
-      setDraftState({text:'',mentions:[]});
-      setPendingAttachments([]);
+      const request=sendRequestRef.current;
+      const saved:ChatDraft={...draftState,attachments:message.attachments,request};
+      if(userId)setDraftStored(saveChatDraft(userId,activeChannelId,saved));
+      await apiFetch('/api/messages',{method:'POST',headers:getApiHeaders(),body:JSON.stringify({id:request.id,...message})});
+      if(userId)clearSentDraft(userId,activeChannelId,saved);
+      if(activeChannelIdRef.current!==activeChannelId)return;
+      if(activeChannelIdRef.current===activeChannelId){
+        if(sendRequestRef.current?.id===request.id)sendRequestRef.current=null;
+        setDraftState({text:'',mentions:[]});setPendingAttachments([]);
+      }
       setHasNewMessagesBelow(false);
       if (wsConnected) {
         scrollMessagesToBottom();
@@ -2406,6 +2424,7 @@ export default function App() {
           />
           </div>
           {draftRecipients.length>0&&<div className="mention-delivery" aria-label="Message recipients">{draftRecipients.map(m=><span key={m.kind+':'+m.name}>{m.kind==='AGENT'?'Ask':'Notify'} @{m.name}<button type="button" aria-label={'Remove mention @'+m.name} onClick={()=>{const spans=draftState.mentions.filter(x=>x.kind===m.kind&&x.name===m.name).sort((a,b)=>b.start-a.start);let next=draft;for(const span of spans)next=next.slice(0,span.start)+next.slice(span.end);setDraft(next);}}>×</button></span>)}</div>}
+          {draft.trim()&&<span className="draft-storage-status" role="status">{draftStored?'Draft saved on this device':'Draft storage is unavailable. Keep this tab open until you send.'}</span>}
           {multipleAgentTargets?<p className="mention-delivery-error" role="alert">Choose one agent target per message. You can notify multiple people.</p>:<p className="mention-delivery-hint">{draftRecipients.some(m=>m.kind==='AGENT')?'Only the selected agent receives this request.':'Select an @mention to direct a request or notify a person.'}</p>}
           <div className="composer-actions">
             <button
@@ -2609,7 +2628,7 @@ export default function App() {
       ) : null}
 
       {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} onManage={activeChannelManageable?()=>setShowChannelManageDialog(true):undefined} /> : view === "agents" ? <Agents requestLocation={requestLocation} onRequests={(id,assistant)=>selectAgent(null,{requests:true,request:id,assistant})} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={selectChannel} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
-        channels={visibleChannels} projects={projectIndex} onProject={selectProject} unreadCounts={unreadCounts} onCommunity={selectCommunity}
+        resumeProject={userId?projectIndex.find(p=>p.id===recentProject(userId)):undefined} channels={visibleChannels} projects={projectIndex} onProject={selectProject} unreadCounts={unreadCounts} onCommunity={selectCommunity}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}
         onSelect={selectChannel} onCreate={() => selectProject(null, null, "new")}
         onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()}
