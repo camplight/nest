@@ -26,6 +26,7 @@ export function DesignIcon({ name }: { name: string }) {
 }
 
 type Props = {
+  resumeProject?:Project;
   channels: Channel[];
   projects: Project[];
   unreadCounts: Record<string, number>;
@@ -111,6 +112,7 @@ function UnavailableMetric({
 }
 
 export function Dashboard({
+  resumeProject,
   projects,
   onProject,
   onCommunity,
@@ -386,6 +388,7 @@ export function Dashboard({
             Loading your workspace…
           </p>
         )}
+        {resumeProject&&<button className="dashboard-card project-resume" onClick={()=>onProject(resumeProject.id)}><span>Continue your project</span><strong>{resumeProject.name}</strong><span aria-hidden="true">→</span></button>}
         <div className="dashboard-stats">
           <UnavailableMetric
             title="Spend"

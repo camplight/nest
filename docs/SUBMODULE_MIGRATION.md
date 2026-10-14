@@ -365,3 +365,8 @@ or migration is introduced; @orgops/llm is an existing workspace dependency.
 ## Frictionless workspace refinement
 
 Deploy UI and API together. Creation roster gains a pinned personal-agent suggestion; message targeting uses the existing upstream target field. New product invitation and inline metadata controls use current engine HTTP authorization. No migration beyond parent008, engine source/pin change, runtime skill installation, or provider grant is required. Personal connection context validation is intentionally unchanged, so project subscription pauses connected skills. Normal project navigation removes Members; old links open chat with contextual membership available. Preserve both databases and runtime credentials normally.
+
+
+## Local draft and resume compatibility
+
+This UI-only follow-up requires no API/DB/engine change. Fresh creation drafts migrate lazily from owner-bound session storage to an owner-scoped local key; legacy submitted name-form recovery is unchanged. Conversation draft text, selected mentions, confirmed upload references and stable send identity persist on the current device. Pending local file objects do not. Signing out clears that owner's local drafts and recent project reference. No automatic send, credential storage or server migration is introduced.

@@ -172,3 +172,9 @@
   .project-chat-page .project-about { position:relative; overflow:visible; max-height:none; z-index:5; }
   .project-chat-page .project-context-body { position:absolute; top:100%; left:-1px; right:-1px; max-height:min(55dvh,440px); overflow-y:auto; background:var(--nest-surface); border:1px solid var(--nest-border); border-radius:0 0 10px 10px; box-shadow:0 12px 24px #0002; }
 }
+
+.draft-storage-status { color:var(--nest-muted); font-size:11px; }
+.project-resume { display:flex; align-items:center; gap:16px; width:100%; padding:18px 24px; margin-bottom:24px; text-align:left; color:var(--nest-text); }
+.project-resume strong { flex:1; min-width:0; overflow-wrap:anywhere; }
+.project-resume>span:first-child { color:var(--nest-muted); font-size:13px; }
+@media(max-width:760px) { .project-resume { padding:16px; flex-wrap:wrap; gap:8px; } .project-resume>span:first-child { flex-basis:100%; } }
