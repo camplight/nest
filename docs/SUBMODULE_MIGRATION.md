@@ -314,3 +314,6 @@ The operator must pin the existing manager ID in the private environment and ins
 the reviewed NestSystem bridge, preserving Codex sessions/login and other bridges.
 Back up the environment and previous bridge as well as both databases. Follow
 [AGENT_MANAGEMENT.md](AGENT_MANAGEMENT.md) for installation and revocation.
+The owner-scoped exact-name lookup for later retries uses the same existing agent
+HTTP endpoint. It needs only the updated Nest API and helper skill in the image;
+no engine bump, database migration or further bridge/configuration edit is needed.

@@ -688,8 +688,9 @@ OrgOps source and the submodule pin remain untouched.
 
 An operator can permanently authorize one trusted wrapped manager using
 `NEST_MANAGEMENT_AGENT_NAME` and its pinned `NEST_MANAGEMENT_AGENT_ID`.
-`GET /api/agent-management/context` and `POST /api/agent-management/agents`
-accept a create-only signed capability bound to the originating human event and
+`GET /api/agent-management/context`, `GET /api/agent-management/agents/:name`
+and `POST /api/agent-management/agents` accept a creation/owner-lookup signed
+capability bound to the originating human event and
 current channel membership. It has no time expiry or human-session dependency.
 The bridge retains the engine key and supplies only the proof to Codex. Disabling
 the allowlist or rotating the key revokes old proofs.
@@ -702,3 +703,9 @@ Retries reconcile the unique name and exact configuration/workspace rather than
 creating duplicates or overwriting existing agents. Product audit records identify
 the manager, requester and originating event without credentials. See
 [operator installation and boundaries](AGENT_MANAGEMENT.md).
+
+Exact-name lookup returns minimal metadata and a settings link only for the
+requesting human's private agent, rechecking current management context after the
+lookup. Other owners', public and missing agents share a 404 response. This lets a
+later human "retry" find an agent created by an earlier message without treating
+the new message as the original creation request or applying changed instructions.

@@ -48,7 +48,7 @@ it('creates through the authenticated helper with requester ownership and enforc
  expect(JSON.stringify(env)).not.toContain('must-not-reach-codex');
  const transport=async(url:URL,init:RequestInit)=>product.app.fetch(new Request(url,init));
  const context=await run(['context'],env,transport);
- expect(context).toMatchObject({requester:'owner',model:'openrouter:fixture-multimodal',operations:['agents:create']});
+ expect(context).toMatchObject({requester:'owner',model:'openrouter:fixture-multimodal',operations:['agents:create','agents:get-owned']});
  expect(context).not.toHaveProperty('expiresAt');
  const created=await run(['create'],env,transport,()=>JSON.stringify(input));
  expect(created.agent.settingsUrl).toBe('/?view=agents&agent=EU%20Tenders');
@@ -128,4 +128,49 @@ it('serializes concurrent same-name creation and recovers without duplicates',as
  expect(results.every(result=>result.ok||result.status===409)).toBe(true);
  expect((await management(input)).status).toBe(200);
  const agents=await (await call('/api/agents')).json();expect(agents.filter((a:any)=>a.name===input.name)).toHaveLength(1);
+});
+
+it('finds the requester’s existing private agent from a later retry without recreating or overwriting',async()=>{
+ expect((await management(input)).status).toBe(201);
+ const before=await (await call('/api/agents/EU%20Tenders')).json();
+ const retryEvent=await (await call('/api/events',{type:'message.created',source:'human:owner',channelId,payload:{text:'@NestSystem can you retry',targetAgentName:'NestSystem'}})).json();
+ const env=managementEnvironment({ORGOPS_RUNNER_TOKEN:'runner-secret',ORGOPS_WRAPPED_AGENT_NAME:'NestSystem',ORGOPS_WRAPPED_CHANNEL_ID:channelId,ORGOPS_WRAPPED_TRIGGER_EVENT_ID:retryEvent.id});
+ const transport=async(url:URL,init:RequestInit)=>product.app.fetch(new Request(url,init));
+ await expect(run(['create'],env,transport,()=>JSON.stringify(input))).rejects.toThrow('already exists; its settings were kept');
+ const found=await run(['get',input.name],env,transport);
+ expect(found).toEqual({existing:true,agent:{id:before.id,name:input.name,modelId:before.modelId,visibility:'PRIVATE',settingsUrl:'/?view=agents&agent=EU%20Tenders'}});
+ const after=await (await call('/api/agents/EU%20Tenders')).json();
+ expect(after).toEqual(before);
+ const agents=await (await call('/api/agents')).json();expect(agents.filter((a:any)=>a.name===input.name)).toHaveLength(1);
+ expect(product.store.db.prepare("SELECT COUNT(*) AS count FROM product_audit WHERE type='audit.agent.management.created'").get()).toMatchObject({count:1});
+});
+
+it('does not disclose another owner’s agent, a public agent or a missing name through lookup',async()=>{
+ const invited=await call('/api/humans/invite',{username:'other'});expect(invited.ok).toBe(true);
+ const other=(await (await call('/api/humans')).json()).find((human:any)=>human.username==='other');
+ expect(other?.id).toBeTruthy();
+ const created=await call('/api/agents',{...input,ownerHumanId:other.id,visibility:'PRIVATE',modelId:'openrouter:fixture-multimodal',workspacePath:join(dir,'other')});
+ expect(created.status).toBe(201);
+ const lookup=(name:string)=>call('/api/agent-management/agents/'+encodeURIComponent(name),undefined,{authorization:'Bearer '+token});
+ const hidden=await lookup(input.name),missing=await lookup('Missing');
+ expect(hidden.status).toBe(404);expect(missing.status).toBe(404);
+ expect(await hidden.json()).toEqual(await missing.json());
+ const publicAgent=await call('/api/agents',{...input,name:'Public helper',visibility:'PUBLIC',modelId:'openrouter:fixture-multimodal',workspacePath:join(dir,'public')});
+ expect(publicAgent.status).toBe(201);
+ expect((await lookup('Public helper')).status).toBe(404);
+});
+
+it('revalidates current membership for owner-scoped lookup and rejects forged lookup capabilities',async()=>{
+ await management(input);
+ const lookup=(credential=token)=>call('/api/agent-management/agents/EU%20Tenders',undefined,{authorization:'Bearer '+credential});
+ expect((await lookup(token+'x')).status).toBe(401);
+ mutate=async()=>{await call(`/api/channels/${channelId}/unsubscribe`,{subscriberType:'AGENT',subscriberId:'NestSystem'});};
+ expect((await lookup()).status).toBe(403);
+});
+
+it('prints only known safe helper conflict reasons and never arbitrary response contents',async()=>{
+ const env={NEST_MANAGEMENT_TOKEN:token};
+ await expect(run(['get'],env)).rejects.toThrow('Use context');
+ await expect(run(['get',input.name],env,async()=>Response.json({error:'private-credential-must-not-be-printed'},{status:403}))).rejects.toThrow(/^Nest management returned 403\. The lookup was denied or unavailable\.$/);
+ await expect(run(['create'],env,async()=>Response.json({error:'Agent creation is in progress. Retry the same request.'},{status:409}),()=>JSON.stringify(input))).rejects.toThrow('creation is in progress');
 });

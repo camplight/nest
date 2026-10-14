@@ -2,7 +2,7 @@
 
 NestSystem uses a wrapped Codex runtime. Native OrgOps's authenticated
 `agents_create` tool is not injected into that runtime. The bridge now supplies a
-Nest-specific create-only capability and the `nest-management` skill. The global
+Nest-specific creation/owner-lookup capability and the `nest-management` skill. The global
 runner token and administrator credentials remain outside Codex's environment.
 The Docker image explicitly makes this public skill readable by the node account
 and checks both helper imports as that account during the build, even when the
@@ -37,6 +37,17 @@ whose response was lost. Different settings or another existing agent return 409
 no existing agent is overwritten. A new human message has a different request
 identity; it cannot silently take over a previously created name.
 
+The helper also supports `get "Agent name"` through
+`GET /api/agent-management/agents/:name`. This returns only an ID, name, model,
+visibility and settings link for a private agent owned by the requesting human.
+It revalidates the same signed context and current memberships. Other owners',
+public and missing agents return the same 404 response. It does not read agent
+instructions, connected accounts or workspace contents into the manager's response.
+Check this endpoint before creation and after a name conflict, including a later
+"retry" message. Finding an agent confirms it already exists; it does not confirm
+that new instructions were applied. Creation's strict same-request recovery remains
+unchanged, and conflicting agents are never overwritten or renamed automatically.
+
 ## Operator installation
 
 1. Deploy the Nest API and image containing `skills/nest-management` and
@@ -68,8 +79,9 @@ Disable management by removing the two `NEST_MANAGEMENT_AGENT_*` settings and
 restarting the API. Deleting/replacing the configured manager also denies access.
 No engine source change, new secret, database migration or human re-login is needed.
 
-API: `GET /api/agent-management/context` and `POST /api/agent-management/agents`.
-Both require the signed bearer capability; ordinary engine APIs do not accept it.
+API: `GET /api/agent-management/context`, `GET /api/agent-management/agents/:name`
+and `POST /api/agent-management/agents`.
+All require the signed bearer capability; ordinary engine APIs do not accept it.
 Bodies are JSON capped at 32,000 bytes. Failures do not expose provider credentials.
 Run `npx vitest run apps/api/src/agent-management.test.ts scripts/orgops-env.test.ts`
 for real-engine boundary and runtime credential-filtering checks.
