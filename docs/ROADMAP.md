@@ -413,3 +413,16 @@ PR, not part of that PR's diff. Naming uses a bounded best-effort background
 request; provider failure preserves chat and manual settings. Any manual save
 protects against a late AI response. No durable naming worker, automatic retry
 loop, pre-send uploads, multiple agent targets or generalized roles are added.
+
+
+## Frictionless projects epic
+
+Small stacked PRs keep workspace, draft persistence, and model guidance reviewable.
+
+1. **Workspace and immediate help — in implementation:** suggest the creator's pinned personal agent on the fresh chat draft; subscribe it only on first Send with a visible opt-out. Target the first message without inserting artificial @ text. Consolidate brief, inline edits, member counts and searchable invitations into the right Project details panel. Normal navigation is Chat/Files; old Members links open chat. Mobile uses a disclosure above chat.
+2. **Resume — next slice:** owner/channel-scoped local draft storage, stable send IDs through reload, explicit retries, and a Continue project entry. Persist text and selected identities, never credentials; clear on logout. Upload recovery must not imply that local file objects are durable.
+3. **Guided first response and contextual connections — next slice:** Nest-owned kickoff guidance should acknowledge the goal, propose one useful next step and ask at most one essential question. Prompt guidance is a behavioral preference, not a guarantee; targeting, delivery and connection permissions are enforced in code. Connection suggestions should use the configured provider catalog and route users into a valid private context. Do not auto-grant accounts or infer successful tool execution.
+
+### Connected-account constraint
+
+Current connection skills require exactly one unshared owner-only conversation and a secured lifecycle channel. Subscribing the same personal agent to a project therefore pauses its connected tools even if the project contains only its owner. Show this before automatic invitation and preserve the validator. Safe delegation or a separate project helper is a separate product/security design; automatic project membership must not silently expand connected-account access. The existing owner-approved Requests flow remains available. Agent creation by agents remains deferred.

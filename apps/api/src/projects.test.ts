@@ -64,6 +64,23 @@ describe('project workflow against the unchanged engine',()=>{
     expect(summary.tasks.changesRequested).toBe(1);expect(summary.changes[0]).toMatchObject({id:taskId,status:'changes_requested'});
     expect(summary).not.toHaveProperty('issues');
   });
+  it('suggests only the pinned, currently owned personal agent and validates invitations against engine membership',async()=>{
+    const human=await (await request('/api/auth/me')).json();
+    await product.app.request('/api/agents/Builder',{method:'PATCH',headers,body:JSON.stringify({visibility:'PRIVATE'})});
+    const agent=await (await request('/api/agents/Builder')).json();
+    product.store.db.prepare('INSERT INTO product_personal_agents(owner_id,id,name,character,brief,model_id,runner_id,workspace_path,agent_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(human.id,randomUUID(),'Builder','puff','','test','runner',join(dir,'workspace'),agent.id,Date.now());
+    expect((await (await request('/api/projects/members')).json()).personalAgent).toMatchObject({subscriberType:'AGENT',subscriberId:'Builder'});
+    product.store.db.prepare('UPDATE product_personal_agents SET agent_id=?').run(randomUUID());
+    expect((await (await request('/api/projects/members')).json()).personalAgent).toBeNull();
+    loseSubscriptionResponse=true;
+    expect((await request(`/api/projects/${projectId}/members`,{subscriberType:'AGENT',subscriberId:'Builder'})).status).toBe(200);
+    expect((await request(`/api/projects/${projectId}/members`,{subscriberType:'AGENT',subscriberId:'Builder'})).status).toBe(200);
+    const channels=await (await request('/api/channels')).json();
+    expect(channels.find((c:any)=>c.id===channelId).participants.filter((m:any)=>m.subscriberId==='Builder')).toHaveLength(1);
+    expect((await request(`/api/projects/${projectId}/members`,{subscriberType:'AGENT',subscriberId:'Missing'})).status).toBe(400);
+    expect((await request(`/api/projects/${projectId}/members`,{subscriberType:'AGENT',subscriberId:'Builder',channelId:'override'})).status).toBe(400);
+    expect((await request(`/api/projects/${randomUUID()}/members`,{subscriberType:'AGENT',subscriberId:'Builder'})).status).toBe(404);
+  });
   it('creates a private project chat once, including concurrent retries',async()=>{
     const body={id:randomUUID(),name:'Automatic project',description:'One workspace'};
     const results=await Promise.all([request('/api/projects',body),request('/api/projects',body)]);

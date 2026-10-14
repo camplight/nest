@@ -176,7 +176,7 @@ task assignment, performance scores, avatar editing or resource configuration.
 ## Projects, tasks and human review
 
 `?view=projects` lists projects. A project opens at
-`?view=projects&project=<id>&tab=chat` with Chat, Files and Members sections.
+`?view=projects&project=<id>&tab=chat` with Chat and Files sections plus a Project details panel.
 The About sidebar shows the current team from engine channel participants. Tasks
 are removed from normal project navigation; no automatic chat-to-task extraction
 or replacement to-do sidebar is introduced.
@@ -226,7 +226,7 @@ After confirmed message delivery, a separate request generates an AI name and
 project brief using the enabled instance default model (or
 `NEST_PROJECT_NAMING_MODEL_ID`). The brief includes the goal, expected outcome,
 supplied context/constraints and important open questions without inventing facts.
-Chat does not wait for generation. The owner can edit both in Project settings. Plain messages can start a solo project;
+Chat does not wait for generation. The owner can edit both inline in Project details. Plain messages can start a solo project;
 selected people/agents in the draft @ picker join before message delivery. The
 same existing mention ranking/avatars are reused. One selected agent can receive
 the initial targeted request; multiple people can be added/notified.
@@ -331,6 +331,7 @@ Product APIs (JSON, no-store, 64 KB request cap):
 - `GET /api/projects/members`: available existing people and public/owner agents.
 - `GET /api/projects/:projectId`: project, tasks, deliverables and review history.
 - `PATCH /api/projects/:projectId`: owner-only metadata edit with expected values.
+- `POST /api/projects/:projectId/members`: owner-requested existing teammate invitation.
 - `POST /api/projects/:projectId/tasks`: create an assigned queued task.
 - `POST /api/projects/:projectId/tasks/:taskId/dispatch`: send initial/revision brief.
 - `GET /api/projects/:projectId/tasks/:taskId/responses`: candidate agent messages.
@@ -850,3 +851,14 @@ message confirmation and the project view polls updated metadata; it does not
 navigate again when generation finishes. This is a best-effort background request,
 not a durable worker queue: closing the browser/API restart can interrupt it and
 there is no automatic retry/billing loop. No new database migration is needed.
+
+
+## Frictionless project workspace
+
+The creation roster also returns `personalAgent` only when the product onboarding mapping's pinned engine ID, current PRIVATE visibility, native mode and human owner match an engine HTTP detail read. The fresh chat draft includes this agent visibly and permits starting without it. It is subscribed only with the first submitted project intent, never merely on opening the draft; selected agent mentions override the first-message target. Older submitted drafts never gain new implicit members.
+
+`POST /api/messages` accepts an optional explicit `targetAgentName` without changing human text. It must match a selected agent mention when present, be a current subscribed visible agent, and is included in the durable send identity and receipt. The engine's existing target field is used unchanged.
+
+Chat/Files are normal project tabs. Project details contains the brief, owner-only inline editing with existing compare-and-swap, counts and typed member list, and searchable invitations. Mobile exposes it above chat in a disclosure. Legacy Members links render chat with details available. Advanced sharing remains in the existing engine-backed dialog. `POST /api/projects/:id/members` requires the current product owner with live engine manage/post access, validates exact existing HUMAN/AGENT identities and current agent visibility, and reconciles ambiguous subscriptions before reporting success. It grants no personal connected-account access.
+
+Personal connected skills still require exactly one unshared owner-only conversation. Automatic project invitation does not relax that rule; the draft clearly states that joining pauses connected tools. No new provisioning, model calls, account grants, engine changes or migrations are introduced by this workspace refinement.

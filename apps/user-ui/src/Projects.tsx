@@ -8,10 +8,10 @@ import type { Agent, EventRow, ChannelParticipant } from './types';
 import { apiJson, getApiHeaders } from './api';
 import { AgentAvatar } from './components/AgentAvatar';
 import {ProjectStart} from './ProjectStart';
-import {ProjectSettings} from './ProjectSettings';
+import {ProjectContext} from './ProjectContext';
 import './projects.css';
 
-type Props = {userId:string; participants:ChannelParticipant[]; existingChats: {id:string;name:string;archived:boolean}[]; onChat:(id:string)=>void; projectId: string | null; taskId: string | null; tab: string; agents: Agent[]; onSelect: (project: string | null, task?: string | null, tab?: string) => void; onLoaded: (project: Project) => void; onMenu: () => void; chat: ReactNode; members: ReactNode};
+type Props = {userId:string; participants:ChannelParticipant[]; existingChats: {id:string;name:string;archived:boolean}[]; onChat:(id:string)=>void; projectId: string | null; taskId: string | null; tab: string; agents: Agent[]; onSelect: (project: string | null, task?: string | null, tab?: string) => void; onLoaded: (project: Project) => void; onMenu: () => void; chat: ReactNode; onMembersChanged:()=>Promise<void>; onManage?:()=>void};
 const statusLabel: Record<Task['status'],string> = {queued:'Ready to send',working:'Awaiting deliverable',needs_review:'Needs review',changes_requested:'Changes requested',done:'Approved'};
 function message(reason: unknown) {
   const text=reason instanceof Error ? reason.message : 'Unable to complete request';
@@ -20,7 +20,7 @@ function message(reason: unknown) {
 async function post<T>(path: string, value: unknown) {return apiJson<T>(path,{method:'POST',headers:getApiHeaders(),body:JSON.stringify(value)});}
 
 export function Projects(props: Props) {
-  const {projectId,taskId,onSelect,onMenu,agents,tab,onLoaded,chat,members}=props;
+  const {projectId,taskId,onSelect,onMenu,agents,tab,onLoaded,chat}=props;
   const [query,setQuery]=useState("");
   const [projects,setProjects]=useState<Project[]>([]);
   const [detail,setDetail]=useState<ProjectDetail|null>(null);
@@ -50,7 +50,7 @@ export function Projects(props: Props) {
     <WorkspaceTopbar onMenu={onMenu} leading={<button className="dashboard-action" onClick={()=>onSelect(null)}>All projects</button>} search={<label className="dashboard-search"><DesignIcon name="search"/><input aria-label="Search projects" placeholder="Search…" value={query} onChange={event=>{setQuery(event.target.value);if(projectId||creating)onSelect(null);}}/></label>}/>
 
     <div className="dashboard-content">
-      <div className="dashboard-title"><h1>{detail?.name ?? (projectId ? 'Project' : creating ? 'New project' : 'Projects')}</h1>{detail && detail.ownerId===props.userId && <ProjectSettings project={detail} onSaved={updated=>setDetail(current=>current?{...current,...updated}:current)}/>}{(!projectId || tab === "tasks") && (!creating || !!projectId) && <button ref={createTrigger} className="dashboard-action project-create" onClick={()=>projectId?setCreating(!creating):onSelect(null,null,'new')}>{creating ? 'Cancel' : projectId ? 'New task +' : 'New project +'}</button>}</div>
+      <div className="dashboard-title"><h1>{detail?.name ?? (projectId ? 'Project' : creating ? 'New project' : 'Projects')}</h1>{(!projectId || tab === "tasks") && (!creating || !!projectId) && <button ref={createTrigger} className="dashboard-action project-create" onClick={()=>projectId?setCreating(!creating):onSelect(null,null,'new')}>{creating ? 'Cancel' : projectId ? 'New task +' : 'New project +'}</button>}</div>
       {error && <div className="notice error" role="alert">{error} <button onClick={()=>setRefresh(n=>n+1)}>Refresh</button></div>}
       {loading && <p role="status">Loading projects…</p>}
       {!projectId && <>
@@ -61,11 +61,10 @@ export function Projects(props: Props) {
         {!creating && props.existingChats.length > 0 && <details className="project-existing-chats"><summary>Existing conversations ({props.existingChats.length})</summary><p>These conversations are not linked to a project you own. Your history and shared access are preserved.</p><div className="dashboard-list">{props.existingChats.map(channel=><button className="dashboard-card project-summary" key={channel.id} onClick={()=>props.onChat(channel.id)}>{channel.name}{channel.archived ? ' · Archived' : ''} →</button>)}</div></details>}
       </>}
       {detail && <>
-      <nav className="project-tabs" aria-label="Project sections">{['chat','files','members'].map(section => <button key={section} aria-current={tab === section ? 'page' : undefined} onClick={() => {setCreating(false);onSelect(detail.id,null,section);}}>{section[0].toUpperCase()+section.slice(1)}</button>)}</nav>
+      <nav className="project-tabs" aria-label="Project sections">{['chat','files'].map(section => <button key={section} aria-current={tab === section ? 'page' : undefined} onClick={() => {setCreating(false);onSelect(detail.id,null,section);}}>{section[0].toUpperCase()+section.slice(1)}</button>)}</nav>
       <div className="project-workspace"><div className="project-main">
         {tab === 'chat' && <div className="project-chat">{chat}</div>}
         {tab === 'files' && <ProjectFiles key={detail.channelId} channelId={detail.channelId} />}
-        {tab === 'members' && <section className="project-members" aria-label="Project members"><p>People you add can chat and share files. The project owner manages invitations.</p>{members}</section>}
         {tab === 'tasks' && <>
         {creating && <TaskForm key={detail.id} project={detail} agents={agents} onCreated={task=>{setCreating(false);setDetail({...detail,tasks:[...detail.tasks,task]});onSelect(detail.id,task.id);}} />}
         <section aria-label="Project tasks"><div className="dashboard-section-title"><h2>Tasks <span className="dashboard-count">{detail.tasks.length}</span></h2></div><div className="dashboard-list">{detail.tasks.map(task=><button className="dashboard-card project-task-row" aria-current={task.id===taskId ? 'true' : undefined} key={task.id} onClick={()=>onSelect(detail.id,task.id)}><AgentAvatar name={task.agentName} size={36} /><span><strong>{task.title}</strong><small>{task.agentName} · Attempt {task.attempt}</small></span><span className="dashboard-pill">{statusLabel[task.status]}</span></button>)}</div>
@@ -74,9 +73,7 @@ export function Projects(props: Props) {
         {taskId && !selected && <p role="alert">Task not found in this project.</p>}
         {selected && <TaskPanel key={`${selected.id}:${selected.version}`} task={selected} detail={detail} onChanged={task=>setDetail(current=>current ? {...current,tasks:current.tasks.map(t=>t.id===task.id ? task : t)} : current)} onRefresh={()=>setRefresh(n=>n+1)} />}
       </>}
-      </div><aside className="dashboard-card project-about"><h2>About</h2><p>{detail.description || 'A place to work together with your team.'}</p>
-      {tab==='tasks'?<><h3>Human-approved progress</h3><strong>{detail.tasks.filter(t=>t.status==='done').length} / {detail.tasks.length} tasks</strong><progress aria-label="Approved tasks" value={detail.tasks.filter(t=>t.status==='done').length} max={Math.max(detail.tasks.length,1)} /><p>{detail.tasks.filter(t=>t.status==='needs_review').length} awaiting review</p></>:<><h3>Your team</h3>{props.participants.filter(member=>member.subscriberType==='AGENT'||member.subscriberType==='HUMAN').map(member=><div className="project-assignee" key={`${member.subscriberType}:${member.subscriberId}`}>{member.subscriberType==='AGENT'?<AgentAvatar name={member.subscriberId} size={32}/>:<span className="project-person-avatar" style={{width:32,height:32}} aria-hidden="true">{member.subscriberId.slice(0,2).toUpperCase()}</span>}<span>{member.subscriberId}</span></div>)}<p className="project-muted">Add people and agents in Members.</p></>}
-      </aside></div></>}
+      </div><ProjectContext key={detail.id} project={detail} participants={props.participants} owner={detail.ownerId===props.userId} onSaved={updated=>setDetail(current=>current?{...current,...updated}:current)} onMembersChanged={props.onMembersChanged} onManage={props.onManage}/></div></>}
     </div>
   </section>;
 }

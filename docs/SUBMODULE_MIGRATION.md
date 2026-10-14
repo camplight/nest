@@ -360,3 +360,8 @@ configured system agent’s encrypted engine environment over HTTP. No new secre
 is required when that source is configured. Source-agent owner-human delegation
 must be disabled. Provider failure preserves fallback metadata. No worker process
 or migration is introduced; @orgops/llm is an existing workspace dependency.
+
+
+## Frictionless workspace refinement
+
+Deploy UI and API together. Creation roster gains a pinned personal-agent suggestion; message targeting uses the existing upstream target field. New product invitation and inline metadata controls use current engine HTTP authorization. No migration beyond parent008, engine source/pin change, runtime skill installation, or provider grant is required. Personal connection context validation is intentionally unchanged, so project subscription pauses connected skills. Normal project navigation removes Members; old links open chat with contextual membership available. Preserve both databases and runtime credentials normally.
