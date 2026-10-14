@@ -2431,7 +2431,7 @@ export default function App() {
           />
           </div>
           {draftRecipients.length>0&&<div className="mention-delivery" aria-label="Message recipients">{draftRecipients.map(m=><span key={m.kind+':'+m.name}>{m.kind==='AGENT'?'Ask':'Notify'} @{m.name}<button type="button" aria-label={'Remove mention @'+m.name} onClick={()=>{const spans=draftState.mentions.filter(x=>x.kind===m.kind&&x.name===m.name).sort((a,b)=>b.start-a.start);let next=draft;for(const span of spans)next=next.slice(0,span.start)+next.slice(span.end);setDraft(next);}}>×</button></span>)}</div>}
-          {multipleAgentTargets?<p className="mention-delivery-error" role="alert">Choose one agent target per message. You can notify multiple people.</p>:<p className="mention-delivery-hint">{draftRecipients.some(m=>m.kind==='AGENT')?'Only the selected agent receives this request.':'Select an @mention to direct a request or notify a person.'}{draft.trim()&&<span className="draft-storage-status" role="status">{draftStored?'Draft saved on this device':'Draft storage is unavailable. Keep this tab open until you send.'}</span>}</p>}
+          {multipleAgentTargets?<p className="mention-delivery-error" role="alert">Choose one agent target per message. You can notify multiple people.</p>:<p className="mention-delivery-hint"><span>{draftRecipients.some(m=>m.kind==='AGENT')?'Only the selected agent receives this request.':'Select an @mention to direct a request or notify a person.'}</span>{draft.trim()&&<span className="draft-storage-status" role="status">{draftStored?'Draft saved on this device':'Draft storage is unavailable. Keep this tab open until you send.'}</span>}</p>}
           <div className="composer-actions">
             <button
               type="button"
