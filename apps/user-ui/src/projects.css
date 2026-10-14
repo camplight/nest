@@ -178,3 +178,15 @@
 .project-resume strong { flex:1; min-width:0; overflow-wrap:anywhere; }
 .project-resume>span:first-child { color:var(--nest-muted); font-size:13px; }
 @media(max-width:760px) { .project-resume { padding:16px; flex-wrap:wrap; gap:8px; } .project-resume>span:first-child { flex-basis:100%; } }
+
+.project-connection-suggestions { flex-shrink:0; padding:10px 14px; border:1px solid var(--nest-border); border-radius:8px; background:var(--nest-surface); }
+.project-connection-suggestions>div { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
+.project-connection-suggestions>div:nth-child(2) { justify-content:flex-start; }
+.project-connection-suggestions>div>span { font-size:12px; font-weight:600; }
+.project-connection-suggestions .dashboard-action { padding:6px 10px; gap:8px; font-size:12px; }
+.project-connection-suggestions .connection-app-logo { width:24px; height:24px; }
+.project-connection-suggestions img { width:20px; height:20px; }
+.project-connection-suggestions small { color:var(--nest-muted); font-size:11px; line-height:1.4; display:block; }
+.project-connection-suggestions p { margin:6px 0 0; font-size:12px; }
+
+.mention-delivery-hint .draft-storage-status { display:block; margin-top:6px; }

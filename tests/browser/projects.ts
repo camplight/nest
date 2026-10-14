@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 import { createApp as createEngine } from '../../vendor/orgops/apps/api/src/app';
 import { createOrgOpsClient } from '../../packages/orgops-client/src/index';
 import { createApp } from '../../apps/api/src/app';
+import type {ConnectionProvider} from '../../apps/api/src/integrations/provider';
 
 const dir=mkdtempSync(join(tmpdir(),'nest-project-browser-'));
 const screenshots=mkdtempSync(join(tmpdir(),'nest-project-screenshots-'));
@@ -19,7 +20,14 @@ let startNaming!:()=>void,releaseNaming!:()=>void;
 const namingStarted=new Promise<void>(resolve=>{startNaming=resolve;});
 const namingGate=new Promise<void>(resolve=>{releaseNaming=resolve;});
 const aiBrief='AI brief: deliver an accessible website launch, ready for owner review. Confirm the launch date.';
-const product=createApp({orgops,dbPath:join(dir,'product.sqlite'),projectNamingModelId:'naming-model',projectNamer:async({text})=>{if(text.startsWith('Website launch')){startNaming();await namingGate;return {name:'Website launch',description:aiBrief};}return {name:text.split('\n')[0].slice(0,120),description:text.slice(0,4000)};}});
+let linkOwner='',linked=false;
+const connections:ConnectionProvider={id:'synthetic',subject:owner=>owner,
+  apps:async search=>({items:search==='trello'?[{slug:'trello',name:'Trello',description:'Synthetic catalog fixture',connectable:true}]:[],nextCursor:null}),
+  accounts:async owner=>({items:linked?[{id:'fixture-account',subject:owner,toolkit:'trello',status:'ACTIVE',disabled:false,shared:false}]:[],nextCursor:null}),
+  link:async owner=>{linkOwner=owner;return {redirectUrl:'https://connect.example.test/authorize'};},
+  account:async()=>{throw Error('Unexpected account call');},revoke:async()=>{},tools:async()=>({items:[],nextCursor:null}),tool:async()=>{throw Error('Unexpected tool call');},execute:async()=>{throw Error('No tool execution in this test');},
+};
+const product=createApp({orgops,connections,dbPath:join(dir,'product.sqlite'),projectNamingModelId:'naming-model',projectNamer:async({text})=>{if(text.startsWith('Website launch')){startNaming();await namingGate;return {name:'Website launch',description:aiBrief};}return {name:text.split('\n')[0].slice(0,120),description:text.slice(0,4000)};}});
 const uiRequire=createRequire(join(process.cwd(),'apps/user-ui/package.json'));
 const viteCli=join(dirname(uiRequire.resolve('vite/package.json')),'bin/vite.js');
 const server=spawn(process.execPath,[viteCli,'--host','127.0.0.1','--port','5298','--strictPort'],{cwd:join(process.cwd(),'apps/user-ui'),stdio:'pipe'});
@@ -359,6 +367,25 @@ try {
     await page.goto(`http://127.0.0.1:5298/?view=projects&project=${personalProject.id}&tab=members`);
     await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
     assert.equal(await page.getByRole('navigation',{name:'Project sections'}).getByRole('button',{name:'Members',exact:true}).count(),0);
+    await page.getByRole('textbox',{name:'Message',exact:true}).fill('Help organize our Trello cards');
+    await page.getByRole('button',{name:'Send',exact:true}).click();
+    await page.getByRole('button',{name:'Connect Trello',exact:true}).waitFor();
+    await page.getByRole('textbox',{name:'Message',exact:true}).fill('Keep this draft during authorization');
+    await page.getByText('Draft saved on this device',{exact:true}).waitFor();
+    await page.screenshot({path:join(screenshots,'contextual-connection-desktop.png'),fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    await page.locator('.project-context-disclosure').evaluate((node:HTMLDetailsElement)=>{node.open=false;});
+    const withHint=await page.getByRole('button',{name:'Send',exact:true}).boundingBox();assert(withHint&&withHint.y+withHint.height<=844);
+    await page.getByText('Help organize our Trello cards',{exact:true}).scrollIntoViewIfNeeded();
+    await page.screenshot({path:join(screenshots,'contextual-connection-mobile.png'),fullPage:true});
+    await page.route('https://connect.example.test/**',route=>route.fulfill({status:200,contentType:'text/html',body:'<h1>Synthetic authorization screen</h1>'}));
+    await page.getByRole('button',{name:'Connect Trello',exact:true}).click();
+    await page.getByRole('heading',{name:'Synthetic authorization screen'}).waitFor();assert.equal(linkOwner,owner);
+    linked=true;await page.goto('http://127.0.0.1:5298/?status=success&connected_account_id=synthetic-account');await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('project'),personalProject.id);
+    assert.equal(await page.getByRole('textbox',{name:'Message',exact:true}).inputValue(),'Keep this draft during authorization');
+    await page.getByText('Keep this draft during authorization',{exact:true}).waitFor();
+    await page.waitForTimeout(500);assert.equal(await page.getByRole('button',{name:'Connect Trello',exact:true}).count(),0,'Connected accounts are not suggested again');
     assert.deepEqual(errors,[]);
     console.log('PASS: chat-first creation, no empty records, inferred metadata, @ invitations, creation/message response loss, draft reload, owner settings and legacy setup recovery.');
     console.log('PASS: nested project navigation, keyboard disclosure, bounded shortcuts with active project, full directory search, cross-view access, single current page and mobile drawer.');

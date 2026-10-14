@@ -1,4 +1,5 @@
 import {generateProjectDetails,type ProjectNamer} from './project-naming';
+import {PROJECT_KICKOFF_GUIDANCE} from './project-guidance';
 import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
@@ -143,7 +144,7 @@ export function registerProjectRoutes(app: Hono, {store, orgops, namingModelId, 
     if (!channelId) {
       if (claimed) {
         const created=await orgops.humanJson<{id:string}>('/api/channels',c.req.raw.headers,{
-          name:`nest-project-${reservation.marker}`,description:body.description,visibility:'PRIVATE',metadata:{nestProjectChat:marker},
+          name:`nest-project-${reservation.marker}`,description:body.description,visibility:'PRIVATE',metadata:{nestProjectChat:marker,nestKickoffGuidance:PROJECT_KICKOFF_GUIDANCE},
         });
         channelId=created.id;
       } else {

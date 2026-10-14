@@ -370,3 +370,8 @@ Deploy UI and API together. Creation roster gains a pinned personal-agent sugges
 ## Local draft and resume compatibility
 
 This UI-only follow-up requires no API/DB/engine change. Fresh creation drafts migrate lazily from owner-bound session storage to an owner-scoped local key; legacy submitted name-form recovery is unchanged. Conversation draft text, selected mentions, confirmed upload references and stable send identity persist on the current device. Pending local file objects do not. Signing out clears that owner's local drafts and recent project reference. No automatic send, credential storage or server migration is introduced.
+
+
+## Project kickoff and connection suggestions
+
+No engine source/pin, product migration, runtime credential or agent instruction update is required. New automatic project channels carry response guidance in existing metadata consumed by native channel context; existing channels are untouched. The optional UI connects through current provider/catalog/link APIs and requires the existing instance integration configuration. Personal account grants and private-context checks do not change. Return-from-authorization routing uses an owner-bound tab marker plus current project access; provider state is always fetched through existing APIs.
