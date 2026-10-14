@@ -183,7 +183,19 @@ or replacement to-do sidebar is introduced.
 `tab=tasks&task=<id>` restores a task; older task URLs without `tab` still work.
 Tabs, reload and browser history preserve project context. Existing `?channel=`
 links for an owned project open its Chat section; other channels remain accessible under Projects → Existing conversations.
-The sidebar and dashboard avoid listing owned project chats twice. The layout
+The sidebar and dashboard avoid listing accessible project chats twice.
+Projects is a single collapsible parent inside the main navigation, directly above
+Agents and Community. Its indented shortcuts stay available across product views,
+show at most five projects ordered by creation time, and retain the current project
+in place of the fifth shortcut when necessary. Only the current destination has
+`aria-current="page"`; the parent uses a contextual highlight for an open project.
+The separate disclosure toggles without navigating. Clicking Projects opens the
+full searchable directory and expands the group. New project lives inside the
+group; Cmd/Ctrl+K still opens creation. View all projects appears when there are
+more than five accessible projects. Long names truncate with a full-name title,
+unread counts remain attached to their project, and the mobile drawer closes on
+selection. This bounds sidebar rendering, not the underlying project-list API:
+server pagination, pinning, archival and project folders are deferred. The layout
 follows case-study reference `849:599` with shared tokens and original avatars;
 budget, health and time estimates remain deferred.
 

@@ -211,7 +211,8 @@ try {
     await page.getByRole('button',{name:'Approve deliverable',exact:true}).click();
     await page.getByText('Approved by a human. This task is complete.',{exact:true}).waitFor();
     await page.reload();await page.getByText('Approved by a human. This task is complete.',{exact:true}).waitFor();
-    assert.equal(await nav.getByRole('button',{name:'Projects',exact:true}).getAttribute('aria-current'),'page');
+    assert.equal(await nav.getByRole('button',{name:'Website launch',exact:true}).getAttribute('aria-current'),'page');
+    assert.equal(await nav.getByRole('button',{name:'Projects',exact:true}).getAttribute('aria-current'),null);
     await page.screenshot({path:join(screenshots,'project-approved.png'),fullPage:true});
     await nav.getByRole('button',{name:'Projects',exact:true}).click();
     await page.getByText('Existing conversations (1)',{exact:true}).click();
@@ -227,7 +228,7 @@ try {
     await page.goBack();await page.getByText('Approved by a human. This task is complete.',{exact:true}).waitFor();
     await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'New task +',exact:true}).waitFor({state:'visible'});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     await page.screenshot({path:join(screenshots,'project-mobile.png'),fullPage:true});
-    await page.getByRole('button',{name:'Menu',exact:true}).click();assert.equal(await nav.getByRole('button',{name:'Projects',exact:true}).getAttribute('aria-current'),'page');
+    await page.getByRole('button',{name:'Menu',exact:true}).click();assert.equal(await nav.getByRole('button',{name:'Website launch',exact:true}).getAttribute('aria-current'),'page');
     assert.deepEqual(errors,[]);
     const id=new URL(deepLink).searchParams.get('project')!;
     const detail=product.store.projects.detail(product.store.projects.project(id)!);
@@ -247,6 +248,51 @@ try {
     await page.getByRole('heading',{name:'Just a name',level:1,exact:true}).waitFor();
     const solo=product.store.projects.projects((await (await product.app.request('/api/auth/me',{headers})).json()).id).find(project=>project.name==='Just a name')!;
     assert.equal(solo.description,'');
+    // The sidebar is a bounded shortcut list. The directory owns the full catalog.
+    for(const name of ['Design system','Launch comms','Customer research','Partnerships','Product strategy','Website analytics','Quarterly planning','A long project name for cross-functional collaboration across the whole team']){
+      const response=await product.app.request('/api/projects',{method:'POST',headers,body:JSON.stringify({id:crypto.randomUUID(),name,collaboration:'team'})});assert.equal(response.status,201);
+    }
+    await page.reload();await page.getByRole('heading',{name:'Just a name',level:1,exact:true}).waitFor();
+    const shortcuts=nav.getByRole('list',{name:'Project shortcuts'});
+    await page.waitForFunction(()=>document.querySelectorAll('.project-navigation-link').length===5);
+    assert.equal(await shortcuts.locator('.project-navigation-link').count(),5);
+    assert.equal(await shortcuts.getByRole('button',{name:'Just a name',exact:true}).getAttribute('aria-current'),'page','Active project stays visible outside the newest five');
+    await page.screenshot({path:join(screenshots,'project-navigation-desktop.png'),fullPage:true});
+    const currentUrl=page.url();
+    await nav.getByRole('button',{name:'Collapse projects',exact:true}).click();
+    assert.equal(page.url(),currentUrl,'Disclosure does not navigate');
+    assert.equal(await nav.getByRole('button',{name:'Expand projects',exact:true}).getAttribute('aria-expanded'),'false');
+    assert(!(await shortcuts.isVisible()));
+    await nav.getByRole('button',{name:'Expand projects',exact:true}).focus();await page.keyboard.press('Enter');
+    assert(await shortcuts.isVisible());
+    await shortcuts.getByRole('button',{name:'View all projects',exact:true}).click();
+    await page.getByRole('heading',{name:'Projects',level:1,exact:true}).waitFor();
+    await page.waitForFunction(()=>document.querySelectorAll('.project-grid .project-summary').length===10);
+    await page.getByRole('textbox',{name:'Search projects',exact:true}).fill('Website launch');
+    await page.waitForFunction(()=>document.querySelectorAll('.project-grid .project-summary').length===1);
+    await page.locator('.project-grid').getByRole('button').click();
+    await page.getByRole('heading',{name:'Website launch',level:1,exact:true}).waitFor();
+    assert.equal(await shortcuts.getByRole('button',{name:'Website launch',exact:true}).getAttribute('aria-current'),'page');
+    assert.equal(await nav.locator('[aria-current="page"]').count(),1,'Only the current destination is marked as a page');
+    await nav.getByRole('button',{name:'Dashboard',exact:true}).click();
+    await page.getByRole('heading',{name:'Dashboard',level:1,exact:true}).waitFor();
+    assert(await shortcuts.isVisible(),'Project shortcuts stay available outside Projects');
+    await page.screenshot({path:join(screenshots,'project-navigation-dashboard.png'),fullPage:true});
+    const desktopShortcut=await shortcuts.locator('.project-navigation-link').nth(1).innerText();
+    await shortcuts.locator('.project-navigation-link').nth(1).click();
+    await page.getByRole('heading',{name:desktopShortcut.trim().replace(/^#\s*/,''),level:1,exact:true}).waitFor();
+    await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'Menu',exact:true}).click();
+    assert(await shortcuts.isVisible());assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await page.waitForFunction(()=>document.querySelector('.sidebar-mobile-open')!.getBoundingClientRect().x>=0);
+    await page.screenshot({path:join(screenshots,'project-navigation-mobile.png'),fullPage:true});
+    await shortcuts.getByRole('button',{name:'New project',exact:true}).click();
+    await page.getByRole('heading',{name:'Create a project',level:1,exact:true}).waitFor();
+    assert.equal(await page.locator('.sidebar-mobile-open').count(),0,'Selecting a mobile destination closes the drawer');
+    assert.equal(new URL(page.url()).searchParams.get('create'),'project');
+    await page.setViewportSize({width:1440,height:1100});
+    assert.equal(await shortcuts.getByRole('button',{name:'New project',exact:true}).getAttribute('aria-current'),'page');
+    assert.deepEqual(errors,[]);
+    console.log('PASS: nested project navigation, keyboard disclosure, bounded shortcuts with active project, full directory search, cross-view access, single current page and mobile drawer.');
     console.log('PASS: name-only creation, optional description, searchable people/agents, roster retry, selected chips, partial input preservation, exact creation retry and desktop/mobile creation screens.');
     console.log(`PASS: automatic private chat, invited-user discovery, uploads/files, members, chat-first project tabs, legacy links, standalone chats, task dispatch/revision/approval, persistence, history and mobile. Screenshots: ${screenshots}`);
   } finally {await browser.close();}

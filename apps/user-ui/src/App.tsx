@@ -9,6 +9,7 @@ import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
 import { Community } from "./Community";
 import type { Project } from "@nest/schemas";
 import { Projects } from "./Projects";
+import { ProjectNavigation } from "./components/ProjectNavigation";
 import { Agents } from "./Agents";
 import { AgentAvatar, AgentAvatarChoices } from "./components/AgentAvatar";
 import { Dashboard, DesignIcon } from "./Dashboard";
@@ -2512,12 +2513,10 @@ export default function App() {
         <InstanceBrand />
         <nav className="product-nav" aria-label="Main navigation">
           <button aria-current={view === "dashboard" ? "page" : undefined} onClick={() => selectChannel(null)}><DesignIcon name="dashboard" />Dashboard</button>
-          <button aria-current={(view === "projects" || view === "workspace") ? "page" : undefined} onClick={() => selectProject(null)}><DesignIcon name="conversations" />Projects</button>
+          <ProjectNavigation projects={projectIndex} currentProjectId={view === "projects" ? selectedProject : null} inProjects={view === "projects" || view === "workspace"} creating={view === "projects" && !selectedProject && projectTab === "new"} unreadCounts={unreadCounts} onBrowse={() => selectProject(null)} onSelect={id => selectProject(id)} onCreate={() => selectProject(null, null, "new")} />
           <button aria-current={view === "agents" ? "page" : undefined} onClick={() => selectAgent(null)}><DesignIcon name="agents" />Agents</button>
           <button aria-current={view === "community" ? "page" : undefined} onClick={()=>selectCommunity(null)}><DesignIcon name="community" />Community</button>
         </nav>
-
-        {view === "projects" && <section className="sidebar-section project-sidebar-list" aria-label="Your projects">{projectIndex.map(project => <button key={project.id} aria-current={selectedProject === project.id ? "page" : undefined} onClick={() => selectProject(project.id)}># {project.name}{unreadCounts[project.channelId] ? ` (${unreadCounts[project.channelId]})` : ""}</button>)}</section>}
 
         {view === "workspace" && <section className="sidebar-section">
           <div className="channel-list">
@@ -2596,10 +2595,6 @@ export default function App() {
             ) : null}
           </div>
         </section>}
-
-        <section className="sidebar-section start-conversation">
-          <button className="new-conversation-button" onClick={() => selectProject(null, null, "new")}><span>+ New project</span><kbd>Cmd+K</kbd></button>
-        </section>
 
         <div className="instance-sidebar-footer dashboard-attribution"><span>Powered by</span><DesignIcon name="nest-mark" /><img src={`${import.meta.env.BASE_URL}design/nest-wordmark.svg`} alt="Nest" /></div>
       </aside>

@@ -46,9 +46,6 @@
 .project-file-list { padding:0; list-style:none; }
 .project-file-list li { padding:16px 0; border-bottom:1px solid var(--nest-border); overflow-wrap:anywhere; }
 .project-file-list a { color:var(--nest-text); }
-.project-sidebar-list { display:grid; gap:6px; }
-.project-sidebar-list button { color:inherit; text-align:left; border:0; border-radius:6px; padding:10px; background:transparent; overflow-wrap:anywhere; cursor:pointer; }
-.project-sidebar-list button[aria-current="page"] { background:var(--nest-sidebar-selected); font-weight:600; }
 .dashboard-projects { margin-bottom:28px; }
 @media(max-width:760px) { .project-tabs { gap:0; } .project-tabs button { flex:1; padding:10px; } .project-chat .workspace { height:calc(100dvh - 210px); } }
 

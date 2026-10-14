@@ -349,3 +349,24 @@ does not send email or provision accounts.
 The request limit is 50 selected members. Persistent engine/identity failures during
 reserved setup need operator recovery; prior grants are not rolled back automatically.
 No production deployment is claimed by the PR's isolated browser checks.
+
+## Project navigation hierarchy — implemented for review
+
+The information architecture is collection → project → Chat/Files/Members.
+Projects is one persistent, collapsible parent within the main navigation. Its
+children are visually indented beneath it, before Agents/Community; selecting a
+project does not reveal an unrelated list elsewhere. New project is scoped to
+this group rather than the sidebar footer.
+
+The sidebar shows at most five creation-ordered shortcuts, keeping the open project
+visible. View all projects opens the existing searchable directory. This keeps
+navigation manageable as the list grows without adding another project hierarchy
+or multiple chats per project. Keyboard disclosure, single current-page state,
+mobile selection and ten-project fixtures are covered in the browser suite.
+
+This bounds displayed navigation only: the current API still returns all accessible
+projects. Server pagination and directory sorting/filtering should precede very
+large tenant catalogs. User-chosen pins and project archival can follow observed
+usage; folder hierarchies are not introduced in this slice. Figma workspace
+`849:599` remains the workspace reference; this is an intentional information
+architecture refinement rather than a new exact Figma-frame implementation.
