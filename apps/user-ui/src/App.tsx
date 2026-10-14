@@ -1,3 +1,5 @@
+import {consumeConnectionReturn,forgetConnectionReturn} from './project-connection-return';
+import {ProjectConnections} from './ProjectConnections';
 import {loadChatDraft,saveChatDraft,clearSentDraft,clearOwnerDrafts,rememberProject,recentProject,type ChatDraft} from './drafts';
 import { prepareAssistantRequest, readAgentRequestLocation } from "./AgentRequests";
 import {WorkspaceHeaderProvider, WorkspaceTopbar} from './components/WorkspaceTopbar';
@@ -989,7 +991,11 @@ export default function App() {
           : null);
       if (linkedChannel?.archivedAt) setShowArchivedChannels(true);
       const urlView = new URL(window.location.href).searchParams.get("view");
-      if (!claimedShareChannelId && !linkedChannelId && (urlView === "onboarding" || window.location.pathname === "/onboarding" || (!urlView && nextOnboarding && !nextOnboarding.setup?.completedAt && (nextOnboarding.setup || (!nextProjects.length && !nextAgents.some(a=>a.ownerHumanId===userId)))))) {
+      const returning=userId?consumeConnectionReturn(userId,nextProjects,new URL(window.location.href)):null;
+      if(returning){
+        const clean=new URL(window.location.href);clean.searchParams.delete('status');clean.searchParams.delete('connected_account_id');window.history.replaceState(null,'',clean);
+        selectProject(returning.id,null,'chat',true);
+      } else if (!claimedShareChannelId && !linkedChannelId && (urlView === "onboarding" || window.location.pathname === "/onboarding" || (!urlView && nextOnboarding && !nextOnboarding.setup?.completedAt && (nextOnboarding.setup || (!nextProjects.length && !nextAgents.some(a=>a.ownerHumanId===userId)))))) {
         const legacySetupLink = urlView === "onboarding" || window.location.pathname === "/onboarding";
         selectAgent(nextOnboarding?.setup?.channelId ? nextOnboarding.setup.name : null, {replace:true,create:legacySetupLink && !nextOnboarding?.setup?.channelId});
       } else if (!claimedShareChannelId && ["agents", "projects", "community"].includes(new URL(window.location.href).searchParams.get("view") ?? "") && !linkedChannelId) {
@@ -1586,7 +1592,7 @@ export default function App() {
 
   async function handleLogout() {
     await apiFetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
-    if(userId)clearOwnerDrafts(userId);
+    if(userId){clearOwnerDrafts(userId);forgetConnectionReturn(userId);}
     setAuthenticated(false);
     setUsername("");
     setUserId(null);
@@ -2350,6 +2356,7 @@ export default function App() {
             </button>
           ) : null}
 
+          {view==='projects'&&selectedProject&&activeChannel&&<ProjectConnections key={activeChannel.id} ownerId={userId??''} projectId={selectedProject} text={events.filter(e=>e.channelId===activeChannel.id&&e.type==='message.created').slice(-4).map(e=>String((e.payload as {text?:unknown})?.text??'').slice(0,4000)).join('\n')}/>}
           <form className={`composer${isConversationEmpty ? " composer-compact" : ""}`} onSubmit={handleSubmit}>
           <input
             ref={fileInputRef}
@@ -2424,8 +2431,7 @@ export default function App() {
           />
           </div>
           {draftRecipients.length>0&&<div className="mention-delivery" aria-label="Message recipients">{draftRecipients.map(m=><span key={m.kind+':'+m.name}>{m.kind==='AGENT'?'Ask':'Notify'} @{m.name}<button type="button" aria-label={'Remove mention @'+m.name} onClick={()=>{const spans=draftState.mentions.filter(x=>x.kind===m.kind&&x.name===m.name).sort((a,b)=>b.start-a.start);let next=draft;for(const span of spans)next=next.slice(0,span.start)+next.slice(span.end);setDraft(next);}}>×</button></span>)}</div>}
-          {draft.trim()&&<span className="draft-storage-status" role="status">{draftStored?'Draft saved on this device':'Draft storage is unavailable. Keep this tab open until you send.'}</span>}
-          {multipleAgentTargets?<p className="mention-delivery-error" role="alert">Choose one agent target per message. You can notify multiple people.</p>:<p className="mention-delivery-hint">{draftRecipients.some(m=>m.kind==='AGENT')?'Only the selected agent receives this request.':'Select an @mention to direct a request or notify a person.'}</p>}
+          {multipleAgentTargets?<p className="mention-delivery-error" role="alert">Choose one agent target per message. You can notify multiple people.</p>:<p className="mention-delivery-hint"><span>{draftRecipients.some(m=>m.kind==='AGENT')?'Only the selected agent receives this request.':'Select an @mention to direct a request or notify a person.'}</span>{draft.trim()&&<span className="draft-storage-status" role="status">{draftStored?'Draft saved on this device':'Draft storage is unavailable. Keep this tab open until you send.'}</span>}</p>}
           <div className="composer-actions">
             <button
               type="button"

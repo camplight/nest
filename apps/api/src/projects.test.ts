@@ -91,6 +91,8 @@ describe('project workflow against the unchanged engine',()=>{
     const chats=channels.filter((c:any)=>c.id===project.channelId);
     expect(chats).toHaveLength(1);
     expect(chats[0]).toMatchObject({id:project.channelId,visibility:'PRIVATE',canManage:true});
+    expect(chats[0].metadata.nestKickoffGuidance).toContain('at most one essential clarifying question');
+    expect(chats[0].metadata.nestKickoffGuidance).toContain('does not grant personal account access');
     expect(chats[0].participants).toContainEqual({subscriberType:'HUMAN',subscriberId:'owner'});
     expect((await request('/api/projects',{...body,name:'Changed'})).status).toBe(409);
   });
