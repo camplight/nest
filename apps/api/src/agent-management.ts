@@ -1,0 +1,77 @@
+import {createHash} from 'node:crypto';
+import {resolve} from 'node:path';
+import {Hono} from 'hono';
+import {HTTPException} from 'hono/http-exception';
+import {bodyLimit} from 'hono/body-limit';
+import {ManagedAgentInput} from '@nest/schemas';
+import type {ProductDb} from '@nest/db';
+import type {OrgOpsClient, ManagedEngineAgent} from '@nest/orgops-client';
+import {verifyManagementCapability} from '../../../skills/nest-management/scripts/capability.mjs';
+export type AgentManagementConfig = {agentName:string;agentId:string;engineToken:string;defaultModelId:string;workspaceRoot:string};
+
+/** Explicitly enabled, create-only capability for a trusted wrapped manager. */
+export function registerAgentManagementRoutes(app:Hono,{orgops,store,config}:{orgops:OrgOpsClient;store:ProductDb;config?:AgentManagementConfig}) {
+  const routes=new Hono();
+  const creating=new Set<string>();
+  const fail=(status:400|401|403|409|503,message:string):never=>{throw new HTTPException(status,{message});};
+  routes.onError((error,c)=>error instanceof HTTPException ? c.json({error:error.message},error.status) : c.json({error:'Agent creation could not be confirmed. Retry the same name and instructions to recover; do not choose a new name.'},502));
+  routes.use('*',bodyLimit({maxSize:32000,onError:c=>c.json({error:'Request too large'},413)}));
+  routes.use('*',async(c,next)=>{c.header('Cache-Control','no-store');await next();});
+  async function context(authorization:string|undefined) {
+    const settings=config??fail(503,'Agent management is not configured');
+    const token=authorization?.startsWith('Bearer ')?authorization.slice(7):'';
+    const claims=verifyManagementCapability(token,settings.engineToken,settings.agentName)??fail(401,'Agent management capability is missing or revoked');
+    const engine=orgops.agentManagement(settings.engineToken);
+    const current=await engine.context(claims);
+    const {manager,channel,event}=current;
+    const owner=current.humans?.find(h=>event?.source===`human:${h.username}`);
+    if (!manager || manager.id!==settings.agentId || manager.mode!=='WRAPPED' ||
+      !channel || channel.archivedAt || !event || event.id!==claims.triggerEventId ||
+      event.channelId!==channel.id || event.type!=='message.created' || !owner || owner.mustChangePassword ||
+      (event.payload.targetAgentName && event.payload.targetAgentName!==settings.agentName) ||
+      !channel.participants.some(p=>p.subscriberType==='AGENT'&&p.subscriberId===manager.name) ||
+      !channel.participants.some(p=>p.subscriberType==='HUMAN'&&p.subscriberId===owner.username))
+      fail(403,'Agent management requires the current human request in this manager’s conversation');
+    const model=current.models.find(m=>m.id===settings.defaultModelId||m.reference===settings.defaultModelId)??fail(503,'No enabled default model is configured');
+    const runner=current.runners?.find(r=>r.id===manager!.assignedRunnerId&&r.online)??fail(503,'The manager’s runner is unavailable');
+    return {claims,engine,owner:owner!,model,runner,settings};
+  }
+  const publicAgent=(a:ManagedEngineAgent)=>({id:a.id,name:a.name,modelId:a.modelId,visibility:a.visibility,settingsUrl:`/?view=agents&agent=${encodeURIComponent(a.name)}`});
+  routes.get('/context',async c=>{
+    const ctx=await context(c.req.header('authorization'));
+    return c.json({requester:ctx.owner.username,model:ctx.model.reference,operations:['agents:create']});
+  });
+  routes.post('/agents',async c=>{
+    if(!c.req.header('content-type')?.startsWith('application/json'))return c.json({error:'Use application/json'},415);
+    const ctx=await context(c.req.header('authorization'));
+    const parsed=ManagedAgentInput.safeParse(await c.req.json().catch(()=>null));
+    if(!parsed.success)fail(400,'Provide an agent name, description and instructions; other fields are not accepted');
+    const input=parsed.data!;
+    const fingerprint=createHash('sha256').update(ctx.claims.triggerEventId+'\0'+input.name).digest('hex');
+    const workspacePath=resolve(ctx.settings.workspaceRoot,ctx.owner.id,fingerprint);
+    const matches=(a:ManagedEngineAgent)=>a.ownerHumanId===ctx.owner.id&&a.visibility==='PRIVATE'&&a.mode==='CLASSIC'&&a.workspacePath===workspacePath&&a.modelId===ctx.model.reference&&a.description===input.description&&a.systemInstructions===input.systemInstructions&&!a.allowOutsideWorkspace&&!a.allowOwnerHumanSecrets;
+    const existing=await ctx.engine.agent(input.name);
+    if(existing){if(!matches(existing))fail(409,'That agent name already exists. Its settings were kept.');return c.json({agent:publicAgent(existing),recovered:true});}
+    if(creating.has(input.name))fail(409,'Agent creation is in progress. Retry the same request.');
+    creating.add(input.name);
+    try {
+      // Recheck signed request, current membership, identity, model and runner after lookups.
+      const fresh=await context(c.req.header('authorization'));
+      if(fresh.owner.id!==ctx.owner.id||fresh.model.reference!==ctx.model.reference||fresh.runner.id!==ctx.runner.id)fail(409,'Agent management context changed; retry');
+      let response:Response|undefined;
+      try {
+        response=await ctx.engine.create({...input,modelId:ctx.model.reference,workspacePath,assignedRunnerId:ctx.runner.id,ownerHumanId:ctx.owner.id,visibility:'PRIVATE',mode:'CLASSIC',desiredState:'RUNNING',runtimeState:'STOPPED',enabledSkills:[],alwaysPreloadedSkills:[],allowOutsideWorkspace:false,allowOwnerHumanSecrets:false});
+      } catch { /* A timed-out POST may already have succeeded. Reconcile by unique name and exact workspace. */ }
+      const created=await ctx.engine.agent(input.name);
+      if(!created||!matches(created)){
+        if(response?.status===400)fail(400,'The engine rejected this agent configuration');
+        if(created)fail(409,'That agent name already exists. Its settings were kept.');
+        throw Error('Agent creation unconfirmed');
+      }
+      store.db.prepare('INSERT INTO product_audit(type,actor_id,payload_json,created_at) VALUES(?,?,?,?)').run('audit.agent.management.created',ctx.owner.id,JSON.stringify({managerId:ctx.settings.agentId,agentId:created.id,triggerEventId:ctx.claims.triggerEventId}),Date.now());
+      return c.json({agent:publicAgent(created),recovered:!response?.ok},response?.ok?201:200);
+    } finally {creating.delete(input.name);}
+  });
+  routes.all('*',c=>c.json({error:'Not found'},404));
+  app.route('/api/agent-management',routes);
+}

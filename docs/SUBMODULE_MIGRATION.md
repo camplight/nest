@@ -304,3 +304,13 @@ API category metadata, immutable package versions, hashes and publishing tokens
 are preserved. No product migration, engine pin change, skill installation or
 runtime change is required. Workflows are skill instructions; future recurring-run
 controls can adapt OrgOps's existing targeted scheduled triggers through HTTP.
+
+## NestSystem agent creation
+
+The permanent Nest management adapter uses existing agent/event/channel/model/runner
+HTTP APIs at the unchanged engine pin. No database migration is required. Deployment
+alone does not install the persistent wrapped bridge or grant management permission.
+The operator must pin the existing manager ID in the private environment and install
+the reviewed NestSystem bridge, preserving Codex sessions/login and other bridges.
+Back up the environment and previous bridge as well as both databases. Follow
+[AGENT_MANAGEMENT.md](AGENT_MANAGEMENT.md) for installation and revocation.

@@ -683,3 +683,22 @@ publication or OS isolation. Private response selection is manual because anothe
 approved task or owner conversation may produce responses in the same chat.
 See [AGENT_REQUESTS.md](AGENT_REQUESTS.md) for the user flow and rollout checks.
 OrgOps source and the submodule pin remain untouched.
+
+## Wrapped agent management
+
+An operator can permanently authorize one trusted wrapped manager using
+`NEST_MANAGEMENT_AGENT_NAME` and its pinned `NEST_MANAGEMENT_AGENT_ID`.
+`GET /api/agent-management/context` and `POST /api/agent-management/agents`
+accept a create-only signed capability bound to the originating human event and
+current channel membership. It has no time expiry or human-session dependency.
+The bridge retains the engine key and supplies only the proof to Codex. Disabling
+the allowlist or rotating the key revokes old proofs.
+
+Creation accepts only name/description/instructions and derives private ownership,
+the instance default native model, manager's online runner, isolated workspace path
+and disabled owner-secret delegation. It grants no OS sandbox or new connected-tool
+permissions. Engine HTTP endpoints remain authoritative; no engine DB is read.
+Retries reconcile the unique name and exact configuration/workspace rather than
+creating duplicates or overwriting existing agents. Product audit records identify
+the manager, requester and originating event without credentials. See
+[operator installation and boundaries](AGENT_MANAGEMENT.md).
