@@ -1,7 +1,14 @@
 import { z } from 'zod';
+export const ProjectMemberSchema = z.object({
+  subscriberType: z.enum(['HUMAN','AGENT']), subscriberId: z.string().trim().min(1).max(200),
+}).strict();
+export type ProjectMember = z.infer<typeof ProjectMemberSchema>;
+export type ProjectMemberOption = ProjectMember & {description?:string};
 export const NewProjectSchema = z.object({
   id: z.string().uuid(), name: z.string().trim().min(1).max(120),
   description: z.string().trim().max(4000).default(''), channelId: z.string().min(1).max(200).optional(),
+  members: z.array(ProjectMemberSchema).max(50).default([]),
+  collaboration: z.enum(['private','team']).default('private'),
 }).strict();
 export const NewTaskSchema = z.object({
   id: z.string().uuid(), title: z.string().trim().min(1).max(200),
@@ -12,7 +19,7 @@ export const TaskActionSchema = z.object({version: z.number().int().nonnegative(
 export const SubmitDeliverableSchema = TaskActionSchema.extend({eventId: z.string().min(1).max(200)});
 export const ReviewSchema = TaskActionSchema.extend({decision: z.enum(['approve', 'request_changes']), feedback: z.string().trim().max(8000).default('')})
   .refine(value => value.decision !== 'request_changes' || value.feedback.length > 0, 'Feedback is required when requesting changes');
-export type Project = {id: string; ownerId: string; channelId: string; name: string; description: string; createdAt: number};
+export type Project = {id: string; ownerId: string; channelId: string; name: string; description: string; createdAt: number; collaboration?:'private'|'team'};
 export type Task = z.infer<typeof NewTaskSchema> & {
   projectId: string; version: number; status: 'queued' | 'working' | 'needs_review' | 'changes_requested' | 'done';
   attempt: number; dispatchEventId: string | null; dispatchedAt: number | null;

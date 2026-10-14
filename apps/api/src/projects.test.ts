@@ -12,6 +12,7 @@ describe('project workflow against the unchanged engine',()=>{
   let headers:Record<string,string>, channelId:string, projectId:string, taskId:string;
   let loseDispatchResponse=false;
   let loseChannelResponse=false;
+  let loseSubscriptionResponse=false;
   const request=(path:string,body?:unknown,h=headers)=>product.app.request(path,{method:body===undefined?'GET':'POST',headers:h,...(body!==undefined?{body:JSON.stringify(body)}:{})});
   const taskPath=()=>`/api/projects/${projectId}/tasks/${taskId}`;
   beforeEach(async()=>{
@@ -23,6 +24,7 @@ describe('project workflow against the unchanged engine',()=>{
       const response=await engine.app.fetch(new Request(url,init));
       if(loseDispatchResponse&&new URL(String(url)).pathname==='/api/events'&&init?.method==='POST'){loseDispatchResponse=false;throw new Error('Lost response after engine commit');}
       if(loseChannelResponse&&new URL(String(url)).pathname==='/api/channels'&&init?.method==='POST'){loseChannelResponse=false;throw new Error('Lost channel response');}
+      if(loseSubscriptionResponse&&new URL(String(url)).pathname.endsWith('/subscribe')&&init?.method==='POST'){loseSubscriptionResponse=false;throw new Error('Lost subscription response');}
       return response;
     }) as typeof fetch);
     product=createApp({orgops:client,dbPath:join(dir,'product.sqlite')});
@@ -90,6 +92,70 @@ describe('project workflow against the unchanged engine',()=>{
     const channels=await(await request('/api/channels')).json();
     for(const id of ids) expect(channels.find((c:any)=>c.id===id)).toMatchObject({visibility:'PRIVATE',canManage:true});
     expect(channels.filter((c:any)=>c.name==='after-the-last-engineer')).toHaveLength(1);
+  });
+  it('creates the selected team, distinguishes people and agents with the same name, and preserves completed membership changes',async()=>{
+    expect((await request('/api/humans/invite',{username:'Builder',tempPassword:'password'})).status).toBe(201);
+    const agent={subscriberType:'AGENT',subscriberId:'Builder'},person={subscriberType:'HUMAN',subscriberId:'Builder'};
+    const body={id:randomUUID(),name:'A team project',collaboration:'team',members:[person,agent,agent,{subscriberType:'HUMAN',subscriberId:'owner'}]};
+    const created=await request('/api/projects',body);expect(created.status).toBe(201);
+    const project=await created.json();expect(project).not.toHaveProperty('members');
+    const channel=(await (await request('/api/channels')).json()).find((channel:any)=>channel.id===project.channelId);
+    expect(channel.participants).toEqual(expect.arrayContaining([agent,person,{subscriberType:'HUMAN',subscriberId:'owner'}]));
+    expect(channel.participants).toHaveLength(3);
+    engine.db.prepare("UPDATE humans SET must_change_password=0 WHERE username='Builder'").run();
+    const login=await request('/api/auth/login',{username:'Builder',password:'password'});
+    const invitedHeaders={'content-type':'application/json',cookie:login.headers.get('set-cookie')!.split(';')[0]};
+    const invitedChannels=await (await request('/api/channels',undefined,invitedHeaders)).json();
+    expect(invitedChannels.find((item:any)=>item.id===channel.id)).toMatchObject({canPost:true,canManage:false});
+    expect((await (await request('/api/projects',undefined,invitedHeaders)).json()).map((item:any)=>item.id)).toEqual([project.id]);
+    expect((await request(`/api/projects/${project.id}`,undefined,invitedHeaders)).status).toBe(200);
+    expect((await request(`/api/projects/${projectId}`,undefined,invitedHeaders)).status).toBe(404);
+    expect((await (await request('/api/projects/dashboard',undefined,invitedHeaders)).json()).projects.map((item:any)=>item.project.id)).toEqual([project.id]);
+    await request(`/api/channels/${channel.id}/unsubscribe`,person);
+    expect((await request(`/api/channels/${channel.id}/share`,{viewerType:'HUMAN',viewerId:'Builder'})).ok).toBe(true);
+    expect((await (await request('/api/channels',undefined,invitedHeaders)).json()).some((item:any)=>item.id===channel.id)).toBe(true);
+    expect((await request(`/api/projects/${project.id}`,undefined,invitedHeaders)).status).toBe(404);
+    expect((await (await request('/api/projects/dashboard',undefined,invitedHeaders)).json()).projects).toEqual([]);
+    await request(`/api/channels/${channel.id}/subscribe`,person);
+    expect((await request('/api/projects',{...body,members:[agent,person]})).status).toBe(200);
+    expect((await request('/api/projects',{...body,members:[]})).status).toBe(409);
+    await request(`/api/channels/${channel.id}/unsubscribe`,agent);
+    expect((await request('/api/projects',body)).status).toBe(200);
+    const after=(await (await request('/api/channels')).json()).find((item:any)=>item.id===channel.id);
+    expect(after.participants).not.toContainEqual(agent);
+  });
+  it('finishes partially applied invitations after a lost response and product restart without duplicates',async()=>{
+    await request('/api/humans/invite',{username:'teammate',tempPassword:'password'});
+    const body={id:randomUUID(),name:'Recovered team',members:[{subscriberType:'AGENT',subscriberId:'Builder'},{subscriberType:'HUMAN',subscriberId:'teammate'}]};
+    loseSubscriptionResponse=true;
+    expect((await request('/api/projects',body)).status).toBe(502);
+    expect(product.store.projects.project(body.id)).toBeUndefined();
+    product.store.close();product=createApp({orgops:client,dbPath:join(dir,'product.sqlite')});
+    expect((await request('/api/projects',body)).status).toBe(201);
+    expect((await request('/api/projects',body)).status).toBe(200);
+    const project=product.store.projects.project(body.id)!;
+    const channels=await (await request('/api/channels')).json();
+    expect(channels.filter((channel:any)=>channel.metadata?.nestProjectChat)).toHaveLength(1);
+    const channel=channels.find((channel:any)=>channel.id===project.channelId);
+    expect(channel.participants).toHaveLength(3);
+    expect(channel.participants).toEqual(expect.arrayContaining(body.members));
+  });
+  it('filters the picker and rejects unavailable or other-owner private agents before creating a conversation',async()=>{
+    const other=await (await request('/api/humans/invite',{username:'other',tempPassword:'password'})).json();
+    const privateAgent=await request('/api/agents',{name:'Private teammate',visibility:'PRIVATE',ownerHumanId:other.id,modelId:'test',workspacePath:join(dir,'private-other')});
+    expect(privateAgent.status).toBe(201);
+    const options=await (await request('/api/projects/members')).json();
+    expect(options.members).toContainEqual({subscriberType:'HUMAN',subscriberId:'other'});
+    expect(options.members.some((member:any)=>member.subscriberId==='Builder'&&member.subscriberType==='AGENT')).toBe(true);
+    expect(options.members.some((member:any)=>member.subscriberId==='Private teammate'||member.subscriberId==='owner')).toBe(false);
+    const before=await (await request('/api/channels')).json();
+    for(const member of [{subscriberType:'AGENT',subscriberId:'Private teammate'},{subscriberType:'HUMAN',subscriberId:'missing'}]){
+      const created=await request('/api/projects',{id:randomUUID(),name:'Rejected',members:[member]});expect(created.status).toBe(400);
+      expect(await created.json()).toMatchObject({canEdit:true});
+    }
+    expect(await (await request('/api/channels')).json()).toEqual(before);
+    expect((await request('/api/projects/members',undefined,{})).status).toBe(401);
+    expect((await request('/api/projects/members',undefined,{'x-nest-runner-token':'runner-secret'})).status).toBe(401);
   });
   it('recovers chat creation after a lost engine response and product restart',async()=>{
     const body={id:randomUUID(),name:'Recovered chat'};

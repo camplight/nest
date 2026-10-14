@@ -21,7 +21,7 @@ features. Contribute engine changes to OrgOps separately, then update the gitlin
 The parent npm lockfile locks the combined workspace dependency graph.
 
 The home dashboard summary (`GET /api/projects/dashboard`) lives in Nest's
-project API. It aggregates product tasks only after the existing human/owner and
+project API. It aggregates product tasks only after the current human/project and
 live engine channel access checks. It adds no engine endpoint, DB migration,
 runner change or source overlay. Cost/operational issue data is explicitly
 unavailable; private community previews use Nest's existing catalog API.
@@ -317,3 +317,19 @@ Back up the environment and previous bridge as well as both databases. Follow
 The owner-scoped exact-name lookup for later retries uses the same existing agent
 HTTP endpoint. It needs only the updated Nest API and helper skill in the image;
 no engine bump, database migration or further bridge/configuration edit is needed.
+
+## Simple project creation and initial team
+
+The optional creation-time people/agent selection uses unchanged OrgOps humans,
+agents, channel and subscription HTTP APIs under the signed-in human's credentials.
+Nest stores only the requested team in its existing creation reservation, not an
+engine membership mirror. Product migration `008_project_collaboration.sql` adds
+a private/team visibility policy. Existing records and legacy request bodies remain
+private; the new form explicitly creates team projects. Current subscribed humans
+with post access can open team projects; public visibility/read-only shares alone
+do not grant access. Historical task mutations remain owner-only.
+
+Normal project navigation is Chat/Files/Members; historical task URLs and records
+are retained. No engine bump, runner change or credential installation is required.
+Snapshot both databases before deployment; the additive migration changes only
+Nest product storage and does not read or modify engine state.

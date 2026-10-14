@@ -4,12 +4,13 @@ import { useEffect, useRef, useState, type ReactNode, type FormEvent } from 'rea
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Project, ProjectDetail, Task } from '@nest/schemas';
-import type { Agent, EventRow } from './types';
+import type { Agent, EventRow, ChannelParticipant } from './types';
 import { apiJson, getApiHeaders } from './api';
 import { AgentAvatar } from './components/AgentAvatar';
+import { ProjectCreateForm } from './ProjectCreateForm';
 import './projects.css';
 
-type Props = {existingChats: {id:string;name:string;archived:boolean}[]; onChat:(id:string)=>void; projectId: string | null; taskId: string | null; tab: string; agents: Agent[]; onSelect: (project: string | null, task?: string | null, tab?: string) => void; onLoaded: (project: Project) => void; onMenu: () => void; chat: ReactNode; members: ReactNode};
+type Props = {userId:string; participants:ChannelParticipant[]; existingChats: {id:string;name:string;archived:boolean}[]; onChat:(id:string)=>void; projectId: string | null; taskId: string | null; tab: string; agents: Agent[]; onSelect: (project: string | null, task?: string | null, tab?: string) => void; onLoaded: (project: Project) => void; onMenu: () => void; chat: ReactNode; members: ReactNode};
 const statusLabel: Record<Task['status'],string> = {queued:'Ready to send',working:'Awaiting deliverable',needs_review:'Needs review',changes_requested:'Changes requested',done:'Approved'};
 function message(reason: unknown) {
   const text=reason instanceof Error ? reason.message : 'Unable to complete request';
@@ -26,6 +27,7 @@ export function Projects(props: Props) {
   const [loading,setLoading]=useState(true);
   const [refresh,setRefresh]=useState(0);
   const [creating,setCreating]=useState(false);
+  const createTrigger=useRef<HTMLButtonElement>(null);
   const createRequested = !projectId && tab === "new";
   useEffect(()=>{
     const controller=new AbortController();
@@ -44,25 +46,25 @@ export function Projects(props: Props) {
   const selected=detail?.tasks.find(t=>t.id===taskId);
   const filteredProjects=projects.filter(project=>`${project.name} ${project.description}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return <section className={`dashboard projects-page${projectId && tab === 'chat' ? ' project-chat-page' : ''}`} aria-label="Projects">
-    <WorkspaceTopbar onMenu={onMenu} leading={<button className="dashboard-action" onClick={()=>onSelect(null)}>All projects</button>} search={<label className="dashboard-search"><DesignIcon name="search"/><input aria-label="Search projects" placeholder="Search…" value={query} onChange={event=>{setQuery(event.target.value);if(projectId)onSelect(null);}}/></label>}/>
+    <WorkspaceTopbar onMenu={onMenu} leading={<button className="dashboard-action" onClick={()=>onSelect(null)}>All projects</button>} search={<label className="dashboard-search"><DesignIcon name="search"/><input aria-label="Search projects" placeholder="Search…" value={query} onChange={event=>{setQuery(event.target.value);if(projectId||creating)onSelect(null);}}/></label>}/>
 
     <div className="dashboard-content">
-      <div className="dashboard-title"><h1>{detail?.name ?? (projectId ? 'Project' : 'Projects')}</h1>{(!projectId || tab === "tasks") && <button className="dashboard-action project-create" onClick={()=>setCreating(!creating)}>{creating ? 'Cancel' : projectId ? 'New task +' : 'New project +'}</button>}</div>
+      <div className="dashboard-title"><h1>{detail?.name ?? (projectId ? 'Project' : creating ? 'Create a project' : 'Projects')}</h1>{(!projectId || tab === "tasks") && (!creating || !!projectId) && <button ref={createTrigger} className="dashboard-action project-create" onClick={()=>projectId?setCreating(!creating):onSelect(null,null,'new')}>{creating ? 'Cancel' : projectId ? 'New task +' : 'New project +'}</button>}</div>
       {error && <div className="notice error" role="alert">{error} <button onClick={()=>setRefresh(n=>n+1)}>Refresh</button></div>}
       {loading && <p role="status">Loading projects…</p>}
       {!projectId && <>
-        {creating && <ProjectForm onCreated={p=>{onLoaded(p);onSelect(p.id);}} />}
-        <div className="project-grid">{filteredProjects.map(project=><button className="dashboard-card project-summary" key={project.id} onClick={()=>onSelect(project.id)}><h2>{project.name}</h2><p>{project.description || 'Open the project to plan and review your team’s work.'}</p><span>Open project →</span></button>)}</div>
-        {!loading && !error && projects.length>0 && !filteredProjects.length && <div className="dashboard-card dashboard-empty"><h2>No matching projects</h2><p>Try a different project name or description.</p></div>}
-        {!loading && !error && !projects.length && !creating && <div className="dashboard-card dashboard-empty"><h2>From a brief to an approved result</h2><p>Name your project to get started. Add people or agents in Members, then use Chat. Tasks and reviews are there when you need them.</p></div>}
-        {props.existingChats.length > 0 && <details className="project-existing-chats"><summary>Existing conversations ({props.existingChats.length})</summary><p>These conversations are not linked to a project you own. Your history and shared access are preserved.</p><div className="dashboard-list">{props.existingChats.map(channel=><button className="dashboard-card project-summary" key={channel.id} onClick={()=>props.onChat(channel.id)}>{channel.name}{channel.archived ? ' · Archived' : ''} →</button>)}</div></details>}
+        {creating && props.userId && <ProjectCreateForm key={props.userId} ownerId={props.userId} onCreated={p=>{onLoaded(p);onSelect(p.id);}} onCancel={()=>{setCreating(false);onSelect(null);requestAnimationFrame(()=>createTrigger.current?.focus());}} />}
+        {!creating&&<div className="project-grid">{filteredProjects.map(project=><button className="dashboard-card project-summary" key={project.id} onClick={()=>onSelect(project.id)}><h2>{project.name}</h2><p>{project.description || 'Open the conversation and work with your team.'}</p><span>Open project →</span></button>)}</div>}
+        {!creating && !loading && !error && projects.length>0 && !filteredProjects.length && <div className="dashboard-card dashboard-empty"><h2>No matching projects</h2><p>Try a different project name or description.</p></div>}
+        {!loading && !error && !projects.length && !creating && <div className="dashboard-card dashboard-empty"><h2>Your next project starts here</h2><p>Name your project and choose who’s joining, then start chatting.</p></div>}
+        {!creating && props.existingChats.length > 0 && <details className="project-existing-chats"><summary>Existing conversations ({props.existingChats.length})</summary><p>These conversations are not linked to a project you own. Your history and shared access are preserved.</p><div className="dashboard-list">{props.existingChats.map(channel=><button className="dashboard-card project-summary" key={channel.id} onClick={()=>props.onChat(channel.id)}>{channel.name}{channel.archived ? ' · Archived' : ''} →</button>)}</div></details>}
       </>}
       {detail && <>
-      <nav className="project-tabs" aria-label="Project sections">{['chat','tasks','files','members'].map(section => <button key={section} aria-current={tab === section ? 'page' : undefined} onClick={() => {setCreating(false);onSelect(detail.id,null,section);}}>{section[0].toUpperCase()+section.slice(1)}</button>)}</nav>
+      <nav className="project-tabs" aria-label="Project sections">{['chat','files','members'].map(section => <button key={section} aria-current={tab === section ? 'page' : undefined} onClick={() => {setCreating(false);onSelect(detail.id,null,section);}}>{section[0].toUpperCase()+section.slice(1)}</button>)}</nav>
       <div className="project-workspace"><div className="project-main">
         {tab === 'chat' && <div className="project-chat">{chat}</div>}
         {tab === 'files' && <ProjectFiles key={detail.channelId} channelId={detail.channelId} />}
-        {tab === 'members' && <section className="project-members" aria-label="Project members"><p>Members can access this project’s chat and files. Task planning and reviews remain private to the project owner.</p>{members}</section>}
+        {tab === 'members' && <section className="project-members" aria-label="Project members"><p>People you add can chat and share files. The project owner manages invitations.</p>{members}</section>}
         {tab === 'tasks' && <>
         {creating && <TaskForm key={detail.id} project={detail} agents={agents} onCreated={task=>{setCreating(false);setDetail({...detail,tasks:[...detail.tasks,task]});onSelect(detail.id,task.id);}} />}
         <section aria-label="Project tasks"><div className="dashboard-section-title"><h2>Tasks <span className="dashboard-count">{detail.tasks.length}</span></h2></div><div className="dashboard-list">{detail.tasks.map(task=><button className="dashboard-card project-task-row" aria-current={task.id===taskId ? 'true' : undefined} key={task.id} onClick={()=>onSelect(detail.id,task.id)}><AgentAvatar name={task.agentName} size={36} /><span><strong>{task.title}</strong><small>{task.agentName} · Attempt {task.attempt}</small></span><span className="dashboard-pill">{statusLabel[task.status]}</span></button>)}</div>
@@ -71,25 +73,11 @@ export function Projects(props: Props) {
         {taskId && !selected && <p role="alert">Task not found in this project.</p>}
         {selected && <TaskPanel key={`${selected.id}:${selected.version}`} task={selected} detail={detail} onChanged={task=>setDetail(current=>current ? {...current,tasks:current.tasks.map(t=>t.id===task.id ? task : t)} : current)} onRefresh={()=>setRefresh(n=>n+1)} />}
       </>}
-      </div><aside className="dashboard-card project-about"><h2>About</h2><p>{detail.description || 'Work together toward an approved result.'}</p><h3>Human-approved progress</h3><strong>{detail.tasks.filter(t=>t.status==='done').length} / {detail.tasks.length} tasks</strong><progress aria-label="Approved tasks" value={detail.tasks.filter(t=>t.status==='done').length} max={Math.max(detail.tasks.length,1)} /><p>{detail.tasks.filter(t=>t.status==='needs_review').length} awaiting review</p><h3>Assigned agents</h3>{[...new Set(detail.tasks.map(t=>t.agentName))].map(name=><div className="project-assignee" key={name}><AgentAvatar name={name} size={36} /><span>{name}</span></div>)}<p className="project-muted">Project records are private to you. Task briefs and responses use the project chat’s visibility.</p></aside></div></>}
+      </div><aside className="dashboard-card project-about"><h2>About</h2><p>{detail.description || 'A place to work together with your team.'}</p>
+      {tab==='tasks'?<><h3>Human-approved progress</h3><strong>{detail.tasks.filter(t=>t.status==='done').length} / {detail.tasks.length} tasks</strong><progress aria-label="Approved tasks" value={detail.tasks.filter(t=>t.status==='done').length} max={Math.max(detail.tasks.length,1)} /><p>{detail.tasks.filter(t=>t.status==='needs_review').length} awaiting review</p></>:<><h3>Your team</h3>{props.participants.filter(member=>member.subscriberType==='AGENT'||member.subscriberType==='HUMAN').map(member=><div className="project-assignee" key={`${member.subscriberType}:${member.subscriberId}`}>{member.subscriberType==='AGENT'?<AgentAvatar name={member.subscriberId} size={32}/>:<span className="project-person-avatar" style={{width:32,height:32}} aria-hidden="true">{member.subscriberId.slice(0,2).toUpperCase()}</span>}<span>{member.subscriberId}</span></div>)}<p className="project-muted">Add people and agents in Members.</p></>}
+      </aside></div></>}
     </div>
   </section>;
-}
-
-function ProjectForm({onCreated}:{onCreated:(p:Project)=>void}) {
-  const [saved]=useState(() => {
-    try {const value=JSON.parse(sessionStorage.getItem('nest-new-project') ?? 'null'); if(value && typeof value.id==='string' && typeof value.name==='string' && typeof value.description==='string') return value as {id:string;name:string;description:string};} catch {}
-    return {id:crypto.randomUUID(),name:'',description:''};
-  });
-  const id=useRef(saved.id);const [busy,setBusy]=useState(false);const [error,setError]=useState<string|null>(null);
-  async function submit(event:FormEvent<HTMLFormElement>) {
-    event.preventDefault();const form=new FormData(event.currentTarget);setBusy(true);setError(null);
-    const body={id:id.current,name:String(form.get('name') ?? ''),description:String(form.get('description') ?? '')};
-    try {sessionStorage.setItem('nest-new-project',JSON.stringify(body));} catch {}
-    try {const project=await post<Project>('/api/projects',body);try {sessionStorage.removeItem('nest-new-project');} catch {} onCreated(project);}
-    catch(reason){setError(message(reason));}finally{setBusy(false);}
-  }
-  return <form className="dashboard-card project-form" onSubmit={submit}><h2>New project</h2>{error&&<p role="alert">{error}</p>}<fieldset disabled={busy}><label>Project name<input name="name" defaultValue={saved.name} required maxLength={120}/></label><label>Project brief (optional)<textarea name="description" defaultValue={saved.description} rows={3} maxLength={4000}/></label><p>A private chat is created for this project. Add your team in Members, then chat or assign a task.</p><button className="dashboard-action project-primary">{busy?'Creating…':'Create project'}</button></fieldset></form>;
 }
 
 function ProjectFiles({channelId}:{channelId:string}) {
