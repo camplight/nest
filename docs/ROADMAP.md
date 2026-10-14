@@ -184,7 +184,8 @@ without calling a model or touching production. Product CI runs both browser sui
 ## Project-first onboarding refinement
 
 The dashboard remains home. With no owned projects, a welcome panel explains
-name → add members → chat, with a direct Create your first project action.
+a direct Create your first project action. The chat-first refinement below now
+opens the composer immediately and derives/suggests details after first Send.
 The sidebar and Cmd/Ctrl+K open project creation; there is no separate Chats
 nav or New chat action. Dashboard metrics count projects instead of standalone
 chats. Existing chat/share URLs and history remain compatible; no data is moved.
@@ -386,3 +387,29 @@ Existing subscriptions are no-ops, uncertain writes reconcile membership, and
 requests/confirmations enter product audit. Ordinary @mentions remain delivery,
 not membership changes. This does not add email/account provisioning or connected
 account permissions. Current Figma workspace reference remains `849:599`.
+
+## Chat-first project creation — stacked follow-up, implemented for review
+
+New project immediately opens a blank chat; the first Send creates its private
+engine channel and team project, derives name/description from the opening text,
+and delivers that same message. Selected draft @mentions add their exact people
+or agent before delivery. One agent target per message is preserved. No records
+are created by merely opening/cancelling the draft. This supersedes the fresh
+name-form flow while retaining submitted legacy-form recovery.
+
+A first-message fallback appears immediately, then AI generates the name and a
+useful brief asynchronously through the existing LLM library and configured model.
+The brief covers the objective, expected outcome, context and open questions; it
+does not infer access grants. Project settings lets only the owner edit name/description,
+with stale-editor conflict detection. Product labels update without renaming the
+engine chat or changing memberships/history. Original creation intents remain
+replayable after edits; failed first-message delivery remains safely retryable.
+
+Browser checks cover empty draft/mobile, @ selection and invitations, creation
+and message response loss, reload, settings edits and legacy recovery. The current
+Figma workspace reference is `849:599`; blank-chat onboarding/settings are deliberate
+extensions. This work is a separate PR stacked on the creation/navigation/invitation
+PR, not part of that PR's diff. Naming uses a bounded best-effort background
+request; provider failure preserves chat and manual settings. Any manual save
+protects against a late AI response. No durable naming worker, automatic retry
+loop, pre-send uploads, multiple agent targets or generalized roles are added.

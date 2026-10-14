@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -36,7 +36,7 @@ describe('project workflow against the unchanged engine',()=>{
     expect((await request('/api/projects',{id:projectId,name:'Launch',description:'Ship a useful result',channelId})).status).toBe(201);
     expect((await request(`/api/projects/${projectId}/tasks`,{id:taskId,title:'Build page',instructions:'Produce an accessible page',acceptanceCriteria:'Keyboard accessible; tests pass',agentName:'Builder'})).status).toBe(201);
   });
-  afterEach(()=>{product.store.close();engine.db.close();rmSync(dir,{recursive:true,force:true});});
+  afterEach(()=>{vi.unstubAllEnvs();product.store.close();engine.db.close();rmSync(dir,{recursive:true,force:true});});
   async function dispatch(version=0){const r=await request(`${taskPath()}/dispatch`,{version});expect(r.status).toBe(200);return r.json();}
   async function response(text='Deliverable: https://example.com/pr/1',source='agent:Builder',channel=channelId){
     const r=await request('/api/events',{type:'message.created',source,channelId:channel,payload:{text}},{'content-type':'application/json','x-nest-runner-token':'runner-secret'});
@@ -109,6 +109,7 @@ describe('project workflow against the unchanged engine',()=>{
     expect(invitedChannels.find((item:any)=>item.id===channel.id)).toMatchObject({canPost:true,canManage:false});
     expect((await (await request('/api/projects',undefined,invitedHeaders)).json()).map((item:any)=>item.id)).toEqual([project.id]);
     expect((await request(`/api/projects/${project.id}`,undefined,invitedHeaders)).status).toBe(200);
+    expect((await product.app.request(`/api/projects/${project.id}`,{method:'PATCH',headers:invitedHeaders,body:JSON.stringify({name:'Not mine',description:'',expected:{name:project.name,description:project.description}})})).status).toBe(404);
     expect((await request(`/api/projects/${projectId}`,undefined,invitedHeaders)).status).toBe(404);
     expect((await (await request('/api/projects/dashboard',undefined,invitedHeaders)).json()).projects.map((item:any)=>item.project.id)).toEqual([project.id]);
     await request(`/api/channels/${channel.id}/unsubscribe`,person);
@@ -261,4 +262,78 @@ describe('project workflow against the unchanged engine',()=>{
     expect((await request('/api/projects',{name:'Missing identity'})).status).toBe(400);
     expect((await request('/api/projects/unrecognized/path')).status).toBe(404);
   });
+  it('lets the owner edit product metadata without changing the engine channel or task history and rejects stale edits',async()=>{
+    const patch=(body:unknown,h=headers)=>product.app.request(`/api/projects/${projectId}`,{method:'PATCH',headers:h,body:JSON.stringify(body)});
+    const expected={name:'Launch',description:'Ship a useful result'};
+    const body={name:'Autumn launch',description:'New project brief',expected};
+    expect((await patch({...body,ownerId:'someone'})).status).toBe(400);
+    expect((await patch(body,{'content-type':'application/json','x-nest-runner-token':'runner-secret'})).status).toBe(401);
+    const results=await Promise.all([patch(body),patch({...body,name:'Other edit'})]);
+    expect(results.map(r=>r.status).sort()).toEqual([200,409]);
+    const edited=await product.store.projects.project(projectId)!;
+    expect(edited.channelId).toBe(channelId);expect(product.store.projects.tasks(projectId)).toHaveLength(1);
+    expect((await (await request('/api/channels')).json()).find((ch:any)=>ch.id===channelId).name).toBe('Project room');
+    expect((await patch(body)).status).toBe(409);
+    expect(product.store.db.prepare("SELECT actor_id FROM product_audit WHERE type='audit.project.updated'").all()).toEqual([{actor_id:edited.ownerId}]);
+  });
+
+  it('recovers the original creation intent after metadata edits without applying old names again',async()=>{
+    const body={id:randomUUID(),name:'First message title',description:'First message brief',collaboration:'team'};
+    expect((await request('/api/projects',body)).status).toBe(201);
+    const edit=await product.app.request(`/api/projects/${body.id}`,{method:'PATCH',headers,body:JSON.stringify({name:'Edited title',description:'Edited brief',expected:{name:body.name,description:body.description}})});
+    expect(edit.status).toBe(200);
+    const retried=await request('/api/projects',body);expect(retried.status).toBe(200);
+    expect(await retried.json()).toMatchObject({name:'Edited title',description:'Edited brief'});
+    expect((await request('/api/projects',{...body,name:'Edited title'})).status).toBe(409);
+  });
+
+  async function namingSetup(namer:import('./project-naming').ProjectNamer) {
+    await request('/api/models',{id:'naming-model',provider:'openrouter',modelName:'fixture',enabled:true});
+    product.store.close();product=createApp({orgops:client,dbPath:join(dir,'product.sqlite'),projectNamingModelId:'naming-model',projectNamer:namer});
+    const messageRequestId=randomUUID();
+    expect((await request('/api/messages',{id:messageRequestId,channelId,text:'Plan an autumn website launch with a clear owner review.'})).status).toBe(201);
+    return {messageRequestId,expected:{name:'Launch',description:'Ship a useful result'}};
+  }
+  it('generates AI metadata only from a confirmed owner message and applies it once',async()=>{
+    const namer=vi.fn(async()=>({name:'Autumn website launch',description:'Goal: launch the updated website. Outcome: owner-reviewed release. Open question: target date.'}));
+    const body=await namingSetup(namer);
+    const path=`/api/projects/${projectId}/suggest-details`;
+    expect((await request(path,{...body,messageRequestId:randomUUID()})).status).toBe(400);
+    const result=await request(path,body);expect(await result.json()).toEqual({status:'named'});
+    expect(namer).toHaveBeenCalledWith(expect.objectContaining({model:'openrouter:fixture',text:'Plan an autumn website launch with a clear owner review.'}));
+    expect(product.store.projects.project(projectId)?.name).toBe('Autumn website launch');
+    expect(await (await request(path,body)).json()).toEqual({status:'kept'});expect(namer).toHaveBeenCalledTimes(1);
+    expect((await request(path,body,{'content-type':'application/json','x-nest-runner-token':'runner-secret'})).status).toBe(401);
+  });
+  it('keeps manual settings ahead of an in-flight AI result, including a same-value manual save',async()=>{
+    let started!:()=>void,release!:(value:{name:string;description:string})=>void;
+    const begun=new Promise<void>(resolve=>{started=resolve;});
+    const result=new Promise<{name:string;description:string}>(resolve=>{release=resolve;});
+    const body=await namingSetup(async()=>{started();return result;});
+    const pending=request(`/api/projects/${projectId}/suggest-details`,body);await begun;
+    expect(await (await request(`/api/projects/${projectId}/suggest-details`,body)).json()).toEqual({status:'pending'});
+    expect((await product.app.request(`/api/projects/${projectId}`,{method:'PATCH',headers,body:JSON.stringify({...body.expected,expected:body.expected})})).status).toBe(200);
+    release({name:'AI must not overwrite',description:'Generated after the owner saved'});
+    expect(await (await pending).json()).toEqual({status:'kept'});
+    expect(product.store.projects.project(projectId)?.name).toBe('Launch');
+  });
+  it('keeps chat and fallback metadata usable on a provider failure without exposing diagnostics',async()=>{
+    const body=await namingSetup(async()=>{throw Error('fixture-secret-must-not-be-returned');});
+    const response=await request(`/api/projects/${projectId}/suggest-details`,body);
+    expect(await response.json()).toEqual({status:'unavailable'});
+    expect(product.store.projects.project(projectId)?.name).toBe('Launch');
+    expect((await request(`/api/projects/${projectId}`)).status).toBe(200);
+  });
+  it('resolves only the required provider key from the configured system agent over engine HTTP',async()=>{
+    vi.stubEnv('ORGOPS_MASTER_KEY',Buffer.alloc(32,7).toString('base64'));vi.stubEnv('OPENROUTER_API_KEY','');
+    await request('/api/secrets',{name:'OPENROUTER_API_KEY',value:'fixture-provider-key',scopeType:'public'});
+    await request('/api/secrets',{name:'UNRELATED_SECRET',value:'must-not-reach-model',scopeType:'public'});
+    const agent=await (await request('/api/agents/Builder')).json();
+    const env=await client.projectNamingEnv({token:'runner-secret',agentName:'Builder',agentId:agent.id,model:'openrouter:fixture'});
+    expect(env.OPENROUTER_API_KEY).toBe('fixture-provider-key');expect(env).not.toHaveProperty('UNRELATED_SECRET');
+    await expect(client.projectNamingEnv({token:'runner-secret',agentName:'Builder',agentId:'wrong',model:'openrouter:fixture'})).rejects.toThrow('unavailable');
+    await product.app.request('/api/agents/Builder',{method:'PATCH',headers,body:JSON.stringify({visibility:'PRIVATE',ownerHumanId:(await (await request('/api/auth/me')).json()).id,allowOwnerHumanSecrets:true})});
+    await expect(client.projectNamingEnv({token:'runner-secret',agentName:'Builder',model:'openrouter:fixture'})).rejects.toThrow('unavailable');
+  });
+
 });

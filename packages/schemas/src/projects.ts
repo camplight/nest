@@ -41,3 +41,11 @@ export type ProjectDashboard = {
   reviews: DashboardTask[];
   changes: DashboardTask[];
 };
+
+export const ProjectSettingsSchema=z.object({
+  name:NewProjectSchema.shape.name,
+  description:NewProjectSchema.shape.description,
+  expected:z.object({name:z.string(),description:z.string()}).strict(),
+}).strict();
+
+export const ProjectNamingSchema=z.object({messageRequestId:z.string().uuid(),expected:ProjectSettingsSchema.shape.expected}).strict();

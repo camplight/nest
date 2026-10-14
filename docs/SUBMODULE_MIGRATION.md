@@ -345,3 +345,18 @@ Refresh the persistent NestSystem bridge and its embedded saved setup following
 alone does not install either copy. Signed request-bound credentials stay compatible. The management
 skill adds `project-members` and `invite`; invitations require the current project's
 human owner and preserve existing private-project history and account grants.
+
+## Chat-first project entry and editable metadata
+
+This stacked follow-up adds no migration or engine pin/source change. New entry
+uses the existing durable project creation and message delivery APIs; settings
+update only existing Nest product name/description fields with compare-and-swap.
+Original creation reservations remain authoritative across renames, and old
+submitted name-form drafts retain recovery. The parent creation PR's migration008
+still applies when deploying both. Preserve both databases and runtime credentials
+through the normal deployment process. AI naming reuses the enabled default model
+(or NEST_PROJECT_NAMING_MODEL_ID) and provider key from the API environment or the
+configured system agent’s encrypted engine environment over HTTP. No new secret
+is required when that source is configured. Source-agent owner-human delegation
+must be disabled. Provider failure preserves fallback metadata. No worker process
+or migration is introduced; @orgops/llm is an existing workspace dependency.

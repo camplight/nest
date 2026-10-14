@@ -15,7 +15,11 @@ const previousRoot=process.env.ORGOPS_PROJECT_ROOT;process.env.ORGOPS_PROJECT_RO
 const engine=createEngine({dbPath:join(dir,'engine.sqlite'),dataDir:dir,adminUser:'owner',adminPass:'test-password',runnerToken:'test-runner'});
 if(previousRoot===undefined)delete process.env.ORGOPS_PROJECT_ROOT;else process.env.ORGOPS_PROJECT_ROOT=previousRoot;
 const orgops=createOrgOpsClient('http://engine',(async(url,init)=>engine.app.fetch(new Request(url,init))) as typeof fetch);
-const product=createApp({orgops,dbPath:join(dir,'product.sqlite')});
+let startNaming!:()=>void,releaseNaming!:()=>void;
+const namingStarted=new Promise<void>(resolve=>{startNaming=resolve;});
+const namingGate=new Promise<void>(resolve=>{releaseNaming=resolve;});
+const aiBrief='AI brief: deliver an accessible website launch, ready for owner review. Confirm the launch date.';
+const product=createApp({orgops,dbPath:join(dir,'product.sqlite'),projectNamingModelId:'naming-model',projectNamer:async({text})=>{if(text.startsWith('Website launch')){startNaming();await namingGate;return {name:'Website launch',description:aiBrief};}return {name:text.split('\n')[0].slice(0,120),description:text.slice(0,4000)};}});
 const uiRequire=createRequire(join(process.cwd(),'apps/user-ui/package.json'));
 const viteCli=join(dirname(uiRequire.resolve('vite/package.json')),'bin/vite.js');
 const server=spawn(process.execPath,[viteCli,'--host','127.0.0.1','--port','5298','--strictPort'],{cwd:join(process.cwd(),'apps/user-ui'),stdio:'pipe'});
@@ -36,6 +40,7 @@ try {
     const cookie=login.headers.get('set-cookie')!.split(';')[0];
     const headers={cookie,'content-type':'application/json'};
     let channelId:string;
+    assert.equal((await product.app.request('/api/models',{method:'POST',headers,body:JSON.stringify({id:'naming-model',provider:'openrouter',modelName:'fixture',enabled:true})})).status,201);
     const created=await product.app.request('/api/agents',{method:'POST',headers,body:JSON.stringify({name:'Builder',visibility:'PRIVATE',modelId:'test-model',workspacePath:join(dir,'workspace')})});assert.equal(created.status,201);
     assert.equal((await product.app.request('/api/agents',{method:'POST',headers,body:JSON.stringify({name:'Moss',description:'Research and make sense of the details.',visibility:'PUBLIC',modelId:'test-model',workspacePath:join(dir,'moss')})})).status,201);
     assert.equal((await product.app.request('/api/humans/invite',{method:'POST',headers,body:JSON.stringify({username:'sarah@example.com',tempPassword:'test-password'})})).status,201);
@@ -44,18 +49,20 @@ try {
     // Relay browser requests into the real product + engine HTTP handlers. No
     // mocked product state, mutations, permissions or event validation.
     let loseCreationResponse=true;
+    let loseFirstMessageResponse=true;
     let failMemberRoster=true;
     const relay=async (route:Route)=>{
       const request=route.request();const url=new URL(request.url());
       const response=await product.app.request(url.pathname+url.search,{method:request.method(),headers:request.headers(),...(request.postDataBuffer()?{body:new Uint8Array(request.postDataBuffer()!)}:{})});
       if(failMemberRoster&&url.pathname==='/api/projects/members'){
-        failMemberRoster=false;await route.fulfill({status:502,json:{error:'Synthetic team lookup outage'}});return;
+        await route.fulfill({status:502,json:{error:'Synthetic team lookup outage'}});return;
       }
       if (loseCreationResponse && url.pathname==='/api/projects' && request.method()==='POST') {
         loseCreationResponse=false;
         await route.fulfill({status:502,json:{error:'Response lost after project creation'}});
         return;
       }
+      if(loseFirstMessageResponse&&url.pathname==='/api/messages'&&request.method()==='POST'){loseFirstMessageResponse=false;await route.fulfill({status:502,json:{error:'Response lost after first message'}});return;}
       await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:Buffer.from(await response.arrayBuffer())});
     };
     await page.route('**/api/**',relay);
@@ -75,51 +82,47 @@ try {
     await page.getByRole('button',{name:'Create a project →',exact:true}).click();
     await page.setViewportSize({width:1440,height:1100});
     assert.equal(new URL(page.url()).searchParams.get('view'),'projects');
-    await page.getByRole('heading',{name:'Create a project',exact:true}).waitFor();
-    assert(await page.getByRole('button',{name:'Create project',exact:true}).isDisabled());
-    await page.getByRole('textbox',{name:'Project name',exact:true}).fill('Website launch');
-    await page.screenshot({path:join(screenshots,'project-create-simple-desktop.png'),fullPage:true});
-    await page.setViewportSize({width:390,height:844});
-    const createBounds=await page.getByRole('button',{name:'Create project',exact:true}).boundingBox();
-    assert(createBounds&&createBounds.y>=0&&createBounds.y+createBounds.height<=844,'Name-only action is visible without scrolling');
-    await page.screenshot({path:join(screenshots,'project-create-simple-mobile.png'),fullPage:true});
-    await page.setViewportSize({width:1440,height:1100});
-    await page.getByRole('button',{name:'Add a description',exact:true}).click();
-    await page.getByRole('textbox',{name:'Description (optional)',exact:true}).fill('Ship an accessible landing page.');
-    const teamSearch=page.getByRole('combobox',{name:'Add people or agents',exact:true});
-    await teamSearch.focus();
+    await page.getByRole('heading',{name:'New project',exact:true}).waitFor();
+    assert.equal(await page.getByRole('textbox',{name:'Project name',exact:true}).count(),0);
+    assert(await page.getByRole('button',{name:'Send',exact:true}).isDisabled());
+    assert.equal((product.store.db.prepare('SELECT COUNT(*) AS count FROM product_projects').get() as {count:number}).count,0,'Opening a draft creates nothing');
     const rosterError=page.getByRole('alert').filter({hasText:'We couldn’t load your team'});
-    await rosterError.waitFor();await rosterError.getByRole('button',{name:'Try again',exact:true}).click();
-    await page.getByRole('option').first().waitFor();
-    await teamSearch.fill('@SrH');await teamSearch.press('Enter');
-    await page.getByRole('list',{name:'Selected teammates'}).getByText('sarah@example.com',{exact:true}).waitFor();
-    assert.equal(new URL(page.url()).searchParams.get('project'),null,'Enter chooses a teammate instead of submitting');
-    await teamSearch.fill('@Ms');await page.getByRole('option').filter({hasText:'Moss'}).click();
-    await page.getByRole('button',{name:'Remove Moss',exact:true}).click();
-    await teamSearch.fill('moss');await teamSearch.press('ArrowDown');await teamSearch.press('Enter');
-    await teamSearch.fill('no-such-teammate');await page.getByText('No matches. Try another name.',{exact:true}).waitFor();
-    await teamSearch.press('Enter');assert.equal(new URL(page.url()).searchParams.get('project'),null);
-    await teamSearch.fill('@');
-    await page.getByRole('option').filter({hasText:'Builder'}).waitFor();
-    await page.waitForFunction(()=>Array.from(document.querySelectorAll<HTMLImageElement>('.project-create-form img')).every(image=>image.complete&&image.naturalWidth>0));
-    await page.screenshot({path:join(screenshots,'project-create-team-desktop.png'),fullPage:true});
+    await rosterError.waitFor();failMemberRoster=false;await rosterError.getByRole('button',{name:'Try again',exact:true}).click();
+    await rosterError.waitFor({state:'hidden'});
+    await page.screenshot({path:join(screenshots,'project-start-desktop.png'),fullPage:true});
     await page.setViewportSize({width:390,height:844});
+    const firstSend=await page.getByRole('button',{name:'Send',exact:true}).boundingBox();assert(firstSend&&firstSend.y>=0&&firstSend.y+firstSend.height<=844);
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
-    await page.screenshot({path:join(screenshots,'project-create-team-mobile.png'),fullPage:true});
-    await teamSearch.press('Escape');assert.equal(await teamSearch.getAttribute('aria-expanded'),'false');
-    await page.screenshot({path:join(screenshots,'project-create-selected-mobile.png'),fullPage:true});
+    await page.screenshot({path:join(screenshots,'project-start-mobile.png'),fullPage:true});
     await page.setViewportSize({width:1440,height:1100});
-    await page.getByRole('button',{name:'Create project',exact:true}).click();
+    const firstMessage=page.getByRole('textbox',{name:'Message',exact:true});
+    await firstMessage.fill('Website launch\nShip an accessible landing page.\n@SrH');
+    await page.getByRole('option').filter({hasText:'sarah@example.com'}).waitFor();
+    await firstMessage.press('Enter');
+    assert.equal(new URL(page.url()).searchParams.get('project'),null);
+    await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+    await firstMessage.press('End');await firstMessage.pressSequentially('@Ms');
+    await page.getByRole('option').filter({hasText:'Moss'}).waitFor();
+    await page.waitForFunction(()=>getComputedStyle(document.querySelector('.mention-popup')!).opacity==='1');
+    await page.waitForFunction(()=>Array.from(document.querySelectorAll<HTMLImageElement>('.mention-popup img')).every(image=>image.complete&&image.naturalWidth>0));
+    await page.screenshot({path:join(screenshots,'project-start-mention-desktop.png'),fullPage:true});
+    await firstMessage.press('Enter');
+    await page.getByText('Joining: sarah@example.com, Moss',{exact:true}).waitFor();
+    const originalMessage=await firstMessage.inputValue();
+    await page.getByRole('button',{name:'Send',exact:true}).click();
     await page.getByRole('alert').filter({hasText:'Response lost after project creation'}).waitFor();
-    await page.reload();await page.getByRole('heading',{name:'Create a project',exact:true}).waitFor();
-    assert.equal(await page.getByRole('textbox',{name:'Project name',exact:true}).inputValue(),'Website launch');
-    await page.getByRole('list',{name:'Selected teammates'}).getByText('Moss',{exact:true}).waitFor();
-    await page.getByRole('button',{name:'Retry creation',exact:true}).click();
+    await page.reload();await page.getByRole('heading',{name:'New project',exact:true}).waitFor();
+    assert.equal(await firstMessage.inputValue(),originalMessage);
+    assert(await firstMessage.isDisabled());
+    await page.getByRole('button',{name:'Retry send',exact:true}).click();
+    await page.getByRole('alert').filter({hasText:'Response lost after first message'}).waitFor();
+    await page.reload();await page.getByRole('button',{name:'Retry send',exact:true}).click();
     assert.equal((product.store.db.prepare('SELECT COUNT(*) AS count FROM product_projects').get() as {count:number}).count,1);
-
     await page.getByRole('heading',{name:'Website launch',exact:true,level:1}).waitFor();
     assert(new URL(page.url()).searchParams.get('project'));
     const projectId=new URL(page.url()).searchParams.get('project')!;
+    await namingStarted;assert.notEqual(product.store.projects.project(projectId)?.description,aiBrief,'Chat opens before AI naming completes');releaseNaming();
+    await page.locator('.project-about').getByText(aiBrief,{exact:true}).waitFor();
     channelId=product.store.projects.project(projectId)!.channelId;
     const projectChannel=(await (await product.app.request('/api/channels',{headers})).json()).find((channel:any)=>channel.id===channelId);
     assert(projectChannel.participants.some((member:any)=>member.subscriberType==='HUMAN'&&member.subscriberId==='sarah@example.com'));
@@ -141,6 +144,7 @@ try {
       await teammatePage.getByRole('navigation',{name:'Project sections'}).getByRole('button',{name:'Members',exact:true}).click();
       await teammatePage.locator('.participant-list').getByText('sarah@example.com',{exact:true}).waitFor();
       assert.equal(await teammatePage.getByRole('button',{name:'Manage members and sharing'}).count(),0);
+      assert.equal(await teammatePage.getByRole('button',{name:'Project settings',exact:true}).count(),0);
     }finally{await teammateContext.close();}
     const sections=page.getByRole('navigation',{name:'Project sections'});
     assert.equal(new URL(page.url()).searchParams.get('tab'),'chat');
@@ -238,18 +242,18 @@ try {
     await page.setViewportSize({width:1440,height:1100});
     await page.getByRole('button',{name:'All projects',exact:true}).click();
     await page.getByRole('button',{name:'New project +',exact:true}).click();
-    await page.getByRole('textbox',{name:'Project name',exact:true}).fill('Just a name');
-    await page.waitForFunction(()=>JSON.parse(sessionStorage.getItem('nest-new-project')??'null')?.name==='Just a name');
-    await page.reload();await page.getByRole('heading',{name:'Create a project',exact:true}).waitFor();
-    assert.equal(await page.getByRole('textbox',{name:'Project name',exact:true}).inputValue(),'Just a name');
+    await page.getByRole('textbox',{name:'Message',exact:true}).fill('Just a name');
+    await page.waitForFunction(()=>JSON.parse(sessionStorage.getItem('nest-new-project-chat')??'null')?.text==='Just a name');
+    await page.reload();await page.getByRole('heading',{name:'New project',exact:true}).waitFor();
+    assert.equal(await page.getByRole('textbox',{name:'Message',exact:true}).inputValue(),'Just a name');
     await page.getByRole('button',{name:'Cancel',exact:true}).click();
     await page.waitForFunction(()=>document.activeElement?.textContent==='New project +');
     await page.getByRole('button',{name:'New project +',exact:true}).click();
-    assert.equal(await page.getByRole('textbox',{name:'Project name',exact:true}).inputValue(),'Just a name');
-    await page.getByRole('button',{name:'Create project',exact:true}).click();
+    assert.equal(await page.getByRole('textbox',{name:'Message',exact:true}).inputValue(),'Just a name');
+    await page.getByRole('button',{name:'Send',exact:true}).click();
     await page.getByRole('heading',{name:'Just a name',level:1,exact:true}).waitFor();
     const solo=product.store.projects.projects((await (await product.app.request('/api/auth/me',{headers})).json()).id).find(project=>project.name==='Just a name')!;
-    assert.equal(solo.description,'');
+    assert.equal(solo.description,'Just a name');
     // The sidebar is a bounded shortcut list. The directory owns the full catalog.
     for(const name of ['Design system','Launch comms','Customer research','Partnerships','Product strategy','Website analytics','Quarterly planning','A long project name for cross-functional collaboration across the whole team']){
       const response=await product.app.request('/api/projects',{method:'POST',headers,body:JSON.stringify({id:crypto.randomUUID(),name,collaboration:'team'})});assert.equal(response.status,201);
@@ -288,14 +292,38 @@ try {
     await page.waitForFunction(()=>document.querySelector('.sidebar-mobile-open')!.getBoundingClientRect().x>=0);
     await page.screenshot({path:join(screenshots,'project-navigation-mobile.png'),fullPage:true});
     await shortcuts.getByRole('button',{name:'New project',exact:true}).click();
-    await page.getByRole('heading',{name:'Create a project',level:1,exact:true}).waitFor();
+    await page.getByRole('heading',{name:'New project',level:1,exact:true}).waitFor();
     assert.equal(await page.locator('.sidebar-mobile-open').count(),0,'Selecting a mobile destination closes the drawer');
     assert.equal(new URL(page.url()).searchParams.get('create'),'project');
     await page.setViewportSize({width:1440,height:1100});
     assert.equal(await shortcuts.getByRole('button',{name:'New project',exact:true}).getAttribute('aria-current'),'page');
     assert.deepEqual(errors,[]);
+    await page.goto(`http://127.0.0.1:5298/?view=projects&project=${projectId}&tab=chat`);
+    await page.getByRole('button',{name:'Project settings',exact:true}).click();
+    const settings=page.getByRole('dialog',{name:'Project settings',exact:true});
+    await settings.getByRole('textbox',{name:'Project name',exact:true}).fill('Autumn launch');
+    await settings.getByRole('textbox',{name:'Project description',exact:true}).fill('Plan the autumn website launch with our team.');
+    await page.screenshot({path:join(screenshots,'project-settings-desktop.png'),fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    await page.screenshot({path:join(screenshots,'project-settings-mobile.png'),fullPage:true});
+    await settings.getByRole('button',{name:'Save changes',exact:true}).click();
+    await page.getByRole('heading',{name:'Autumn launch',level:1,exact:true}).waitFor();
+    await page.reload();await page.getByRole('heading',{name:'Autumn launch',level:1,exact:true}).waitFor();
+    await page.setViewportSize({width:1440,height:1100});
+    assert.equal(await nav.getByRole('button',{name:'Autumn launch',exact:true}).getAttribute('aria-current'),'page');
+    await page.screenshot({path:join(screenshots,'project-renamed-desktop.png'),fullPage:true});
+    const legacyId=crypto.randomUUID(),owner=(await (await product.app.request('/api/auth/me',{headers})).json()).id;
+    const legacy={id:legacyId,name:'Pending legacy setup',description:'Original reserved brief',members:[],collaboration:'team'};
+    assert.equal((await product.app.request('/api/projects',{method:'POST',headers,body:JSON.stringify(legacy)})).status,201);
+    await page.evaluate(value=>sessionStorage.setItem('nest-new-project',JSON.stringify(value)),{...legacy,ownerId:owner,submitted:true});
+    await nav.getByRole('list',{name:'Project shortcuts'}).getByRole('button',{name:'New project',exact:true}).click();
+    await page.getByText('Finish your previous project setup before starting another.',{exact:true}).waitFor();
+    await page.getByRole('button',{name:'Retry creation',exact:true}).click();
+    await page.getByRole('heading',{name:'Pending legacy setup',level:1,exact:true}).waitFor();
+    assert.deepEqual(errors,[]);
+    console.log('PASS: chat-first creation, no empty records, inferred metadata, @ invitations, creation/message response loss, draft reload, owner settings and legacy setup recovery.');
     console.log('PASS: nested project navigation, keyboard disclosure, bounded shortcuts with active project, full directory search, cross-view access, single current page and mobile drawer.');
-    console.log('PASS: name-only creation, optional description, fuzzy @ people/agent search, Enter/Escape, roster retry, selected chips, partial input preservation, exact creation retry and desktop/mobile creation screens.');
+    console.log('PASS: first-message creation, @ selection, roster retry, persistent drafts, exact creation/send retry and desktop/mobile screens.');
     console.log(`PASS: automatic private chat, invited-user discovery, uploads/files, members, chat-first project tabs, legacy links, standalone chats, task dispatch/revision/approval, persistence, history and mobile. Screenshots: ${screenshots}`);
   } finally {await browser.close();}
 } finally {server.kill('SIGTERM');product.store.close();engine.db.close();rmSync(dir,{recursive:true,force:true});}

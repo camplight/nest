@@ -4,7 +4,7 @@ import {AgentAvatar} from './AgentAvatar';
 import {findMention,insertMention,rankMentions,type MentionCandidate} from '../mentions';
 import './mentions.css';
 
-export function useMentionPicker({value,onChange,onChoose,onAskAssistant,textareaRef,candidates,channelId,disabled,targeted=false}:{value:string;onChange:(value:string)=>void;onChoose?:(value:string,mention:import('@nest/schemas').SelectedMention)=>void;onAskAssistant?:(name:string,brief:string)=>void;targeted?:boolean;textareaRef:RefObject<HTMLTextAreaElement>;candidates:MentionCandidate[];channelId:string|null;disabled:boolean}) {
+export function useMentionPicker({value,onChange,onChoose,onAskAssistant,textareaRef,candidates,channelId,disabled,targeted=false,projectDraft=false}:{value:string;onChange:(value:string)=>void;onChoose?:(value:string,mention:import('@nest/schemas').SelectedMention)=>void;onAskAssistant?:(name:string,brief:string)=>void;targeted?:boolean;projectDraft?:boolean;textareaRef:RefObject<HTMLTextAreaElement>;candidates:MentionCandidate[];channelId:string|null;disabled:boolean}) {
   const id=useId();
   const reduced=useReducedMotion();
   const [selection,setSelection]=useState({start:0,end:0});
@@ -37,7 +37,7 @@ export function useMentionPicker({value,onChange,onChoose,onAskAssistant,textare
     if(onChoose)onChoose(inserted.value,{kind:candidate.kind==='Agent'?'AGENT':'HUMAN',name:candidate.name,start:query.start,end:query.start+candidate.name.length+1});else onChange(inserted.value);
     setDismissed(`${channelId}:${inserted.value}:${inserted.caret}:${inserted.caret}`);
     window.requestAnimationFrame(()=>{
-      const node=textareaRef.current;if(!node)return;
+      const node=textareaRef.current;if(!node||node.value!==inserted.value)return;
       node.focus();node.setSelectionRange(inserted.caret,inserted.caret);sync(node);
     });
   }
@@ -70,12 +70,12 @@ export function useMentionPicker({value,onChange,onChoose,onAskAssistant,textare
       {shown.map((candidate,i)=><div key={candidate.id} id={`${id}-${i}`} role="option" aria-disabled={targeted&&!candidate.inConversation&&!candidate.assistantOwner} aria-selected={i===index} className="mention-option"
         onPointerDown={event=>event.preventDefault()} onPointerMove={()=>setHighlight(i)} onClick={()=>choose(candidate)}>
         {candidate.kind==='Agent' ? <AgentAvatar name={candidate.name} size={34}/> : <span className="mention-person" aria-hidden="true">{candidate.name.slice(0,2).toUpperCase()}</span>}
-        <span className="mention-identity"><strong>{candidate.name}</strong><small>{candidate.assistantOwner?`Assistant to ${candidate.assistantOwner} · Request owner approval`:<>{candidate.kind} · {candidate.inConversation?(targeted?(candidate.kind==='Agent'?'Direct request':'Notify person'):'In this chat'):(targeted?'Add to chat first':'Not in this chat')}</>}</small></span>
+        <span className="mention-identity"><strong>{candidate.name}</strong><small>{candidate.assistantOwner?`Assistant to ${candidate.assistantOwner} · Request owner approval`:<>{candidate.kind} · {candidate.inConversation?(targeted?(candidate.kind==='Agent'?'Direct request':'Notify person'):'In this chat'):(projectDraft?'Add to this project':targeted?'Add to chat first':'Not in this chat')}</>}</small></span>
         <span className="mention-at" aria-hidden="true">@</span>
       </div>)}
     </div>
     {!shown.length && <p className="mention-empty" role="status">No matches. Try another name.</p>}
-    <div id={`${id}-help`} className="mention-help">↑↓ to browse · Enter or Tab to select · Esc to close<br/>{targeted?'Choose a chat recipient, or ask an assistant for owner-approved work.':'Mentioning someone does not add them to this chat.'}</div>
+    <div id={`${id}-help`} className="mention-help">↑↓ to browse · Enter or Tab to select · Esc to close<br/>{projectDraft?'Selected people and agents join when you send your first message.':targeted?'Choose a chat recipient, or ask an assistant for owner-approved work.':'Mentioning someone does not add them to this chat.'}</div>
   </motion.div> : null;
   return {popup,textareaProps,onKeyDown,sync};
 }

@@ -469,7 +469,7 @@ export function Dashboard({
                   "Your completed projects are available in All projects."
                 ) : (
                   <>
-                    Keep chat, tasks and files together.{" "}
+                    Start chatting to create a project and bring your team in.{" "}
                     <button onClick={onCreate}>Create a project →</button>
                   </>
                 )}

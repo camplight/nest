@@ -1,14 +1,15 @@
+import {generateProjectDetails,type ProjectNamer} from './project-naming';
 import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { bodyLimit } from 'hono/body-limit';
 import type { ProductDb } from '@nest/db';
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
-import { NewProjectSchema, NewTaskSchema, TaskActionSchema, SubmitDeliverableSchema, ReviewSchema, type Task, type Project, type ProjectDashboard, type DashboardTask, type ProjectMemberOption } from '@nest/schemas';
+import { NewProjectSchema, ProjectSettingsSchema, ProjectNamingSchema, NewTaskSchema, TaskActionSchema, SubmitDeliverableSchema, ReviewSchema, type Task, type Project, type ProjectDashboard, type DashboardTask, type ProjectMemberOption } from '@nest/schemas';
 
 type Channel = {id: string; canManage: boolean; canPost: boolean; archivedAt?: number | null; ownerHumanId?: string; participants?:{subscriberType:string;subscriberId:string}[]; metadata?: {nestProjectChat?: string}};
 type EngineEvent = {id: string; type: string; source: string; channelId: string; createdAt: number; payload?: {text?: unknown; nestTaskId?: unknown; nestTaskAttempt?: unknown; targetAgentName?: unknown}; idempotencyKey?: string};
-export function registerProjectRoutes(app: Hono, {store, orgops}: {store: ProductDb; orgops: OrgOpsClient}) {
+export function registerProjectRoutes(app: Hono, {store, orgops, namingModelId, namingEnv, namer=generateProjectDetails}: {store: ProductDb; orgops: OrgOpsClient; namingModelId?:string; namingEnv?:(model:string)=>Promise<Record<string,string|undefined>>; namer?:ProjectNamer}) {
   const routes = new Hono<{Variables: {human: Human; channels: Channel[]}}>();
   const db = store.projects;
   routes.onError((error, c) => {
@@ -104,10 +105,11 @@ export function registerProjectRoutes(app: Hono, {store, orgops}: {store: Produc
     const request=JSON.stringify({name:body.name,description:body.description,channelId:body.channelId ?? null,...(members.length?{members}:{}),...(body.collaboration==='team'?{collaboration:'team'}:{})});
     const existing=db.project(body.id);
     if (existing) {
-      if (existing.ownerId!==human.id || existing.name!==body.name || (body.channelId && existing.channelId!==body.channelId) || existing.description!==body.description || (existing.collaboration??'private')!==body.collaboration) return c.json({error:'Project ID already used'},409);
-      owned(body.id,human,c.get('channels'));
+      if(existing.ownerId!==human.id)return c.json({error:'Project ID already used'},409);
       const reserved=store.db.prepare('SELECT request_json FROM product_project_chats WHERE project_id=?').get(body.id) as {request_json:string}|undefined;
-      if(JSON.stringify(reserved?JSON.parse(reserved.request_json).members??[]:[])!==JSON.stringify(members))return c.json({error:'Project ID already used'},409);
+      // Editable metadata must not change the identity of a completed creation.
+      if(reserved ? reserved.request_json!==request : existing.name!==body.name||existing.description!==body.description||(body.channelId&&existing.channelId!==body.channelId)||(existing.collaboration??'private')!==body.collaboration||members.length>0)return c.json({error:'Project ID already used'},409);
+      owned(body.id,human,c.get('channels'));
       return c.json(existing);
     }
     if(members.length){
@@ -158,6 +160,38 @@ export function registerProjectRoutes(app: Hono, {store, orgops}: {store: Produc
     const project=db.project(c.req.param('projectId'));
     if(!project||!canView(project,c.get('human'),c.get('channels')))throw new HTTPException(404,{message:'Project unavailable or conversation access has changed'});
     return c.json(db.detail(project));
+  });
+  const naming=new Set<string>();
+  routes.post('/api/projects/:projectId/suggest-details',async c=>{
+    const human=c.get('human');const project=owned(c.req.param('projectId'),human,c.get('channels'));
+    const body=parse(ProjectNamingSchema,await c.req.json().catch(()=>null));
+    if(!db.openingMessage(project,body.messageRequestId))return c.json({error:'A confirmed opening message from this project owner is required'},400);
+    if(!db.canNameProject(project.id)||project.name!==body.expected.name||project.description!==body.expected.description)return c.json({status:'kept'});
+    if(!namingModelId)return c.json({status:'unavailable'});
+    if(naming.has(project.id))return c.json({status:'pending'},202);
+    naming.add(project.id);
+    try{
+      const model=await orgops.nativeModelReference(namingModelId,c.req.raw.headers);
+      if(!model)return c.json({status:'unavailable'});
+      const receipt=db.openingMessage(project,body.messageRequestId)!;
+      const event=await orgops.humanJson<{id:string;channelId:string;source:string;type:string;payload:{text?:unknown}}>(`/api/events/${encodeURIComponent(receipt.eventId)}`,c.req.raw.headers);
+      if(event.id!==receipt.eventId||event.channelId!==project.channelId||event.source!==`human:${human.username}`||event.type!=='message.created'||typeof event.payload.text!=='string')return c.json({status:'unavailable'});
+      const env=await namingEnv?.(model);
+      const proposed=await namer({text:event.payload.text,model,env});
+      const details=parse(NewProjectSchema.pick({name:true,description:true}),proposed);
+      const freshHuman=await orgops.currentHuman(c.req.raw.headers);
+      if(!freshHuman||freshHuman.id!==human.id||freshHuman.mustChangePassword)return c.json({status:'kept'});
+      const channels=await orgops.humanJson<Channel[]>('/api/channels',c.req.raw.headers);owned(project.id,freshHuman,channels);
+      const updated=db.updateProject(project.id,human.id,details,body.expected,'ai');
+      return c.json({status:updated?'named':'kept'});
+    }catch{return c.json({status:'unavailable'});}finally{naming.delete(project.id);}
+  });
+  routes.patch('/api/projects/:projectId',async c=>{
+    const project=owned(c.req.param('projectId'),c.get('human'),c.get('channels'));
+    const body=parse(ProjectSettingsSchema,await c.req.json().catch(()=>null));
+    const updated=db.updateProject(project.id,c.get('human').id,{name:body.name,description:body.description},body.expected);
+    if(!updated)return c.json({error:'Project details changed. Reopen settings to load the latest version.'},409);
+    return c.json(updated);
   });
   routes.post('/api/projects/:projectId/tasks', async c => {
     const project=owned(c.req.param('projectId'),c.get('human'),c.get('channels'));

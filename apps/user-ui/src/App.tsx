@@ -579,7 +579,7 @@ export default function App() {
   const chatVisibleRef = useRef(false);
   chatVisibleRef.current = view === "workspace" || (view === "projects" && projectTab === "chat");
   const onProjectLoaded = useCallback((project: Project) => {
-    setProjectIndex(current => current.some(p => p.id === project.id && p.channelId === project.channelId) ? current : [...current.filter(p => p.id !== project.id), project]);
+    setProjectIndex(current => current.some(p => p.id === project.id && p.channelId === project.channelId && p.name === project.name && p.description === project.description) ? current : [...current.filter(p => p.id !== project.id), project]);
     void apiJson<Channel[]>("/api/channels?includeArchived=1").then(setChannels).catch(() => {});
   }, []);
   const [selectedProject, setSelectedProject] = useState<string | null>(() => new URL(window.location.href).searchParams.get("project"));
@@ -1582,7 +1582,7 @@ export default function App() {
     setConfirmPassword("");
     setChannels([]);
     setProjectIndex([]);
-    try {sessionStorage.removeItem("nest-new-project");} catch {}
+    try {sessionStorage.removeItem("nest-new-project");sessionStorage.removeItem("nest-new-project-chat");} catch {}
     setAgents([]);
     setTeams([]);
     setEvents([]);

@@ -110,6 +110,24 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     ]);
     return {agents,humans};
   }
+  async function projectNamingEnv({token,agentName,agentId,model}:{token?:string;agentName?:string;agentId?:string;model:string}) {
+    const provider=model.split(':')[0];
+    const secret=provider==='anthropic'?'ANTHROPIC_API_KEY':['openrouter','or'].includes(provider)?'OPENROUTER_API_KEY':'OPENAI_API_KEY';
+    const keys=[secret,...(secret==='OPENROUTER_API_KEY'?['OPENROUTER_BASE_URL','OPENROUTER_HTTP_REFERER','OPENROUTER_APP_TITLE']:[])];
+    if(process.env[secret])return Object.fromEntries(keys.map(key=>[key,process.env[key]]));
+    if(!token||!agentName)throw Error('Project naming provider is unavailable');
+    const headers={'x-orgops-runner-token':token};
+    const agentResponse=await request(`/api/agents/${encodeURIComponent(agentName)}`,{headers});
+    if(!agentResponse.ok)throw Error('Project naming provider is unavailable');
+    const agent=await agentResponse.json() as {id:string;allowOwnerHumanSecrets:boolean};
+    if((agentId&&agent.id!==agentId)||agent.allowOwnerHumanSecrets!==false)throw Error('Project naming provider is unavailable');
+    // Resolve the configured system agent without a channel/team context. Return
+    // only provider keys; never pass its other secrets to the model or browser.
+    const response=await request('/api/secrets/env',{headers:{...headers,'x-orgops-agent-name':agentName}});
+    if(!response.ok)throw Error('Project naming provider is unavailable');
+    const resolved=await response.json() as Record<string,string>;
+    return Object.fromEntries(keys.map(key=>[key,resolved[key]]));
+  }
   function agentManagement(serviceToken: string) {
     if (!serviceToken) throw Error('Agent management is not configured');
     const headers = {'x-orgops-runner-token':serviceToken};
@@ -138,7 +156,7 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
       create: (body:Record<string,unknown>) => request('/api/agents',{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(body)}),
     };
   }
-  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, connectionContext, assistantDirectory, agentManagement, baseUrl: base.origin };
+  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, connectionContext, assistantDirectory, agentManagement, projectNamingEnv, baseUrl: base.origin };
 }
 export type OrgOpsClient = ReturnType<typeof createOrgOpsClient>;
 

@@ -218,12 +218,28 @@ stores that marker in metadata. Concurrent retries and retries after restart
 reconcile the owned, accessible channel instead of repeating the channel POST.
 The browser retains a failed creation's UUID and submitted fields in tab-local
 session storage for retry after reload, and clears them on success/logout.
-The creation screen requires only a name, with an optional description and a
-compact people/agent search field. Type a name with or without a leading `@`;
-the field reuses mention fuzzy ranking and shows up to eight suggestions with
-original avatars and identity types. Arrow keys/Enter select, Escape dismisses,
-and selected teammates remain removable chips. Enter never submits the project
-from this field. This is explicit selection, not parsing invitations from prose.
+New project opens an empty chat, with no engine channel or product record created
+until the first Send. Its first message supplies the initial product name (first
+nonempty line, bounded to 120 characters) and description (opening text, bounded
+to 4,000), excluding selected mention spans. These are immediate fallback labels.
+After confirmed message delivery, a separate request generates an AI name and
+project brief using the enabled instance default model (or
+`NEST_PROJECT_NAMING_MODEL_ID`). The brief includes the goal, expected outcome,
+supplied context/constraints and important open questions without inventing facts.
+Chat does not wait for generation. The owner can edit both in Project settings. Plain messages can start a solo project;
+selected people/agents in the draft @ picker join before message delivery. The
+same existing mention ranking/avatars are reused. One selected agent can receive
+the initial targeted request; multiple people can be added/notified.
+
+The browser stores owner-bound draft text, selected identities, project/message
+UUIDs and the submitted metadata snapshot. Creation and first-message delivery
+reuse their existing independent durable intents. If delivery is uncertain, the
+text stays locked for retry; metadata is not recalculated for a submitted draft.
+Opening/cancelling an untouched draft creates no empty records. Files and further
+membership management become available in the created workspace. Logout clears
+both current and legacy creation drafts. A previously submitted legacy name-form
+draft still opens its original recovery form until completed.
+
 `GET /api/projects/members` returns
 existing teammates and public or owner-private agents through the human's engine
 HTTP credentials. It excludes the creator, who is already included. This selects
@@ -300,11 +316,21 @@ returns 409. Engine failure returns 502 with saved records retained. There is no
 background dispatch worker, stored human credential, automatic retry, cancellation
 or automatic failure-classification in this slice.
 
+`PATCH /api/projects/:projectId` edits only the creating human's name/description.
+It requires current active manageable/postable channel access and the last observed
+name/description in `expected`. The product store compares those values and updates
+metadata/audit atomically; a stale editor receives 409. Engine channel IDs/names,
+memberships, files, task/review history and collaboration policy are preserved.
+Creation retries compare their original reserved request, so renaming cannot
+break recovery or cause a retry to overwrite edited metadata. Sidebar, header and
+About use the edited product metadata. Shared members cannot edit project settings.
+
 Product APIs (JSON, no-store, 64 KB request cap):
 
 - `GET/POST /api/projects`: list accessible owner/team projects / create a project.
 - `GET /api/projects/members`: available existing people and public/owner agents.
 - `GET /api/projects/:projectId`: project, tasks, deliverables and review history.
+- `PATCH /api/projects/:projectId`: owner-only metadata edit with expected values.
 - `POST /api/projects/:projectId/tasks`: create an assigned queued task.
 - `POST /api/projects/:projectId/tasks/:taskId/dispatch`: send initial/revision brief.
 - `GET /api/projects/:projectId/tasks/:taskId/responses`: candidate agent messages.
@@ -494,8 +520,8 @@ rendered automatically by Nest.
 ## Project-first entry and onboarding
 
 The dashboard remains the default home. Humans without owned projects see a
-short welcome with one action to create their first project. Only its name is
-required; the description and initial team are optional. Projects owns the work
+short welcome with one action to start their first project in chat. The first
+message creates it; a name/description form is not required. Projects owns the work
 navigation, including legacy conversations in a collapsed Existing conversations section. Chat itself
 remains a project tab. Legacy standalone/shared links still open their existing
 workspace with Projects selected. New project and Cmd/Ctrl+K open the same form.
@@ -795,3 +821,32 @@ without credentials. No email/new account, removal, role change, account connect
 or automatic agent work is introduced. Engine HTTP remains authoritative, with no
 engine DB reads or source changes. This uses request-time checks across HTTP;
 there is no cross-system atomic permission transaction or invitation rollback.
+
+
+## Background AI project naming
+
+`POST /api/projects/:projectId/suggest-details` accepts a confirmed product message
+request ID and the expected fallback metadata. Only the project owner with current
+engine access can invoke it. Nest verifies that the delivered message belongs to
+this owner/project and reads that event over engine HTTP; arbitrary caller prompts
+or other conversations cannot be supplied. It sends only the opening text (bounded
+to 8,000 characters) to the configured LLM with a JSON-only metadata prompt, no
+tools, a 20-second timeout and bounded output. Generated metadata is schema-checked.
+
+Provider credentials stay server-side. The selected provider's API environment key
+is reused when present. Otherwise the OrgOps client resolves the configured system
+agent's provider environment through `/api/secrets/env`, without a channel/team
+context, and returns only the required provider key/options. The source agent must
+have owner-human secret delegation explicitly disabled and match the manager's
+pinned ID when using its default source. It does not resolve a user's personal
+agent/accounts, read the engine database, or return secrets/model diagnostics.
+
+An atomic product audit/metadata check prevents AI from replacing any manually
+saved metadata, including a same-value save, or applying a second successful
+suggestion. Duplicate in-flight requests are coalesced within the API process.
+A missing model/provider, invalid output, access change or timeout preserves the
+usable first-message label and manual settings. The frontend fires naming after
+message confirmation and the project view polls updated metadata; it does not
+navigate again when generation finishes. This is a best-effort background request,
+not a durable worker queue: closing the browser/API restart can interrupt it and
+there is no automatic retry/billing loop. No new database migration is needed.
