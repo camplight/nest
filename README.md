@@ -2,6 +2,9 @@
 
 **A shared workspace for people and AI agents to get work done.**
 
+**Source available · free permitted noncommercial use · paid commercial license
+for new Camplight-owned Nest code.** Read [licensing and historical Apache rights](LICENSING.md).
+
 Nest is a self-hosted control plane for running agent teams across your own
 machines. Bring people, conversations, tools, and agent execution into one place:
 assign work, follow what happens, inspect results, and decide what comes next.
@@ -348,5 +351,11 @@ update the submodule pin. Include relevant checks with a pull request and update
 - [Figma case study](https://www.figma.com/design/Rqfq3v9a8nZfQKbM3Q0NZk/Portfolio---Case-Studies?node-id=766-99) — product design and visual direction.
 - [Screenshot sources](docs/images/README.md) — original Figma nodes and image provenance.
 
-Nest is licensed under [Apache 2.0](LICENSE). Dependencies and the OrgOps
-submodule retain their respective licenses.
+New Camplight-owned Nest changes use the [PolyForm Noncommercial License 1.0.0](LICENSE).
+Use outside its permissions requires a separate paid commercial license from
+[Camplight](https://camplight.net/contact-us/). Nest is source available; the commercial
+restriction means it is not OSI-approved open-source software.
+
+Previously released Apache 2.0 code retains its existing rights. OrgOps and
+third-party components keep their own licenses. See [LICENSING.md](LICENSING.md)
+for the exact transition boundary and component scope.
