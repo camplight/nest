@@ -7,7 +7,8 @@ import type { Project, ProjectDetail, Task } from '@nest/schemas';
 import type { Agent, EventRow, ChannelParticipant } from './types';
 import { apiJson, getApiHeaders } from './api';
 import { AgentAvatar } from './components/AgentAvatar';
-import { ProjectCreateForm } from './ProjectCreateForm';
+import {ProjectStart} from './ProjectStart';
+import {ProjectSettings} from './ProjectSettings';
 import './projects.css';
 
 type Props = {userId:string; participants:ChannelParticipant[]; existingChats: {id:string;name:string;archived:boolean}[]; onChat:(id:string)=>void; projectId: string | null; taskId: string | null; tab: string; agents: Agent[]; onSelect: (project: string | null, task?: string | null, tab?: string) => void; onLoaded: (project: Project) => void; onMenu: () => void; chat: ReactNode; members: ReactNode};
@@ -42,21 +43,21 @@ export function Projects(props: Props) {
     const interval=window.setInterval(load,10000);
     return ()=>{controller.abort();window.clearInterval(interval);};
   },[projectId,refresh,createRequested]);
-  useEffect(() => { if (detail) onLoaded(detail); }, [detail?.id, detail?.channelId, onLoaded]);
+  useEffect(() => { if (detail) onLoaded(detail); }, [detail?.id, detail?.channelId, detail?.name, detail?.description, onLoaded]);
   const selected=detail?.tasks.find(t=>t.id===taskId);
   const filteredProjects=projects.filter(project=>`${project.name} ${project.description}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
-  return <section className={`dashboard projects-page${projectId && tab === 'chat' ? ' project-chat-page' : ''}`} aria-label="Projects">
+  return <section className={`dashboard projects-page${projectId && tab === 'chat' ? ' project-chat-page' : ''}${!projectId && createRequested ? ' project-start-page' : ''}`} aria-label="Projects">
     <WorkspaceTopbar onMenu={onMenu} leading={<button className="dashboard-action" onClick={()=>onSelect(null)}>All projects</button>} search={<label className="dashboard-search"><DesignIcon name="search"/><input aria-label="Search projects" placeholder="Search…" value={query} onChange={event=>{setQuery(event.target.value);if(projectId||creating)onSelect(null);}}/></label>}/>
 
     <div className="dashboard-content">
-      <div className="dashboard-title"><h1>{detail?.name ?? (projectId ? 'Project' : creating ? 'Create a project' : 'Projects')}</h1>{(!projectId || tab === "tasks") && (!creating || !!projectId) && <button ref={createTrigger} className="dashboard-action project-create" onClick={()=>projectId?setCreating(!creating):onSelect(null,null,'new')}>{creating ? 'Cancel' : projectId ? 'New task +' : 'New project +'}</button>}</div>
+      <div className="dashboard-title"><h1>{detail?.name ?? (projectId ? 'Project' : creating ? 'New project' : 'Projects')}</h1>{detail && detail.ownerId===props.userId && <ProjectSettings project={detail} onSaved={updated=>setDetail(current=>current?{...current,...updated}:current)}/>}{(!projectId || tab === "tasks") && (!creating || !!projectId) && <button ref={createTrigger} className="dashboard-action project-create" onClick={()=>projectId?setCreating(!creating):onSelect(null,null,'new')}>{creating ? 'Cancel' : projectId ? 'New task +' : 'New project +'}</button>}</div>
       {error && <div className="notice error" role="alert">{error} <button onClick={()=>setRefresh(n=>n+1)}>Refresh</button></div>}
       {loading && <p role="status">Loading projects…</p>}
       {!projectId && <>
-        {creating && props.userId && <ProjectCreateForm key={props.userId} ownerId={props.userId} onCreated={p=>{onLoaded(p);onSelect(p.id);}} onCancel={()=>{setCreating(false);onSelect(null);requestAnimationFrame(()=>createTrigger.current?.focus());}} />}
+        {creating && props.userId && <ProjectStart key={props.userId} ownerId={props.userId} onCreated={p=>{onLoaded(p);onSelect(p.id);}} onCancel={()=>{setCreating(false);onSelect(null);requestAnimationFrame(()=>createTrigger.current?.focus());}} />}
         {!creating&&<div className="project-grid">{filteredProjects.map(project=><button className="dashboard-card project-summary" key={project.id} onClick={()=>onSelect(project.id)}><h2>{project.name}</h2><p>{project.description || 'Open the conversation and work with your team.'}</p><span>Open project →</span></button>)}</div>}
         {!creating && !loading && !error && projects.length>0 && !filteredProjects.length && <div className="dashboard-card dashboard-empty"><h2>No matching projects</h2><p>Try a different project name or description.</p></div>}
-        {!loading && !error && !projects.length && !creating && <div className="dashboard-card dashboard-empty"><h2>Your next project starts here</h2><p>Name your project and choose who’s joining, then start chatting.</p></div>}
+        {!loading && !error && !projects.length && !creating && <div className="dashboard-card dashboard-empty"><h2>Your next project starts here</h2><p>Start a conversation and bring your team in with @mentions.</p></div>}
         {!creating && props.existingChats.length > 0 && <details className="project-existing-chats"><summary>Existing conversations ({props.existingChats.length})</summary><p>These conversations are not linked to a project you own. Your history and shared access are preserved.</p><div className="dashboard-list">{props.existingChats.map(channel=><button className="dashboard-card project-summary" key={channel.id} onClick={()=>props.onChat(channel.id)}>{channel.name}{channel.archived ? ' · Archived' : ''} →</button>)}</div></details>}
       </>}
       {detail && <>

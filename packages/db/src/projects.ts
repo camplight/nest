@@ -22,6 +22,21 @@ export function createProjectStore(db: Database.Database) {
     })();
     return value;
   }
+  function canNameProject(id:string) {
+    return !db.prepare("SELECT 1 FROM product_audit WHERE type IN ('audit.project.updated','audit.project.naming.applied') AND json_extract(payload_json,'$.projectId')=? LIMIT 1").get(id);
+  }
+  function openingMessage(project:Project,requestId:string) {
+    return db.prepare('SELECT event_id AS eventId FROM product_message_requests WHERE id=? AND sender_id=? AND channel_id=? AND delivered_at IS NOT NULL').get(requestId,project.ownerId,project.channelId) as {eventId:string}|undefined;
+  }
+  function updateProject(id:string,ownerId:string,value:{name:string;description:string},expected:{name:string;description:string},source:'human'|'ai'='human') {
+    return db.transaction(()=>{
+      if(source==='ai'&&!canNameProject(id))return null;
+      const changed=db.prepare('UPDATE product_projects SET name=?,description=? WHERE id=? AND owner_id=? AND name=? AND description=?').run(value.name,value.description,id,ownerId,expected.name,expected.description).changes;
+      if(!changed)return null;
+      audit(source==='ai'?'audit.project.naming.applied':'audit.project.updated',ownerId,{projectId:id});
+      return project(id)!;
+    })();
+  }
   function createTask(value: Task, actor: string) {
     db.transaction(() => {
       db.prepare('INSERT INTO product_tasks VALUES (?,?,?,?)').run(value.id,value.projectId,value.version,JSON.stringify(value));
@@ -52,5 +67,5 @@ export function createProjectStore(db: Database.Database) {
     const reviews = db.prepare('SELECT r.id,r.task_id AS taskId,r.deliverable_id AS deliverableId,r.decision,r.feedback,r.reviewer_id AS reviewerId,r.created_at AS createdAt FROM product_reviews r JOIN product_tasks t ON t.id=r.task_id WHERE t.project_id=? ORDER BY r.created_at').all(value.id) as Review[];
     return {...value,tasks:tasks(value.id),deliverables,reviews};
   }
-  return {project,projects,task,tasks,createProject,createTask,changeTask,detail};
+  return {project,projects,task,tasks,createProject,updateProject,canNameProject,openingMessage,createTask,changeTask,detail};
 }
