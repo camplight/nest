@@ -8,8 +8,8 @@ They contain no live tenant content, provider credentials or production accounts
 - `project-create-simple-desktop.png`, `project-create-simple-mobile.png`: the final
   name-only flow. Create project fits the initial 390 × 844 mobile viewport.
 - `project-create-team-desktop.png`, `project-create-team-mobile.png`: optional
-  description and expanded team selection. The expanded mobile form scrolls.
-- `project-create-selected-mobile.png`: the collapsed picker with selected members;
+  description, selected chips and open fuzzy name/@ suggestions. The longer mobile form scrolls.
+- `project-create-selected-mobile.png`: the closed suggestions with selected members;
   this longer mobile form scrolls to its footer.
 - `project-chat.png`, `project-chat-mobile.png`: Chat/Files/Members navigation and
   project-name composer. The desktop About panel shows live channel participants.

@@ -328,8 +328,8 @@ local logo loading, default size and the real permission boundary are checked.
 ## Simple project creation with a team — implemented for review
 
 Milestone 2 / project-first onboarding: enter a name, optionally describe the work
-and select existing people or agents before creating. The picker is collapsible,
-searchable and uses original agent avatars; names and selections persist through
+and select existing people or agents before creating. The picker is a compact name/`@` search field with fuzzy suggestions, keyboard
+selection and original agent avatars; names and selections persist through
 refresh or uncertain creation. New project links have a consistent creation URL.
 Validation covers name-only creation, roster errors/retry, keyboard selection,
 member privacy, partial subscription recovery, deduplication and desktop/mobile.
@@ -370,3 +370,19 @@ large tenant catalogs. User-chosen pins and project archival can follow observed
 usage; folder hierarchies are not introduced in this slice. Figma workspace
 `849:599` remains the workspace reference; this is an intentional information
 architecture refinement rather than a new exact Figma-frame implementation.
+
+## Project member search and agent invitations — implemented for review
+
+Create projects with one people/agent search field: names and @names use existing
+mention ranking, up to eight suggestions, keyboard selection and removable chips.
+The field never submits the form on Enter. Membership applies on project creation,
+with the existing 50-member bound and interrupted-request recovery.
+
+The trusted wrapped manager can resolve identities and add a person/agent to its
+current team project when its owner explicitly requests it. Reuse the signed
+management helper and unchanged engine subscription HTTP API; deny nonowners,
+legacy private projects, other-owner private agents and arbitrary target channels.
+Existing subscriptions are no-ops, uncertain writes reconcile membership, and
+requests/confirmations enter product audit. Ordinary @mentions remain delivery,
+not membership changes. This does not add email/account provisioning or connected
+account permissions. Current Figma workspace reference remains `849:599`.

@@ -122,10 +122,12 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     const agent = (name:string) => read<ManagedEngineAgent>(`/api/agents/${encodeURIComponent(name)}`);
     return {
       agent,
+      agents: () => read<ManagedEngineAgent[]>('/api/agents'),
+      subscribe: (channelId:string, member:{subscriberType:'HUMAN'|'AGENT';subscriberId:string}) => request(`/api/channels/${encodeURIComponent(channelId)}/subscribe`,{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(member)}),
       async context(input:{agentName:string;channelId:string;triggerEventId:string}) {
         const [manager,channels,event,humans,models,runners] = await Promise.all([
           agent(input.agentName),
-          read<{id:string;archivedAt?:number;participants:{subscriberType:string;subscriberId:string}[]}[]>('/api/channels?includeArchived=1'),
+          read<{id:string;ownerHumanId:string|null;archivedAt?:number;participants:{subscriberType:string;subscriberId:string}[]}[]>('/api/channels?includeArchived=1'),
           read<{id:string;type:string;source:string;channelId?:string;payload:{targetAgentName?:string}}>(`/api/events/${encodeURIComponent(input.triggerEventId)}`),
           read<Human[]>('/api/humans'),
           read<{id:string;provider:string;modelName:string;enabled:boolean}[]>('/api/models'),

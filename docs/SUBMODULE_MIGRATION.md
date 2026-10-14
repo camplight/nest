@@ -333,3 +333,15 @@ Normal project navigation is Chat/Files/Members; historical task URLs and record
 are retained. No engine bump, runner change or credential installation is required.
 Snapshot both databases before deployment; the additive migration changes only
 Nest product storage and does not read or modify engine state.
+
+## Owner-requested project invitations
+
+The management adapter adds minimal roster lookup and channel subscription through
+existing OrgOps HTTP endpoints. No submodule pin/source, database migration or new
+runtime credential is needed beyond PR35's existing product migration008. Deploy
+the updated Nest API, management helper/skill and bridge instructions together.
+Refresh the persistent NestSystem bridge and its embedded saved setup following
+[operator installation](AGENT_MANAGEMENT.md#operator-installation); updating source
+alone does not install either copy. Signed request-bound credentials stay compatible. The management
+skill adds `project-members` and `invite`; invitations require the current project's
+human owner and preserve existing private-project history and account grants.

@@ -219,7 +219,12 @@ reconcile the owned, accessible channel instead of repeating the channel POST.
 The browser retains a failed creation's UUID and submitted fields in tab-local
 session storage for retry after reload, and clears them on success/logout.
 The creation screen requires only a name, with an optional description and a
-collapsible, searchable people/agent picker. `GET /api/projects/members` returns
+compact people/agent search field. Type a name with or without a leading `@`;
+the field reuses mention fuzzy ranking and shows up to eight suggestions with
+original avatars and identity types. Arrow keys/Enter select, Escape dismisses,
+and selected teammates remain removable chips. Enter never submits the project
+from this field. This is explicit selection, not parsing invitations from prose.
+`GET /api/projects/members` returns
 existing teammates and public or owner-private agents through the human's engine
 HTTP credentials. It excludes the creator, who is already included. This selects
 existing accounts; no email, signup invitation or connected-account grant is sent.
@@ -761,3 +766,32 @@ requesting human's private agent, rechecking current management context after th
 lookup. Other owners', public and missing agents share a 404 response. This lets a
 later human "retry" find an agent created by an earlier message without treating
 the new message as the original creation request or applying changed instructions.
+
+
+## Project invitations through a trusted manager
+
+The configured wrapped manager can use
+`GET/POST /api/agent-management/project/members` with its existing signed request capability.
+The GET returns minimal project identity/link, current participants and available
+exact HUMAN/AGENT identities. Agents are filtered to public or requester-owned;
+other-owner private agents are omitted from available identities. Existing project
+participant identities keep their engine membership visibility.
+
+POST accepts one strict `ProjectMemberSchema` identity, without a channel or
+project override. Nest derives the project from the signed triggering channel and
+requires the originating human to own both the team project and that channel.
+Standalone conversations, legacy creator-private projects, other owners and
+revoked context are denied. Agent invitations recheck target visibility and current
+request membership before the engine subscription write. The capability does not
+grant arbitrary engine API access. Creation defaults/model/online-runner checks
+remain on creation; invitations only require current valid request authority.
+
+The helper exposes `project-members` and `invite` commands. Its skill requires an
+explicit request to add/invite named identities; mentioning someone alone does not
+change membership. Existing membership is a no-op; uncertain writes are reconciled
+against engine participants before success is returned. Requested/confirmed writes
+are audited in Nest with requester, manager, project, trigger and typed identity,
+without credentials. No email/new account, removal, role change, account connection
+or automatic agent work is introduced. Engine HTTP remains authoritative, with no
+engine DB reads or source changes. This uses request-time checks across HTTP;
+there is no cross-system atomic permission transaction or invitation rollback.

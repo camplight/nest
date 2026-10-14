@@ -86,25 +86,27 @@ try {
     await page.setViewportSize({width:1440,height:1100});
     await page.getByRole('button',{name:'Add a description',exact:true}).click();
     await page.getByRole('textbox',{name:'Description (optional)',exact:true}).fill('Ship an accessible landing page.');
-    await page.getByRole('button',{name:'Add people or agents',exact:true}).click();
+    const teamSearch=page.getByRole('combobox',{name:'Add people or agents',exact:true});
+    await teamSearch.focus();
     const rosterError=page.getByRole('alert').filter({hasText:'We couldn’t load your team'});
     await rosterError.waitFor();await rosterError.getByRole('button',{name:'Try again',exact:true}).click();
-    const teamSearch=page.getByRole('searchbox',{name:'Search people or agents',exact:true});
-    await teamSearch.fill('SaRaH');await teamSearch.press('Enter');
-    await page.getByRole('checkbox',{name:'Add person sarah@example.com',exact:true}).check();
-    assert.equal(new URL(page.url()).searchParams.get('project'),null);
-    await teamSearch.fill('Moss');await page.getByRole('checkbox',{name:'Add agent Moss',exact:true}).check();
+    await page.getByRole('option').first().waitFor();
+    await teamSearch.fill('@SrH');await teamSearch.press('Enter');
+    await page.getByRole('list',{name:'Selected teammates'}).getByText('sarah@example.com',{exact:true}).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('project'),null,'Enter chooses a teammate instead of submitting');
+    await teamSearch.fill('@Ms');await page.getByRole('option').filter({hasText:'Moss'}).click();
     await page.getByRole('button',{name:'Remove Moss',exact:true}).click();
-    assert(!(await page.getByRole('checkbox',{name:'Add agent Moss',exact:true}).isChecked()));
-    await page.getByRole('checkbox',{name:'Add agent Moss',exact:true}).check();
+    await teamSearch.fill('moss');await teamSearch.press('ArrowDown');await teamSearch.press('Enter');
     await teamSearch.fill('no-such-teammate');await page.getByText('No matches. Try another name.',{exact:true}).waitFor();
-    await teamSearch.fill('');
+    await teamSearch.press('Enter');assert.equal(new URL(page.url()).searchParams.get('project'),null);
+    await teamSearch.fill('@');
+    await page.getByRole('option').filter({hasText:'Builder'}).waitFor();
     await page.waitForFunction(()=>Array.from(document.querySelectorAll<HTMLImageElement>('.project-create-form img')).every(image=>image.complete&&image.naturalWidth>0));
     await page.screenshot({path:join(screenshots,'project-create-team-desktop.png'),fullPage:true});
     await page.setViewportSize({width:390,height:844});
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     await page.screenshot({path:join(screenshots,'project-create-team-mobile.png'),fullPage:true});
-    await page.getByRole('button',{name:'Done',exact:true}).click();
+    await teamSearch.press('Escape');assert.equal(await teamSearch.getAttribute('aria-expanded'),'false');
     await page.screenshot({path:join(screenshots,'project-create-selected-mobile.png'),fullPage:true});
     await page.setViewportSize({width:1440,height:1100});
     await page.getByRole('button',{name:'Create project',exact:true}).click();
@@ -293,7 +295,7 @@ try {
     assert.equal(await shortcuts.getByRole('button',{name:'New project',exact:true}).getAttribute('aria-current'),'page');
     assert.deepEqual(errors,[]);
     console.log('PASS: nested project navigation, keyboard disclosure, bounded shortcuts with active project, full directory search, cross-view access, single current page and mobile drawer.');
-    console.log('PASS: name-only creation, optional description, searchable people/agents, roster retry, selected chips, partial input preservation, exact creation retry and desktop/mobile creation screens.');
+    console.log('PASS: name-only creation, optional description, fuzzy @ people/agent search, Enter/Escape, roster retry, selected chips, partial input preservation, exact creation retry and desktop/mobile creation screens.');
     console.log(`PASS: automatic private chat, invited-user discovery, uploads/files, members, chat-first project tabs, legacy links, standalone chats, task dispatch/revision/approval, persistence, history and mobile. Screenshots: ${screenshots}`);
   } finally {await browser.close();}
 } finally {server.kill('SIGTERM');product.store.close();engine.db.close();rmSync(dir,{recursive:true,force:true});}
