@@ -45,31 +45,14 @@
   display: block;
   flex-shrink: 0;
 }
-.product-shell .start-conversation {
-  margin-top: auto;
-}
-.product-shell .new-conversation-button {
-  background: var(--nest-white);
-  color: var(--instance-primary);
-  justify-content: center;
-  min-height: 47px;
-  border-radius: 6px;
-  font-weight: 600;
-}
-.product-shell .new-conversation-button kbd {
-  display: none;
-}
 .product-shell .account-actions {
   flex-wrap: wrap;
   gap: 12px;
   margin-top: 0;
 }
-.product-shell.dashboard-shell > .sidebar > .start-conversation {
-  flex: 0 0 auto;
-  margin-top: auto;
-}
 .product-shell .instance-sidebar-footer {
-  margin-top: 0;
+  margin-top: auto;
+  flex-shrink: 0;
   padding: 0 8px;
 }
 .product-shell .powered-by-nest {

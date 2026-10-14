@@ -9,17 +9,18 @@ import type {AgentManagementConfig} from './agent-management';
 import {createManagementCapability,verifyManagementCapability,managementEnvironment} from '../../../skills/nest-management/scripts/capability.mjs';
 import {run} from '../../../skills/nest-management/scripts/manage.mjs';
 let dir:string,engine:ReturnType<typeof createEngine>,product:ReturnType<typeof createApp>,client:ReturnType<typeof createOrgOpsClient>,config:AgentManagementConfig;
-let headers:Record<string,string>,token:string,channelId:string,eventId:string,ownerId:string,lose=false,mutate:(()=>Promise<void>)|undefined;
+let headers:Record<string,string>,token:string,channelId:string,eventId:string,ownerId:string,lose=false,loseInvite=false,mutate:(()=>Promise<void>)|undefined;
 const input={name:'EU Tenders',description:'Find relevant EU tender opportunities and rank eligibility.',systemInstructions:'Use official procurement sources. Check eligibility, deadlines and evidence before ranking opportunities. Do not submit bids or contact buyers without approval.'};
 const call=(path:string,body?:unknown,h=headers)=>product.app.request(path,{headers:h,method:body===undefined?'GET':'POST',...(body===undefined?{}:{body:JSON.stringify(body)})});
 const management=(body?:unknown,credential=token)=>call('/api/agent-management/'+(body===undefined?'context':'agents'),body,{'content-type':'application/json',authorization:'Bearer '+credential});
 beforeEach(async()=>{
  dir=mkdtempSync(join(tmpdir(),'nest-management-'));
- lose=false;mutate=undefined;
+ lose=false;loseInvite=false;mutate=undefined;
  engine=createEngine({projectRoot:dir,dataDir:dir,dbPath:join(dir,'engine.sqlite'),adminUser:'owner',adminPass:'password',runnerToken:'runner-secret'});
  client=createOrgOpsClient('http://engine',async(url,init)=>{
   const path=new URL(String(url)).pathname;
   const response=await engine.app.fetch(new Request(url,init));
+  if(path.endsWith('/subscribe')&&init?.method==='POST'&&loseInvite){loseInvite=false;throw Error('Lost subscription response');}
   if(path==='/api/agents'&&init?.method==='POST'&&lose){lose=false;throw Error('Response lost after commit');}
   if(path==='/api/agents/EU%20Tenders'&&init?.method!=='POST'&&mutate){const change=mutate;mutate=undefined;await change();}
   return response;
@@ -48,7 +49,7 @@ it('creates through the authenticated helper with requester ownership and enforc
  expect(JSON.stringify(env)).not.toContain('must-not-reach-codex');
  const transport=async(url:URL,init:RequestInit)=>product.app.fetch(new Request(url,init));
  const context=await run(['context'],env,transport);
- expect(context).toMatchObject({requester:'owner',model:'openrouter:fixture-multimodal',operations:['agents:create','agents:get-owned']});
+ expect(context).toMatchObject({requester:'owner',model:'openrouter:fixture-multimodal',operations:['agents:create','agents:get-owned','projects:members:list','projects:members:add']});
  expect(context).not.toHaveProperty('expiresAt');
  const created=await run(['create'],env,transport,()=>JSON.stringify(input));
  expect(created.agent.settingsUrl).toBe('/?view=agents&agent=EU%20Tenders');
@@ -173,4 +174,59 @@ it('prints only known safe helper conflict reasons and never arbitrary response 
  await expect(run(['get'],env)).rejects.toThrow('Use context');
  await expect(run(['get',input.name],env,async()=>Response.json({error:'private-credential-must-not-be-printed'},{status:403}))).rejects.toThrow(/^Nest management returned 403\. The lookup was denied or unavailable\.$/);
  await expect(run(['create'],env,async()=>Response.json({error:'Agent creation is in progress. Retry the same request.'},{status:409}),()=>JSON.stringify(input))).rejects.toThrow('creation is in progress');
+});
+
+async function teamProject(collaboration='team') {
+ const result=await call('/api/projects',{id:crypto.randomUUID(),name:'Team invitations',channelId,collaboration});
+ expect(result.status).toBe(201);return result.json();
+}
+const projectMembers=(body?:unknown,credential=token)=>call('/api/agent-management/project/members',body,{'content-type':'application/json',authorization:'Bearer '+credential});
+it('invites exact people and agent identities through the helper into the owner’s current project and reconciles lost responses',async()=>{
+ const project=await teamProject();
+ await call('/api/humans/invite',{username:'Naska',tempPassword:'password'});
+ await call('/api/agents',{name:'Naska',visibility:'PUBLIC',modelId:'default-model',workspacePath:join(dir,'naska')});
+ const env={NEST_MANAGEMENT_TOKEN:token};const transport=async(url:URL,init:RequestInit)=>product.app.fetch(new Request(url,init));
+ const roster=await run(['project-members'],env,transport);
+ expect(roster.project).toMatchObject({id:project.id,name:'Team invitations'});
+ expect(roster.availableMembers).toEqual(expect.arrayContaining([{subscriberType:'HUMAN',subscriberId:'Naska'},{subscriberType:'AGENT',subscriberId:'Naska'}]));
+ for(const subscriberType of ['HUMAN','AGENT']){
+  loseInvite=true;
+  const invited=await run(['invite'],env,transport,()=>JSON.stringify({subscriberType,subscriberId:'Naska'}));
+  expect(invited).toMatchObject({project:{id:project.id,url:`/?view=projects&project=${project.id}&tab=chat`},member:{subscriberType,subscriberId:'Naska'},alreadyMember:false});
+  expect((await run(['invite'],env,transport,()=>JSON.stringify({subscriberType,subscriberId:'Naska'}))).alreadyMember).toBe(true);
+ }
+ const members=(await (await projectMembers()).json()).members;
+ expect(members.filter((m:any)=>m.subscriberId==='Naska')).toHaveLength(2);
+ const audit=product.store.db.prepare("SELECT actor_id,payload_json FROM product_audit WHERE type='audit.project.member.invited'").all() as any[];
+ expect(audit).toHaveLength(2);expect(audit.every(row=>row.actor_id===ownerId&&!row.payload_json.includes(token))).toBe(true);
+});
+it('limits invitations to the requesting project and owner, rejecting arbitrary channel IDs, missing people and hidden agents',async()=>{
+ await teamProject();
+ await call('/api/humans/invite',{username:'other',tempPassword:'password'});
+ const other=(await (await call('/api/humans')).json()).find((h:any)=>h.username==='other');
+ await call('/api/agents',{name:'Hidden agent',visibility:'PRIVATE',ownerHumanId:other.id,modelId:'default-model',workspacePath:join(dir,'hidden')});
+ const roster=await (await projectMembers()).json();
+ expect(roster.availableMembers.some((m:any)=>m.subscriberId==='Hidden agent')).toBe(false);
+ for(const member of [{subscriberType:'HUMAN',subscriberId:'missing'},{subscriberType:'AGENT',subscriberId:'Hidden agent'},{subscriberType:'HUMAN',subscriberId:'other',channelId:'somewhere-else'}])expect((await projectMembers(member)).status).toBe(400);
+ expect((await projectMembers({subscriberType:'HUMAN',subscriberId:'other'},token+'x')).status).toBe(401);
+ await call(`/api/channels/${channelId}/subscribe`,{subscriberType:'HUMAN',subscriberId:'other'});
+ engine.db.prepare('UPDATE humans SET must_change_password=0 WHERE id=?').run(other.id);
+ const event=await (await call('/api/events',{type:'message.created',source:'human:other',channelId,payload:{text:'Add someone',targetAgentName:'NestSystem'}},{'content-type':'application/json','x-nest-runner-token':'runner-secret'})).json();
+ const nonOwner=createManagementCapability({agentName:'NestSystem',channelId,triggerEventId:event.id},'runner-secret');
+ expect((await projectMembers(undefined,nonOwner)).status).toBe(403);
+ expect((await projectMembers({subscriberType:'AGENT',subscriberId:'Hidden agent'},nonOwner)).status).toBe(403);
+});
+it('rejects legacy private projects and standalone chats without changing their membership',async()=>{
+ expect((await projectMembers()).status).toBe(403);
+ await teamProject('private');
+ expect((await projectMembers({subscriberType:'HUMAN',subscriberId:'owner'})).status).toBe(403);
+});
+it('rechecks management membership after target lookup before inviting and does not depend on model availability',async()=>{
+ await teamProject();await management(input);
+ config.defaultModelId='missing';
+ expect((await projectMembers()).status).toBe(200);
+ mutate=async()=>{await call(`/api/channels/${channelId}/unsubscribe`,{subscriberType:'AGENT',subscriberId:'NestSystem'});};
+ expect((await projectMembers({subscriberType:'AGENT',subscriberId:input.name})).status).toBe(403);
+ const channel=(await (await call('/api/channels')).json()).find((ch:any)=>ch.id===channelId);
+ expect(channel.participants.some((m:any)=>m.subscriberId===input.name)).toBe(false);
 });

@@ -4,9 +4,9 @@ import { HTTPException } from 'hono/http-exception';
 import { bodyLimit } from 'hono/body-limit';
 import type { ProductDb } from '@nest/db';
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
-import { NewProjectSchema, NewTaskSchema, TaskActionSchema, SubmitDeliverableSchema, ReviewSchema, type Task, type Project, type ProjectDashboard, type DashboardTask } from '@nest/schemas';
+import { NewProjectSchema, NewTaskSchema, TaskActionSchema, SubmitDeliverableSchema, ReviewSchema, type Task, type Project, type ProjectDashboard, type DashboardTask, type ProjectMemberOption } from '@nest/schemas';
 
-type Channel = {id: string; canManage: boolean; canPost: boolean; archivedAt?: number | null; ownerHumanId?: string; metadata?: {nestProjectChat?: string}};
+type Channel = {id: string; canManage: boolean; canPost: boolean; archivedAt?: number | null; ownerHumanId?: string; participants?:{subscriberType:string;subscriberId:string}[]; metadata?: {nestProjectChat?: string}};
 type EngineEvent = {id: string; type: string; source: string; channelId: string; createdAt: number; payload?: {text?: unknown; nestTaskId?: unknown; nestTaskAttempt?: unknown; targetAgentName?: unknown}; idempotencyKey?: string};
 export function registerProjectRoutes(app: Hono, {store, orgops}: {store: ProductDb; orgops: OrgOpsClient}) {
   const routes = new Hono<{Variables: {human: Human; channels: Channel[]}}>();
@@ -27,6 +27,14 @@ export function registerProjectRoutes(app: Hono, {store, orgops}: {store: Produc
     await next();
   });
   function available(channels: Channel[], id: string) { return channels.some(c=>c.id===id && c.canManage && c.canPost && !c.archivedAt); }
+  function canView(project:Project,human:Human,channels:Channel[]) {
+    if(project.ownerId===human.id)return available(channels,project.channelId);
+    return project.collaboration==='team'&&channels.some(channel=>channel.id===project.channelId&&channel.canPost&&!channel.archivedAt&&channel.participants?.some(member=>member.subscriberType==='HUMAN'&&member.subscriberId===human.username));
+  }
+  function visibleProjects(human:Human,channels:Channel[]) {
+    const teamChannels=channels.filter(channel=>channel.canPost&&!channel.archivedAt&&channel.participants?.some(member=>member.subscriberType==='HUMAN'&&member.subscriberId===human.username)).map(channel=>channel.id);
+    return db.projects(human.id,teamChannels).filter(project=>canView(project,human,channels));
+  }
   function owned(id: string, human: Human, channels: Channel[]): Project {
     const value = db.project(id);
     if (!value || value.ownerId !== human.id || !available(channels,value.channelId)) throw new HTTPException(404,{message:'Project unavailable or conversation access has changed'});
@@ -54,9 +62,20 @@ export function registerProjectRoutes(app: Hono, {store, orgops}: {store: Produc
     return event.type==='message.created' && event.source===`agent:${task.agentName}` && event.channelId===project.channelId &&
       task.dispatchedAt !== null && event.createdAt>task.dispatchedAt && typeof event.payload?.text==='string' && event.payload.text.trim().length>0;
   }
-  routes.get('/api/projects', c => c.json(db.projects(c.get('human').id).filter(p=>available(c.get('channels'),p.channelId))));
+  routes.get('/api/projects', c => c.json(visibleProjects(c.get('human'),c.get('channels'))));
+  async function memberOptions(headers:HeadersInit,human:Human):Promise<ProjectMemberOption[]> {
+    const [humans,agents]=await Promise.all([
+      orgops.humanJson<{username:string}[]>('/api/humans',headers),
+      orgops.humanJson<{name:string;description?:string;visibility?:string;ownerHumanId?:string|null}[]>('/api/agents',headers),
+    ]);
+    return [
+      ...humans.filter(person=>person.username!==human.username).map(person=>({subscriberType:'HUMAN' as const,subscriberId:person.username})),
+      ...agents.filter(agent=>agent.visibility==='PUBLIC'||agent.ownerHumanId===human.id).map(agent=>({subscriberType:'AGENT' as const,subscriberId:agent.name,description:agent.description})),
+    ];
+  }
+  routes.get('/api/projects/members',async c=>c.json({members:await memberOptions(c.req.raw.headers,c.get('human'))}));
   routes.get('/api/projects/dashboard', c => {
-    const visible = db.projects(c.get('human').id).filter(p=>available(c.get('channels'),p.channelId));
+    const visible = visibleProjects(c.get('human'),c.get('channels'));
     const summary: ProjectDashboard = {projects:[],tasks:{total:0,finished:0,needsReview:0,changesRequested:0},reviews:[],changes:[]};
     for (const project of visible) {
       const tasks = db.tasks(project.id);
@@ -79,17 +98,30 @@ export function registerProjectRoutes(app: Hono, {store, orgops}: {store: Produc
   routes.post('/api/projects', async c => {
     const body = parse(NewProjectSchema,await c.req.json().catch(()=>null));
     const human=c.get('human');
+    const members=[...new Map(body.members.filter(member=>member.subscriberType!=='HUMAN'||member.subscriberId!==human.username).map(member=>[`${member.subscriberType}:${member.subscriberId}`,member])).values()]
+      .sort((a,b)=>a.subscriberType.localeCompare(b.subscriberType)||a.subscriberId.localeCompare(b.subscriberId));
+    // Keep empty-member reservations byte-compatible with older creation retries.
+    const request=JSON.stringify({name:body.name,description:body.description,channelId:body.channelId ?? null,...(members.length?{members}:{}),...(body.collaboration==='team'?{collaboration:'team'}:{})});
     const existing=db.project(body.id);
     if (existing) {
-      if (existing.ownerId!==human.id || existing.name!==body.name || (body.channelId && existing.channelId!==body.channelId) || existing.description!==body.description) return c.json({error:'Project ID already used'},409);
+      if (existing.ownerId!==human.id || existing.name!==body.name || (body.channelId && existing.channelId!==body.channelId) || existing.description!==body.description || (existing.collaboration??'private')!==body.collaboration) return c.json({error:'Project ID already used'},409);
       owned(body.id,human,c.get('channels'));
+      const reserved=store.db.prepare('SELECT request_json FROM product_project_chats WHERE project_id=?').get(body.id) as {request_json:string}|undefined;
+      if(JSON.stringify(reserved?JSON.parse(reserved.request_json).members??[]:[])!==JSON.stringify(members))return c.json({error:'Project ID already used'},409);
       return c.json(existing);
+    }
+    if(members.length){
+      const options=await memberOptions(c.req.raw.headers,human);
+      if(members.some(member=>!options.some(option=>option.subscriberType===member.subscriberType&&option.subscriberId===member.subscriberId)))
+        return c.json({error:'Someone selected is no longer available. Check your team and try again.',canEdit:!store.db.prepare('SELECT 1 FROM product_project_chats WHERE project_id=?').get(body.id)},400);
+      // Engine detail reads enforce current visibility before any invitation writes.
+      const selectedAgents=await Promise.all(members.filter(member=>member.subscriberType==='AGENT').map(member=>orgops.humanJson<{visibility:string;ownerHumanId:string|null}>(`/api/agents/${encodeURIComponent(member.subscriberId)}`,c.req.raw.headers)));
+      if(selectedAgents.some(agent=>agent.visibility!=='PUBLIC'&&agent.ownerHumanId!==human.id))return c.json({error:'An agent’s access has changed. Check your team and try again.',canEdit:!store.db.prepare('SELECT 1 FROM product_project_chats WHERE project_id=?').get(body.id)},403);
     }
     let channelId=body.channelId;
     if (channelId && !available(c.get('channels'),channelId)) return c.json({error:'Choose an active chat you can manage'},403);
     // A durable reservation survives a lost response/restart. The private engine
     // channel carries a random recovery marker; names are never used as identity.
-    const request=JSON.stringify({name:body.name,description:body.description,channelId:body.channelId ?? null});
     const marker=randomUUID();
     const claimed=store.db.prepare('INSERT OR IGNORE INTO product_project_chats VALUES (?,?,?,?)').run(body.id,human.id,request,marker).changes;
     const reservation=store.db.prepare('SELECT owner_id,request_json,marker FROM product_project_chats WHERE project_id=?').get(body.id) as {owner_id:string;request_json:string;marker:string};
@@ -106,12 +138,27 @@ export function registerProjectRoutes(app: Hono, {store, orgops}: {store: Produc
         if (!channelId) return c.json({error:'Chat creation is still unconfirmed. Refresh and retry; Nest will not create a duplicate chat.'},409);
       }
     }
+    // Idempotent subscriptions let a retry finish partial setup after a lost
+    // response or restart. Never publish a completed project before its team joins.
+    if(members.length){
+      const channels=await orgops.humanJson<Channel[]>('/api/channels',c.req.raw.headers);
+      const channel=channels.find(channel=>channel.id===channelId);
+      if(!channel||!available(channels,channel.id))return c.json({error:'Project conversation access has changed'},403);
+      for(const member of members){
+        if(!channel.participants?.some(current=>current.subscriberType===member.subscriberType&&current.subscriberId===member.subscriberId))
+          await orgops.humanJson(`/api/channels/${encodeURIComponent(channelId!)}/subscribe`,c.req.raw.headers,member);
+      }
+    }
     // Another retry may have finished while this request awaited the engine.
     const completed=db.project(body.id);
     if (completed) return c.json(completed);
-    return c.json(db.createProject({...body,channelId,ownerId:human.id,createdAt:Date.now()}),201);
+    return c.json(db.createProject({id:body.id,name:body.name,description:body.description,channelId,ownerId:human.id,createdAt:Date.now(),collaboration:body.collaboration}),201);
   });
-  routes.get('/api/projects/:projectId', c => c.json(db.detail(owned(c.req.param('projectId'),c.get('human'),c.get('channels')))));
+  routes.get('/api/projects/:projectId', c => {
+    const project=db.project(c.req.param('projectId'));
+    if(!project||!canView(project,c.get('human'),c.get('channels')))throw new HTTPException(404,{message:'Project unavailable or conversation access has changed'});
+    return c.json(db.detail(project));
+  });
   routes.post('/api/projects/:projectId/tasks', async c => {
     const project=owned(c.req.param('projectId'),c.get('human'),c.get('channels'));
     const body=parse(NewTaskSchema,await c.req.json().catch(()=>null));

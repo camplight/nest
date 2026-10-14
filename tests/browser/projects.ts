@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { chromium, type Route } from 'playwright';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -37,21 +37,28 @@ try {
     const headers={cookie,'content-type':'application/json'};
     let channelId:string;
     const created=await product.app.request('/api/agents',{method:'POST',headers,body:JSON.stringify({name:'Builder',visibility:'PRIVATE',modelId:'test-model',workspacePath:join(dir,'workspace')})});assert.equal(created.status,201);
+    assert.equal((await product.app.request('/api/agents',{method:'POST',headers,body:JSON.stringify({name:'Moss',description:'Research and make sense of the details.',visibility:'PUBLIC',modelId:'test-model',workspacePath:join(dir,'moss')})})).status,201);
+    assert.equal((await product.app.request('/api/humans/invite',{method:'POST',headers,body:JSON.stringify({username:'sarah@example.com',tempPassword:'test-password'})})).status,201);
     const direct=await product.app.request('/api/channels/direct/human-agent',{method:'POST',headers,body:JSON.stringify({agentName:'Builder'})});assert([200,201].includes(direct.status));
     await page.context().addCookies([{name:'nest_session',value:cookie.slice('nest_session='.length),url:'http://127.0.0.1:5298',httpOnly:true}]);
     // Relay browser requests into the real product + engine HTTP handlers. No
     // mocked product state, mutations, permissions or event validation.
     let loseCreationResponse=true;
-    await page.route('**/api/**',async route=>{
+    let failMemberRoster=true;
+    const relay=async (route:Route)=>{
       const request=route.request();const url=new URL(request.url());
       const response=await product.app.request(url.pathname+url.search,{method:request.method(),headers:request.headers(),...(request.postDataBuffer()?{body:new Uint8Array(request.postDataBuffer()!)}:{})});
+      if(failMemberRoster&&url.pathname==='/api/projects/members'){
+        failMemberRoster=false;await route.fulfill({status:502,json:{error:'Synthetic team lookup outage'}});return;
+      }
       if (loseCreationResponse && url.pathname==='/api/projects' && request.method()==='POST') {
         loseCreationResponse=false;
         await route.fulfill({status:502,json:{error:'Response lost after project creation'}});
         return;
       }
       await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:Buffer.from(await response.arrayBuffer())});
-    });
+    };
+    await page.route('**/api/**',relay);
     await page.routeWebSocket('**/ws',socket=>socket.close());
     const emit=async(text:string)=>{
       const r=await product.app.request('/api/events',{method:'POST',headers:{'content-type':'application/json','x-nest-runner-token':'test-runner'},body:JSON.stringify({type:'message.created',source:'agent:Builder',channelId,payload:{text}})});assert.equal(r.status,201);
@@ -68,21 +75,76 @@ try {
     await page.getByRole('button',{name:'Create a project →',exact:true}).click();
     await page.setViewportSize({width:1440,height:1100});
     assert.equal(new URL(page.url()).searchParams.get('view'),'projects');
+    await page.getByRole('heading',{name:'Create a project',exact:true}).waitFor();
+    assert(await page.getByRole('button',{name:'Create project',exact:true}).isDisabled());
     await page.getByRole('textbox',{name:'Project name',exact:true}).fill('Website launch');
-    await page.getByRole('textbox',{name:'Project brief (optional)',exact:true}).fill('Ship an accessible landing page.');
+    await page.screenshot({path:join(screenshots,'project-create-simple-desktop.png'),fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    const createBounds=await page.getByRole('button',{name:'Create project',exact:true}).boundingBox();
+    assert(createBounds&&createBounds.y>=0&&createBounds.y+createBounds.height<=844,'Name-only action is visible without scrolling');
+    await page.screenshot({path:join(screenshots,'project-create-simple-mobile.png'),fullPage:true});
+    await page.setViewportSize({width:1440,height:1100});
+    await page.getByRole('button',{name:'Add a description',exact:true}).click();
+    await page.getByRole('textbox',{name:'Description (optional)',exact:true}).fill('Ship an accessible landing page.');
+    const teamSearch=page.getByRole('combobox',{name:'Add people or agents',exact:true});
+    await teamSearch.focus();
+    const rosterError=page.getByRole('alert').filter({hasText:'We couldn’t load your team'});
+    await rosterError.waitFor();await rosterError.getByRole('button',{name:'Try again',exact:true}).click();
+    await page.getByRole('option').first().waitFor();
+    await teamSearch.fill('@SrH');await teamSearch.press('Enter');
+    await page.getByRole('list',{name:'Selected teammates'}).getByText('sarah@example.com',{exact:true}).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('project'),null,'Enter chooses a teammate instead of submitting');
+    await teamSearch.fill('@Ms');await page.getByRole('option').filter({hasText:'Moss'}).click();
+    await page.getByRole('button',{name:'Remove Moss',exact:true}).click();
+    await teamSearch.fill('moss');await teamSearch.press('ArrowDown');await teamSearch.press('Enter');
+    await teamSearch.fill('no-such-teammate');await page.getByText('No matches. Try another name.',{exact:true}).waitFor();
+    await teamSearch.press('Enter');assert.equal(new URL(page.url()).searchParams.get('project'),null);
+    await teamSearch.fill('@');
+    await page.getByRole('option').filter({hasText:'Builder'}).waitFor();
+    await page.waitForFunction(()=>Array.from(document.querySelectorAll<HTMLImageElement>('.project-create-form img')).every(image=>image.complete&&image.naturalWidth>0));
+    await page.screenshot({path:join(screenshots,'project-create-team-desktop.png'),fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await page.screenshot({path:join(screenshots,'project-create-team-mobile.png'),fullPage:true});
+    await teamSearch.press('Escape');assert.equal(await teamSearch.getAttribute('aria-expanded'),'false');
+    await page.screenshot({path:join(screenshots,'project-create-selected-mobile.png'),fullPage:true});
+    await page.setViewportSize({width:1440,height:1100});
     await page.getByRole('button',{name:'Create project',exact:true}).click();
     await page.getByRole('alert').filter({hasText:'Response lost after project creation'}).waitFor();
-    await page.reload();await page.getByRole('heading',{name:'Projects',exact:true}).waitFor();
+    await page.reload();await page.getByRole('heading',{name:'Create a project',exact:true}).waitFor();
     assert.equal(await page.getByRole('textbox',{name:'Project name',exact:true}).inputValue(),'Website launch');
-    await page.getByRole('button',{name:'Create project',exact:true}).click();
+    await page.getByRole('list',{name:'Selected teammates'}).getByText('Moss',{exact:true}).waitFor();
+    await page.getByRole('button',{name:'Retry creation',exact:true}).click();
     assert.equal((product.store.db.prepare('SELECT COUNT(*) AS count FROM product_projects').get() as {count:number}).count,1);
 
     await page.getByRole('heading',{name:'Website launch',exact:true,level:1}).waitFor();
     assert(new URL(page.url()).searchParams.get('project'));
     const projectId=new URL(page.url()).searchParams.get('project')!;
     channelId=product.store.projects.project(projectId)!.channelId;
+    const projectChannel=(await (await product.app.request('/api/channels',{headers})).json()).find((channel:any)=>channel.id===channelId);
+    assert(projectChannel.participants.some((member:any)=>member.subscriberType==='HUMAN'&&member.subscriberId==='sarah@example.com'));
+    assert(projectChannel.participants.some((member:any)=>member.subscriberType==='AGENT'&&member.subscriberId==='Moss'));
+    // A teammate uses their own engine session to discover and open the project.
+    engine.db.prepare('UPDATE humans SET must_change_password=0 WHERE username=?').run('sarah@example.com');
+    const teammateLogin=await product.app.request('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'sarah@example.com',password:'test-password'})});
+    assert.equal(teammateLogin.status,200);
+    const teammateContext=await browser.newContext({viewport:{width:1440,height:1100}});
+    try{
+      await teammateContext.addCookies([{name:'nest_session',value:teammateLogin.headers.get('set-cookie')!.split(';')[0].slice('nest_session='.length),url:'http://127.0.0.1:5298',httpOnly:true}]);
+      const teammatePage=await teammateContext.newPage();teammatePage.setDefaultTimeout(15000);
+      teammatePage.on('pageerror',error=>errors.push(error.message));
+      await teammatePage.route('**/api/**',relay);await teammatePage.routeWebSocket('**/ws',socket=>socket.close());
+      await teammatePage.goto('http://127.0.0.1:5298/?view=projects');
+      await teammatePage.locator('.project-grid').getByText('Website launch',{exact:true}).click();
+      await teammatePage.getByRole('heading',{name:'Website launch',exact:true,level:1}).waitFor();
+      await teammatePage.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+      await teammatePage.getByRole('navigation',{name:'Project sections'}).getByRole('button',{name:'Members',exact:true}).click();
+      await teammatePage.locator('.participant-list').getByText('sarah@example.com',{exact:true}).waitFor();
+      assert.equal(await teammatePage.getByRole('button',{name:'Manage members and sharing'}).count(),0);
+    }finally{await teammateContext.close();}
     const sections=page.getByRole('navigation',{name:'Project sections'});
     assert.equal(new URL(page.url()).searchParams.get('tab'),'chat');
+    assert((await page.getByRole('textbox',{name:'Message',exact:true}).getAttribute('placeholder'))?.startsWith('Message Website launch'));
     await page.getByRole('textbox',{name:'Message',exact:true}).fill('Project kickoff');
     await page.getByRole('button',{name:'Send',exact:true}).click();
     await page.getByText('Project kickoff',{exact:true}).waitFor();
@@ -121,7 +183,9 @@ try {
     await page.getByRole('navigation',{name:'Project sections'}).waitFor();
     assert.equal(new URL(page.url()).searchParams.get('project'),projectId);
     assert.equal(new URL(page.url()).searchParams.get('channel'),null);
-    await sections.getByRole('button',{name:'Tasks',exact:true}).click();
+    assert.equal(await sections.getByRole('button',{name:'Tasks',exact:true}).count(),0);
+    // Historical task links remain functional outside the chat-first navigation.
+    await page.goto(`http://127.0.0.1:5298/?view=projects&project=${projectId}&tab=tasks`);
     await page.getByRole('button',{name:'New task +',exact:true}).click();
     await page.getByRole('textbox',{name:'Task title',exact:true}).fill('Build the landing page');
     await page.getByRole('textbox',{name:'Brief',exact:true}).fill('Implement the launch page with keyboard navigation.');
@@ -149,7 +213,8 @@ try {
     await page.getByRole('button',{name:'Approve deliverable',exact:true}).click();
     await page.getByText('Approved by a human. This task is complete.',{exact:true}).waitFor();
     await page.reload();await page.getByText('Approved by a human. This task is complete.',{exact:true}).waitFor();
-    assert.equal(await nav.getByRole('button',{name:'Projects',exact:true}).getAttribute('aria-current'),'page');
+    assert.equal(await nav.getByRole('button',{name:'Website launch',exact:true}).getAttribute('aria-current'),'page');
+    assert.equal(await nav.getByRole('button',{name:'Projects',exact:true}).getAttribute('aria-current'),null);
     await page.screenshot({path:join(screenshots,'project-approved.png'),fullPage:true});
     await nav.getByRole('button',{name:'Projects',exact:true}).click();
     await page.getByText('Existing conversations (1)',{exact:true}).click();
@@ -165,11 +230,72 @@ try {
     await page.goBack();await page.getByText('Approved by a human. This task is complete.',{exact:true}).waitFor();
     await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'New task +',exact:true}).waitFor({state:'visible'});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     await page.screenshot({path:join(screenshots,'project-mobile.png'),fullPage:true});
-    await page.getByRole('button',{name:'Menu',exact:true}).click();assert.equal(await nav.getByRole('button',{name:'Projects',exact:true}).getAttribute('aria-current'),'page');
+    await page.getByRole('button',{name:'Menu',exact:true}).click();assert.equal(await nav.getByRole('button',{name:'Website launch',exact:true}).getAttribute('aria-current'),'page');
     assert.deepEqual(errors,[]);
     const id=new URL(deepLink).searchParams.get('project')!;
     const detail=product.store.projects.detail(product.store.projects.project(id)!);
     assert.equal(detail.tasks[0].status,'done');assert.equal(detail.deliverables.length,2);assert.equal(detail.reviews.length,2);
-    console.log(`PASS: automatic private chat, uploads/files, members, project tabs, legacy links, standalone chats, task dispatch/revision/approval, persistence, history and mobile. Screenshots: ${screenshots}`);
+    await page.setViewportSize({width:1440,height:1100});
+    await page.getByRole('button',{name:'All projects',exact:true}).click();
+    await page.getByRole('button',{name:'New project +',exact:true}).click();
+    await page.getByRole('textbox',{name:'Project name',exact:true}).fill('Just a name');
+    await page.waitForFunction(()=>JSON.parse(sessionStorage.getItem('nest-new-project')??'null')?.name==='Just a name');
+    await page.reload();await page.getByRole('heading',{name:'Create a project',exact:true}).waitFor();
+    assert.equal(await page.getByRole('textbox',{name:'Project name',exact:true}).inputValue(),'Just a name');
+    await page.getByRole('button',{name:'Cancel',exact:true}).click();
+    await page.waitForFunction(()=>document.activeElement?.textContent==='New project +');
+    await page.getByRole('button',{name:'New project +',exact:true}).click();
+    assert.equal(await page.getByRole('textbox',{name:'Project name',exact:true}).inputValue(),'Just a name');
+    await page.getByRole('button',{name:'Create project',exact:true}).click();
+    await page.getByRole('heading',{name:'Just a name',level:1,exact:true}).waitFor();
+    const solo=product.store.projects.projects((await (await product.app.request('/api/auth/me',{headers})).json()).id).find(project=>project.name==='Just a name')!;
+    assert.equal(solo.description,'');
+    // The sidebar is a bounded shortcut list. The directory owns the full catalog.
+    for(const name of ['Design system','Launch comms','Customer research','Partnerships','Product strategy','Website analytics','Quarterly planning','A long project name for cross-functional collaboration across the whole team']){
+      const response=await product.app.request('/api/projects',{method:'POST',headers,body:JSON.stringify({id:crypto.randomUUID(),name,collaboration:'team'})});assert.equal(response.status,201);
+    }
+    await page.reload();await page.getByRole('heading',{name:'Just a name',level:1,exact:true}).waitFor();
+    const shortcuts=nav.getByRole('list',{name:'Project shortcuts'});
+    await page.waitForFunction(()=>document.querySelectorAll('.project-navigation-link').length===5);
+    assert.equal(await shortcuts.locator('.project-navigation-link').count(),5);
+    assert.equal(await shortcuts.getByRole('button',{name:'Just a name',exact:true}).getAttribute('aria-current'),'page','Active project stays visible outside the newest five');
+    await page.screenshot({path:join(screenshots,'project-navigation-desktop.png'),fullPage:true});
+    const currentUrl=page.url();
+    await nav.getByRole('button',{name:'Collapse projects',exact:true}).click();
+    assert.equal(page.url(),currentUrl,'Disclosure does not navigate');
+    assert.equal(await nav.getByRole('button',{name:'Expand projects',exact:true}).getAttribute('aria-expanded'),'false');
+    assert(!(await shortcuts.isVisible()));
+    await nav.getByRole('button',{name:'Expand projects',exact:true}).focus();await page.keyboard.press('Enter');
+    assert(await shortcuts.isVisible());
+    await shortcuts.getByRole('button',{name:'View all projects',exact:true}).click();
+    await page.getByRole('heading',{name:'Projects',level:1,exact:true}).waitFor();
+    await page.waitForFunction(()=>document.querySelectorAll('.project-grid .project-summary').length===10);
+    await page.getByRole('textbox',{name:'Search projects',exact:true}).fill('Website launch');
+    await page.waitForFunction(()=>document.querySelectorAll('.project-grid .project-summary').length===1);
+    await page.locator('.project-grid').getByRole('button').click();
+    await page.getByRole('heading',{name:'Website launch',level:1,exact:true}).waitFor();
+    assert.equal(await shortcuts.getByRole('button',{name:'Website launch',exact:true}).getAttribute('aria-current'),'page');
+    assert.equal(await nav.locator('[aria-current="page"]').count(),1,'Only the current destination is marked as a page');
+    await nav.getByRole('button',{name:'Dashboard',exact:true}).click();
+    await page.getByRole('heading',{name:'Dashboard',level:1,exact:true}).waitFor();
+    assert(await shortcuts.isVisible(),'Project shortcuts stay available outside Projects');
+    await page.screenshot({path:join(screenshots,'project-navigation-dashboard.png'),fullPage:true});
+    const desktopShortcut=await shortcuts.locator('.project-navigation-link').nth(1).innerText();
+    await shortcuts.locator('.project-navigation-link').nth(1).click();
+    await page.getByRole('heading',{name:desktopShortcut.trim().replace(/^#\s*/,''),level:1,exact:true}).waitFor();
+    await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'Menu',exact:true}).click();
+    assert(await shortcuts.isVisible());assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await page.waitForFunction(()=>document.querySelector('.sidebar-mobile-open')!.getBoundingClientRect().x>=0);
+    await page.screenshot({path:join(screenshots,'project-navigation-mobile.png'),fullPage:true});
+    await shortcuts.getByRole('button',{name:'New project',exact:true}).click();
+    await page.getByRole('heading',{name:'Create a project',level:1,exact:true}).waitFor();
+    assert.equal(await page.locator('.sidebar-mobile-open').count(),0,'Selecting a mobile destination closes the drawer');
+    assert.equal(new URL(page.url()).searchParams.get('create'),'project');
+    await page.setViewportSize({width:1440,height:1100});
+    assert.equal(await shortcuts.getByRole('button',{name:'New project',exact:true}).getAttribute('aria-current'),'page');
+    assert.deepEqual(errors,[]);
+    console.log('PASS: nested project navigation, keyboard disclosure, bounded shortcuts with active project, full directory search, cross-view access, single current page and mobile drawer.');
+    console.log('PASS: name-only creation, optional description, fuzzy @ people/agent search, Enter/Escape, roster retry, selected chips, partial input preservation, exact creation retry and desktop/mobile creation screens.');
+    console.log(`PASS: automatic private chat, invited-user discovery, uploads/files, members, chat-first project tabs, legacy links, standalone chats, task dispatch/revision/approval, persistence, history and mobile. Screenshots: ${screenshots}`);
   } finally {await browser.close();}
 } finally {server.kill('SIGTERM');product.store.close();engine.db.close();rmSync(dir,{recursive:true,force:true});}

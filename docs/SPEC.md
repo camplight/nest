@@ -100,14 +100,15 @@ are ignored by the unified UI; reload/history and skill deep links remain valid.
 No new settings,
 notification or credential API/database is introduced.
 
-The dashboard uses visibility-filtered channels and agents, owner-scoped project
+The dashboard uses visibility-filtered channels and agents, access-scoped project
 task summaries, the private community catalog and session-local unread counts.
 Unread counts follow the
 existing notification behavior: a fresh session establishes a baseline, then
 HTTP polling and WebSocket events track subsequent messages. They are not
 persisted read receipts. Search filters active projects, review/change tasks,
 unread chat labels and the eight most recent community packages. Browse all
-opens full catalog search. Project records remain private to their owner.
+opens full catalog search. Legacy projects remain owner-private; new team projects
+are also visible to their current subscribed human members.
 
 Its visual reference is Figma file `Rqfq3v9a8nZfQKbM3Q0NZk`, Camplight dashboard
 `923:417` and Nest dashboard `793:2`. Shared instance branding supplies the logo
@@ -122,9 +123,10 @@ changes requested are a separate task state, never fabricated incidents.
 
 `GET /api/projects/dashboard` returns `ProjectDashboard`: per-project counts,
 task totals and compact pending-review/change rows (no deliverable text, feedback
-or engine events). It uses the same human session, owner and current engine
-channel manage/post/unarchived checks as project routes. It reads only Nest's
-product task store. Engine failure returns 502, never a successful zero summary.
+or engine events). It uses the same human session and current engine
+channel access checks as project routes (owner manage/post, or explicit human
+membership with post access for team projects; neither can be archived). It reads
+only Nest's product task store. Engine failure returns 502, never a successful zero summary.
 The UI loads the summary and community catalog concurrently on home entry and
 manual Refresh, cancels obsolete requests, and clears failed summary values.
 
@@ -174,18 +176,34 @@ task assignment, performance scores, avatar editing or resource configuration.
 ## Projects, tasks and human review
 
 `?view=projects` lists projects. A project opens at
-`?view=projects&project=<id>&tab=chat` with Chat, Tasks, Files and Members sections.
+`?view=projects&project=<id>&tab=chat` with Chat, Files and Members sections.
+The About sidebar shows the current team from engine channel participants. Tasks
+are removed from normal project navigation; no automatic chat-to-task extraction
+or replacement to-do sidebar is introduced.
 `tab=tasks&task=<id>` restores a task; older task URLs without `tab` still work.
 Tabs, reload and browser history preserve project context. Existing `?channel=`
 links for an owned project open its Chat section; other channels remain accessible under Projects → Existing conversations.
-The sidebar and dashboard avoid listing owned project chats twice. The layout
+The sidebar and dashboard avoid listing accessible project chats twice.
+Projects is a single collapsible parent inside the main navigation, directly above
+Agents and Community. Its indented shortcuts stay available across product views,
+show at most five projects ordered by creation time, and retain the current project
+in place of the fifth shortcut when necessary. Only the current destination has
+`aria-current="page"`; the parent uses a contextual highlight for an open project.
+The separate disclosure toggles without navigating. Clicking Projects opens the
+full searchable directory and expands the group. New project lives inside the
+group; Cmd/Ctrl+K still opens creation. View all projects appears when there are
+more than five accessible projects. Long names truncate with a full-name title,
+unread counts remain attached to their project, and the mobile drawer closes on
+selection. This bounds sidebar rendering, not the underlying project-list API:
+server pagination, pinning, archival and project folders are deferred. The layout
 follows case-study reference `849:599` with shared tokens and original avatars;
 budget, health and time estimates remain deferred.
 
 Chat reuses the existing message history, real-time events, uploads and composer.
 Files lists attachments from engine messages, 100 messages per page, with an
 explicit older-files action. Members reuses channel participant/sharing controls;
-adding members grants engine chat/file access, not access to private project tasks.
+adding members grants engine chat/file access and, for new team projects, access
+to the project itself. Legacy creator-private project history stays private.
 Viewing Tasks, Files or Members does not mark chat messages read. Read state
 remains session-local.
 
@@ -200,14 +218,50 @@ stores that marker in metadata. Concurrent retries and retries after restart
 reconcile the owned, accessible channel instead of repeating the channel POST.
 The browser retains a failed creation's UUID and submitted fields in tab-local
 session storage for retry after reload, and clears them on success/logout.
+The creation screen requires only a name, with an optional description and a
+compact people/agent search field. Type a name with or without a leading `@`;
+the field reuses mention fuzzy ranking and shows up to eight suggestions with
+original avatars and identity types. Arrow keys/Enter select, Escape dismisses,
+and selected teammates remain removable chips. Enter never submits the project
+from this field. This is explicit selection, not parsing invitations from prose.
+`GET /api/projects/members` returns
+existing teammates and public or owner-private agents through the human's engine
+HTTP credentials. It excludes the creator, who is already included. This selects
+existing accounts; no email, signup invitation or connected-account grant is sent.
+
+`POST /api/projects` accepts optional `members` (HUMAN/AGENT subscriptions).
+The server validates the team, deduplicates typed identities, sorts the creation
+intent and stores it in the existing durable reservation. Empty selections preserve
+legacy reservation format when collaboration is private. It adds the selected
+members through engine HTTP before completing the product record. Subscription retries reconcile existing participants
+after partial failure/restart. Completed retries do not re-add subsequently removed
+members; changed team selections cannot reuse a completed creation ID.
+The form saves drafts under the current human's identity, freezes submitted fields
+while the outcome is uncertain and offers an explicit retry of the same creation.
+Unavailable selections can be edited if setup has not yet been reserved. Persistent
+engine errors or revoked identities during pending setup may require operator
+recovery; no cross-system transaction or automatic rollback of invitations is claimed.
+The creation form sends `collaboration: "team"`. Current explicit HUMAN channel
+subscribers with post access can list/open these projects and see their dashboard
+summary and product history. Public visibility, read-only shares and agent
+subscriptions alone do not grant product access. Removing a human subscription
+revokes their project access on the next request. Engine membership stays
+authoritative; Nest stores no membership mirror. No chat history is posted or
+agent work automatically dispatched.
+
 If a channel POST has an uncertain outcome and no matching channel is visible,
 creation returns 409 rather than risking a duplicate. An operator must inspect
 that reservation and engine state if retries cannot reconcile it; Nest does not
 claim exactly-once cross-database transactions. Chat metadata is for recovery,
 not authorization. Conflicting requests for a reserved UUID return 409.
 
-Project records belong to the creating human only; engine messages keep their
-existing visibility. All project routes require a signed-in human with password
+Product migration `008_project_collaboration.sql` adds a private/team policy.
+Existing projects and legacy API requests default to private; new creation forms
+choose team explicitly. Old pending browser drafts keep their original private
+intent for safe retries. There is no automatic sharing of historical projects.
+The creator remains the project owner and invitation manager. Historical task
+mutations and reviews remain owner-only compatibility APIs.
+All project routes require a signed-in human with password
 setup complete and recheck current chat access. Archived/deleted/inaccessible
 chats make the project unavailable without deleting its history. Unarchive or
 restore access to recover it.
@@ -248,7 +302,8 @@ or automatic failure-classification in this slice.
 
 Product APIs (JSON, no-store, 64 KB request cap):
 
-- `GET/POST /api/projects`: list owned accessible projects / create a project.
+- `GET/POST /api/projects`: list accessible owner/team projects / create a project.
+- `GET /api/projects/members`: available existing people and public/owner agents.
 - `GET /api/projects/:projectId`: project, tasks, deliverables and review history.
 - `POST /api/projects/:projectId/tasks`: create an assigned queued task.
 - `POST /api/projects/:projectId/tasks/:taskId/dispatch`: send initial/revision brief.
@@ -257,7 +312,7 @@ Product APIs (JSON, no-store, 64 KB request cap):
 - `POST /api/projects/:projectId/tasks/:taskId/reviews`: approve/request changes.
 
 Schemas and public product types live in `packages/schemas/src/projects.ts`.
-The initial workflow supports the creator as reviewer; shared project roles,
+The historical workflow supports the creator as reviewer; shared task editing,
 notifications, full task execution telemetry and resource budgets are later milestones.
 
 ## API and identity boundary
@@ -300,7 +355,8 @@ transaction. This audit is product-owned and does not wake engine agents.
 `packages/db/migrations`, applied in a transaction at startup. `002_project_chats.sql` adds durable chat-creation reservations; `001_projects.sql`
 adds `product_projects`, `product_tasks`, `product_deliverables`, and
 `product_reviews`. The existing branding tables are preserved. Project columns
-include owner and engine channel IDs. Tasks store a versioned JSON record and
+include owner, engine channel IDs and the collaboration policy added by migration
+`008_project_collaboration.sql`. Tasks store a versioned JSON record and
 project foreign key; deliverables and reviews have immutable typed columns,
 foreign keys and uniqueness per task attempt/deliverable. Public types in
 `packages/schemas/src/projects.ts` and the store in `packages/db/src/projects.ts`
@@ -439,11 +495,12 @@ rendered automatically by Nest.
 
 The dashboard remains the default home. Humans without owned projects see a
 short welcome with one action to create their first project. Only its name is
-required; the brief is optional. Projects owns the work navigation, including
-legacy conversations in a collapsed Existing conversations section. Chat itself
+required; the description and initial team are optional. Projects owns the work
+navigation, including legacy conversations in a collapsed Existing conversations section. Chat itself
 remains a project tab. Legacy standalone/shared links still open their existing
 workspace with Projects selected. New project and Cmd/Ctrl+K open the same form.
-No chat history, permissions or project ownership is changed by this UI update.
+Project ownership and existing chat history are preserved. New team projects
+share product visibility through explicit current channel membership as described above.
 
 The current upstream update adds HUMAN participant support in agent channel tools
 while preserving legacy agentName arguments and engine permission checks. No new
@@ -709,3 +766,32 @@ requesting human's private agent, rechecking current management context after th
 lookup. Other owners', public and missing agents share a 404 response. This lets a
 later human "retry" find an agent created by an earlier message without treating
 the new message as the original creation request or applying changed instructions.
+
+
+## Project invitations through a trusted manager
+
+The configured wrapped manager can use
+`GET/POST /api/agent-management/project/members` with its existing signed request capability.
+The GET returns minimal project identity/link, current participants and available
+exact HUMAN/AGENT identities. Agents are filtered to public or requester-owned;
+other-owner private agents are omitted from available identities. Existing project
+participant identities keep their engine membership visibility.
+
+POST accepts one strict `ProjectMemberSchema` identity, without a channel or
+project override. Nest derives the project from the signed triggering channel and
+requires the originating human to own both the team project and that channel.
+Standalone conversations, legacy creator-private projects, other owners and
+revoked context are denied. Agent invitations recheck target visibility and current
+request membership before the engine subscription write. The capability does not
+grant arbitrary engine API access. Creation defaults/model/online-runner checks
+remain on creation; invitations only require current valid request authority.
+
+The helper exposes `project-members` and `invite` commands. Its skill requires an
+explicit request to add/invite named identities; mentioning someone alone does not
+change membership. Existing membership is a no-op; uncertain writes are reconciled
+against engine participants before success is returned. Requested/confirmed writes
+are audited in Nest with requester, manager, project, trigger and typed identity,
+without credentials. No email/new account, removal, role change, account connection
+or automatic agent work is introduced. Engine HTTP remains authoritative, with no
+engine DB reads or source changes. This uses request-time checks across HTTP;
+there is no cross-system atomic permission transaction or invitation rollback.

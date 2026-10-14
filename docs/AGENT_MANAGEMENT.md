@@ -85,3 +85,38 @@ All require the signed bearer capability; ordinary engine APIs do not accept it.
 Bodies are JSON capped at 32,000 bytes. Failures do not expose provider credentials.
 Run `npx vitest run apps/api/src/agent-management.test.ts scripts/orgops-env.test.ts`
 for real-engine boundary and runtime credential-filtering checks.
+
+
+## Inviting project members
+
+The existing trusted wrapped manager can list current-project members and invite
+one exact identity when the owner asks, for example “@NestSystem add Naska to this
+project.” Its skill calls:
+
+```sh
+node /app/skills/nest-management/scripts/manage.mjs project-members
+node /app/skills/nest-management/scripts/manage.mjs invite < member.json
+```
+
+`member.json` contains only `subscriberType` (`HUMAN` or `AGENT`) and the exact
+`subscriberId` returned by roster lookup. Ambiguous names need clarification.
+The API derives the project from the signed originating conversation; it requires
+that human to own both the team project and conversation. There is no arbitrary
+project/channel argument, user-session token, additional environment variable or
+new credential. Other owners’ private agents, standalone chats and legacy private
+projects are unavailable through this helper.
+
+Existing subscriptions are no-ops. Lost responses reconcile current engine
+participants before claiming success. The response includes a project URL and
+confirmed identity; requested and confirmed mutations are audited without tokens.
+A normal mention alone does not request an invitation. The helper grants no email,
+new account, role change or connected-tool access. Native agents’ existing engine
+membership tools retain their original permissions; this signed delegation path
+is for the configured trusted wrapped manager.
+
+Deploy the updated API, helper, skill and bridge instructions together. Refresh
+both the persistent bridge and its embedded saved setup using operator step 3;
+a source update alone does not install them. Request-bound signing and credentials
+remain compatible. Back up both databases
+as usual; this extension adds no migration beyond the project collaboration policy
+included in the project-creation PR.

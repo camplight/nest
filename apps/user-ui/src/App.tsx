@@ -9,6 +9,7 @@ import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
 import { Community } from "./Community";
 import type { Project } from "@nest/schemas";
 import { Projects } from "./Projects";
+import { ProjectNavigation } from "./components/ProjectNavigation";
 import { Agents } from "./Agents";
 import { AgentAvatar, AgentAvatarChoices } from "./components/AgentAvatar";
 import { Dashboard, DesignIcon } from "./Dashboard";
@@ -812,6 +813,7 @@ export default function App() {
   const hasAttachmentErrors = pendingAttachments.some((item) => item.status === "error");
   const activeChannelManageable = canManageUserChannel(activeChannel, userId);
   const activeChannelCanPost = activeChannel ? activeChannel.canPost !== false : false;
+  const activeConversationName = activeChannel ? projectIndex.find(project => project.channelId === activeChannel.id)?.name ?? channelLabel(activeChannel, username) : "";
   const mentions = useMentionPicker({value:draft, onChange:setDraft, onChoose:chooseMention, onAskAssistant:(name,brief)=>{if(userId){prepareAssistantRequest(userId,name,brief);selectAgent(null,{requests:true,assistant:name});}}, targeted:true, textareaRef:composerTextareaRef, candidates:mentionOptions, channelId:activeChannelId, disabled:!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending});
   const canStartConversation =
     Boolean(conversationName.trim()) || selectedConversationAgents.length === 1;
@@ -2394,8 +2396,8 @@ export default function App() {
                   ? "This channel is shared with you as read-only"
                 : activeChannel
                   ? isConversationEmpty
-                    ? `Message ${channelLabel(activeChannel, username)}`
-                    : `Message ${channelLabel(activeChannel, username)} (Enter to send, Shift+Enter for newline)`
+                    ? `Message ${activeConversationName}`
+                    : `Message ${activeConversationName} (Enter to send, Shift+Enter for newline)`
                   : "Select a channel first"
             }
             disabled={!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending}
@@ -2511,12 +2513,10 @@ export default function App() {
         <InstanceBrand />
         <nav className="product-nav" aria-label="Main navigation">
           <button aria-current={view === "dashboard" ? "page" : undefined} onClick={() => selectChannel(null)}><DesignIcon name="dashboard" />Dashboard</button>
-          <button aria-current={(view === "projects" || view === "workspace") ? "page" : undefined} onClick={() => selectProject(null)}><DesignIcon name="conversations" />Projects</button>
+          <ProjectNavigation projects={projectIndex} currentProjectId={view === "projects" ? selectedProject : null} inProjects={view === "projects" || view === "workspace"} creating={view === "projects" && !selectedProject && projectTab === "new"} unreadCounts={unreadCounts} onBrowse={() => selectProject(null)} onSelect={id => selectProject(id)} onCreate={() => selectProject(null, null, "new")} />
           <button aria-current={view === "agents" ? "page" : undefined} onClick={() => selectAgent(null)}><DesignIcon name="agents" />Agents</button>
           <button aria-current={view === "community" ? "page" : undefined} onClick={()=>selectCommunity(null)}><DesignIcon name="community" />Community</button>
         </nav>
-
-        {view === "projects" && <section className="sidebar-section project-sidebar-list" aria-label="Your projects">{projectIndex.map(project => <button key={project.id} aria-current={selectedProject === project.id ? "page" : undefined} onClick={() => selectProject(project.id)}># {project.name}{unreadCounts[project.channelId] ? ` (${unreadCounts[project.channelId]})` : ""}</button>)}</section>}
 
         {view === "workspace" && <section className="sidebar-section">
           <div className="channel-list">
@@ -2596,10 +2596,6 @@ export default function App() {
           </div>
         </section>}
 
-        <section className="sidebar-section start-conversation">
-          <button className="new-conversation-button" onClick={() => selectProject(null, null, "new")}><span>+ New project</span><kbd>Cmd+K</kbd></button>
-        </section>
-
         <div className="instance-sidebar-footer dashboard-attribution"><span>Powered by</span><DesignIcon name="nest-mark" /><img src={`${import.meta.env.BASE_URL}design/nest-wordmark.svg`} alt="Nest" /></div>
       </aside>
       {mobileSidebarOpen ? (
@@ -2611,7 +2607,7 @@ export default function App() {
         />
       ) : null}
 
-      {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} members={<><button className="dashboard-action" disabled={!activeChannelManageable} onClick={() => setShowChannelManageDialog(true)}>Manage members and sharing</button>{chatMembers}</>} /> : view === "agents" ? <Agents requestLocation={requestLocation} onRequests={(id,assistant)=>selectAgent(null,{requests:true,request:id,assistant})} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={selectChannel} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
+      {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} members={<>{activeChannelManageable && <button className="dashboard-action" onClick={() => setShowChannelManageDialog(true)}>Manage members and sharing</button>}{chatMembers}</>} /> : view === "agents" ? <Agents requestLocation={requestLocation} onRequests={(id,assistant)=>selectAgent(null,{requests:true,request:id,assistant})} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={selectChannel} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
         channels={visibleChannels} projects={projectIndex} onProject={selectProject} unreadCounts={unreadCounts} onCommunity={selectCommunity}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}
         onSelect={selectChannel} onCreate={() => selectProject(null, null, "new")}

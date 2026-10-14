@@ -2,9 +2,12 @@ import type Database from 'better-sqlite3';
 import type { Project, Task, Deliverable, Review } from '../../schemas/src/projects';
 
 export function createProjectStore(db: Database.Database) {
-  const projectColumns = 'id, owner_id AS ownerId, channel_id AS channelId, name, description, created_at AS createdAt';
+  const projectColumns = 'id, owner_id AS ownerId, channel_id AS channelId, name, description, created_at AS createdAt, collaboration';
   function project(id: string) { return db.prepare(`SELECT ${projectColumns} FROM product_projects WHERE id=?`).get(id) as Project | undefined; }
-  function projects(ownerId: string) { return db.prepare(`SELECT ${projectColumns} FROM product_projects WHERE owner_id=? ORDER BY created_at DESC`).all(ownerId) as Project[]; }
+  function projects(ownerId: string, teamChannels:string[]=[]) {
+    const shared=teamChannels.length?` OR (collaboration='team' AND channel_id IN (${teamChannels.map(()=>'?').join(',')}))`:'';
+    return db.prepare(`SELECT ${projectColumns} FROM product_projects WHERE owner_id=?${shared} ORDER BY created_at DESC`).all(ownerId,...teamChannels) as Project[];
+  }
   function task(id: string) {
     const row = db.prepare('SELECT data_json FROM product_tasks WHERE id=?').get(id) as {data_json: string} | undefined;
     return row ? JSON.parse(row.data_json) as Task : undefined;
@@ -14,7 +17,7 @@ export function createProjectStore(db: Database.Database) {
   }
   function createProject(value: Project) {
     db.transaction(() => {
-      db.prepare('INSERT INTO product_projects VALUES (?,?,?,?,?,?)').run(value.id,value.ownerId,value.channelId,value.name,value.description,value.createdAt);
+      db.prepare('INSERT INTO product_projects(id,owner_id,channel_id,name,description,created_at,collaboration) VALUES (?,?,?,?,?,?,?)').run(value.id,value.ownerId,value.channelId,value.name,value.description,value.createdAt,value.collaboration??'private');
       audit('audit.project.created',value.ownerId,{projectId:value.id});
     })();
     return value;

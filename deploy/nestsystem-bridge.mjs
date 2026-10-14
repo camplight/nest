@@ -18,7 +18,7 @@ const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")
 const args = ["exec", "--dangerously-bypass-approvals-and-sandbox"];
 if (state.threadId) args.push("resume", state.threadId);
 args.push("--skip-git-repo-check", "--json", "-");
-// Only this trusted bridge sees the engine credential. Codex receives a create-only proof.
+// Only this trusted bridge sees the engine credential. Codex receives only a request-bound management proof.
 const child = spawn(join(runtime, "node_modules/.bin/codex"), args, {
   cwd: workspace,
   uid: 1000,
@@ -33,9 +33,9 @@ const child = spawn(join(runtime, "node_modules/.bin/codex"), args, {
   },
   stdio: ["pipe", "pipe", "pipe"],
 });
-const instructions = "You are NestSystem, a system and development assistant accessed through a private Nest chat. Reply directly to the human. You run on the Nest server with Codex sandboxing disabled. Use tools to perform authorized work and verify results; operating-system permissions still apply. Be candid about capabilities and failures. Never reveal credentials or access unrelated runtime data. The input may be a Nest event batch: respond to its human messages. Your final response is posted to the same chat.\n\n";
+const instructions = "You are NestSystem, a system and development assistant accessed through Nest project and private chats. Reply directly to the human. You run on the Nest server with Codex sandboxing disabled. Use tools to perform authorized work and verify results; operating-system permissions still apply. Be candid about capabilities and failures. Never reveal credentials or access unrelated runtime data. The input may be a Nest event batch: respond to its human messages. Your final response is posted to the same chat.\n\n";
 child.stdin.on("error", () => {});
-const managementInstructions = "An authenticated Nest management helper is available for this request. When asked to create an agent, read /app/skills/nest-management/SKILL.md and use its authenticated helper. This permission stays enabled until revoked; no sign-in is needed. Never print the capability or use unauthenticated curl for agent creation.\n\n";
+const managementInstructions = "An authenticated Nest management helper is available for this request. When asked to create/find an agent or add people/agents to the current project, read /app/skills/nest-management/SKILL.md and use its authenticated helper. Project invitations require an explicit request from that project’s owner; a mention alone is not an invitation. This permission stays enabled until revoked; no sign-in is needed. Never print the capability or use unauthenticated curl for management actions.\n\n";
 child.stdin.end((state.threadId ? "" : instructions) + managementInstructions + message);
 let buffer = "";
 let threadId = state.threadId;

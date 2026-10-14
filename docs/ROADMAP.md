@@ -13,7 +13,7 @@ File: [Nest case study](https://www.figma.com/design/Rqfq3v9a8nZfQKbM3Q0NZk/Port
 | Dashboard | `793:2`, Camplight `923:417` | `Dashboard.tsx`; currently counts agents, conversations and session-local unread messages, not spend/tasks/issues. |
 | Agents directory | `866:119` | `Agents.tsx`; list, search, real runtime counts and Manage. Personal agents are created here and labeled in Your team. Scores, task totals and assignment remain deferred. |
 | Agent details | `849:574` | `Agents.tsx`; description, native model and instructions can be saved; personal connected apps and private chat are available here. Identity and workspace remain read-only; wrapped runtime configuration remains external/admin. |
-| Project workspace | `849:599` | `Projects.tsx`: one workspace with Chat/Tasks/Files/Members, automatic private chat creation, tasks and human review. Budgets remain pending. |
+| Project workspace | `849:599` | `Projects.tsx`: one workspace with Chat/Files/Members and automatic private chat creation. Historical task/review URLs remain available; normal task navigation is retired. Budgets remain pending. |
 | Onboarding | `860:680` | New users enter Agents → Your team and can create their personal agent within this view. Project creation remains in Projects. |
 
 Directory and detail references are flattened images in the case study. Use the
@@ -46,7 +46,7 @@ This slice repaired navigation before the project workflow. Later milestones bel
 ### 1. One project completed through human review — implemented
 
 Projects now create a private chat automatically. Existing linked conversations
-remain compatible. Project/task/review records are private to the creator; chat
+remain compatible. Legacy project/task/review records are private to the creator; chat
 messages retain engine visibility. No engine data or identity is copied.
 
 Implemented acceptance:
@@ -63,7 +63,8 @@ Implemented acceptance:
 - A lost dispatch response can be retried after process restart without a
   duplicate brief. Queued/changes-requested records remain retryable on failure.
 
-Boundaries: this is owner-only project management, not shared project roles.
+Original boundaries: owner-only project management. The creation refinement below
+adds explicit team-project visibility without migrating old private history.
 Response selection deliberately remains human-controlled: messages from the
 assigned agent in the linked conversation after dispatch may include unrelated
 work, so the reviewer must verify relevance. The picker shows the latest 100.
@@ -88,12 +89,14 @@ A successful agent turn alone must not imply human acceptance.
 
 ### 2. Project workspace and review inbox — workspace implemented
 
-- One visible project workspace with URL-backed Chat/Tasks/Files/Members.
+- One visible project workspace; originally Chat/Tasks/Files/Members. The current
+  creation refinement uses Chat/Files/Members and retains task URLs for history.
 - Automatic private chat creation; durable recovery after lost responses.
 - Existing chat controls, upload browsing, member/sharing controls and task reviews.
 - Projects is the sole work entry in navigation. Existing standalone/direct chats remain accessible in a collapsed Existing conversations section under Projects.
 - Legacy chat links resolve to the owned project. History and mobile are tested.
-- Shared project roles are still deferred: invited chat members do not gain tasks.
+- Existing creator-private projects remain private. New team projects resolve
+  visibility through live human channel membership; task editing remains owner-only.
 
 Pending deliverables now appear as actionable review cards in Up next.
 Next: persistent notification/read state across sessions. Release verification is recorded in the milestone PR; local
@@ -110,7 +113,7 @@ working on a task. Use existing engine APIs and their permission model.
 Implemented the Figma home structure (923:417): Spend/Tasks/Issues cards,
 SmoothUI Active projects and Up next stacks, Urgent issues area and original-art
 private community strip. Empty instances keep the same shell. Task metrics and
-approved-task progress come from owner/access-scoped product summaries. Pending
+approved-task progress come from current project/access-scoped product summaries. Pending
 reviews deep-link to the actual task; changes requested stay distinct from
 operational incidents. Desktop/mobile/dark and synthetic before/after captures
 are covered by `tests/browser/dashboard.ts`. Remaining design deviations are
@@ -321,3 +324,65 @@ require Save access, with discard/clear and failed-save recovery. Pagination,
 search and bulk selection preserve choices. Page failures and selections exceeding
 the 2,000-action request bound never apply partial selections or grants. Desktop/mobile/dark,
 local logo loading, default size and the real permission boundary are checked.
+
+## Simple project creation with a team — implemented for review
+
+Milestone 2 / project-first onboarding: enter a name, optionally describe the work
+and select existing people or agents before creating. The picker is a compact name/`@` search field with fuzzy suggestions, keyboard
+selection and original agent avatars; names and selections persist through
+refresh or uncertain creation. New project links have a consistent creation URL.
+Validation covers name-only creation, roster errors/retry, keyboard selection,
+member privacy, partial subscription recovery, deduplication and desktop/mobile.
+The Figma workspace reference is `849:599`; it is a flattened image and contains
+no editable creation dialog. This screen is an intentional extension of the
+existing tokens and components, rather than a claimed pixel match to a new frame.
+
+Projects now use Chat, Files and Members, with the real team in the right About
+sidebar. The separate Tasks tab is removed from normal navigation. Historical task
+records and deep links remain supported; a chat-side to-do aggregate is deferred.
+
+New forms create team projects. Current human channel subscribers with post access
+can list/open these projects; removal revokes product visibility. Product migration
+008 keeps historical projects private, and legacy API requests default to private.
+Task mutations/reviews remain owner-only compatibility APIs. Selecting teammates
+does not send email or provision accounts.
+The request limit is 50 selected members. Persistent engine/identity failures during
+reserved setup need operator recovery; prior grants are not rolled back automatically.
+No production deployment is claimed by the PR's isolated browser checks.
+
+## Project navigation hierarchy — implemented for review
+
+The information architecture is collection → project → Chat/Files/Members.
+Projects is one persistent, collapsible parent within the main navigation. Its
+children are visually indented beneath it, before Agents/Community; selecting a
+project does not reveal an unrelated list elsewhere. New project is scoped to
+this group rather than the sidebar footer.
+
+The sidebar shows at most five creation-ordered shortcuts, keeping the open project
+visible. View all projects opens the existing searchable directory. This keeps
+navigation manageable as the list grows without adding another project hierarchy
+or multiple chats per project. Keyboard disclosure, single current-page state,
+mobile selection and ten-project fixtures are covered in the browser suite.
+
+This bounds displayed navigation only: the current API still returns all accessible
+projects. Server pagination and directory sorting/filtering should precede very
+large tenant catalogs. User-chosen pins and project archival can follow observed
+usage; folder hierarchies are not introduced in this slice. Figma workspace
+`849:599` remains the workspace reference; this is an intentional information
+architecture refinement rather than a new exact Figma-frame implementation.
+
+## Project member search and agent invitations — implemented for review
+
+Create projects with one people/agent search field: names and @names use existing
+mention ranking, up to eight suggestions, keyboard selection and removable chips.
+The field never submits the form on Enter. Membership applies on project creation,
+with the existing 50-member bound and interrupted-request recovery.
+
+The trusted wrapped manager can resolve identities and add a person/agent to its
+current team project when its owner explicitly requests it. Reuse the signed
+management helper and unchanged engine subscription HTTP API; deny nonowners,
+legacy private projects, other-owner private agents and arbitrary target channels.
+Existing subscriptions are no-ops, uncertain writes reconcile membership, and
+requests/confirmations enter product audit. Ordinary @mentions remain delivery,
+not membership changes. This does not add email/account provisioning or connected
+account permissions. Current Figma workspace reference remains `849:599`.

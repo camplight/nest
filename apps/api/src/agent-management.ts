@@ -3,7 +3,7 @@ import {resolve} from 'node:path';
 import {Hono} from 'hono';
 import {HTTPException} from 'hono/http-exception';
 import {bodyLimit} from 'hono/body-limit';
-import {ManagedAgentInput} from '@nest/schemas';
+import {ManagedAgentInput,ProjectMemberSchema} from '@nest/schemas';
 import type {ProductDb} from '@nest/db';
 import type {OrgOpsClient, ManagedEngineAgent} from '@nest/orgops-client';
 import {verifyManagementCapability} from '../../../skills/nest-management/scripts/capability.mjs';
@@ -14,10 +14,10 @@ export function registerAgentManagementRoutes(app:Hono,{orgops,store,config}:{or
   const routes=new Hono();
   const creating=new Set<string>();
   const fail=(status:400|401|403|404|409|503,message:string):never=>{throw new HTTPException(status,{message});};
-  routes.onError((error,c)=>error instanceof HTTPException ? c.json({error:error.message},error.status) : c.json({error:'Agent creation could not be confirmed. Retry the same name and instructions to recover; do not choose a new name.'},502));
+  routes.onError((error,c)=>error instanceof HTTPException ? c.json({error:error.message},error.status) : c.json({error:c.req.path.includes('/project/members')?'Project membership could not be confirmed. Check members and retry the same invitation.':'Agent creation could not be confirmed. Retry the same name and instructions to recover; do not choose a new name.'},502));
   routes.use('*',bodyLimit({maxSize:32000,onError:c=>c.json({error:'Request too large'},413)}));
   routes.use('*',async(c,next)=>{c.header('Cache-Control','no-store');await next();});
-  async function context(authorization:string|undefined) {
+  async function requestContext(authorization:string|undefined) {
     const settings=config??fail(503,'Agent management is not configured');
     const token=authorization?.startsWith('Bearer ')?authorization.slice(7):'';
     const claims=verifyManagementCapability(token,settings.engineToken,settings.agentName)??fail(401,'Agent management capability is missing or revoked');
@@ -32,14 +32,58 @@ export function registerAgentManagementRoutes(app:Hono,{orgops,store,config}:{or
       !channel.participants.some(p=>p.subscriberType==='AGENT'&&p.subscriberId===manager.name) ||
       !channel.participants.some(p=>p.subscriberType==='HUMAN'&&p.subscriberId===owner.username))
       fail(403,'Agent management requires the current human request in this manager’s conversation');
-    const model=current.models.find(m=>m.id===settings.defaultModelId||m.reference===settings.defaultModelId)??fail(503,'No enabled default model is configured');
-    const runner=current.runners?.find(r=>r.id===manager!.assignedRunnerId&&r.online)??fail(503,'The manager’s runner is unavailable');
-    return {claims,engine,owner:owner!,model,runner,settings};
+    return {claims,engine,owner:owner!,settings,manager:manager!,channel:channel!,humans:current.humans??[],models:current.models,runners:current.runners};
   }
+  async function context(authorization:string|undefined) {
+    const ctx=await requestContext(authorization);
+    const model=ctx.models.find(m=>m.id===ctx.settings.defaultModelId||m.reference===ctx.settings.defaultModelId)??fail(503,'No enabled default model is configured');
+    // Execution context is required for creation, not for project membership.
+    const assignedRunner=ctx.runners?.find(r=>r.id===ctx.manager.assignedRunnerId&&r.online)??fail(503,'The manager’s runner is unavailable');
+    return {...ctx,model,runner:assignedRunner};
+  }
+  function projectFor(ctx:Awaited<ReturnType<typeof requestContext>>) {
+    const project=store.projects.projects(ctx.owner.id).find(project=>project.channelId===ctx.channel.id&&project.collaboration==='team');
+    if(!project||ctx.channel.ownerHumanId!==ctx.owner.id)fail(403,'Project invitations require the requesting owner in a team project');
+    return project!;
+  }
+  const projectInfo=(project:ReturnType<typeof projectFor>)=>({id:project.id,name:project.name,url:`/?view=projects&project=${encodeURIComponent(project.id)}&tab=chat`});
+  routes.get('/project/members',async c=>{
+    const ctx=await requestContext(c.req.header('authorization'));
+    const project=projectFor(ctx);
+    const agents=await ctx.engine.agents();
+    const availableMembers=[...ctx.humans.map(h=>({subscriberType:'HUMAN' as const,subscriberId:h.username})),...(agents??[]).filter(a=>a.visibility==='PUBLIC'||a.ownerHumanId===ctx.owner.id).map(a=>({subscriberType:'AGENT' as const,subscriberId:a.name}))];
+    const fresh=await requestContext(c.req.header('authorization'));projectFor(fresh);
+    return c.json({project:projectInfo(project),members:fresh.channel.participants,availableMembers});
+  });
+  routes.post('/project/members',async c=>{
+    if(!c.req.header('content-type')?.startsWith('application/json'))return c.json({error:'Use application/json'},415);
+    const parsed=ProjectMemberSchema.safeParse(await c.req.json().catch(()=>null));
+    if(!parsed.success)fail(400,'Provide one exact HUMAN or AGENT identity from project-members');
+    const member=parsed.data!;
+    const ctx=await requestContext(c.req.header('authorization'));const project=projectFor(ctx);
+    const agent=member.subscriberType==='AGENT'?await ctx.engine.agent(member.subscriberId):null;
+    if(member.subscriberType==='HUMAN'?!ctx.humans.some(h=>h.username===member.subscriberId):!agent||(agent.visibility!=='PUBLIC'&&agent.ownerHumanId!==ctx.owner.id))fail(400,'Choose an existing person or an available agent');
+    const fresh=await requestContext(c.req.header('authorization'));const currentProject=projectFor(fresh);
+    if(currentProject.id!==project.id||fresh.owner.id!==ctx.owner.id)fail(403,'Project invitations require the requesting owner in a team project');
+    if(member.subscriberType==='HUMAN'&&!fresh.humans.some(h=>h.username===member.subscriberId))fail(400,'Choose an existing person or an available agent');
+    if(member.subscriberType==='AGENT'){
+      const currentAgent=await fresh.engine.agent(member.subscriberId);
+      if(!currentAgent||(currentAgent.visibility!=='PUBLIC'&&currentAgent.ownerHumanId!==fresh.owner.id))fail(400,'Choose an existing person or an available agent');
+    }
+    const alreadyMember=fresh.channel.participants.some(p=>p.subscriberType===member.subscriberType&&p.subscriberId===member.subscriberId);
+    if(!alreadyMember){
+      store.db.prepare('INSERT INTO product_audit(type,actor_id,payload_json,created_at) VALUES(?,?,?,?)').run('audit.project.member.invitation.requested',ctx.owner.id,JSON.stringify({projectId:project.id,managerId:ctx.settings.agentId,triggerEventId:ctx.claims.triggerEventId,...member}),Date.now());
+      try{await fresh.engine.subscribe(fresh.channel.id,member);}catch{/* Reconcile a subscription that may already have committed. */}
+      const confirmed=await requestContext(c.req.header('authorization'));projectFor(confirmed);
+      if(!confirmed.channel.participants.some(p=>p.subscriberType===member.subscriberType&&p.subscriberId===member.subscriberId))return c.json({error:'Project membership could not be confirmed. Check members and retry the same invitation.'},502);
+      store.db.prepare('INSERT INTO product_audit(type,actor_id,payload_json,created_at) VALUES(?,?,?,?)').run('audit.project.member.invited',ctx.owner.id,JSON.stringify({projectId:project.id,managerId:ctx.settings.agentId,triggerEventId:ctx.claims.triggerEventId,...member}),Date.now());
+    }
+    return c.json({project:projectInfo(project),member,alreadyMember});
+  });
   const publicAgent=(a:ManagedEngineAgent)=>({id:a.id,name:a.name,modelId:a.modelId,visibility:a.visibility,settingsUrl:`/?view=agents&agent=${encodeURIComponent(a.name)}`});
   routes.get('/context',async c=>{
     const ctx=await context(c.req.header('authorization'));
-    return c.json({requester:ctx.owner.username,model:ctx.model.reference,operations:['agents:create','agents:get-owned']});
+    return c.json({requester:ctx.owner.username,model:ctx.model.reference,operations:['agents:create','agents:get-owned','projects:members:list','projects:members:add']});
   });
   routes.get('/agents/:name',async c=>{
     const ctx=await context(c.req.header('authorization'));

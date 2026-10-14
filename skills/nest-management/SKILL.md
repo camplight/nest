@@ -1,6 +1,6 @@
 ---
 name: nest-management
-description: Create a native Nest agent or find the requesting human's existing private agent by name, using authenticated Nest management. Use for agent creation and retries; deployment and website editing use their existing skills.
+description: Create or find the requesting human's private Nest agents, or invite people and agents to the current project on its owner's request, using authenticated Nest management.
 ---
 
 Use the helper at `/app/skills/nest-management/scripts/manage.mjs`:
@@ -9,6 +9,8 @@ Use the helper at `/app/skills/nest-management/scripts/manage.mjs`:
 node /app/skills/nest-management/scripts/manage.mjs context
 node /app/skills/nest-management/scripts/manage.mjs get "Agent name"
 node /app/skills/nest-management/scripts/manage.mjs create < agent.json
+node /app/skills/nest-management/scripts/manage.mjs project-members
+node /app/skills/nest-management/scripts/manage.mjs invite < member.json
 ```
 
 The JSON object contains only `name`, `description` and `systemInstructions`.
@@ -40,3 +42,21 @@ message has a different creation identity. A conflicting name is never overwritt
 If creation returns 409, look up that name once; if not found or denied, report
 the conflict instead of repeatedly creating. An explicit creation
 request authorizes that agent, not unrelated agents or external actions.
+
+For an explicit request to add someone to the current project, use `project-members`
+to resolve exact identities and check existing membership. `invite` accepts only
+`{"subscriberType":"HUMAN","subscriberId":"name@example.com"}` or
+`{"subscriberType":"AGENT","subscriberId":"Agent name"}`. Use a listed identity;
+if a name matches both a person and an agent, clarify which one the owner wants.
+
+The API requires the originating human to own both the team project and its
+current conversation. It cannot invite into a different project, a standalone chat,
+or a legacy creator-private project. A normal @mention does not authorize changing
+membership: the human must ask to add/invite that identity. Do not invite unrelated
+members while handling another request.
+
+Report success only after the helper confirms membership and returns the project
+link. Existing membership is a successful no-op. After an uncertain response,
+check `project-members` and retry the same identity; do not claim success without
+confirmation. Do not retry a permission denial or obtain another credential.
+Invitations do not create accounts, send email, or grant personal connected tools.
