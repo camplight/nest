@@ -155,6 +155,11 @@ export function registerMessageRoutes(
         400,
         "Choose one agent target per message. You can notify multiple people.",
       );
+    const targetAgentName=input.targetAgentName??agentRecipients[0]?.name;
+    if(input.targetAgentName&&agentRecipients[0]&&input.targetAgentName!==agentRecipients[0].name)
+      fail(400,"The selected agent and message target must match");
+    if(targetAgentName&&!channel!.participants.some(p=>p.subscriberType==='AGENT'&&p.subscriberId===targetAgentName))
+      fail(409,"The selected agent is no longer in this conversation");
     for (const recipient of recipients)
       if (
         !channel!.participants.some(
@@ -168,9 +173,9 @@ export function registerMessageRoutes(
           "A selected recipient is no longer in this conversation. Refresh and choose again.",
         );
     // Engine ownership/visibility remains authoritative even for a subscribed agent.
-    if (agentRecipients[0]) {
+    if (targetAgentName) {
       const r = await orgops.humanRequest(
-        "/api/agents/" + encodeURIComponent(agentRecipients[0].name),
+        "/api/agents/" + encodeURIComponent(targetAgentName),
         headers,
       );
       if (r.status === 403 || r.status === 404) fail(403, "Agent unavailable");
@@ -195,8 +200,8 @@ export function registerMessageRoutes(
       ...(input.attachments.length ? { attachments: input.attachments } : {}),
       nestMessageId: input.id,
       mentions: resolved,
-      ...(agentRecipients[0]
-        ? { targetAgentName: agentRecipients[0].name }
+      ...(targetAgentName
+        ? { targetAgentName }
         : {}),
     };
     const inputHash = hash({ ...input, mentions: sorted });
@@ -239,6 +244,7 @@ export function registerMessageRoutes(
       if (
         !currentChannel?.canPost ||
         currentChannel.archivedAt ||
+        (targetAgentName&&!currentChannel.participants.some(p=>p.subscriberType==='AGENT'&&p.subscriberId===targetAgentName)) ||
         recipients.some(
           (m) =>
             !currentChannel.participants.some(

@@ -5,7 +5,7 @@ import { HTTPException } from 'hono/http-exception';
 import { bodyLimit } from 'hono/body-limit';
 import type { ProductDb } from '@nest/db';
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
-import { NewProjectSchema, ProjectSettingsSchema, ProjectNamingSchema, NewTaskSchema, TaskActionSchema, SubmitDeliverableSchema, ReviewSchema, type Task, type Project, type ProjectDashboard, type DashboardTask, type ProjectMemberOption } from '@nest/schemas';
+import { ProjectMemberSchema, NewProjectSchema, ProjectSettingsSchema, ProjectNamingSchema, NewTaskSchema, TaskActionSchema, SubmitDeliverableSchema, ReviewSchema, type Task, type Project, type ProjectDashboard, type DashboardTask, type ProjectMemberOption } from '@nest/schemas';
 
 type Channel = {id: string; canManage: boolean; canPost: boolean; archivedAt?: number | null; ownerHumanId?: string; participants?:{subscriberType:string;subscriberId:string}[]; metadata?: {nestProjectChat?: string}};
 type EngineEvent = {id: string; type: string; source: string; channelId: string; createdAt: number; payload?: {text?: unknown; nestTaskId?: unknown; nestTaskAttempt?: unknown; targetAgentName?: unknown}; idempotencyKey?: string};
@@ -74,7 +74,19 @@ export function registerProjectRoutes(app: Hono, {store, orgops, namingModelId, 
       ...agents.filter(agent=>agent.visibility==='PUBLIC'||agent.ownerHumanId===human.id).map(agent=>({subscriberType:'AGENT' as const,subscriberId:agent.name,description:agent.description})),
     ];
   }
-  routes.get('/api/projects/members',async c=>c.json({members:await memberOptions(c.req.raw.headers,c.get('human'))}));
+  routes.get('/api/projects/members',async c=>{
+    const human=c.get('human'),headers=c.req.raw.headers;
+    const members=await memberOptions(headers,human);
+    const mapping=store.db.prepare('SELECT name,agent_id FROM product_personal_agents WHERE owner_id=?').get(human.id) as {name:string;agent_id:string|null}|undefined;
+    let personalAgent:ProjectMemberOption|null=null;
+    if(mapping?.agent_id&&members.some(m=>m.subscriberType==='AGENT'&&m.subscriberId===mapping.name)){
+      const response=await orgops.humanRequest(`/api/agents/${encodeURIComponent(mapping.name)}`,headers);
+      if(response.ok){const agent=await response.json() as {id:string;visibility:string;ownerHumanId:string;mode:string};
+        if(agent.id===mapping.agent_id&&agent.ownerHumanId===human.id&&agent.visibility==='PRIVATE'&&(agent.mode==='CLASSIC'||agent.mode==='RLM'))personalAgent=members.find(m=>m.subscriberType==='AGENT'&&m.subscriberId===mapping.name)!;
+      }else if(response.status!==404&&response.status!==403)throw Error('Engine unavailable');
+    }
+    return c.json({members,personalAgent});
+  });
   routes.get('/api/projects/dashboard', c => {
     const visible = visibleProjects(c.get('human'),c.get('channels'));
     const summary: ProjectDashboard = {projects:[],tasks:{total:0,finished:0,needsReview:0,changesRequested:0},reviews:[],changes:[]};
@@ -160,6 +172,27 @@ export function registerProjectRoutes(app: Hono, {store, orgops, namingModelId, 
     const project=db.project(c.req.param('projectId'));
     if(!project||!canView(project,c.get('human'),c.get('channels')))throw new HTTPException(404,{message:'Project unavailable or conversation access has changed'});
     return c.json(db.detail(project));
+  });
+  routes.post('/api/projects/:projectId/members',async c=>{
+    const human=c.get('human'),headers=c.req.raw.headers;
+    const project=owned(c.req.param('projectId'),human,c.get('channels'));
+    const member=parse(ProjectMemberSchema,await c.req.json().catch(()=>null));
+    const options=await memberOptions(headers,human);
+    if(member.subscriberType==='HUMAN'&&member.subscriberId===human.username)return c.json({status:'joined'});
+    if(!options.some(m=>m.subscriberType===member.subscriberType&&m.subscriberId===member.subscriberId))return c.json({error:'This teammate is no longer available'},400);
+    if(member.subscriberType==='AGENT'){
+      const agent=await orgops.humanJson<{visibility:string;ownerHumanId:string|null}>(`/api/agents/${encodeURIComponent(member.subscriberId)}`,headers);
+      if(agent.visibility!=='PUBLIC'&&agent.ownerHumanId!==human.id)return c.json({error:'Agent access changed'},403);
+    }
+    const channels=await orgops.humanJson<Channel[]>('/api/channels',headers);owned(project.id,human,channels);
+    const present=(list:Channel[])=>list.find(ch=>ch.id===project.channelId)?.participants?.some(m=>m.subscriberType===member.subscriberType&&m.subscriberId===member.subscriberId);
+    if(!present(channels)){
+      try{await orgops.humanJson(`/api/channels/${encodeURIComponent(project.channelId)}/subscribe`,headers,member);}catch{/* Reconcile an uncertain subscription before reporting failure. */}
+      const confirmed=await orgops.humanJson<Channel[]>('/api/channels',headers);owned(project.id,human,confirmed);
+      if(!present(confirmed))return c.json({error:'Invitation is unconfirmed. Retry to finish safely.'},502);
+      store.db.prepare('INSERT INTO product_audit(type,actor_id,payload_json,created_at) VALUES(?,?,?,?)').run('audit.project.member.added',human.id,JSON.stringify({projectId:project.id,...member}),Date.now());
+    }
+    return c.json({status:'joined'});
   });
   const naming=new Set<string>();
   routes.post('/api/projects/:projectId/suggest-details',async c=>{

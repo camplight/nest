@@ -344,3 +344,12 @@ it("supports several human notifications and separates a person and agent with t
     ).n,
   ).toBe(2);
 });
+
+it('targets an explicitly chosen subscribed agent without changing the human text',async()=>{
+  const body={...message('Help us plan',[]),targetAgentName:'Puff'};
+  const r=await call('/api/messages','POST',body);expect(r.status).toBe(201);
+  const event=await r.json();expect(event.payload.text).toBe('Help us plan');expect(event.payload.targetAgentName).toBe('Puff');
+  expect((await call('/api/messages','POST',body)).status).toBe(201);
+  expect((await call('/api/messages','POST',{...body,id:randomUUID(),targetAgentName:'Missing'})).status).toBe(409);
+  expect((await call('/api/messages','POST',{...message('@Puff hello',[['Puff','AGENT']]),targetAgentName:'Other'})).status).toBe(400);
+});

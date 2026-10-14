@@ -10,7 +10,7 @@ function Avatar({member,size=32}:{member:ProjectMember;size?:number}) {
   return member.subscriberType==='AGENT'?<AgentAvatar name={member.subscriberId} size={size}/>:<span className="project-person-avatar" aria-hidden="true" style={{width:size,height:size}}>{member.subscriberId.slice(0,2).toUpperCase()}</span>;
 }
 
-export function ProjectMemberPicker({members,onChange,disabled}:{members:ProjectMember[];onChange:(members:ProjectMember[])=>void;disabled:boolean}) {
+export function ProjectMemberPicker({members,onChange,disabled,exclude=[]}:{exclude?:ProjectMember[];members:ProjectMember[];onChange:(members:ProjectMember[])=>void;disabled:boolean}) {
   const id=useId();
   const inputRef=useRef<HTMLInputElement>(null);
   const listRef=useRef<HTMLDivElement>(null);
@@ -26,7 +26,7 @@ export function ProjectMemberPicker({members,onChange,disabled}:{members:Project
       .finally(()=>{if(!controller.signal.aborted)setLoading(false);});
     return ()=>controller.abort();
   },[requested,refresh]);
-  const candidates=options.filter(option=>!members.some(member=>key(member)===key(option))).map(option=>({id:key(option),name:option.subscriberId,kind:option.subscriberType==='AGENT'?'Agent' as const:'Person' as const,inConversation:false}));
+  const candidates=options.filter(option=>![...members,...exclude].some(member=>key(member)===key(option))).map(option=>({id:key(option),name:option.subscriberId,kind:option.subscriberType==='AGENT'?'Agent' as const:'Person' as const,inConversation:false}));
   const ranked=rankMentions(candidates,query.trim().replace(/^@/,''));
   const shown=ranked.slice(0,8);
   const active=Math.min(highlight,Math.max(0,shown.length-1));
