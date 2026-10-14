@@ -10,7 +10,7 @@ function ensureLink(target: string, path: string) {
 
 export function configureOrgOpsEnv(component: 'api' | 'runner' = 'api') {
   // Provider service credentials belong only to the Nest API, not OrgOps or skills.
-  for(const key of Object.keys(process.env))if(key.startsWith('NEST_COMPOSIO_')||key.startsWith('ORGOPS_COMPOSIO_')||key.endsWith('CONNECTION_METADATA_TOKEN'))delete process.env[key];
+  for(const key of Object.keys(process.env))if(key.startsWith('NEST_COMPOSIO_')||key.startsWith('ORGOPS_COMPOSIO_')||key.endsWith('CONNECTION_METADATA_TOKEN')||key.endsWith('MANAGEMENT_AGENT_ID')||key.endsWith('MANAGEMENT_AGENT_NAME'))delete process.env[key];
   // Translate configuration at the process boundary, never in upstream source.
   for (const [key, value] of Object.entries(process.env)) {
     if (key.startsWith('NEST_') && value !== undefined) process.env[`ORGOPS_${key.slice(5)}`] = value;

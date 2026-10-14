@@ -8,3 +8,4 @@ export * from './integrations';
 export * from './messages';
 
 export * from './agent-requests';
+export * from './agent-management';

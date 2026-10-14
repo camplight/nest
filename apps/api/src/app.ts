@@ -1,3 +1,4 @@
+import {registerAgentManagementRoutes,type AgentManagementConfig} from './agent-management';
 import {registerAgentRequestRoutes} from './agent-requests';
 import {registerMessageRoutes} from './messages';
 import {registerIntegrationRoutes} from "./integrations/routes";
@@ -15,7 +16,7 @@ import { openProductDb, type ProductDb } from '@nest/db';
 import { BrandingSchema } from '@nest/schemas';
 import { createOrgOpsClient, productHeaders, type OrgOpsClient } from '@nest/orgops-client';
 
-export function createApp(config: { connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string } = {}) {
+export function createApp(config: { agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string } = {}) {
   const store = config.store ?? openProductDb(config.dbPath ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_PRODUCT_DB_PATH ?? '.nest-product/nest.sqlite'));
   const orgops = config.orgops ?? createOrgOpsClient(config.orgopsUrl ?? process.env.ORGOPS_URL ?? 'http://127.0.0.1:8788');
   const app = new Hono();
@@ -49,6 +50,17 @@ export function createApp(config: { connections?: ConnectionProvider | null; con
   registerIntegrationRoutes(app,{store,orgops,provider,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
   const defaultAgentModelId = config.defaultAgentModelId ?? process.env.NEST_DEFAULT_AGENT_MODEL_ID ?? config.personalAgent?.modelId ?? process.env.NEST_PERSONAL_AGENT_MODEL_ID;
   registerAgentModelRoutes(app, orgops, defaultAgentModelId);
+  const managementName = process.env.NEST_MANAGEMENT_AGENT_NAME;
+  const managementId = process.env.NEST_MANAGEMENT_AGENT_ID;
+  const managementKey = process.env.NEST_RUNNER_TOKEN;
+  const agentManagement = config.agentManagement ?? (
+    managementName && managementId && managementKey && defaultAgentModelId ? {
+      agentName: managementName, agentId: managementId, engineToken: managementKey,
+      defaultModelId: defaultAgentModelId,
+      workspaceRoot: resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_ENGINE_DATA_DIR ?? '.nest-data', 'workspaces/managed'),
+    } : undefined
+  );
+  registerAgentManagementRoutes(app, {orgops, store, config: agentManagement});
   registerOnboardingRoutes(app, {store, orgops, config:config.personalAgent && {...config.personalAgent, modelId:defaultAgentModelId ?? config.personalAgent.modelId}, defaultModelId:defaultAgentModelId, connectionsAvailable:Boolean(provider)});
   registerMessageRoutes(app, {store,orgops});
   registerAgentRequestRoutes(app,{store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});

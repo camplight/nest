@@ -29,6 +29,7 @@ RUN apt-get update \
 
 COPY --from=build /app /app
 COPY docker/entrypoint.sh /usr/local/bin/nest-entrypoint
+COPY deploy/nestsystem-bridge.mjs /app/deploy/nestsystem-bridge.mjs
 
 RUN chmod +x /usr/local/bin/nest-entrypoint
 

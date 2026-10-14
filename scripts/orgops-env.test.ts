@@ -12,12 +12,16 @@ for (const component of ["api", "runner"] as const)
       vi.stubEnv("NEST_COMPOSIO_API_KEY", "test-private");
       vi.stubEnv("ORGOPS_COMPOSIO_API_KEY", "test-private");
       vi.stubEnv("NEST_CONNECTION_METADATA_TOKEN", "test-private");
+      vi.stubEnv("NEST_MANAGEMENT_AGENT_NAME", "NestSystem");
+      vi.stubEnv("NEST_MANAGEMENT_AGENT_ID", "operator-pinned-id");
       vi.stubEnv("ORGOPS_CONNECTION_METADATA_TOKEN", "test-private");
       const result = configureOrgOpsEnv(component);
       for (const key of [
         "NEST_COMPOSIO_API_KEY",
         "ORGOPS_COMPOSIO_API_KEY",
         "NEST_CONNECTION_METADATA_TOKEN",
+        "NEST_MANAGEMENT_AGENT_NAME",
+        "NEST_MANAGEMENT_AGENT_ID",
         "ORGOPS_CONNECTION_METADATA_TOKEN",
       ])
         expect(process.env[key]).toBeUndefined();

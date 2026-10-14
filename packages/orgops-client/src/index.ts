@@ -110,6 +110,34 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     ]);
     return {agents,humans};
   }
-  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, connectionContext, assistantDirectory, baseUrl: base.origin };
+  function agentManagement(serviceToken: string) {
+    if (!serviceToken) throw Error('Agent management is not configured');
+    const headers = {'x-orgops-runner-token':serviceToken};
+    async function read<T>(path:string):Promise<T|null> {
+      const response = await request(path,{headers});
+      if (response.status === 404) return null;
+      if (!response.ok) throw Error('Engine management context unavailable');
+      return response.json() as Promise<T>;
+    }
+    const agent = (name:string) => read<ManagedEngineAgent>(`/api/agents/${encodeURIComponent(name)}`);
+    return {
+      agent,
+      async context(input:{agentName:string;channelId:string;triggerEventId:string}) {
+        const [manager,channels,event,humans,models,runners] = await Promise.all([
+          agent(input.agentName),
+          read<{id:string;archivedAt?:number;participants:{subscriberType:string;subscriberId:string}[]}[]>('/api/channels?includeArchived=1'),
+          read<{id:string;type:string;source:string;channelId?:string;payload:{targetAgentName?:string}}>(`/api/events/${encodeURIComponent(input.triggerEventId)}`),
+          read<Human[]>('/api/humans'),
+          read<{id:string;provider:string;modelName:string;enabled:boolean}[]>('/api/models'),
+          read<{id:string;online:boolean}[]>('/api/runners'),
+        ]);
+        return {manager,channel:channels?.find(channel=>channel.id===input.channelId)??null,event,humans,models:nativeModels(models??[]),runners};
+      },
+      create: (body:Record<string,unknown>) => request('/api/agents',{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(body)}),
+    };
+  }
+  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, connectionContext, assistantDirectory, agentManagement, baseUrl: base.origin };
 }
 export type OrgOpsClient = ReturnType<typeof createOrgOpsClient>;
+
+export type ManagedEngineAgent = {id:string;name:string;mode:string;ownerHumanId:string|null;visibility:string;assignedRunnerId:string|null;workspacePath:string;modelId:string;description:string;systemInstructions:string;allowOutsideWorkspace:boolean;allowOwnerHumanSecrets:boolean};
