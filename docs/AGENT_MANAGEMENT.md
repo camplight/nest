@@ -4,6 +4,9 @@ NestSystem uses a wrapped Codex runtime. Native OrgOps's authenticated
 `agents_create` tool is not injected into that runtime. The bridge now supplies a
 Nest-specific create-only capability and the `nest-management` skill. The global
 runner token and administrator credentials remain outside Codex's environment.
+The Docker image explicitly makes this public skill readable by the node account
+and checks both helper imports as that account during the build, even when the
+host checkout uses a private umask. Private runtime credentials are unchanged.
 
 Management permission is permanent until the administrator revokes it. It does
 not expire with human sign-out, API restarts or a time limit. The trusted bridge
