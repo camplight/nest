@@ -45,13 +45,24 @@ identity; it cannot silently take over a previously created name.
    `NEST_MANAGEMENT_AGENT_NAME=NestSystem` and `NEST_MANAGEMENT_AGENT_ID=<existing ID>`
    in the private host environment. Keep the existing runner key/default model.
 3. Back up the current persistent `nestsystem-bridge.mjs` outside the webroot.
+   Also retrieve and back up NestSystem's `wrappedConfig` through the authenticated
+   agent API. Some existing installations embed an encoded bridge in
+   `wrappedConfig.setup.command`; OrgOps reruns that setup after runner restarts.
+   Update that embedded copy to the reviewed bridge through
+   `PATCH /api/agents/NestSystem`, preserving all other configuration fields.
+   Replacing only the persistent file lets the old setup overwrite it on restart.
    Install `/app/deploy/nestsystem-bridge.mjs` at
    `/app/.nest-data/codex-runtime/nestsystem-bridge.mjs`. This is a targeted operator
-   action; normal launches do not overwrite runtime bridges. Preserve the workspace,
+   action; Nest's launcher does not install runtime bridges, but the agent's saved
+   setup can regenerate them. Preserve the workspace,
    `nestsystem-sessions` directory, Codex home/login and all other bridges.
 4. Recreate/restart through the host controller so the API reads the allowlist.
    Check authenticated `context` from NestSystem's bridge environment before creation.
    The bridge adds management instructions on resumed turns as well as new sessions.
+   After startup setup finishes, compare the persistent bridge with the reviewed
+   image copy and run the helper as UID 1000. Verify the saved setup contains the
+   reviewed bridge too; a context check alone does not prove that future Codex turns
+   receive the management capability.
 
 Disable management by removing the two `NEST_MANAGEMENT_AGENT_*` settings and
 restarting the API. Deleting/replacing the configured manager also denies access.
