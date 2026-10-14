@@ -9,11 +9,11 @@ import type {OrgOpsClient, ManagedEngineAgent} from '@nest/orgops-client';
 import {verifyManagementCapability} from '../../../skills/nest-management/scripts/capability.mjs';
 export type AgentManagementConfig = {agentName:string;agentId:string;engineToken:string;defaultModelId:string;workspaceRoot:string};
 
-/** Explicitly enabled, create-only capability for a trusted wrapped manager. */
+/** Explicitly enabled creation and owner-scoped lookup for a trusted wrapped manager. */
 export function registerAgentManagementRoutes(app:Hono,{orgops,store,config}:{orgops:OrgOpsClient;store:ProductDb;config?:AgentManagementConfig}) {
   const routes=new Hono();
   const creating=new Set<string>();
-  const fail=(status:400|401|403|409|503,message:string):never=>{throw new HTTPException(status,{message});};
+  const fail=(status:400|401|403|404|409|503,message:string):never=>{throw new HTTPException(status,{message});};
   routes.onError((error,c)=>error instanceof HTTPException ? c.json({error:error.message},error.status) : c.json({error:'Agent creation could not be confirmed. Retry the same name and instructions to recover; do not choose a new name.'},502));
   routes.use('*',bodyLimit({maxSize:32000,onError:c=>c.json({error:'Request too large'},413)}));
   routes.use('*',async(c,next)=>{c.header('Cache-Control','no-store');await next();});
@@ -39,7 +39,16 @@ export function registerAgentManagementRoutes(app:Hono,{orgops,store,config}:{or
   const publicAgent=(a:ManagedEngineAgent)=>({id:a.id,name:a.name,modelId:a.modelId,visibility:a.visibility,settingsUrl:`/?view=agents&agent=${encodeURIComponent(a.name)}`});
   routes.get('/context',async c=>{
     const ctx=await context(c.req.header('authorization'));
-    return c.json({requester:ctx.owner.username,model:ctx.model.reference,operations:['agents:create']});
+    return c.json({requester:ctx.owner.username,model:ctx.model.reference,operations:['agents:create','agents:get-owned']});
+  });
+  routes.get('/agents/:name',async c=>{
+    const ctx=await context(c.req.header('authorization'));
+    const agent=await ctx.engine.agent(c.req.param('name'));
+    if(!agent||agent.ownerHumanId!==ctx.owner.id||agent.visibility!=='PRIVATE')fail(404,'No private agent with that name was found for this requester');
+    // Revalidate after the lookup as membership or the manager may have changed.
+    const fresh=await context(c.req.header('authorization'));
+    if(fresh.owner.id!==ctx.owner.id)fail(403,'The requesting owner changed');
+    return c.json({agent:publicAgent(agent!),existing:true});
   });
   routes.post('/agents',async c=>{
     if(!c.req.header('content-type')?.startsWith('application/json'))return c.json({error:'Use application/json'},415);
