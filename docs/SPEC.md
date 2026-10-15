@@ -3,9 +3,9 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The current pin is `14e4853`, adding native `fs_upload` support on top of
-OrgOps main through PR #52. External engines must include this tool revision
-for agents to upload generated workspace files.
+The current pin is `f7c95b7` (merged OrgOps PRs #53 and #54), including
+multi-agent message routing and native workspace-file uploads. External engines
+must include this revision to support both features.
 
 This engine revision includes Google Workspace authentication (migration `037`),
 configured/per-agent skill roots, human-scoped secrets
