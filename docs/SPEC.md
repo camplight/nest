@@ -3,10 +3,9 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The engine pin `9c65182` includes multi-recipient message routing through
-`payload.targetAgentNames`, in addition to OrgOps main through PR #52.
-External OrgOps deployments must include this routing support before Nest sends
-multi-agent messages; older runners do not understand the target list.
+The current pin is `f7c95b7` (merged OrgOps PRs #53 and #54), including
+multi-agent message routing and native workspace-file uploads. External engines
+must include this revision to support both features.
 
 This engine revision includes Google Workspace authentication (migration `037`),
 configured/per-agent skill roots, human-scoped secrets
