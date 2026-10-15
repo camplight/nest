@@ -10,7 +10,6 @@ describe('activity status meaning',()=>{
  });
  it('does not equate diagnostic output with a failed response',()=>{
   expect(activity(event('process.output',{stream:'STDERR',text:'warning'})).tone).toBe('muted');
-  expect(activity(event('tool.failed',{tool:'Search'})).description).toContain('may continue');
  });
  it('retains original event data in technical details',()=>{
   const row=event('tool.failed',{tool:'Search',args:{query:'demo'},error:{code:'offline'}});

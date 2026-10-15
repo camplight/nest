@@ -436,7 +436,7 @@ The kickoff policy is carried in new auto-created channels' existing metadata, w
 - Drop files anywhere on an existing chat screen or a new-project chat draft;
   retain explicit Send, existing file permissions and owner-scoped draft recovery.
 - Share upload status and the 20-file limit across picker, paste and drop.
-- Replace activity letter abbreviations with labelled icons, readable event
-  explanations, expandable step history and opt-in technical payloads.
+- Replace activity letter abbreviations with icons in the same tiny boxes,
+  short hover/focus labels and click-to-open technical details.
 - Browser coverage uses isolated real Nest/OrgOps handlers and synthetic files,
   with desktop/mobile screenshots. No live model or provider accounts are used.

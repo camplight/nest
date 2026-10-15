@@ -896,10 +896,11 @@ must be removed before sending, with the draft preserved. Archived, read-only an
 sending states block new attachments. Folder drops explain how to use a ZIP or
 individual files; ordinary text/link drags retain browser behaviour.
 
-Activity groups show a labelled status icon and a collapsible, timestamped step
-history instead of internal letter codes. Selected steps explain the event in
-plain language and retain the complete original event payload under Technical
-details. Success/failure colours describe the individual recorded event; a tool
-failure does not declare the entire project failed. Diagnostic output and missing
-process exit codes do not imply failure. No execution, retry or engine event
-semantics change.
+Activity keeps the original tiny 22px event boxes, replacing letter abbreviations
+with SVG icons. Green and red distinguish successful and failed events; hover or
+keyboard focus shows a short event label and timestamp. Clicking/tapping a box
+opens a compact label card with an optional Details toggle for the recorded
+event payload; clicking/tapping the box again closes the card. Mobile needs no
+hover. No summary prose or step list is shown by default. Diagnostic output and missing process exit codes
+do not imply failure. Event colours describe individual events, never project
+acceptance. No execution, retry or engine event semantics change.
