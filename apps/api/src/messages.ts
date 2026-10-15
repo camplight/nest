@@ -150,12 +150,10 @@ export function registerMessageRoutes(
       ...new Map(sorted.map((m) => [m.kind + ":" + m.name, m])).values(),
     ];
     const agentRecipients = recipients.filter((m) => m.kind === "AGENT");
-    if (agentRecipients.length > 1)
-      fail(
-        400,
-        "Choose one agent target per message. You can notify multiple people.",
-      );
-    const targetAgentName=input.targetAgentName??agentRecipients[0]?.name;
+    const targetAgentName=input.targetAgentName??(agentRecipients.length===1?agentRecipients[0].name:undefined);
+    const targetAgentNames=agentRecipients.length>1?agentRecipients.map(m=>m.name):undefined;
+    if(input.targetAgentName&&targetAgentNames)
+      fail(400,"An explicit single target cannot be combined with multiple selected agents");
     if(input.targetAgentName&&agentRecipients[0]&&input.targetAgentName!==agentRecipients[0].name)
       fail(400,"The selected agent and message target must match");
     if(targetAgentName&&!channel!.participants.some(p=>p.subscriberType==='AGENT'&&p.subscriberId===targetAgentName))
@@ -173,9 +171,9 @@ export function registerMessageRoutes(
           "A selected recipient is no longer in this conversation. Refresh and choose again.",
         );
     // Engine ownership/visibility remains authoritative even for a subscribed agent.
-    if (targetAgentName) {
+    for (const name of targetAgentNames ?? (targetAgentName ? [targetAgentName] : [])) {
       const r = await orgops.humanRequest(
-        "/api/agents/" + encodeURIComponent(targetAgentName),
+        "/api/agents/" + encodeURIComponent(name),
         headers,
       );
       if (r.status === 403 || r.status === 404) fail(403, "Agent unavailable");
@@ -200,6 +198,7 @@ export function registerMessageRoutes(
       ...(input.attachments.length ? { attachments: input.attachments } : {}),
       nestMessageId: input.id,
       mentions: resolved,
+      ...(targetAgentNames ? { targetAgentNames } : {}),
       ...(targetAgentName
         ? { targetAgentName }
         : {}),

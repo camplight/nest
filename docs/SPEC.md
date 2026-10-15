@@ -3,7 +3,9 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The current pin is `3e3ed36` (OrgOps main through reviewed PR #49, including Google team membership repair).
+The current pin is `f7c95b7` (merged OrgOps PRs #53 and #54), including
+multi-agent message routing and native workspace-file uploads. External engines
+must include this revision to support both features.
 
 This engine revision includes Google Workspace authentication (migration `037`),
 configured/per-agent skill roots, human-scoped secrets
@@ -668,8 +670,9 @@ longer holds the shell's loading state.
 
 Nest's composer sends `POST /api/messages` with a stable send UUID, channel, text,
 attachments and selected mention spans. A selected agent produces the existing
-engine `payload.targetAgentName`; no engine source changes are needed. At most
-one distinct agent can be targeted per message. Multiple selected people receive
+engine `payload.targetAgentName`; multiple distinct selected agents produce
+`payload.targetAgentNames` and each receives the same message event. Unselected
+agents do not start a turn for it. Multiple selected people receive
 in-app mention notifications. Unselected @ text retains ordinary channel delivery
 and may still be interpreted by an agent's coordination instructions.
 
@@ -683,7 +686,7 @@ changing chats during the request never inserts into another conversation.
 Nonmanagers see an explanation. Another owner's private agent is never invited
 through this picker; published personal assistants keep their owner-approval path.
 Editing a selected name removes its routing metadata. Surrounding edits preserve
-it. The composer shows Ask/Notify recipients and prevents multiple-agent sends.
+it. The composer shows Ask/Notify recipients and permits multiple-agent sends.
 Server validation checks span/text agreement, recipient membership, agent
 visibility, human identity and current channel posting rights. It derives source
 from the human session. Sending itself never subscribes a recipient or expands
@@ -865,7 +868,7 @@ there is no automatic retry/billing loop. No new database migration is needed.
 
 The creation roster also returns `personalAgent` only when the product onboarding mapping's pinned engine ID, current PRIVATE visibility, native mode and human owner match an engine HTTP detail read. The fresh chat draft includes this agent visibly and permits starting without it. It is subscribed only with the first submitted project intent, never merely on opening the draft; selected agent mentions override the first-message target. Older submitted drafts never gain new implicit members.
 
-`POST /api/messages` accepts an optional explicit `targetAgentName` without changing human text. It must match a selected agent mention when present, be a current subscribed visible agent, and is included in the durable send identity and receipt. The engine's existing target field is used unchanged.
+`POST /api/messages` accepts an optional explicit `targetAgentName` without changing human text. It must match the sole selected agent mention when present (combining an explicit single target with multiple selected agents is rejected), be a current subscribed visible agent, and is included in the durable send identity and receipt. The engine's existing target field is used unchanged.
 
 Chat/Files are normal project tabs. Project details contains the brief, owner-only inline editing with existing compare-and-swap, counts and typed member list, and searchable invitations. Mobile exposes it above chat in a disclosure. Legacy Members links render chat with details available. Advanced sharing remains in the existing engine-backed dialog. `POST /api/projects/:id/members` requires the current product owner with live engine manage/post access, validates exact existing HUMAN/AGENT identities and current agent visibility, and reconciles ambiguous subscriptions before reporting success. It grants no personal connected-account access.
 
@@ -912,6 +915,15 @@ event payload; clicking/tapping the box again closes the card. Mobile needs no
 hover. No summary prose or step list is shown by default. Diagnostic output and missing process exit codes
 do not imply failure. Event colours describe individual events, never project
 acceptance. No execution, retry or engine event semantics change.
+
+### Image attachment previews
+
+Chat message attachments with PNG, JPEG, GIF, or WebP MIME types show lazy-loaded,
+responsive inline previews linked to the existing file endpoint. Names, MIME
+types, sizes, and download links remain visible. Failed previews fall back to
+the file link; SVG and other file types remain links rather than inline images.
+Native agents publish generated files with OrgOps `fs_upload`, then include the
+returned attachment in their message payload. No public static copy is created.
 
 
 ## Chat sender avatars
