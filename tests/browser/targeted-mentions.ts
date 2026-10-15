@@ -284,6 +284,10 @@ try {
     assert(await page.getByRole("button", {name:"Send",exact:true}).isEnabled());
     await page.getByRole("button", {name:"Send",exact:true}).click();
     await page.getByText("To @Puff, @Moss", {exact:true}).waitFor();
+    await page.screenshot({path:join(screenshots,"multiple-agents-desktop.png"),fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    await page.screenshot({path:join(screenshots,"multiple-agents-mobile.png"),fullPage:true});
+    await page.setViewportSize({width:1440,height:1000});
     const multiEvents=await(await product.app.request("/api/events?channelId="+ch.id+"&type=message.created",{headers})).json();
     assert.equal(multiEvents.length,2);
     assert.deepEqual(multiEvents.find((event:any)=>event.payload.targetAgentNames)?.payload.targetAgentNames,["Puff","Moss"]);
