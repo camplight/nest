@@ -63,10 +63,9 @@ function StartChat({ownerId,onCreated,onCancel}:{ownerId:string;onCreated:(proje
   },[refresh]);
   const locked=busy||draft.submitted;
   const recipients=[...new Map(draft.mentions.map(mention=>[mention.kind+':'+mention.name,mention])).values()];
-  const multipleAgents=recipients.filter(m=>m.kind==='AGENT').length>1;
   const picker=useMentionPicker({value:draft.text,onChange:text=>setDraft(current=>({...current,text,mentions:reconcileMentions(current.text,text,current.mentions)})),onChoose:(text,mention)=>setDraft(current=>({...current,text,mentions:[...reconcileMentions(current.text,text,current.mentions),mention]})),textareaRef,candidates:roster.map(member=>({id:member.subscriberType+':'+member.subscriberId,name:member.subscriberId,kind:member.subscriberType==='AGENT'?'Agent':'Person',inConversation:false})),channelId:'new-project',disabled:locked,projectDraft:true});
   async function submit(event:FormEvent) {
-    event.preventDefault();if(busy||uploading||failed||(!draft.text.trim()&&!readyFiles.length)||multipleAgents||(!rosterReady&&!draft.submitted))return;
+    event.preventDefault();if(busy||uploading||failed||(!draft.text.trim()&&!readyFiles.length)||(!rosterReady&&!draft.submitted))return;
     setBusy(true);setError(null);
     const text=draft.text.trim()?draft.text:`Attached files for reference: ${readyFiles.map(file=>file.name).join(', ')}`;
     const next={...draft,text,attachments:draft.submitted?draft.attachments??[]:readyFiles,submitted:true,metadata:draft.metadata??projectMetadata(text,draft.mentions)};
@@ -95,9 +94,8 @@ function StartChat({ownerId,onCreated,onCancel}:{ownerId:string;onCreated:(proje
       <div className="mention-input">{picker.popup}<textarea ref={textareaRef} {...picker.textareaProps} aria-label="Message" placeholder="Tell us what you want to work on. Type @ to bring someone in." value={draft.text} autoFocus maxLength={32000} rows={4} disabled={locked} onChange={event=>{const text=event.target.value;setDraft(current=>({...current,text,mentions:reconcileMentions(current.text,text,current.mentions)}));picker.sync(event.target);}} onKeyDown={event=>{if(picker.onKeyDown(event))return;if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing&&event.keyCode!==229){event.preventDefault();event.currentTarget.form?.requestSubmit();}}}/></div>
       {draft.assistant&&<div className="project-start-assistant"><span><strong>{draft.assistant}</strong> will join and help you get started.</span><button type="button" className="project-inline-action" disabled={locked} onClick={()=>setDraft(current=>({...current,assistant:null,assistantDismissed:true}))}>Start without my agent</button><small>Joining a project pauses this agent’s personal connected tools under the current privacy rules.</small></div>}
       {recipients.length>0&&<p className="project-start-recipients">Joining: {recipients.map(m=>m.name).join(', ')}</p>}
-      {multipleAgents&&<p role="alert">Choose one agent to ask in your first message. You can add more later.</p>}
       {error&&<div className="notice error" role="alert">{error}<p>Your message is saved. Retry unchanged to finish this project.</p></div>}
-      <div className="project-start-footer"><span>Type @ to add people or an agent.</span><div><button type="button" className="dashboard-action" disabled={locked} onClick={()=>fileInputRef.current?.click()}>Attach files</button><button type="button" className="dashboard-action" disabled={busy} onClick={onCancel}>Cancel</button><button className="dashboard-action project-primary" disabled={busy||uploading||failed||(!draft.text.trim()&&!readyFiles.length)||multipleAgents||(!rosterReady&&!draft.submitted)}>{busy?'Starting…':draft.submitted?'Retry send':'Send'}</button></div></div>
+      <div className="project-start-footer"><span>Type @ to add people or agents.</span><div><button type="button" className="dashboard-action" disabled={locked} onClick={()=>fileInputRef.current?.click()}>Attach files</button><button type="button" className="dashboard-action" disabled={busy} onClick={onCancel}>Cancel</button><button className="dashboard-action project-primary" disabled={busy||uploading||failed||(!draft.text.trim()&&!readyFiles.length)||(!rosterReady&&!draft.submitted)}>{busy?'Starting…':draft.submitted?'Retry send':'Send'}</button></div></div>
     </form>
   </section>;
 }

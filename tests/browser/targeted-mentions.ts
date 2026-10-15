@@ -233,7 +233,7 @@ try {
     await input.press("e");
     await input.press("w");
     await page
-      .getByText("Only the selected agent receives this request.", {
+      .getByText("The selected agents receive this request.", {
         exact: true,
       })
       .waitFor();
@@ -281,21 +281,13 @@ try {
     await input.press("@");
     await input.press("m");
     await popup.getByRole("option").filter({ hasText: "Moss" }).click();
-    await page
-      .getByRole("alert")
-      .filter({ hasText: "Choose one agent" })
-      .waitFor();
-    assert(
-      await page
-        .getByRole("button", { name: "Send", exact: true })
-        .isDisabled(),
-    );
-    await page
-      .getByRole("button", { name: "Remove mention @Moss", exact: true })
-      .click();
-    assert(
-      await page.getByRole("button", { name: "Send", exact: true }).isEnabled(),
-    );
+    assert(await page.getByRole("button", {name:"Send",exact:true}).isEnabled());
+    await page.getByRole("button", {name:"Send",exact:true}).click();
+    await page.getByText("To @Puff, @Moss", {exact:true}).waitFor();
+    const multiEvents=await(await product.app.request("/api/events?channelId="+ch.id+"&type=message.created",{headers})).json();
+    assert.equal(multiEvents.length,2);
+    assert.deepEqual(multiEvents.find((event:any)=>event.payload.targetAgentNames)?.payload.targetAgentNames,["Puff","Moss"]);
+    await input.fill("@pu");await input.press("Enter");
     await input.fill("Edited @Puf");
     assert.equal(await page.getByLabel("Message recipients").count(), 0);
     // Upload metadata must not leak browser-local attachment fields into the strict send API.
@@ -410,7 +402,7 @@ try {
     assert.equal(new URL(page.url()).searchParams.get('channel'),ch.id);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: invitations from standalone/project mentions, no implicit send, lost invitation response, denied invitations, private non-owner restriction, pending-invite chat switching, real-engine targeted delivery, participant validation, recoverable retry, multiple-agent prevention, selected-name edits, attachments, human inbox, read state, message links and mobile. Screenshots: " +
+      "PASS: invitations from standalone/project mentions, no implicit send, lost invitation response, denied invitations, private non-owner restriction, pending-invite chat switching, real-engine targeted delivery, participant validation, recoverable retry, multiple-agent delivery, selected-name edits, attachments, human inbox, read state, message links and mobile. Screenshots: " +
         screenshots,
     );
   } finally {

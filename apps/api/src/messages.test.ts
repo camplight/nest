@@ -198,12 +198,10 @@ it("preserves normal delivery for plain text and supports people without an agen
     (await (await call("/api/mentions", "GET", undefined, other)).json()).items,
   ).toHaveLength(1);
 });
-it("rejects multiple agent targets, nonmembers, mismatched spans and forged source/target fields", async () => {
+it("rejects nonmembers, mismatched spans and forged source/target fields", async () => {
   for (const body of [
-    message("@Puff @Moss", [
-      ["Puff", "AGENT"],
-      ["Moss", "AGENT"],
-    ]),
+    {...message("@Puff @Moss", [["Puff", "AGENT"], ["Moss", "AGENT"]]), targetAgentName: "Puff"},
+    message("@Puff @Outsider", [["Puff", "AGENT"], ["Outsider", "AGENT"]]),
     message("@Outsider", [["Outsider", "AGENT"]]),
     { ...message(), source: "human:teammate" },
     { ...message(), targetAgentName: "Moss" },
@@ -352,4 +350,20 @@ it('targets an explicitly chosen subscribed agent without changing the human tex
   expect((await call('/api/messages','POST',body)).status).toBe(201);
   expect((await call('/api/messages','POST',{...body,id:randomUUID(),targetAgentName:'Missing'})).status).toBe(409);
   expect((await call('/api/messages','POST',{...message('@Puff hello',[['Puff','AGENT']]),targetAgentName:'Other'})).status).toBe(400);
+});
+
+it("delivers one recoverable message to multiple selected agents and one human notification", async () => {
+  await call("/api/channels/" + channel + "/subscribe", "POST", {subscriberType:"AGENT", subscriberId:"Outsider"});
+  const input=message("@Puff @Moss @teammate review", [["Puff","AGENT"],["Moss","AGENT"],["teammate","HUMAN"]]);
+  lose=true;
+  expect((await call("/api/messages","POST",input)).status).toBe(502);
+  const response=await call("/api/messages","POST",input);
+  expect(response.status).toBe(201);
+  const event=await response.json();
+  expect(event.payload.targetAgentNames).toEqual(["Puff","Moss"]);
+  expect(event.payload.targetAgentName).toBeUndefined();
+  for(const name of ["Puff","Moss"]) expect(shouldHandleEventForAgent({name} as any,event)).toBe(true);
+  expect(shouldHandleEventForAgent({name:"Outsider"} as any,event)).toBe(false);
+  expect(await (await call("/api/events?channelId="+channel+"&type=message.created")).json()).toHaveLength(1);
+  expect((await (await call("/api/mentions","GET",undefined,other)).json()).items).toHaveLength(1);
 });
