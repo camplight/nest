@@ -1,4 +1,5 @@
-import {useAttachments,restoreAttachments,formatAttachmentSize,type UploadedAttachment} from './attachments';
+import {MessageAttachment as MessageAttachmentView} from "./components/MessageAttachment";
+import {useAttachments,restoreAttachments,type UploadedAttachment} from './attachments';
 import {ChatAttachments} from './components/ChatAttachments';
 import {ChatFileDrop} from './components/ChatFileDrop';
 import {AgentActivity} from './components/AgentActivity';
@@ -2075,24 +2076,7 @@ export default function App() {
                         <div className="message-attachments">
                           <strong>Attachments</strong>
                           <ul>
-                            {attachments.map((attachment, index) => {
-                              const sizeLabel = formatAttachmentSize(attachment.size);
-                              const mimeLabel = attachment.mime ? attachment.mime : "";
-                              return (
-                                <li key={`${event.id}-attachment-${index}`}>
-                                  <a href={`/api/files/${encodeURIComponent(attachment.fileId)}`} target="_blank" rel="noreferrer">
-                                    {attachment.name}
-                                  </a>
-                                  {mimeLabel || sizeLabel ? (
-                                    <span>
-                                      {mimeLabel}
-                                      {mimeLabel && sizeLabel ? " • " : ""}
-                                      {sizeLabel || ""}
-                                    </span>
-                                  ) : null}
-                                </li>
-                              );
-                            })}
+                            {attachments.map((attachment, index) => <MessageAttachmentView key={`${event.id}-attachment-${index}`} attachment={attachment}/>)}
                           </ul>
                         </div>
                       ) : null}

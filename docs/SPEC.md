@@ -3,7 +3,9 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The current pin is `3e3ed36` (OrgOps main through reviewed PR #49, including Google team membership repair).
+The current pin is `f7c95b7` (merged OrgOps PRs #53 and #54), including
+multi-agent message routing and native workspace-file uploads. External engines
+must include this revision to support both features.
 
 This engine revision includes Google Workspace authentication (migration `037`),
 configured/per-agent skill roots, human-scoped secrets
@@ -912,3 +914,12 @@ event payload; clicking/tapping the box again closes the card. Mobile needs no
 hover. No summary prose or step list is shown by default. Diagnostic output and missing process exit codes
 do not imply failure. Event colours describe individual events, never project
 acceptance. No execution, retry or engine event semantics change.
+
+### Image attachment previews
+
+Chat message attachments with PNG, JPEG, GIF, or WebP MIME types show lazy-loaded,
+responsive inline previews linked to the existing file endpoint. Names, MIME
+types, sizes, and download links remain visible. Failed previews fall back to
+the file link; SVG and other file types remain links rather than inline images.
+Native agents publish generated files with OrgOps `fs_upload`, then include the
+returned attachment in their message payload. No public static copy is created.
