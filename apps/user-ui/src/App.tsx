@@ -1,3 +1,7 @@
+import {useAttachments,restoreAttachments,formatAttachmentSize,type UploadedAttachment} from './attachments';
+import {ChatAttachments} from './components/ChatAttachments';
+import {ChatFileDrop} from './components/ChatFileDrop';
+import {AgentActivity} from './components/AgentActivity';
 import {consumeConnectionReturn,forgetConnectionReturn} from './project-connection-return';
 import {ProjectConnections} from './ProjectConnections';
 import {loadChatDraft,saveChatDraft,clearSentDraft,clearOwnerDrafts,rememberProject,recentProject,type ChatDraft} from './drafts';
@@ -102,25 +106,6 @@ const CHANNEL_GROUPS = [
 
 type ChannelGroupId = (typeof CHANNEL_GROUPS)[number]["id"];
 
-type UploadedAttachment = {
-  localId: string;
-  fileId: string;
-  name: string;
-  mime: string;
-  size: number;
-  sha256?: string;
-};
-
-type PendingAttachment = {
-  localId: string;
-  name: string;
-  mime: string;
-  size: number;
-  status: "uploading" | "ready" | "error";
-  uploaded?: UploadedAttachment;
-  error?: string;
-};
-
 type MessageAttachment = {
   fileId: string;
   name: string;
@@ -183,135 +168,6 @@ function isTraceEvent(event: EventRow) {
     event.type === "tool.failed" ||
     event.type === "telemetry.context.window.updated"
   );
-}
-
-function shortJson(value: unknown) {
-  if (value === undefined) return "";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-function traceTitle(event: EventRow) {
-  const payload = event.payload && typeof event.payload === "object" ? (event.payload as Record<string, unknown>) : {};
-  if (event.type.startsWith("process.")) {
-    if (event.type === "process.started") return "Wrapped process started";
-    if (event.type === "process.exited") {
-      const exitCode = typeof payload.exitCode === "number" ? payload.exitCode : null;
-      return exitCode === null ? "Wrapped process exited" : `Wrapped process exited (${exitCode})`;
-    }
-    if (event.type === "process.output") {
-      const stream = typeof payload.stream === "string" ? payload.stream : "STDOUT";
-      const seq = typeof payload.seq === "number" ? payload.seq : null;
-      return seq === null ? `Wrapped output (${stream})` : `Wrapped output #${seq} (${stream})`;
-    }
-  }
-  if (event.type.startsWith("wrapper.turn.")) {
-    if (event.type === "wrapper.turn.started") return "Wrapped turn started";
-    if (event.type === "wrapper.turn.completed") return "Wrapped turn completed";
-    if (event.type === "wrapper.turn.failed") return "Wrapped turn failed";
-  }
-  if (event.type.startsWith("tool.")) {
-    const toolName = typeof payload.tool === "string" ? payload.tool : "tool";
-    const action = event.type === "tool.started" ? "started" : event.type === "tool.executed" ? "completed" : "failed";
-    return `${toolName} ${action}`;
-  }
-  if (event.type === "agent.turn.started") return "Agent is thinking";
-  if (event.type === "agent.turn.completed") return "Agent finished turn";
-  if (event.type === "agent.turn.failed") return "Agent turn failed";
-  if (event.type === "agent.turn.phase") {
-    const phase = typeof payload.phase === "string" ? payload.phase : "progress";
-    return `Agent phase: ${phase}`;
-  }
-  if (event.type === "telemetry.context.window.updated") {
-    const used = typeof payload.estimatedUsedTokens === "number" ? payload.estimatedUsedTokens : null;
-    const total = typeof payload.contextWindowTokens === "number" ? payload.contextWindowTokens : null;
-    return used !== null && total !== null ? `Context usage: ${used}/${total} tokens` : "Context usage updated";
-  }
-  return event.type.replaceAll(".", " ");
-}
-
-function traceDetail(event: EventRow) {
-  const payload = event.payload && typeof event.payload === "object" ? (event.payload as Record<string, unknown>) : {};
-  if (event.type === "process.output") {
-    const text = typeof payload.text === "string" ? payload.text : "";
-    return text || shortJson(event.payload);
-  }
-  if (event.type === "process.exited") {
-    const exitCode = typeof payload.exitCode === "number" ? payload.exitCode : null;
-    return exitCode === null ? shortJson(event.payload) : `exitCode: ${exitCode}`;
-  }
-  if (event.type.startsWith("tool.")) {
-    const args = shortJson(payload.args);
-    const output = shortJson(payload.output);
-    const error = typeof payload.error === "string" ? payload.error : "";
-    return [args ? `args: ${args}` : "", output ? `output: ${output}` : "", error ? `error: ${error}` : ""]
-      .filter(Boolean)
-      .join("\n");
-  }
-  if (event.type === "agent.turn.failed") {
-    const error = typeof payload.error === "string" ? payload.error : "";
-    return error || "No failure details";
-  }
-  return shortJson(event.payload);
-}
-
-function traceChipCode(event: EventRow) {
-  const payload = event.payload && typeof event.payload === "object" ? (event.payload as Record<string, unknown>) : {};
-  if (event.type === "agent.turn.started") return "T";
-  if (event.type === "agent.turn.completed") return "D";
-  if (event.type === "agent.turn.failed") return "F";
-  if (event.type.startsWith("wrapper.turn.")) {
-    if (event.type === "wrapper.turn.started") return "W";
-    if (event.type === "wrapper.turn.completed") return "D";
-    return "F";
-  }
-  if (event.type.startsWith("process.")) {
-    if (event.type === "process.started") return "P";
-    if (event.type === "process.output") {
-      const stream = typeof payload.stream === "string" ? payload.stream : "";
-      return stream === "STDERR" ? "!" : "O";
-    }
-    return "X";
-  }
-  if (event.type === "agent.turn.phase") {
-    const phase = typeof payload.phase === "string" ? payload.phase : "phase";
-    return phase.slice(0, 1).toUpperCase() || "P";
-  }
-  if (event.type === "telemetry.context.window.updated") return "C";
-  if (event.type.startsWith("tool.")) {
-    if (event.type === "tool.started") return "R";
-    if (event.type === "tool.executed") return "E";
-    return "F";
-  }
-  return "?";
-}
-
-function traceChipTone(event: EventRow) {
-  if (
-    event.type === "tool.failed" ||
-    event.type === "agent.turn.failed" ||
-    event.type === "wrapper.turn.failed"
-  ) {
-    return "danger";
-  }
-  if (event.type === "process.exited") {
-    const payload = event.payload && typeof event.payload === "object" ? (event.payload as Record<string, unknown>) : {};
-    const exitCode = typeof payload.exitCode === "number" ? payload.exitCode : null;
-    return exitCode === 0 ? "success" : "danger";
-  }
-  if (
-    event.type === "tool.executed" ||
-    event.type === "agent.turn.completed" ||
-    event.type === "wrapper.turn.completed"
-  ) {
-    return "success";
-  }
-  if (event.type === "telemetry.context.window.updated") return "muted";
-  return "neutral";
 }
 
 function participantDisplayName(participant: ChannelParticipant, currentUsername?: string) {
@@ -512,13 +368,6 @@ function mergeEventsChronologically(current: EventRow[], incoming: EventRow[]) {
   });
 }
 
-function createLocalAttachmentId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
 function parseMessageAttachments(payload: unknown): MessageAttachment[] {
   if (!payload || typeof payload !== "object") return [];
   const payloadRecord = payload as { attachments?: unknown };
@@ -535,15 +384,6 @@ function parseMessageAttachments(payload: unknown): MessageAttachment[] {
     attachments.push({ fileId, name, mime, size });
   }
   return attachments;
-}
-
-function formatAttachmentSize(size?: number) {
-  if (typeof size !== "number" || !Number.isFinite(size) || size <= 0) return null;
-  if (size < 1024) return `${size} B`;
-  const kb = size / 1024;
-  if (kb < 1024) return `${kb.toFixed(kb >= 100 ? 0 : 1)} KB`;
-  const mb = kb / 1024;
-  return `${mb.toFixed(mb >= 100 ? 0 : 1)} MB`;
 }
 
 export default function App() {
@@ -644,8 +484,7 @@ export default function App() {
   const [channelVisibilityDraft, setChannelVisibilityDraft] = useState<"PUBLIC" | "PRIVATE">("PRIVATE");
   const [updatingChannelVisibility, setUpdatingChannelVisibility] = useState(false);
   const [archiveDraft, setArchiveDraft] = useState(false);
-  const [expandedTraceEventId, setExpandedTraceEventId] = useState<string | null>(null);
-  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const {attachments:pendingAttachments,setAttachments:setPendingAttachments,uploadFiles:enqueueFiles,error:attachmentError}=useAttachments(`${userId??''}:${activeChannelId??''}`);
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -1357,11 +1196,10 @@ export default function App() {
     setLoadingOlderMessages(false);
     setHasOlderMessages(false);
     setHasNewMessagesBelow(false);
-    setExpandedTraceEventId(null);
     setShowParticipantsDialog(false);
     setShowChannelManageDialog(false);
     const saved=userId&&activeChannelId?loadChatDraft(userId,activeChannelId):null;
-    setPendingAttachments(saved?.attachments.map(file=>({localId:file.fileId,name:file.name,mime:file.mime??'application/octet-stream',size:file.size??0,status:'ready' as const,uploaded:{localId:file.fileId,fileId:file.fileId,name:file.name,mime:file.mime??'application/octet-stream',size:file.size??0}}))??[]);
+    setPendingAttachments(restoreAttachments(saved?.attachments??[]));
     setDraftState(saved?{text:saved.text,mentions:saved.mentions}:{text:'',mentions:[]});sendRequestRef.current=saved?.request??null;
     setDraftScope(userId&&activeChannelId?{owner:userId,channel:activeChannelId}:null);
     setShareValue("");
@@ -1617,7 +1455,6 @@ export default function App() {
     setShowConversationDialog(false);
     setUnreadCounts({});
     setHasNewMessagesBelow(false);
-    setExpandedTraceEventId(null);
     lastSeenByChannelRef.current = {};
     lastLoadedMessageAtByChannelRef.current = {};
     lastLoadedTimelineAtByChannelRef.current = {};
@@ -1659,7 +1496,7 @@ export default function App() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeChannelId || activeChannel?.archivedAt || !activeChannelCanPost) return;
-    if (uploadingAttachmentCount > 0 || multipleAgentTargets || sending) return;
+    if (uploadingAttachmentCount > 0 || hasAttachmentErrors || multipleAgentTargets || sending) return;
     const trimmedText = draft.trim();
     if (!trimmedText && readyAttachments.length === 0) return;
 
@@ -1962,68 +1799,9 @@ export default function App() {
     }
   }
 
-  async function uploadSingleFile(file: File) {
-    const localId = createLocalAttachmentId();
-    const mime = file.type || "application/octet-stream";
-    setPendingAttachments((current) => [
-      ...current,
-      {
-        localId,
-        name: file.name || "upload",
-        mime,
-        size: file.size,
-        status: "uploading"
-      }
-    ]);
-    try {
-      const body = new FormData();
-      body.append("file", file, file.name);
-      const uploadResponse = await apiFetch("/api/files", { method: "POST", body });
-      const uploadPayload = (await uploadResponse.json()) as { id: string };
-      const meta = await apiJson<{
-        id: string;
-        original_name?: string;
-        mime?: string;
-        size?: number;
-        sha256?: string;
-      }>(`/api/files/${encodeURIComponent(uploadPayload.id)}/meta`);
-      const uploaded: UploadedAttachment = {
-        localId,
-        fileId: uploadPayload.id,
-        name: meta.original_name || file.name || "upload",
-        mime: meta.mime || mime,
-        size: typeof meta.size === "number" ? meta.size : file.size,
-        ...(typeof meta.sha256 === "string" && meta.sha256 ? { sha256: meta.sha256 } : {})
-      };
-      setPendingAttachments((current) =>
-        current.map((item) =>
-          item.localId === localId
-            ? {
-                ...item,
-                name: uploaded.name,
-                mime: uploaded.mime,
-                size: uploaded.size,
-                status: "ready",
-                uploaded,
-                error: undefined
-              }
-            : item
-        )
-      );
-    } catch (uploadError) {
-      const message = uploadError instanceof Error ? uploadError.message : "Upload failed";
-      setPendingAttachments((current) =>
-        current.map((item) =>
-          item.localId === localId ? { ...item, status: "error", error: message } : item
-        )
-      );
-    }
-  }
-
   function uploadFiles(files: File[]) {
-    for (const file of files) {
-      void uploadSingleFile(file);
-    }
+    if(!activeChannel || activeChannel.archivedAt || !activeChannelCanPost || sending)return;
+    enqueueFiles(files);
   }
 
   function handlePickFiles(event: ChangeEvent<HTMLInputElement>) {
@@ -2183,6 +1961,7 @@ export default function App() {
   }
 
   const chatWorkspace = <section className={`workspace${view === "workspace" ? " standalone-workspace" : ""}`}>
+        <ChatFileDrop scope={`${userId??''}:${activeChannelId??''}`} onFiles={uploadFiles} disabledReason={!activeChannel?'Choose a conversation before attaching files.':activeChannel.archivedAt?'Restore this conversation before attaching files.':!activeChannelCanPost?'This conversation is read-only.':sending?'Wait for this message to finish sending.':undefined}/>
         {view === "workspace" && <WorkspaceTopbar
           onMenu={() => setMobileSidebarOpen(true)}
           search={<label className="dashboard-search"><DesignIcon name="search" /><input
@@ -2300,46 +2079,7 @@ export default function App() {
                     </article>
                   );
                 }
-                const selectedEvent = item.traceEvents.find((event) => event.id === expandedTraceEventId) ?? null;
-                return (
-                  <article className={`trace-group trace-group-${item.tone}`} key={item.id}>
-                    <div className="trace-chips" role="list" aria-label="Agent activity trace">
-                      {item.traceEvents.map((event) => {
-                        const selected = event.id === expandedTraceEventId;
-                        const summary = traceTitle(event);
-                        return (
-                          <button
-                            key={event.id}
-                            className={`trace-chip trace-chip-${traceChipTone(event)} ${
-                              selected ? "trace-chip-active" : ""
-                            }`}
-                            title={`${summary}${event.createdAt ? ` • ${formatTime(event.createdAt)}` : ""}`}
-                            type="button"
-                            onClick={() =>
-                              setExpandedTraceEventId((current) => (current === event.id ? null : event.id))
-                            }
-                            aria-label={summary}
-                          >
-                            <span>{traceChipCode(event)}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {selectedEvent ? (
-                      <div className="trace-detail-card">
-                        <div className="trace-detail-meta">
-                          <strong>{traceTitle(selectedEvent)}</strong>
-                          <span>{formatTime(selectedEvent.createdAt)}</span>
-                        </div>
-                        {traceDetail(selectedEvent) ? (
-                          <pre>{traceDetail(selectedEvent)}</pre>
-                        ) : (
-                          <p>No additional details.</p>
-                        )}
-                      </div>
-                    ) : null}
-                  </article>
-                );
+                return <AgentActivity key={item.id} events={item.traceEvents} tone={item.tone} formatTime={formatTime}/>;
               })
             )}
           </section>
@@ -2365,35 +2105,7 @@ export default function App() {
             className="composer-file-input"
             onChange={handlePickFiles}
           />
-          {pendingAttachments.length > 0 ? (
-            <div className="composer-attachments">
-              {pendingAttachments.map((attachment) => (
-                <article key={attachment.localId}>
-                  <div>
-                    <strong>{attachment.name}</strong>
-                    <span>
-                      {attachment.status === "ready"
-                        ? `Ready${formatAttachmentSize(attachment.size) ? ` • ${formatAttachmentSize(attachment.size)}` : ""}`
-                        : attachment.status === "uploading"
-                          ? "Uploading..."
-                          : attachment.error || "Upload failed"}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    className="composer-attachment-remove"
-                    onClick={() =>
-                      setPendingAttachments((current) =>
-                        current.filter((item) => item.localId !== attachment.localId)
-                      )
-                    }
-                  >
-                    Remove
-                  </button>
-                </article>
-              ))}
-            </div>
-          ) : null}
+          <ChatAttachments items={pendingAttachments} error={attachmentError} disabled={sending} onRemove={id=>setPendingAttachments(items=>items.filter(item=>item.localId!==id))}/>
           <div className="mention-input">
           {mentions.popup}
           <textarea
@@ -2446,7 +2158,7 @@ export default function App() {
                 !activeChannel ||
                 Boolean(activeChannel.archivedAt) ||
                 !activeChannelCanPost ||
-                sending || multipleAgentTargets ||
+                sending || hasAttachmentErrors || multipleAgentTargets ||
                 uploadingAttachmentCount > 0 ||
                 (!draft.trim() && readyAttachments.length === 0)
               }
@@ -2460,7 +2172,7 @@ export default function App() {
           </div>
           {hasAttachmentErrors ? (
             <p className="composer-attachment-error">
-              One or more attachments failed to upload. Remove them or retry.
+              Remove failed uploads before sending. You can attach them again to retry.
             </p>
           ) : null}
           </form>

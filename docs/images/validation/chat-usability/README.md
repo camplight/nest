@@ -1,0 +1,1 @@
+Implemented Nest UI captured by `npm run test:ui:chat` with isolated real Nest and OrgOps HTTP handlers. All identities, projects, files, output and errors are synthetic fixtures. No live agent, model or connected account was used. Screenshots cover desktop (1440×1000) and mobile (390×844); these are implementation captures, not Figma references or production tenant data.

@@ -429,3 +429,14 @@ Current connection skills require exactly one unshared owner-only conversation a
 
 
 The kickoff policy is carried in new auto-created channels' existing metadata, which native OrgOps turns include in their system channel context. It is intentionally prompt guidance: no output-rewriting model, validation/retry loop, or changes to existing agents' instructions. Existing channels are not silently rewritten. Contextual suggestions recognize explicit app names in recent project messages, confirm exact connectable catalog slugs, and suppress currently active accounts. At most two suggestions are shown; dismissal is available and provider failures leave chat usable. Authorization is human initiated, owner-scoped, and leaves grants unchanged. A successful fixed-provider callback returns to the same accessible project and restores its local draft; explicit channel/project/share links take precedence.
+
+
+## Chat usability — implemented, awaiting release
+
+- Drop files anywhere on an existing chat screen or a new-project chat draft;
+  retain explicit Send, existing file permissions and owner-scoped draft recovery.
+- Share upload status and the 20-file limit across picker, paste and drop.
+- Replace activity letter abbreviations with labelled icons, readable event
+  explanations, expandable step history and opt-in technical payloads.
+- Browser coverage uses isolated real Nest/OrgOps handlers and synthetic files,
+  with desktop/mobile screenshots. No live model or provider accounts are used.

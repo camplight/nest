@@ -128,8 +128,8 @@
 .project-start-composer textarea { resize:vertical; max-height:220px; min-height:100px; border:0; background:transparent; padding:8px; }
 .project-start-footer { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-top:12px; }
 .project-start-footer>span,.project-start-recipients { color:var(--nest-muted); font-size:12px; }
-.project-start-footer>div { display:flex; gap:10px; }
-@media(max-width:600px){ .project-start-intro { padding:12px 0; } .project-start-intro h2 { font-size:24px; } .project-start-composer { padding:12px; } .project-start-footer { align-items:flex-end; } .project-start-footer>span { max-width:16ch; } }
+.project-start-footer>div { display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+@media(max-width:600px){ .project-start-intro { padding:12px 0; } .project-start-intro h2 { font-size:24px; } .project-start-composer { padding:12px; } .project-start-footer { align-items:flex-start; flex-direction:column; } .project-start-footer>span { max-width:none; } }
 
 .project-settings-dialog { border:1px solid var(--nest-border); border-radius:12px; background:var(--nest-surface); color:var(--nest-text); padding:0; width:min(540px,calc(100vw - 32px)); max-height:85dvh; }
 .project-settings-dialog::backdrop { background:#0006; }
