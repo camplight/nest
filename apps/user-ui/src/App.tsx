@@ -2045,13 +2045,19 @@ export default function App() {
                 if (item.kind === "message") {
                   const event = item.event;
                   const role = messageRole(event.source);
+                  const sender = sourceLabel(event.source);
                   const attachments = parseMessageAttachments(event.payload);
                   const text = messageText(event);
                   const markdown = shouldRenderMarkdown(text);
                   return (
                     <article tabIndex={focusedMessage===event.id?-1:undefined} id={`message-${event.id}`} className={`message message-${role}${focusedMessage===event.id?" message-highlight":""}`} key={item.id}>
                       <div className="message-meta">
-                        <strong>{sourceLabel(event.source)}</strong>
+                        <div className="message-sender">
+                          {role === "agent" ? <AgentAvatar name={sender} size={32} /> : role === "human" ? (
+                            <span className="message-human-avatar" aria-hidden="true">{sender.trim().slice(0, 2).toUpperCase()}</span>
+                          ) : null}
+                          <strong>{sender}</strong>
+                        </div>
                         <span>{formatTime(messageDisplayTime(event))}</span>
                       </div>
                       {Boolean(event.payload)&&typeof event.payload==='object'&&event.payload!==null&&'targetAgentName' in event.payload&&<span className="message-target">To @{String(event.payload.targetAgentName)}</span>}

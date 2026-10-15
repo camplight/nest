@@ -912,3 +912,15 @@ event payload; clicking/tapping the box again closes the card. Mobile needs no
 hover. No summary prose or step list is shown by default. Diagnostic output and missing process exit codes
 do not imply failure. Event colours describe individual events, never project
 acceptance. No execution, retry or engine event semantics change.
+
+
+## Chat sender avatars
+
+Human and agent messages show a decorative 32px avatar beside the sender name.
+Agents reuse `AgentAvatar` and the current configured character from the Agents
+screen, with its existing deterministic/image-error fallback. Humans use initials
+from the recorded sender name; the engine human/auth APIs do not provide profile
+photos. Rendering does not fetch external avatar services or add profile storage.
+Historical senders remain visible even if absent from the current directory.
+Names, timestamps, message anchors, attachments, targeting and compact activity
+retain their existing behaviour in project and standalone chats.
