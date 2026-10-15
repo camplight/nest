@@ -613,8 +613,12 @@ export default function App() {
       if(existing){existing.assistantOwner=offer.ownerName;existing.id='ASSISTANT:'+offer.agentName;}
       else candidates.push({id:'ASSISTANT:'+offer.agentName,name:offer.agentName,kind:'Agent',inConversation:false,assistantOwner:offer.ownerName});
     }
+    for(const candidate of candidates){
+      const agent=visibleAgents.find(agent=>candidate.kind==='Agent'&&agent.name===candidate.name);
+      if(agent?.visibility==='PRIVATE'&&agent.ownerHumanId!==userId)candidate.inviteBlockedReason='Only this agent’s owner can invite it';
+    }
     return candidates;
-  }, [visibleAgents, humans, activeChannel?.participants,sharedAssistants]);
+  }, [visibleAgents, humans, activeChannel?.participants,sharedAssistants,userId]);
 
   const filteredChannels = useMemo(() => {
     const query = channelQuery.trim().toLowerCase();
@@ -659,7 +663,23 @@ export default function App() {
   const activeChannelManageable = canManageUserChannel(activeChannel, userId);
   const activeChannelCanPost = activeChannel ? activeChannel.canPost !== false : false;
   const activeConversationName = activeChannel ? projectIndex.find(project => project.channelId === activeChannel.id)?.name ?? channelLabel(activeChannel, username) : "";
-  const mentions = useMentionPicker({value:draft, onChange:setDraft, onChoose:chooseMention, onAskAssistant:(name,brief)=>{if(userId){prepareAssistantRequest(userId,name,brief);selectAgent(null,{requests:true,assistant:name});}}, targeted:true, textareaRef:composerTextareaRef, candidates:mentionOptions, channelId:activeChannelId, disabled:!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending});
+  const mentionProject=projectIndex.find(project=>project.channelId===activeChannelId);
+  const canInviteMention=activeChannelManageable&&(!mentionProject||mentionProject.ownerId===userId);
+  async function inviteMention(candidate:import('./mentions').MentionCandidate){
+    const channelId=activeChannelId,ownerId=userId;
+    if(!channelId||!ownerId||!canInviteMention||!activeChannelCanPost||activeChannel?.archivedAt||candidate.inviteBlockedReason)throw Error('Invitation unavailable');
+    const member={subscriberType:candidate.kind==='Agent'?'AGENT':'HUMAN',subscriberId:candidate.name};
+    try{
+      await apiFetch(mentionProject?`/api/projects/${encodeURIComponent(mentionProject.id)}/members`:`/api/channels/${encodeURIComponent(channelId)}/subscribe`,{method:'POST',headers:getApiHeaders(),body:JSON.stringify(member)});
+    }catch{/* Re-read membership to reconcile a response lost after subscription. */}
+    const fresh=await apiJson<Channel[]>('/api/channels?includeArchived=1');
+    const channel=fresh.find(channel=>channel.id===channelId);
+    if(!channel||channel.archivedAt||channel.canPost===false||!canManageUserChannel(channel,ownerId)||!channel.participants?.some(participant=>participant.subscriberType===member.subscriberType&&participant.subscriberId===member.subscriberId))throw Error('Invitation unconfirmed');
+    if(userIdRef.current!==ownerId)throw Error('Session changed');
+    // Refresh the roster without navigating back if the user changed chats.
+    setChannels(fresh);
+  }
+  const mentions = useMentionPicker({value:draft, onChange:setDraft, onChoose:chooseMention, onAskAssistant:(name,brief)=>{if(userId){prepareAssistantRequest(userId,name,brief);selectAgent(null,{requests:true,assistant:name});}}, targeted:true, onInvite:canInviteMention?inviteMention:undefined, textareaRef:composerTextareaRef, candidates:mentionOptions, channelId:activeChannelId, disabled:!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending});
   const canStartConversation =
     Boolean(conversationName.trim()) || selectedConversationAgents.length === 1;
   const selectedConversationAgentRecords = useMemo(
@@ -1496,7 +1516,7 @@ export default function App() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeChannelId || activeChannel?.archivedAt || !activeChannelCanPost) return;
-    if (uploadingAttachmentCount > 0 || hasAttachmentErrors || multipleAgentTargets || sending) return;
+    if (uploadingAttachmentCount > 0 || hasAttachmentErrors || multipleAgentTargets || mentions.inviting || sending) return;
     const trimmedText = draft.trim();
     if (!trimmedText && readyAttachments.length === 0) return;
 
@@ -2158,7 +2178,7 @@ export default function App() {
                 !activeChannel ||
                 Boolean(activeChannel.archivedAt) ||
                 !activeChannelCanPost ||
-                sending || hasAttachmentErrors || multipleAgentTargets ||
+                sending || Boolean(mentions.inviting) || hasAttachmentErrors || multipleAgentTargets ||
                 uploadingAttachmentCount > 0 ||
                 (!draft.trim() && readyAttachments.length === 0)
               }
