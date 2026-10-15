@@ -18,9 +18,14 @@ const engine = createEngine({
   adminPass: "password",
   runnerToken: "runner",
 });
-let loseSend = false;
+let loseSend = false,loseInvitation=false,denyInvitation=false,holdInvitation=false;
+let invitationStarted:(()=>void)|undefined,releaseInvitation:(()=>void)|undefined;
 const client = createOrgOpsClient("http://engine", async (url, init) => {
+  const subscribing=new URL(String(url)).pathname.endsWith('/subscribe')&&init?.method==='POST';
+  if(subscribing&&denyInvitation){denyInvitation=false;return new Response(JSON.stringify({error:'Forbidden'}),{status:403,headers:{'content-type':'application/json'}});}
+  if(subscribing&&holdInvitation){holdInvitation=false;invitationStarted?.();await new Promise<void>(resolve=>{releaseInvitation=resolve;});}
   const r = await engine.app.fetch(new Request(url, init));
+  if(subscribing&&loseInvitation){loseInvitation=false;throw Error('Lost invitation response');}
   if (
     loseSend &&
     new URL(String(url)).pathname === "/api/events" &&
@@ -90,13 +95,14 @@ try {
     { "content-type": "application/json" },
   );
   const bobCookie = bobLogin.headers.getSetCookie()[0].split(";")[0];
-  for (const name of ["Puff", "Moss", "Outsider"])
+  for (const name of ["Puff", "Moss", "Outsider", "Visitor", "Slow"])
     assert.equal(
       (
         await post(
           "/api/agents",
           {
             name,
+            visibility:"PUBLIC",
             modelId: "openrouter:test-only",
             workspacePath: join(dir, name),
           },
@@ -137,6 +143,10 @@ try {
         )
       ).ok,
     );
+  const bobHeaders={cookie:bobCookie,'content-type':'application/json'};
+  assert.equal((await post('/api/agents',{name:'PrivateBob',visibility:'PRIVATE',modelId:'openrouter:test-only',workspacePath:join(dir,'PrivateBob')},bobHeaders)).status,201);
+  const sharedRoom=await(await post('/api/channels',{name:'Demo shared context',visibility:'PRIVATE'},headers)).json();
+  for(const [subscriberType,subscriberId] of [['AGENT','PrivateBob'],['HUMAN','demo-alice']])assert((await post('/api/channels/'+sharedRoom.id+'/subscribe',{subscriberType,subscriberId},headers)).ok);
   const browser = await chromium.launch();
   try {
     async function session(cookie: string) {
@@ -180,13 +190,29 @@ try {
     const input = page.getByRole("textbox", { name: "Message", exact: true }),
       popup = page.getByRole("listbox", { name: "Mention people and agents" });
     await input.fill("@Outsider");
-    assert.equal(
-      await popup.getByRole("option").getAttribute("aria-disabled"),
-      "true",
-    );
-    await input.press("Enter");
-    assert.equal(await input.inputValue(), "@Outsider");
-    await input.press("Escape");
+    const outsider=popup.getByRole('option').filter({hasText:'Outsider'});
+    assert.equal(await outsider.getAttribute('aria-disabled'),'false');
+    await outsider.getByText('Agent · Add to chat and mention',{exact:true}).waitFor();
+    await page.waitForFunction(()=>getComputedStyle(document.querySelector('.mention-popup')!).opacity==='1');
+    await page.screenshot({path:join(screenshots,'invite-desktop.png'),fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    await page.screenshot({path:join(screenshots,'invite-mobile.png'),fullPage:true});
+    await page.setViewportSize({width:1440,height:1000});
+    denyInvitation=true;await outsider.click();
+    await page.getByRole('alert').filter({hasText:'Couldn’t confirm Outsider was added'}).waitFor();
+    assert.equal(await input.inputValue(),'@Outsider');
+    loseInvitation=true;await input.press('Enter');
+    await page.waitForFunction(()=>document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.value==='@Outsider ');
+    const joined=await(await product.app.request('/api/channels?includeArchived=1',{headers})).json();
+    assert.equal(joined.find((channel:any)=>channel.id===ch.id).participants.filter((p:any)=>p.subscriberType==='AGENT'&&p.subscriberId==='Outsider').length,1,'Lost-response retry confirms one subscription');
+    assert.equal((await(await product.app.request('/api/events?channelId='+ch.id+'&type=message.created',{headers})).json()).length,0,'Invitation never sends a message');
+    await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>resolve())));
+    await input.fill('@PrivateBob');
+    const privateAgent=popup.getByRole('option').filter({hasText:'PrivateBob'});
+    assert.equal(await privateAgent.getAttribute('aria-disabled'),'true');
+    await privateAgent.getByText('Agent · Only this agent’s owner can invite it',{exact:true}).waitFor();
+    await input.press('Enter');assert.equal(await input.inputValue(),'@PrivateBob');
+    await input.press('Escape');
     await input.fill("@pu");
     await input.press("Enter");
     await input.press("End");
@@ -350,13 +376,45 @@ try {
       .filter({ hasText: "demo-alice mentioned you" })
       .waitFor();
     assert.equal(await receiver.getByLabel("Unread mentions").count(), 0);
+    // A non-owner participant can target current members but cannot invite.
+    await receiver.keyboard.press('Escape');
+    const receiverInput=receiver.getByRole('textbox',{name:'Message',exact:true});
+    await receiverInput.fill('@Visitor');
+    const visitor=receiver.getByRole('option').filter({hasText:'Visitor'});
+    assert.equal(await visitor.getAttribute('aria-disabled'),'true');
+    await visitor.getByText('Agent · Ask a chat manager to add them',{exact:true}).waitFor();
+    await receiverInput.press('Enter');assert.equal(await receiverInput.inputValue(),'@Visitor');
+    // Project mentions use the existing owner-authorized project invitation API.
+    const project=await(await post('/api/projects',{id:crypto.randomUUID(),name:'Demo mention invitations',description:'Synthetic project for invitation checks',collaboration:'team'},headers)).json();
+    await page.goto(base+'/?view=projects&project='+project.id);
+    await input.fill('@Visitor');await input.press('Enter');
+    await page.waitForFunction(()=>document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.value==='@Visitor ');
+    await page.getByRole('button',{name:'Send',exact:true}).click();
+    await page.getByText('To @Visitor',{exact:true}).waitFor();
+    const projectEvents=await(await product.app.request('/api/events?channelId='+project.channelId+'&type=message.created',{headers})).json();
+    assert.equal(projectEvents.length,1);assert.equal(projectEvents[0].payload.targetAgentName,'Visitor');
+    await page.screenshot({path:join(screenshots,'invited-project-desktop.png'),fullPage:true});
+    // Changing chats during a pending invitation does not replace another draft.
+    await input.fill('@Slow');holdInvitation=true;
+    const started=new Promise<void>(resolve=>{invitationStarted=resolve;});
+    await input.press('Enter');await started;
+    assert.equal(await input.getAttribute('readonly'),'');
+    assert(await page.getByRole('button',{name:'Send',exact:true}).isDisabled());
+    await page.evaluate(id=>{history.pushState({},'', '/?channel='+id);dispatchEvent(new PopStateEvent('popstate'));},ch.id);
+    await input.fill('A different conversation draft');
+    const invitationResponse=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/projects/'+project.id+'/members'&&response.request().method()==='POST');
+    const rosterResponse=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/channels'&&response.request().method()==='GET');
+    releaseInvitation!();await invitationResponse;await rosterResponse;
+    await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+    assert.equal(await input.inputValue(),'A different conversation draft');
+    assert.equal(new URL(page.url()).searchParams.get('channel'),ch.id);
     assert.deepEqual(errors, []);
     console.log(
-      "PASS: real-engine targeted delivery, participant validation, recoverable retry, multiple-agent prevention, selected-name edits, attachments, human inbox, read state, message links and mobile. Screenshots: " +
+      "PASS: invitations from standalone/project mentions, no implicit send, lost invitation response, denied invitations, private non-owner restriction, pending-invite chat switching, real-engine targeted delivery, participant validation, recoverable retry, multiple-agent prevention, selected-name edits, attachments, human inbox, read state, message links and mobile. Screenshots: " +
         screenshots,
     );
   } finally {
-    await browser.close();
+    releaseInvitation?.();await browser.close();
   }
 } finally {
   server.kill("SIGTERM");

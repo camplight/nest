@@ -674,12 +674,20 @@ in-app mention notifications. Unselected @ text retains ordinary channel deliver
 and may still be interpreted by an agent's coordination instructions.
 
 The picker keeps human and agent identities distinct, supports names with spaces
-and email handles, and disables recipients outside the current conversation.
+and email handles. Eligible nonmembers offer Add to chat and mention when the
+human can manage invitations (the owner for product projects). Selection explicitly
+shares chat history/files, calls the existing project-members or engine-subscribe
+HTTP API, and confirms membership before inserting routing metadata. An uncertain
+response is reconciled by reading the current roster. Failure preserves the draft;
+changing chats during the request never inserts into another conversation.
+Nonmanagers see an explanation. Another owner's private agent is never invited
+through this picker; published personal assistants keep their owner-approval path.
 Editing a selected name removes its routing metadata. Surrounding edits preserve
 it. The composer shows Ask/Notify recipients and prevents multiple-agent sends.
 Server validation checks span/text agreement, recipient membership, agent
 visibility, human identity and current channel posting rights. It derives source
-from the human session and never subscribes a recipient or expands tool grants.
+from the human session. Sending itself never subscribes a recipient or expands
+tool grants; the explicit picker invitation is a separate operation.
 
 Migration `006_mentions.sql` stores Nest send intent hashes, a planned engine
 event UUID, delivery confirmations and notification read state. Text and

@@ -261,7 +261,8 @@ and the global metadata-token requirement.
 
 Selected mentions in the existing composer now carry structured identities and
 text spans. One agent target uses OrgOps's existing `targetAgentName`; any selected
-people receive in-app mention notifications. Nonmembers are disabled, multiple
+people receive in-app mention notifications. Eligible nonmembers can be invited
+from the picker by a chat manager (project owner); nonmanagers see a reason. Multiple
 agent targets block Send, edited names lose their selection, and the server
 revalidates membership/visibility. No implicit subscription or account delegation.
 
@@ -440,3 +441,13 @@ The kickoff policy is carried in new auto-created channels' existing metadata, w
   short hover/focus labels and click-to-open technical details.
 - Browser coverage uses isolated real Nest/OrgOps handlers and synthetic files,
   with desktop/mobile screenshots. No live model or provider accounts are used.
+
+
+## Mention invitations — implemented, awaiting release
+
+Chat/project owners can select an eligible teammate outside the current chat with
+Add to chat and mention. Existing HTTP APIs confirm membership before selected
+routing metadata is inserted. Picking never sends a message. Failed invitations
+preserve the draft; lost responses reconcile without duplicate subscriptions.
+Pending invitations block Send and do not replace drafts in other conversations.
+Private assistants owned by others retain their existing approval workflow.
