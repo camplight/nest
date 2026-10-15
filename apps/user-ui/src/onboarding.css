@@ -395,3 +395,9 @@
 .connection-action-details :is(img, table) { max-width: 100%; }
 
 .connection-action-details a { color: inherit; text-underline-offset: 3px; }
+
+.connection-project-access { display: grid; gap: 12px; padding: 20px; min-width: 0; }
+.connection-project-access h3, .connection-project-access h4, .connection-project-access p { margin: 0; }
+.connection-project-access p { color: var(--nest-muted); line-height: 1.6; overflow-wrap: anywhere; }
+.connection-project-access section { display: grid; gap: 10px; padding-top: 16px; border-top: 1px solid var(--nest-border); min-width: 0; }
+.connection-project-access button { justify-self: start; max-width: 100%; white-space: normal; }
