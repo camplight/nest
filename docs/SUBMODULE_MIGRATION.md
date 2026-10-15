@@ -375,3 +375,14 @@ This UI-only follow-up requires no API/DB/engine change. Fresh creation drafts m
 ## Project kickoff and connection suggestions
 
 No engine source/pin, product migration, runtime credential or agent instruction update is required. New automatic project channels carry response guidance in existing metadata consumed by native channel context; existing channels are untouched. The optional UI connects through current provider/catalog/link APIs and requires the existing instance integration configuration. Personal account grants and private-context checks do not change. Return-from-authorization routing uses an owner-bound tab marker plus current project access; provider state is always fetched through existing APIs.
+
+## Explicit project connection audiences
+
+Product migration009 adds owner-approved project audience snapshots. No engine
+source/pin, runner credential or provider grant changes. Deploy API/UI together
+with both database snapshots. Existing tokens and grants remain valid only in
+eligible contexts; existing project subscriptions need explicit owner approval in
+Connected apps. Assistant requests remain private-only. Runtime skill copies are
+preserved by installation; operators may refresh the bundled nest-connections
+instructions through normal skill distribution, but endpoint enforcement and the
+new UI do not require a runtime helper update.

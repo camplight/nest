@@ -21,7 +21,7 @@ it('upgrades an existing branding-only database once without changing its record
       const store=openProductDb(path);
       try {
         expect(store.branding()).toEqual(branding);
-        expect(store.db.prepare('SELECT * FROM product_migrations').all()).toEqual([{name:'001_projects'},{name:'002_project_chats'},{name:'003_community'},{name:'004_personal_agents'},{name:'005_integrations'},{name:'006_mentions'},{name:'007_agent_requests'},{name:'008_project_collaboration'}]);
+        expect(store.db.prepare('SELECT * FROM product_migrations').all()).toEqual([{name:'001_projects'},{name:'002_project_chats'},{name:'003_community'},{name:'004_personal_agents'},{name:'005_integrations'},{name:'006_mentions'},{name:'007_agent_requests'},{name:'008_project_collaboration'},{name:'009_connection_projects'}]);
         expect(store.db.prepare('SELECT type,created_at FROM product_audit').all()).toEqual([{type:'audit.branding.updated',created_at:123}]);
         expect(store.projects.projects('owner')).toEqual([]);
       } finally {store.close();}
