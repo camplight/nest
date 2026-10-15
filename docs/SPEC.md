@@ -924,3 +924,15 @@ types, sizes, and download links remain visible. Failed previews fall back to
 the file link; SVG and other file types remain links rather than inline images.
 Native agents publish generated files with OrgOps `fs_upload`, then include the
 returned attachment in their message payload. No public static copy is created.
+
+
+## Chat sender avatars
+
+Human and agent messages show a decorative 32px avatar beside the sender name.
+Agents reuse `AgentAvatar` and the current configured character from the Agents
+screen, with its existing deterministic/image-error fallback. Humans use initials
+from the recorded sender name; the engine human/auth APIs do not provide profile
+photos. Rendering does not fetch external avatar services or add profile storage.
+Historical senders remain visible even if absent from the current directory.
+Names, timestamps, message anchors, attachments, targeting and compact activity
+retain their existing behaviour in project and standalone chats.
