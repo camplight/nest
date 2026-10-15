@@ -1,0 +1,9 @@
+.chat-file-drop { position:fixed; inset:12px; z-index:10000; display:grid; place-items:center; pointer-events:none; background:color-mix(in srgb,var(--nest-surface) 94%,transparent); border:2px dashed var(--nest-accent); border-radius:14px; box-shadow:0 0 0 12px color-mix(in srgb,var(--nest-bg) 65%,transparent); }
+.chat-file-drop>div { max-width:440px; padding:28px; text-align:center; color:var(--nest-text); }
+.chat-file-drop-icon { display:grid; place-items:center; width:64px; height:64px; margin:0 auto 20px; border:1px solid var(--nest-border); border-radius:18px; background:var(--nest-surface); font-size:34px; }
+.chat-file-drop strong { display:block; font-size:24px; line-height:1.3; }
+.chat-file-drop p { margin:12px 0 0; color:var(--nest-muted); font-size:14px; line-height:1.6; }
+.chat-file-drop.is-disabled { border-color:var(--nest-muted); }
+.chat-file-drop-notice { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:10001; display:flex; align-items:center; gap:16px; width:max-content; max-width:calc(100% - 32px); box-sizing:border-box; padding:16px 20px; border:1px solid var(--nest-border); border-radius:10px; background:var(--nest-surface); color:var(--nest-text); box-shadow:0 8px 32px #0002; font-size:14px; }
+.chat-file-drop-notice button { border:0; background:transparent; color:inherit; text-decoration:underline; cursor:pointer; padding:6px; }
+@media(max-width:760px) { .chat-file-drop { inset:8px; } .chat-file-drop strong { font-size:21px; } .chat-file-drop-notice { bottom:16px; padding:12px; font-size:12px; } }

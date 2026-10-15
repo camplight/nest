@@ -1,4 +1,5 @@
 import { z } from "zod";
+export const MAX_MESSAGE_ATTACHMENTS = 20;
 export const SelectedMentionSchema = z
   .object({
     kind: z.enum(["AGENT", "HUMAN"]),
@@ -23,7 +24,7 @@ export const SendMessageSchema = z
     text: z.string().min(1).max(32000),
     targetAgentName: z.string().min(1).max(200).optional(),
     mentions: z.array(SelectedMentionSchema).max(30).default([]),
-    attachments: z.array(MessageAttachmentSchema).max(20).default([]),
+    attachments: z.array(MessageAttachmentSchema).max(MAX_MESSAGE_ATTACHMENTS).default([]),
   })
   .strict();
 export type SendMessage = z.infer<typeof SendMessageSchema>;

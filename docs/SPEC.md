@@ -235,7 +235,7 @@ The browser stores owner-bound draft text, selected identities, project/message
 UUIDs and the submitted metadata snapshot. Creation and first-message delivery
 reuse their existing independent durable intents. If delivery is uncertain, the
 text stays locked for retry; metadata is not recalculated for a submitted draft.
-Opening/cancelling an untouched draft creates no empty records. Files and further
+Opening/cancelling an untouched draft creates no empty project or chat records. Files and further
 membership management become available in the created workspace. Logout clears
 both current and legacy creation drafts. A previously submitted legacy name-form
 draft still opens its original recovery form until completed.
@@ -878,3 +878,29 @@ New auto-created project channels include `nestKickoffGuidance` alongside the ex
 Recent confirmed project messages can surface at most two optional app connections. Matching uses explicit supported app names, then verifies an exact connectable slug in the configured provider catalog. Only app search terms go to the catalog, not message contents. Currently active owner accounts are suppressed after a complete bounded account traversal; an incomplete list or provider outage suppresses suggestions without blocking chat. The user can dismiss suggestions. A human click uses the existing owner-authenticated linking API and an HTTPS authorization redirect. No connection token or grant is issued by a suggestion, and no tool is executed.
 
 The UI explicitly states that account linking does not give agents project access. Existing private-context validation remains unchanged: project subscription pauses personal connected tools. Authorization and exact per-agent grants are separate steps. A tab-scoped owner/project return marker restores a successful fixed-provider callback only to a currently accessible project; explicit channel/project/share links win. Callback status/account IDs are navigation hints, never proof of authorization; the provider API remains authoritative for connection state. Browser drafts survive the round trip. Signing out clears the owner's return marker.
+
+
+## Chat attachments and activity
+
+On a chat screen, files dropped over the header, navigation, message history,
+composer or project panel join the current message draft. The new-project chat
+supports the same upload path and a keyboard-accessible file picker before the
+project exists. Dropping does not send, create a project or invoke a model.
+File-only opening messages use the attached filenames as provisional context.
+Confirmed file references survive draft reload; local bytes and unfinished
+uploads do not. Upload results remain bound to their original owner/channel/draft.
+
+Picker, pasted images and drops share the message schema's 20-file limit.
+Uploads still use the existing authenticated engine file HTTP API. Failed uploads
+must be removed before sending, with the draft preserved. Archived, read-only and
+sending states block new attachments. Folder drops explain how to use a ZIP or
+individual files; ordinary text/link drags retain browser behaviour.
+
+Activity keeps the original tiny 22px event boxes, replacing letter abbreviations
+with SVG icons. Green and red distinguish successful and failed events; hover or
+keyboard focus shows a short event label and timestamp. Clicking/tapping a box
+opens a compact label card with an optional Details toggle for the recorded
+event payload; clicking/tapping the box again closes the card. Mobile needs no
+hover. No summary prose or step list is shown by default. Diagnostic output and missing process exit codes
+do not imply failure. Event colours describe individual events, never project
+acceptance. No execution, retry or engine event semantics change.
