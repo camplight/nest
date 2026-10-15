@@ -14,7 +14,7 @@ export function activity(event:EventRow):{title:string;tone:ActivityTone;icon:Ac
       const code=typeof p.exitCode==='number'?p.exitCode:null;
       return code===0?{title:'Agent process finished',tone:'success',icon:'check'}:code===null?{title:'Agent process stopped',tone:'muted',icon:'terminal'}:{title:'Agent process stopped with an error',tone:'danger',icon:'error'};
     }
-    case 'process.output':return {title:p.stream==='STDERR'?'Diagnostic output':'Agent output',description:p.stream==='STDERR'?'The agent program wrote diagnostic output. This alone does not mean it failed.':'The agent program recorded output while working.',tone:'muted',icon:'output'};
+    case 'process.output':return {title:p.stream==='STDERR'?'Diagnostic output':'Agent output',tone:'muted',icon:'output'};
     case 'tool.started':return {title:`Using ${tool}`,tone:'neutral',icon:'tool'};
     case 'tool.executed':return {title:`${tool} completed`,tone:'success',icon:'check'};
     case 'tool.failed':return {title:`${tool} failed`,tone:'danger',icon:'error'};
