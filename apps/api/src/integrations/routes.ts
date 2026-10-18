@@ -188,6 +188,8 @@ export function registerIntegrationRoutes(
   const projectAccess = createConnectionProjectAccess(store);
   const privateContext = createPrivateAgentContext({ orgops, engineToken,
     approvedProject: projectAccess.approved,
+    multipleOwnerChats: true,
+    isProject: projectAccess.isProject,
     onSecured: (owner, details) => audit("audit.connection.lifecycle.secured", owner, details),
   });
   // Credentials are agent-scoped, not turn-scoped. Consent therefore covers the

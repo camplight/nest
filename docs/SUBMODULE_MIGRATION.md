@@ -386,3 +386,6 @@ Connected apps. Assistant requests remain private-only. Runtime skill copies are
 preserved by installation; operators may refresh the bundled nest-connections
 instructions through normal skill distribution, but endpoint enforcement and the
 new UI do not require a runtime helper update.
+
+
+Connected apps support any number of unshared, active owner-only conversations alongside explicitly approved projects. Every subscribed conversation must still pass the owner/privacy checks or project roster approval; archived or unsafe subscriptions pause access. The credential remains bound to its original private conversation, which must still exist. Assistant request dispatch retains its separate single-private-conversation boundary. No additional migration or engine change is required.

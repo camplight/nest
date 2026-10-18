@@ -451,3 +451,10 @@ routing metadata is inserted. Picking never sends a message. Failed invitations
 preserve the draft; lost responses reconcile without duplicate subscriptions.
 Pending invitations block Send and do not replace drafts in other conversations.
 Private assistants owned by others retain their existing approval workflow.
+
+
+## Chat sender avatars — implemented, awaiting release
+
+Human/agent message headers show initials/configured Figma character avatars.
+Names and timestamps remain visible on desktop and mobile. System activity keeps
+its compact icon strip. Human profile photos await an engine HTTP profile field.

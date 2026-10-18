@@ -375,7 +375,7 @@ it("bounds action-list counts and bytes without enlarging execution requests", a
   expect((await call(path,"PUT",{tools:[],padding:"x".repeat(MAX_CONNECTION_GRANT_BYTES)})).status).toBe(413);
   expect((await call("/api/integrations/skill/execute","POST",{padding:"x".repeat(64_000)})).status).toBe(413);
 });
-it("denies changed ownership and additional conversations, including archived chats", async () => {
+it("allows additional owner-only conversations but denies archived chats and changed ownership", async () => {
   const h = await enable();
   const extra = await call("/api/channels", "POST", {
     name: "extra",
@@ -388,8 +388,8 @@ it("denies changed ownership and additional conversations, including archived ch
     subscriberId: "PuffOwner",
   });
   expect(subscribed.ok).toBe(true);
-  expect((await execute(h)).status).toBe(403);
-  expect(executionCount).toBe(0);
+  expect((await execute(h)).status).toBe(200);
+  expect(executionCount).toBe(1);
   expect((await call("/api/channels/" + id + "/archive", "POST", {})).ok).toBe(
     true,
   );
@@ -836,7 +836,7 @@ it('rechecks project revocation after provider metadata lookup before sending an
   expect((await execute(h)).status).toBe(403);
   expect(executionCount).toBe(0);
 });
-it('project approval neither authorizes additional chats nor overrides revoked tool grants', async () => {
+it('project approval denies other humans in additional chats and revoked tool grants', async () => {
   const h = await enable();
   await connectionProject();
   await approveProject();
@@ -845,6 +845,8 @@ it('project approval neither authorizes additional chats nor overrides revoked t
   const renewed = await enable();
   const extra = await (await call('/api/channels','POST',{name:'Unapproved',visibility:'PRIVATE'})).json();
   await call('/api/channels/'+extra.id+'/subscribe','POST',{subscriberType:'AGENT',subscriberId:'PuffOwner'});
+  await call('/api/humans/invite','POST',{username:'other',tempPassword:'password'});
+  expect((await call('/api/channels/'+extra.id+'/subscribe','POST',{subscriberType:'HUMAN',subscriberId:'other'})).ok).toBe(true);
   expect((await execute(renewed)).status).toBe(403);
   expect(executionCount).toBe(0);
 });

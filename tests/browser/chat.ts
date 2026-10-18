@@ -146,6 +146,39 @@ try{
   await mobile.screenshot({path:join(screenshots,'activity-detail-mobile.png'),fullPage:true});
   await mobileFailure.tap();assert.equal(await mobileActivity.locator('.trace-detail-card').count(),0);
   await mobileContext.close();
+  // Message avatars use persisted agent choices and recorded human identities.
+  const agentResponse=await post('/api/agents',{name:'PuffDemo',icon:'pom',visibility:'PUBLIC',modelId:'test-model',workspacePath:join(dir,'avatar-agent')},headers);assert.equal(agentResponse.status,201);
+  const preview=await(await post('/api/projects',{id:crypto.randomUUID(),name:'Demo design review',description:'Synthetic chat avatar preview'},headers)).json();
+  const humanName='sarah.mason.design.team@example.test';
+  assert.equal((await post('/api/humans/invite',{username:humanName,tempPassword:'test-only-password'},headers)).status,201);
+  for(const [subscriberType,subscriberId] of [['AGENT','PuffDemo'],['HUMAN',humanName]])assert.equal((await post('/api/projects/'+preview.id+'/members',{subscriberType,subscriberId},headers)).status,200);
+  for(const [source,text] of [['human:'+humanName,'Can you review the homepage direction?'],['agent:PuffDemo','Yes — I’ll review the layout, accessibility and mobile experience.']])assert.equal((await post('/api/events',{type:'message.created',source,channelId:preview.channelId,payload:{text}},{'content-type':'application/json','x-nest-runner-token':'test-runner'})).status,201);
+  await page.goto(base+'/?view=projects&project='+preview.id);
+  const agentMessage=page.locator('.message-agent'),humanMessage=page.locator('.message-human');
+  await agentMessage.getByText('PuffDemo',{exact:true}).waitFor();
+  const avatar=agentMessage.locator('.agent-portrait img');
+  assert((await avatar.getAttribute('src'))?.endsWith('/design/avatars/pom.png'),'Chat respects the configured character instead of the name-derived Puff avatar');
+  await page.waitForFunction(()=>{const img=document.querySelector<HTMLImageElement>('.message-agent .agent-portrait img');return !!img&&img.complete&&img.naturalWidth>0;});
+  assert.equal(await humanMessage.locator('.message-human-avatar').innerText(),'SA');
+  assert.equal(await humanMessage.locator('.message-human-avatar').getAttribute('aria-hidden'),'true');
+  await humanMessage.getByText(humanName,{exact:true}).waitFor();
+  await page.screenshot({path:join(screenshots,'avatars-desktop.png'),fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  if(await page.locator('.project-context-disclosure').getAttribute('open')!==null)await page.locator('.project-context-disclosure > summary').click();
+  for(const message of [humanMessage,agentMessage]){
+    const bounds=await message.boundingBox();assert(bounds&&bounds.x>=0&&bounds.x+bounds.width<=390);
+    assert(await message.evaluate(el=>el.scrollWidth<=el.clientWidth),'Long sender names and avatars fit within the message');
+  }
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await page.screenshot({path:join(screenshots,'avatars-mobile.png'),fullPage:true});
+  await page.route('**/design/avatars/pom.png',route=>route.fulfill({status:404,body:''}));
+  await page.reload();await agentMessage.locator('.agent-portrait > span').waitFor();
+  assert.equal(await agentMessage.locator('.agent-portrait > span').innerText(),'PU','Missing portraits retain the existing initials fallback');
+  await page.unroute('**/design/avatars/pom.png');
+  assert.equal((await post('/api/events',{type:'message.created',source:'agent:PuffDemo',channelId:other.id,payload:{text:'Standalone chat avatar preview'}},{'content-type':'application/json','x-nest-runner-token':'test-runner'})).status,201);
+  await page.goto(base+'/?channel='+other.id);await page.locator('.message-agent .agent-portrait img').waitFor();
+  assert((await page.locator('.message-agent .agent-portrait img').getAttribute('src'))?.endsWith('/design/avatars/pom.png'));
+  await page.goto(chatUrl);
   // Archive guard: no upload request is made and a reason is visible.
   assert.equal((await post('/api/channels/'+project.channelId+'/archive',{},headers)).status,200);
   await page.goto(base+'/?channel='+project.channelId);await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
@@ -166,6 +199,6 @@ try{
   assert.equal(await page.evaluate(()=>{const data=new DataTransfer();data.items.add(new File(['demo'],'not-in-chat.txt'));return window.dispatchEvent(new DragEvent('drop',{dataTransfer:data,bubbles:true,cancelable:true}));}),true);
   assert.equal(uploads,beforeOffScreen,'Other product screens do not intercept file drops');
   assert.deepEqual(errors,[]);
-  console.log(`PASS: whole-screen drops, picker, limits, upload failure, draft reload, late-result isolation, file-only project creation, real file bytes, readable activity and responsive layouts. Uploads: ${uploads}. Screenshots: ${screenshots}`);
+  console.log(`PASS: whole-screen drops, picker, limits, upload failure, draft reload, late-result isolation, file-only project creation, real file bytes, compact activity, configured agent/human chat avatars, long sender names, missing-image fallback and responsive layouts. Uploads: ${uploads}. Screenshots: ${screenshots}`);
  }finally{releaseUpload?.();await browser.close();}
 }finally{server.kill('SIGTERM');engine.db.close();product.store.db.close();rmSync(dir,{recursive:true,force:true});}

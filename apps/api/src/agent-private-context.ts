@@ -7,9 +7,14 @@ export function createPrivateAgentContext({
   engineToken,
   onSecured,
   approvedProject,
+  multipleOwnerChats = false,
+  isProject,
 }: {
   orgops: OrgOpsClient;
   engineToken?: string;
+  /** Connected apps may trust multiple private chats with the same owner. */
+  multipleOwnerChats?: boolean;
+  isProject?: (channelId: string) => boolean;
   /** Connections may explicitly trust a frozen project roster. Other callers stay private-only. */
   approvedProject?: (channel: Awaited<ReturnType<OrgOpsClient["connectionContext"]>>["channels"][number], agentId: string, ownerId: string) => boolean;
   onSecured?: (
@@ -66,33 +71,31 @@ export function createPrivateAgentContext({
     );
     const conversations = subscribed.filter((ch) => !lifecycle.includes(ch) &&
       !(approvedProject?.(ch, agent.id, ownerId) ?? false));
-    const ch = conversations[0];
+    const ch = (channelId
+      ? conversations.find((entry) => entry.id === channelId)
+      : conversations[0]) ?? fail(403, "The credential requires an active owner-only conversation.");
     if (
-      conversations.length !== 1 ||
       !ch ||
-      ch.archivedAt ||
-      ch.ownerHumanId !== ownerId ||
-      ch.visibility !== "PRIVATE" ||
-      !Array.isArray(ch.shares) ||
-      ch.shares.length ||
-      (channelId && ch.id !== channelId) ||
-      !ch.participants.some(
-        (p) =>
-          p.subscriberType === "HUMAN" && p.subscriberId === owner.username,
-      ) ||
-      ch.participants.some(
-        (p) =>
-          !(
-            (p.subscriberType === "HUMAN" &&
-              p.subscriberId === owner.username) ||
-            (p.subscriberType === "AGENT" && p.subscriberId === agent.name)
-          ),
+      (!multipleOwnerChats && conversations.length !== 1) ||
+      conversations.some((entry) =>
+        (isProject?.(entry.id) ?? false) ||
+        entry.archivedAt ||
+        entry.ownerHumanId !== ownerId ||
+        entry.visibility !== "PRIVATE" ||
+        !Array.isArray(entry.shares) ||
+        entry.shares.length > 0 ||
+        !entry.participants.some((p) =>
+          p.subscriberType === "HUMAN" && p.subscriberId === owner.username) ||
+        entry.participants.some((p) => !(
+          (p.subscriberType === "HUMAN" && p.subscriberId === owner.username) ||
+          (p.subscriberType === "AGENT" && p.subscriberId === agent.name)
+        ))
       )
     )
       fail(
         403,
-        approvedProject
-          ? "This agent needs one unshared owner-only conversation. Remove other subscriptions or sharing, or approve eligible projects in Connected apps before retrying."
+        multipleOwnerChats
+          ? "Connected apps require unshared owner-only chats or explicitly approved projects. Remove unsafe subscriptions or sharing, or approve eligible projects in Connected apps before retrying."
           : "This agent needs one unshared owner-only conversation. Remove other subscriptions or sharing before retrying.",
       );
     if (

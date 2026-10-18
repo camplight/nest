@@ -825,12 +825,36 @@ button {
 }
 
 .message-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
   color: var(--nest-muted);
   font-size: 12px;
   font-weight: 600;
+}
+
+.message-sender {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.message-sender strong { min-width: 0; overflow-wrap: anywhere; }
+.message-meta > span { white-space: nowrap; font-size: 11px; }
+.message-human-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--nest-border);
+  border-radius: 50%;
+  background: var(--instance-primary);
+  color: var(--instance-on-primary);
+  font-size: 11px;
+  line-height: 1;
 }
 
 .message p {
@@ -1805,3 +1829,8 @@ button {
 .login-copy .powered-by-nest { margin-top: 36px; }
 .refresh-button:hover, .composer button:enabled:hover, .login-card button:enabled:hover { background: color-mix(in srgb, var(--instance-primary) 85%, white); }
 .sidebar .new-conversation-button kbd { color: inherit; opacity: .6; }
+
+.message-attachments .message-attachment { display: flex; flex-direction: column; align-items: flex-start; gap: .35rem; min-width: 0; }
+.message-attachments .message-image-link { display: block; max-width: 100%; }
+.message-image-link img { display: block; width: auto; height: auto; max-width: min(100%, 680px); max-height: 480px; object-fit: contain; border-radius: 10px; border: 1px solid var(--border, #ddd); }
+.message-attachment > a { overflow-wrap: anywhere; }

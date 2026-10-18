@@ -39,5 +39,6 @@ export function createConnectionProjectAccess(store: ProductDb) {
       .run(agentId, ownerId, p.id, snapshot, Date.now());
     return p;
   }
-  return {approved, review, approve};
+  const isProject = (channelId: string) => Boolean(store.db.prepare("SELECT 1 FROM product_projects WHERE channel_id=?").get(channelId));
+  return {approved, review, approve, isProject};
 }

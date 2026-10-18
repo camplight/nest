@@ -158,7 +158,7 @@ action failures are not retried automatically.
 
 **Private-context limitation:** a generic skill cannot attest which conversation
 caused a call. Nest conservatively requires the PRIVATE owned agent to be
-subscribed to exactly one unarchived, unshared PRIVATE owner-only conversation,
+subscribed to one or more unarchived, unshared PRIVATE owner-only conversations,
 with only its owner and itself as participants. OrgOps also creates an
 `agent.lifecycle.<agent name>` GROUP for runtime events. Enable/Renew makes the
 canonical lifecycle channel PRIVATE and owned by the signed-in owner through
@@ -284,3 +284,6 @@ claimed link adds a viewer and pauses subsequent tool calls; an unclaimed link
 alone cannot be detected by this adapter. Anyone later given project access can
 read its existing history. Keep project sharing under the control of trusted
 owners and do not treat these checks as retrospective protection of tool results.
+
+
+Connected apps support any number of unshared, active owner-only conversations alongside explicitly approved projects. Every subscribed conversation must still pass the owner/privacy checks or project roster approval; archived or unsafe subscriptions pause access. The credential remains bound to its original private conversation, which must still exist. Assistant request dispatch retains its separate single-private-conversation boundary. No additional migration or engine change is required.

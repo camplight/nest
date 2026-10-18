@@ -1,4 +1,5 @@
-import {useAttachments,restoreAttachments,formatAttachmentSize,type UploadedAttachment} from './attachments';
+import {MessageAttachment as MessageAttachmentView} from "./components/MessageAttachment";
+import {useAttachments,restoreAttachments,type UploadedAttachment} from './attachments';
 import {ChatAttachments} from './components/ChatAttachments';
 import {ChatFileDrop} from './components/ChatFileDrop';
 import {AgentActivity} from './components/AgentActivity';
@@ -455,7 +456,6 @@ export default function App() {
   function setDraft(text:string){setDraftState(current=>({text,mentions:reconcileMentions(current.text,text,current.mentions)}));}
   function chooseMention(text:string,mention:SelectedMention){setDraftState(current=>({text,mentions:[...reconcileMentions(current.text,text,current.mentions),mention]}));}
   const draftRecipients=[...new Map(draftState.mentions.map(m=>[m.kind+':'+m.name,m])).values()];
-  const multipleAgentTargets=draftRecipients.filter(m=>m.kind==='AGENT').length>1;
   const sendRequestRef=useRef<{fingerprint:string;id:string}|null>(null);
   const [focusedMessage,setFocusedMessage]=useState<string|null>(()=>new URL(window.location.href).searchParams.get('message'));
   const [username, setUsername] = useState("");
@@ -1516,7 +1516,7 @@ export default function App() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeChannelId || activeChannel?.archivedAt || !activeChannelCanPost) return;
-    if (uploadingAttachmentCount > 0 || hasAttachmentErrors || multipleAgentTargets || mentions.inviting || sending) return;
+    if (uploadingAttachmentCount > 0 || hasAttachmentErrors || mentions.inviting || sending) return;
     const trimmedText = draft.trim();
     if (!trimmedText && readyAttachments.length === 0) return;
 
@@ -2045,16 +2045,23 @@ export default function App() {
                 if (item.kind === "message") {
                   const event = item.event;
                   const role = messageRole(event.source);
+                  const sender = sourceLabel(event.source);
                   const attachments = parseMessageAttachments(event.payload);
                   const text = messageText(event);
                   const markdown = shouldRenderMarkdown(text);
                   return (
                     <article tabIndex={focusedMessage===event.id?-1:undefined} id={`message-${event.id}`} className={`message message-${role}${focusedMessage===event.id?" message-highlight":""}`} key={item.id}>
                       <div className="message-meta">
-                        <strong>{sourceLabel(event.source)}</strong>
+                        <div className="message-sender">
+                          {role === "agent" ? <AgentAvatar name={sender} size={32} /> : role === "human" ? (
+                            <span className="message-human-avatar" aria-hidden="true">{sender.trim().slice(0, 2).toUpperCase()}</span>
+                          ) : null}
+                          <strong>{sender}</strong>
+                        </div>
                         <span>{formatTime(messageDisplayTime(event))}</span>
                       </div>
                       {Boolean(event.payload)&&typeof event.payload==='object'&&event.payload!==null&&'targetAgentName' in event.payload&&<span className="message-target">To @{String(event.payload.targetAgentName)}</span>}
+                      {Boolean(event.payload)&&typeof event.payload==='object'&&event.payload!==null&&'targetAgentNames' in event.payload&&Array.isArray(event.payload.targetAgentNames)&&<span className="message-target">To {event.payload.targetAgentNames.map(String).map(name=>'@'+name).join(', ')}</span>}
                       {markdown ? (
                         <div className="message-markdown">
                           <ReactMarkdown
@@ -2075,24 +2082,7 @@ export default function App() {
                         <div className="message-attachments">
                           <strong>Attachments</strong>
                           <ul>
-                            {attachments.map((attachment, index) => {
-                              const sizeLabel = formatAttachmentSize(attachment.size);
-                              const mimeLabel = attachment.mime ? attachment.mime : "";
-                              return (
-                                <li key={`${event.id}-attachment-${index}`}>
-                                  <a href={`/api/files/${encodeURIComponent(attachment.fileId)}`} target="_blank" rel="noreferrer">
-                                    {attachment.name}
-                                  </a>
-                                  {mimeLabel || sizeLabel ? (
-                                    <span>
-                                      {mimeLabel}
-                                      {mimeLabel && sizeLabel ? " • " : ""}
-                                      {sizeLabel || ""}
-                                    </span>
-                                  ) : null}
-                                </li>
-                              );
-                            })}
+                            {attachments.map((attachment, index) => <MessageAttachmentView key={`${event.id}-attachment-${index}`} attachment={attachment}/>)}
                           </ul>
                         </div>
                       ) : null}
@@ -2163,7 +2153,7 @@ export default function App() {
           />
           </div>
           {draftRecipients.length>0&&<div className="mention-delivery" aria-label="Message recipients">{draftRecipients.map(m=><span key={m.kind+':'+m.name}>{m.kind==='AGENT'?'Ask':'Notify'} @{m.name}<button type="button" aria-label={'Remove mention @'+m.name} onClick={()=>{const spans=draftState.mentions.filter(x=>x.kind===m.kind&&x.name===m.name).sort((a,b)=>b.start-a.start);let next=draft;for(const span of spans)next=next.slice(0,span.start)+next.slice(span.end);setDraft(next);}}>×</button></span>)}</div>}
-          {multipleAgentTargets?<p className="mention-delivery-error" role="alert">Choose one agent target per message. You can notify multiple people.</p>:<p className="mention-delivery-hint"><span>{draftRecipients.some(m=>m.kind==='AGENT')?'Only the selected agent receives this request.':'Select an @mention to direct a request or notify a person.'}</span>{draft.trim()&&<span className="draft-storage-status" role="status">{draftStored?'Draft saved on this device':'Draft storage is unavailable. Keep this tab open until you send.'}</span>}</p>}
+          <p className="mention-delivery-hint"><span>{draftRecipients.some(m=>m.kind==='AGENT')?'The selected agents receive this request.':'Select an @mention to direct a request or notify a person.'}</span>{draft.trim()&&<span className="draft-storage-status" role="status">{draftStored?'Draft saved on this device':'Draft storage is unavailable. Keep this tab open until you send.'}</span>}</p>
           <div className="composer-actions">
             <button
               type="button"
@@ -2178,7 +2168,7 @@ export default function App() {
                 !activeChannel ||
                 Boolean(activeChannel.archivedAt) ||
                 !activeChannelCanPost ||
-                sending || Boolean(mentions.inviting) || hasAttachmentErrors || multipleAgentTargets ||
+                sending || Boolean(mentions.inviting) || hasAttachmentErrors ||
                 uploadingAttachmentCount > 0 ||
                 (!draft.trim() && readyAttachments.length === 0)
               }
