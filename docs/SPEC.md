@@ -591,9 +591,9 @@ after saving tool grants or refreshing/disconnecting accounts.
 
 Human settings require current private-agent ownership. Skill execution validates
 that ownership, exact grants and provider account status. Without a core turn
-attestation API, access requires exactly one unshared owner-only private channel;
-additional conversation subscriptions or sharing deny all connected-account calls
-for that agent. The canonical runner lifecycle GROUP is allowed only while
+attestation API, access requires one or more unshared owner-only private channels plus
+explicitly owner-approved project audiences (see Project connection approval below).
+Other subscriptions or sharing deny all connected-account calls for that agent. The canonical runner lifecycle GROUP is allowed only while
 private, owner-owned, unarchived, unshared and limited to the agent and optionally
 its owner. Enable/Renew secures its default PUBLIC channel via the human's existing
 engine channel PATCH API, then re-reads metadata before issuing credentials.
@@ -715,9 +715,8 @@ including an HTTP fetch when it is outside the loaded chat page. Reload and
 history restore the highlighted message. Inbox loading does not block the shell;
 HTTP polling, focus and realtime message activity refresh it.
 
-Runtime isolation, shared-account delegation and Composio's private-context rule
-are unchanged. Targeting a personal agent does not unlock connected accounts in
-a shared conversation. See PERSONAL_AGENTS.md for that separate permission boundary.
+Runtime isolation remains unchanged. Targeting or inviting a personal agent does
+not grant connected-account access. Project audiences require explicit owner approval. See PERSONAL_AGENTS.md for that separate permission boundary.
 
 ## Personal-assistant requests
 
@@ -749,7 +748,7 @@ The first flow is explicitly human reviewed:
 1. Request creation saves a pending brief only in Nest; no guest prompt reaches
    the privileged agent before its owner approves the work.
 2. The owner approves using their current human session. Nest verifies the pinned
-   personal mapping and the same private-context boundary as connected tools:
+   personal mapping and the strict private-context boundary (project connection approvals do not extend assistant request dispatch):
    one unshared owner-only conversation plus a secured canonical lifecycle GROUP.
    It never subscribes the requester. The approved engine event is sourced from
    the approving human and targets the existing agent.
@@ -872,7 +871,7 @@ The creation roster also returns `personalAgent` only when the product onboardin
 
 Chat/Files are normal project tabs. Project details contains the brief, owner-only inline editing with existing compare-and-swap, counts and typed member list, and searchable invitations. Mobile exposes it above chat in a disclosure. Legacy Members links render chat with details available. Advanced sharing remains in the existing engine-backed dialog. `POST /api/projects/:id/members` requires the current product owner with live engine manage/post access, validates exact existing HUMAN/AGENT identities and current agent visibility, and reconciles ambiguous subscriptions before reporting success. It grants no personal connected-account access.
 
-Personal connected skills still require exactly one unshared owner-only conversation. Automatic project invitation does not relax that rule; the draft clearly states that joining pauses connected tools. No new provisioning, model calls, account grants, engine changes or migrations are introduced by this workspace refinement.
+Personal connected skills require an unshared owner-only conversation and explicit approval for every additional project audience. Automatic project invitation grants no app access; joining pauses connected tools until owner approval. No new provisioning, model calls, account grants, engine changes or migrations are introduced by this workspace refinement.
 
 
 ## Local project and conversation drafts
@@ -888,7 +887,7 @@ New auto-created project channels include `nestKickoffGuidance` alongside the ex
 
 Recent confirmed project messages can surface at most two optional app connections. Matching uses explicit supported app names, then verifies an exact connectable slug in the configured provider catalog. Only app search terms go to the catalog, not message contents. Currently active owner accounts are suppressed after a complete bounded account traversal; an incomplete list or provider outage suppresses suggestions without blocking chat. The user can dismiss suggestions. A human click uses the existing owner-authenticated linking API and an HTTPS authorization redirect. No connection token or grant is issued by a suggestion, and no tool is executed.
 
-The UI explicitly states that account linking does not give agents project access. Existing private-context validation remains unchanged: project subscription pauses personal connected tools. Authorization and exact per-agent grants are separate steps. A tab-scoped owner/project return marker restores a successful fixed-provider callback only to a currently accessible project; explicit channel/project/share links win. Callback status/account IDs are navigation hints, never proof of authorization; the provider API remains authoritative for connection state. Browser drafts survive the round trip. Signing out clears the owner's return marker.
+The UI explicitly states that account linking does not give agents project access. Project subscription pauses personal connected tools until the owner explicitly approves that project audience in Connected apps. Authorization and exact per-agent grants are separate steps. A tab-scoped owner/project return marker restores a successful fixed-provider callback only to a currently accessible project; explicit channel/project/share links win. Callback status/account IDs are navigation hints, never proof of authorization; the provider API remains authoritative for connection state. Browser drafts survive the round trip. Signing out clears the owner's return marker.
 
 
 ## Chat attachments and activity
@@ -916,6 +915,36 @@ hover. No summary prose or step list is shown by default. Diagnostic output and 
 do not imply failure. Event colours describe individual events, never project
 acceptance. No execution, retry or engine event semantics change.
 
+## Project connection approval
+
+Migration `009_connection_projects` stores explicit owner consent per private agent
+and owned team project, with a SHA-256 snapshot of channel ID, owner and sorted
+HUMAN/AGENT participants. No approval is created by invitations or deployment.
+`GET /api/integrations/agents/:name/projects` reviews subscribed owned team projects;
+`PUT /api/integrations/agents/:name/projects/:id` requires the displayed
+`audienceHash` and `acknowledgeSharedAccess:true`; stale snapshots return 409.
+DELETE revokes approval. All management routes require current human ownership;
+agent bearer credentials cannot approve themselves. Public, archived, shared,
+foreign-owned and legacy private projects are ineligible.
+
+All skill endpoints recheck the full subscription set and exact current audience.
+Schema and execution recheck after provider metadata reads, before dispatch.
+Unapproved projects, unsafe conversations, changed audiences, ownership or sharing pause calls
+agent-wide. The original private chat and secured lifecycle remain mandatory.
+Assistant request dispatch retains its original private-only validator.
+
+This is explicit delegation to trusted project participants, not per-turn identity
+verification or data isolation. Every approved person/agent may influence use of
+all this agent's granted tools, including later grants, and see outputs. The agent
+can carry information across chats; removal does not erase prior results or
+memory. Calls already sent to a provider cannot be recalled. Metadata validation
+and provider execution are not an atomic transaction across systems. The runtime
+remains trusted. Exact tool grants, expiry, account ownership and revocation remain
+enforced. Audit records include approval/revocation IDs and audience hashes,
+never credentials, arguments or tool results.
+The engine metadata API exposes viewers but not unclaimed share links. Claims
+add a viewer and block subsequent calls; link creation alone is not detected.
+New members/viewers can read historical outputs regardless of later tool denial.
 ### Image attachment previews
 
 Chat message attachments with PNG, JPEG, GIF, or WebP MIME types show lazy-loaded,
@@ -936,3 +965,6 @@ photos. Rendering does not fetch external avatar services or add profile storage
 Historical senders remain visible even if absent from the current directory.
 Names, timestamps, message anchors, attachments, targeting and compact activity
 retain their existing behaviour in project and standalone chats.
+
+
+Connected apps support any number of unshared, active owner-only conversations alongside explicitly approved projects. Every subscribed conversation must still pass the owner/privacy checks or project roster approval; archived or unsafe subscriptions pause access. The credential remains bound to its original private conversation, which must still exist. Assistant request dispatch retains its separate single-private-conversation boundary. No additional migration or engine change is required.

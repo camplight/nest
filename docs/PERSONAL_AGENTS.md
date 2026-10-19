@@ -158,18 +158,17 @@ action failures are not retried automatically.
 
 **Private-context limitation:** a generic skill cannot attest which conversation
 caused a call. Nest conservatively requires the PRIVATE owned agent to be
-subscribed to exactly one unarchived, unshared PRIVATE owner-only conversation,
+subscribed to one or more unarchived, unshared PRIVATE owner-only conversations,
 with only its owner and itself as participants. OrgOps also creates an
 `agent.lifecycle.<agent name>` GROUP for runtime events. Enable/Renew makes the
 canonical lifecycle channel PRIVATE and owned by the signed-in owner through
 OrgOps's channel API, provided it has no other participants or shares. Nest checks
 both channels on each call; execution never repairs permissions. A lifecycle
 channel becoming public, shared, archived or joined by others pauses access.
-Other subscriptions (even archived), sharing, or changed ownership deny skill
+Unapproved subscriptions (even archived), shared viewers, or changed ownership deny skill
 calls until resolved. If the runner creates its default lifecycle channel after
 initial activation, click Renew to secure it; access stays paused in the meantime. This
-is an agent-wide restriction, not a verified current-turn identity. Shared/team
-connected-account use is not yet supported. Existing runtime isolation policy
+is an agent-wide restriction, not a verified current-turn identity. Owned team projects can be explicitly approved as described below. Existing runtime isolation policy
 is unchanged; operators and co-resident processes remain trusted.
 
 For these checks the Nest API needs a **global engine metadata credential**:
@@ -205,8 +204,9 @@ service-key skills are automatically migrated.
   workspace, context, grants and lifecycle. Do not duplicate agents on login.
 
 These three follow-ups are not implemented by the initial onboarding slice.
-The Nest adapter currently denies all connected-account execution when its
-agent has shared or additional conversations.
+The Nest adapter denies connected-account execution in unapproved contexts.
+Explicit trusted-project delegation below does not implement per-action approvals
+or current-turn identity verification.
 
 ## Verification and release
 
@@ -260,3 +260,30 @@ provider `openrouter`, and modelName `moonshotai/kimi-k3`; retain the existing
 Gemini record as an alternative. Set the new default environment variable and
 restart using the normal backup/deployment flow. Do not repurpose an existing
 registry ID: incomplete onboarding reservations may still depend on it.
+
+### Allow a personal agent in owned team projects
+
+In the agent's **Connected apps → Project access**, review every listed person
+and agent and choose **Trust these participants with my apps** for each project.
+This delegates use of all tools granted to that agent (including future grants)
+to the approved participants. Results may appear in project chats and the agent
+may carry private-chat information across conversations. Use a separate agent if
+these audiences must remain isolated. No account reconnection is required.
+The project must belong to you, be private and unshared, and include you and the
+agent. Other owners' projects and legacy private projects are not eligible.
+
+Any participant change pauses connected calls until you review the new roster.
+Unapproved extra chats, including archived chats, still block access. Review all
+subscriptions if calls remain paused. Removing an approval stops future calls
+while the agent remains subscribed there, but does not erase information already
+shared or stored in memory. Removing the agent from the project restores the
+remaining eligible context. In-flight calls may complete after revocation.
+
+The engine reports shared viewers, not outstanding unclaimed share links. A
+claimed link adds a viewer and pauses subsequent tool calls; an unclaimed link
+alone cannot be detected by this adapter. Anyone later given project access can
+read its existing history. Keep project sharing under the control of trusted
+owners and do not treat these checks as retrospective protection of tool results.
+
+
+Connected apps support any number of unshared, active owner-only conversations alongside explicitly approved projects. Every subscribed conversation must still pass the owner/privacy checks or project roster approval; archived or unsafe subscriptions pause access. The credential remains bound to its original private conversation, which must still exist. Assistant request dispatch retains its separate single-private-conversation boundary. No additional migration or engine change is required.
