@@ -1,3 +1,5 @@
+import {agentInstructionBody, agentInstructionResponse, isAgentSettingsPath} from './agent-instructions';
+
 export type Human = { id: string; username: string; mustChangePassword: boolean; createdAt?: number };
 const hopHeaders = ['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length'];
 
@@ -35,7 +37,12 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     if (!path.startsWith('/') || path.startsWith('//')) throw new Error('Expected an engine-relative path');
     const url = new URL(base.origin + path);
     if (url.origin !== base.origin) throw new Error('Invalid engine path');
-    return transport(url, { ...init, headers: engineHeaders(init.headers ?? {}), redirect: 'manual', signal: init.signal ?? AbortSignal.timeout(30_000) });
+    const agentSettings = isAgentSettingsPath(url.pathname);
+    const method = (init.method ?? 'GET').toUpperCase();
+    const body = agentSettings && ['POST', 'PATCH'].includes(method) && init.body != null
+      ? await agentInstructionBody(init.body) : init.body;
+    const response = await transport(url, { ...init, body, headers: engineHeaders(init.headers ?? {}), redirect: 'manual', signal: init.signal ?? AbortSignal.timeout(30_000) });
+    return agentSettings && method === 'GET' ? agentInstructionResponse(response) : response;
   }
   async function currentHuman(headers: HeadersInit): Promise<Human | null> {
     // Runner credentials must never turn a product settings request into an owner request.

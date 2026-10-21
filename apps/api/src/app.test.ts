@@ -40,13 +40,24 @@ describe('Nest product over unchanged OrgOps', () => {
     expect(created.status).toBe(201);
     const path = `/api/agents/${encodeURIComponent(name)}`;
     expect((await product.app.request(path, {method:'PATCH', headers, body:JSON.stringify({description:'Changed', systemInstructions:'New instructions',modelId:'openrouter:updated'})})).status).toBe(200);
-    expect(await (await product.app.request(path, {headers})).json()).toMatchObject({name, description:'Changed', systemInstructions:'New instructions', modelId:'openrouter:updated'});
+    expect(await (await product.app.request(path, {headers})).json()).toMatchObject({name, description:'Changed', soulContents:'New instructions', systemInstructions:'New instructions', modelId:'openrouter:updated'});
+    expect(await (await engine.app.request(path, {headers:engineHeaders(headers)})).json()).toMatchObject({soulContents:'New instructions'});
     const owner = engine.db.prepare('SELECT * FROM humans LIMIT 1').get() as any;
     engine.db.prepare('INSERT INTO humans (id, username, password_hash, must_change_password, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)').run('viewer', 'viewer', owner.password_hash, owner.created_at + 1, owner.created_at + 1);
     const login = await product.app.request('/api/auth/login', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({username:'viewer',password:'password'})});
     const viewerCookie = login.headers.get('set-cookie')!.split(';')[0];
     expect((await product.app.request(path, {method:'PATCH', headers:{cookie:viewerCookie, 'content-type':'application/json'}, body:JSON.stringify({description:'Unauthorized',modelId:'openrouter:unauthorized'})})).status).toBe(403);
     expect(await (await product.app.request(path, {headers})).json()).toMatchObject({description:'Changed',modelId:'openrouter:updated'});
+  });
+  it('keeps canonical instructions authoritative and preserves them on unrelated settings edits', async () => {
+    const headers = {cookie, 'content-type':'application/json'};
+    const path = '/api/agents/Canonical';
+    expect((await product.app.request('/api/agents', {method:'POST',headers,body:JSON.stringify({name:'Canonical',modelId:'test-model',workspacePath:join(dir,'canonical'),systemInstructions:'Stale alias',soulContents:'Canonical instructions'})})).status).toBe(201);
+    expect((await product.app.request(path, {method:'PATCH',headers,body:JSON.stringify({description:'New description'})})).status).toBe(200);
+    expect(await (await product.app.request(path,{headers})).json()).toMatchObject({soulContents:'Canonical instructions',systemInstructions:'Canonical instructions',description:'New description'});
+    expect(await (await product.app.request('/api/agents',{headers})).json()).toEqual(expect.arrayContaining([expect.objectContaining({name:'Canonical',soulContents:'Canonical instructions',systemInstructions:'Canonical instructions'})]));
+    expect((await product.app.request(path,{method:'PATCH',headers,body:JSON.stringify({systemInstructions:''})})).status).toBe(200);
+    expect(await (await product.app.request(path,{headers})).json()).toMatchObject({soulContents:'',systemInstructions:''});
   });
   it('resolves enabled defaults for new native agents while preserving explicit and wrapped models', async () => {
     const headers = {cookie, 'content-type':'application/json'};

@@ -3,9 +3,26 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The current pin is `f7c95b7` (merged OrgOps PRs #53 and #54), including
-multi-agent message routing and native workspace-file uploads. External engines
-must include this revision to support both features.
+The current pin is `cc8faa0` (OrgOps PRs #55, #56, #58 and #59 over `f7c95b7`).
+It retains multi-agent message routing and native workspace-file uploads and adds
+human invitations into channels, engine LLM usage reporting, agent copy/move and
+federation APIs. External engines must use this revision for the current adapter.
+
+Engine migration `039` consolidates stored `system_instructions` and
+`soul_contents` into `soul_contents`, in that order with a blank line between
+nonempty values, and removes `soul_path`. The HTTP adapter accepts Nest's existing
+`systemInstructions` input as an alias of `soulContents` on agent creation and
+settings updates, and returns the alias on agent list/detail reads. Explicit
+`soulContents` takes precedence when both are supplied; the alias represents the
+complete prompt, not a separate instruction section. This preserves personal
+onboarding, saved management helpers, settings and creation-retry reconciliation.
+No engine DB access or runtime source patch is introduced.
+
+Engine migrations `040`–`045` add usage/pricing and federation storage. Nest does
+not yet display the new engine billing/federation screens or configure peers.
+Default `system` agent seeding is opt-in via `ORGOPS_SYSTEM_AGENT_MODEL`, requires
+a configured provider key, and applies only when no agents exist. Nest does not
+set this option or replace existing agents/models during an upgrade.
 
 This engine revision includes Google Workspace authentication (migration `037`),
 configured/per-agent skill roots, human-scoped secrets

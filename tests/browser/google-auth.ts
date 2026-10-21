@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { OAuth2Client } from "google-auth-library";
-import { createApp as createEngine } from "../../vendor/orgops/apps/api/src/app";
+import { createEngine } from "./engine";
 import { createOrgOpsClient } from "../../packages/orgops-client/src/index";
 import { createApp } from "../../apps/api/src/app";
 
