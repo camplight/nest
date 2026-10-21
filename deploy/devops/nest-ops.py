@@ -40,11 +40,14 @@ def save(job, **values):
 def restore_tools():
     # Fixed commands only: do not execute agent-writable setup scripts as root.
     run('docker', 'exec', 'nest-nest-1', 'sh', '-ec', '''
-for base in /app/apps/user-ui/public /app/apps/user-ui/dist; do
-  if [ -d /app/.nest-data/demos ] && [ ! -e "$base/demo" ] && [ ! -L "$base/demo" ]; then
-    ln -s /app/.nest-data/demos "$base/demo"
-  fi
-done
+# Legacy images still need static links, including rollback to a pre-auth image.
+if [ ! -f /app/apps/api/src/demos.ts ]; then
+  for base in /app/apps/user-ui/public /app/apps/user-ui/dist; do
+    if [ -d /app/.nest-data/demos ] && [ ! -e "$base/demo" ] && [ ! -L "$base/demo" ]; then
+      ln -s /app/.nest-data/demos "$base/demo"
+    fi
+  done
+fi
 if [ -f /app/.nest-data/codex-home/gitconfig ]; then
   ln -sfn /app/.nest-data/codex-home/gitconfig /home/node/.gitconfig
 fi
@@ -62,12 +65,24 @@ def health():
             '--retry', '10', '--retry-all-errors', '--retry-delay', '2',
             '--output', '/dev/null', 'https://nest.camplight.net' + path)
     if (DATA / 'demos/kibrit/index.html').exists():
-        import hashlib
-        body = subprocess.check_output(['curl', '-fsS', '--max-time', '15',
-                                        '--retry', '10', '--retry-all-errors', '--retry-delay', '2',
-                                        'https://nest.camplight.net/demo/kibrit'])
-        if hashlib.sha256(body).digest() != hashlib.sha256((DATA / 'demos/kibrit/index.html').read_bytes()).digest():
-            raise RuntimeError('Published Kibrit page did not survive deployment')
+        # Inspect the running image, not the checkout: rollback may run the old image.
+        protected = run('docker', 'exec', 'nest-nest-1', 'node', '-e',
+                        "console.log(require('node:fs').existsSync('/app/apps/api/src/demos.ts'))",
+                        capture=True).strip() == 'true'
+        if protected:
+            status = run('curl', '--silent', '--show-error', '--max-time', '15',
+                         '--output', '/dev/null', '--write-out', '%{http_code}',
+                         'https://nest.camplight.net/demo/kibrit', capture=True).strip()
+            if status != '401':
+                raise RuntimeError('Demo must require a Nest human session (expected 401)')
+        else:
+            # Keep pre-auth images deployable and rollback health checks compatible.
+            import hashlib
+            body = subprocess.check_output(['curl', '-fsS', '--max-time', '15',
+                                            'https://nest.camplight.net/demo/kibrit'])
+            if hashlib.sha256(body).digest() != hashlib.sha256((DATA / 'demos/kibrit/index.html').read_bytes()).digest():
+                raise RuntimeError('Published Kibrit page did not survive deployment')
+
 
 
 def execute(job, action, sha=None):

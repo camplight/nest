@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp as createEngine } from '../../../vendor/orgops/apps/api/src/app';
@@ -20,12 +20,39 @@ describe('Nest product over unchanged OrgOps', () => {
     engine = createEngine({dbPath: join(dir, 'engine.sqlite'), dataDir: dir, adminUser: 'owner', adminPass: 'password', runnerToken: 'runner-secret'});
     if (previousRoot === undefined) delete process.env.ORGOPS_PROJECT_ROOT; else process.env.ORGOPS_PROJECT_ROOT = previousRoot;
     const client = createOrgOpsClient('http://engine', (async (url, init) => engine.app.fetch(new Request(url, init))) as typeof fetch);
-    product = createApp({defaultAgentModelId:'default-test', orgops: client, dbPath: join(dir, 'product.sqlite')});
+    product = createApp({demoRoot: join(dir, 'demos'), defaultAgentModelId:'default-test', orgops: client, dbPath: join(dir, 'product.sqlite')});
     const login = await product.app.request('http://nest/api/auth/login', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({username: 'owner', password: 'password'})});
     expect(login.status).toBe(200);
     cookie = login.headers.get('set-cookie')!.split(';')[0];
   });
   afterEach(() => { product.store.close(); engine.db.close(); rmSync(dir, {recursive: true, force: true}); });
+  it('gates all demo aliases and assets on a live human session', async () => {
+    mkdirSync(join(dir, 'demos', 'example'), {recursive:true});
+    writeFileSync(join(dir, 'demos', 'example', 'index.html'), '<!doctype html><title>Private demo</title>');
+    writeFileSync(join(dir, 'demos', 'example', 'asset.css'), 'body{color:red}');
+    writeFileSync(join(dir, 'secret.txt'), 'outside');
+    symlinkSync(join(dir, 'secret.txt'), join(dir, 'demos', 'example', 'escape.txt'));
+    for (const path of ['/demo/example', '/demo/example/', '/demo/example.html', '/demo/example/index.html', '/demo/example/asset.css', '/demo/future']) {
+      for (const headers of [{}, {cookie:'nest_session=invalid'}, {'x-nest-runner-token':'runner-secret'}] as HeadersInit[]) {
+        const denied = await product.app.request(path, {headers});
+        expect(denied.status).toBe(401);
+        expect(denied.headers.get('cache-control')).toBe('private, no-store');
+      }
+    }
+    for (const path of ['/demo/example', '/demo/example/', '/demo/example.html', '/demo/example/index.html']) {
+      const response = await product.app.request(path, {headers:{cookie}});
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('Private demo');
+      expect(response.headers.get('cache-control')).toBe('private, no-store');
+    }
+    expect((await product.app.request('/demo/example/asset.css', {headers:{cookie}})).status).toBe(200);
+    expect((await product.app.request('/demo/example', {method:'HEAD',headers:{cookie}})).status).toBe(200);
+    for (const path of ['/demo/future', '/demo/example/escape.txt', '/demo/example/.publish.lock', '/demo/example/%2e%2e%2f%2e%2e%2fsecret.txt']) {
+      expect((await product.app.request(path, {headers:{cookie}})).status).toBe(404);
+    }
+    await product.app.request('/api/auth/logout', {method:'POST',headers:{cookie}});
+    expect((await product.app.request('/demo/example', {headers:{cookie}})).status).toBe(401);
+  });
   it('translates login cookies and revokes the actual engine session on logout', async () => {
     expect(cookie).toMatch(/^nest_session=/);
     const result = await product.app.request('/api/auth/me', {headers: {cookie}});
@@ -146,6 +173,9 @@ it('reports engine downtime without serving a healthy status', async () => {
   const orgops = createOrgOpsClient('http://engine', (async () => {throw new Error('offline');}) as typeof fetch);
   const {app} = createApp({store,orgops});
   expect((await app.request('/health')).status).toBe(503);
+  const demo = await app.request('/demo/example');
+  expect(demo.status).toBe(502);
+  expect(demo.headers.get('cache-control')).toBe('private, no-store');
   expect((await app.request('/api/agents')).status).toBe(502);
   expect((await app.request('/api/branding')).status).toBe(200);
   store.close();

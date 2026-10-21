@@ -985,3 +985,11 @@ retain their existing behaviour in project and standalone chats.
 
 
 Connected apps support any number of unshared, active owner-only conversations alongside explicitly approved projects. Every subscribed conversation must still pass the owner/privacy checks or project roster approval; archived or unsafe subscriptions pause access. The credential remains bound to its original private conversation, which must still exist. Assistant request dispatch retains its separate single-private-conversation boundary. No additional migration or engine change is required.
+
+## Authenticated published demos
+
+`/demo/*` is a Nest-owned file route with a live OrgOps human-session check,
+private/no-store responses and 401 plus a login link for anonymous requests.
+Vite development/preview middleware routes demo requests before static files,
+including legacy demo symlinks. Published files remain outside the UI tree in
+`.nest-data/demos`. See [deployment and publishing](../deploy/demos/README.md).
