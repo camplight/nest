@@ -20,6 +20,7 @@ import { Projects } from "./Projects";
 import { ProjectNavigation } from "./components/ProjectNavigation";
 import { Agents } from "./Agents";
 import { AgentAvatar, AgentAvatarChoices } from "./components/AgentAvatar";
+import {AgentRuntimeStatus} from './components/AgentRuntimeStatus';
 import { Dashboard, DesignIcon } from "./Dashboard";
 import { useBranding } from "../../nest-brand/BrandingProvider";
 import { PoweredByNest, InstanceBrand, ThemeToggle } from "../../nest-brand/Brand";
@@ -234,12 +235,6 @@ function channelHasHumanShare(channel: Channel, humanId: string) {
 
 function isSharedChannelForUser(channel: Channel, currentUsername: string) {
   return Boolean(currentUsername && channelHasHumanShare(channel, currentUsername));
-}
-
-function participantAgentStatus(participant: ChannelParticipant, agents: Agent[]) {
-  if (normalizedSubscriberType(participant) !== "AGENT") return null;
-  const agent = agents.find((candidate) => candidate.name === participant.subscriberId);
-  return agent?.runtimeState === "RUNNING" ? "running" : "off";
 }
 
 function channelMatchesQuery(channel: Channel, query: string, currentUsername: string) {
@@ -1279,6 +1274,28 @@ export default function App() {
 
   useEffect(() => {
     if (!authenticated || mustChangePassword) return;
+    const controller = new AbortController();
+    let inFlight = false;
+    async function refreshAgents() {
+      if (inFlight || document.visibilityState === 'hidden') return;
+      inFlight = true;
+      try {
+        const next = await apiJson<Agent[]>('/api/agents', {signal:controller.signal});
+        if (!controller.signal.aborted) setAgents(next);
+      } catch {
+        // Keep directory details usable without presenting stale status as current.
+        if (!controller.signal.aborted) {
+          setAgents(current => current.map(agent => ({...agent,runtimeState:undefined})));
+        }
+      } finally { inFlight = false; }
+    }
+    const interval = window.setInterval(() => void refreshAgents(), 10000);
+    window.addEventListener('focus', refreshAgents);
+    return () => { controller.abort(); window.clearInterval(interval); window.removeEventListener('focus', refreshAgents); };
+  }, [authenticated, mustChangePassword]);
+
+  useEffect(() => {
+    if (!authenticated || mustChangePassword) return;
     wsShouldReconnectRef.current = true;
     const url = wsUrl();
 
@@ -2195,21 +2212,15 @@ export default function App() {
           </div>
           <div className="participant-list">
             {activeChannel?.participants?.map((participant, index) => {
-              const agentStatus = participantAgentStatus(participant, agents);
+              const agent = agents.find(agent => agent.name === participant.subscriberId);
               return (
                 <article key={`${participant.subscriberType}:${participant.subscriberId}:${index}`}>
                   {normalizedSubscriberType(participant) === "AGENT" ? <AgentAvatar name={participant.subscriberId} size={34} /> : <div className="participant-avatar">{participantName(participant).slice(0, 2)}</div>}
                   <div>
                     <strong>
-                      {agentStatus ? (
-                        <i
-                          className={`agent-status-dot agent-status-${agentStatus}`}
-                          title={agentStatus === "running" ? "Agent running" : "Agent off"}
-                        />
-                      ) : null}
                       {participantName(participant)}
                     </strong>
-                    <span>{participantType(participant)}</span>
+                    <span>{participantType(participant)}{normalizedSubscriberType(participant)==='AGENT' && <> · <AgentRuntimeStatus state={agent?.runtimeState}/></>}</span>
                   </div>
                 </article>
               );
@@ -2529,7 +2540,7 @@ export default function App() {
                   <article key={`${participant.subscriberType}:${participant.subscriberId}:${index}`}>
                     <div>
                       <strong>{participantName(participant)}</strong>
-                      <span>{participantType(participant)}</span>
+                      <span>{participantType(participant)}{normalizedSubscriberType(participant)==='AGENT' && <> · <AgentRuntimeStatus state={agents.find(agent=>agent.name===participant.subscriberId)?.runtimeState}/></>}</span>
                     </div>
                     <button
                       className="participant-remove-button"
@@ -2673,6 +2684,7 @@ export default function App() {
                 type="button"
                 className="channel-manage-secondary-button"
                 onClick={() => {
+                  setShowChannelManageDialog(false);
                   setShowParticipantsDialog(true);
                 }}
                 disabled={updatingChannelVisibility}

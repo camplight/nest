@@ -1,0 +1,10 @@
+.agent-runtime-status,
+.participant-list .agent-runtime-status,
+.participants-dialog-list .agent-runtime-status {
+  display:inline-flex; align-items:center; gap:5px; margin:0; font:inherit; color:inherit;
+}
+.agent-runtime-status i { display:inline-block; flex:0 0 auto; width:8px; height:8px; border-radius:50%; background:#8b8793; }
+.agent-runtime-status[data-state="running"] i { background:#10b981; }
+.agent-runtime-status[data-state="stopped"] i,
+.agent-runtime-status[data-state="error"] i { background:#ef4444; }
+.agent-runtime-status[data-state="starting"] i { background:#d97706; }

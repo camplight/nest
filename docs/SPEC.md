@@ -199,6 +199,18 @@ task assignment, performance scores, avatar editing or resource configuration.
 The About sidebar shows the current team from engine channel participants. Tasks
 are removed from normal project navigation; no automatic chat-to-task extraction
 or replacement to-do sidebar is introduced.
+
+Project details, standalone room participants and the mobile member dialog share
+compact runtime indicators with visible text: RUNNING is green/Running, STOPPED
+red/Stopped, CRASHED red/Error, STARTING amber/Starting, and missing/unrecognized
+state gray/Status unknown. Humans have no inferred presence indicator. These show
+the engine's reported runtime state, not whether an agent is working on a task,
+provider readiness or independently verified runner health. The signed-in user's
+permission-filtered `GET /api/agents` roster refreshes every ten seconds while the
+tab is visible and on window focus, without reloading chat. A failed lookup marks
+status unknown while retaining directory details; the next successful lookup
+recovers it. No global agent-status topic, new endpoint or engine change is needed.
+
 `tab=tasks&task=<id>` restores a task; older task URLs without `tab` still work.
 Tabs, reload and browser history preserve project context. Existing `?channel=`
 links for an owned project open its Chat section; other channels remain accessible under Projects → Existing conversations.

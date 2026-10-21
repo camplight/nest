@@ -1463,22 +1463,6 @@ button {
   font-size: 14px;
 }
 
-.agent-status-dot {
-  display: block;
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-}
-
-.agent-status-running {
-  background: #10b981;
-}
-
-.agent-status-off {
-  background: #ef4444;
-}
-
 .participant-list span {
   display: block;
   overflow: hidden;
