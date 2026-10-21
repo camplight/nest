@@ -442,6 +442,7 @@ back the protected release. Update persistent publishing helpers from
 
 ## Demo artifact preview
 
-The chat-side demo preview is Nest UI only. It uses existing authenticated demo
-routes and normal message drafts; no engine change, new grant, DB migration or
+The chat-side demo preview uses existing authenticated demo routes and normal
+message drafts. Nest demo responses now include a file revision ETag for lightweight
+HEAD polling; no engine change, new grant, DB migration or
 publisher replacement is required.

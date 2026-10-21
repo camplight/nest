@@ -1018,5 +1018,10 @@ routing remains authoritative; previewing does not publish or grant access.
 Request changes appends the demo URL to the current message draft without sending
 or choosing an agent. The human describes changes and selects the appropriate
 agent using the existing mention picker. The agent edits and republishes through
-the existing publisher; Refresh then reloads the artifact. This first version is
-chat-based editing, not a direct HTML/visual editor or automatic update stream.
+the existing publisher. While visible, the preview checks authenticated HEAD
+responses every three seconds and reloads when the file revision changes. It
+establishes its initial revision with one reload, leaves unchanged previews
+intact, and stops polling when closed. Errors show a manual-refresh fallback;
+requests time out after ten seconds and retry. Hidden tabs skip checks. Revision
+headers use file identity, size and nanosecond timestamps; no HTML body is
+downloaded by polling. This remains chat-based editing, not a direct HTML/visual editor.

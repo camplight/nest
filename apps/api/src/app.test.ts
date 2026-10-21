@@ -46,7 +46,13 @@ describe('Nest product over unchanged OrgOps', () => {
       expect(response.headers.get('cache-control')).toBe('private, no-store');
     }
     expect((await product.app.request('/demo/example/asset.css', {headers:{cookie}})).status).toBe(200);
-    expect((await product.app.request('/demo/example', {method:'HEAD',headers:{cookie}})).status).toBe(200);
+    const head=await product.app.request('/demo/example', {method:'HEAD',headers:{cookie}});
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe('');
+    expect(head.headers.get('etag')).toBeTruthy();
+    expect((await product.app.request('/demo/example', {method:'HEAD',headers:{cookie}})).headers.get('etag')).toBe(head.headers.get('etag'));
+    writeFileSync(join(dir, 'demos', 'example', 'index.html'), '<!doctype html><title>Updated demo</title>');
+    expect((await product.app.request('/demo/example', {method:'HEAD',headers:{cookie}})).headers.get('etag')).not.toBe(head.headers.get('etag'));
     for (const path of ['/demo/future', '/demo/example/escape.txt', '/demo/example/.publish.lock', '/demo/example/%2e%2e%2f%2e%2e%2fsecret.txt']) {
       expect((await product.app.request(path, {headers:{cookie}})).status).toBe(404);
     }

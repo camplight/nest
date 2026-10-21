@@ -25,8 +25,11 @@ export function registerDemoRoutes(app: Hono, {orgops, root}: {orgops: OrgOpsCli
     try {
       const base = await realpath(root);
       const file = await realpath(resolve(base, path));
-      if (!file.startsWith(base + sep) || !(await stat(file)).isFile()) return c.text('Not found', 404);
+      if (!file.startsWith(base + sep)) return c.text('Not found', 404);
+      const info = await stat(file, {bigint:true});
+      if (!info.isFile()) return c.text('Not found', 404);
       const types: Record<string, string> = {'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.webp':'image/webp','.woff2':'font/woff2','.ico':'image/x-icon'};
+      c.header('ETag', `W/"${info.ino}-${info.size}-${info.mtimeNs}-${info.ctimeNs}"`);
       c.header('Content-Type', types[extname(file)] ?? 'application/octet-stream');
       return c.body(c.req.method === 'HEAD' ? null : new Uint8Array(await readFile(file)));
     } catch (error) {
