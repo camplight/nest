@@ -1001,7 +1001,9 @@ Connected apps support any number of unshared, active owner-only conversations a
 ## Authenticated published demos
 
 `/demo/*` is a Nest-owned file route with a live OrgOps human-session check,
-private/no-store responses and 401 plus a login link for anonymous requests.
+private/no-store responses. Anonymous HTML browser requests redirect to the existing login; non-HTML checks receive 401.
 Vite development/preview middleware routes demo requests before static files,
 including legacy demo symlinks. Published files remain outside the UI tree in
 `.nest-data/demos`. See [deployment and publishing](../deploy/demos/README.md).
+
+Demo browser navigations (Accept: text/html) redirect to the existing Nest login with a local demo return URL. Password and Google sign-in return to that demo, preserving query/fragment; first-time password changes complete before return. Non-HTML checks retain 401, preserving controller and publisher verification. Redirects accept only same-origin /demo/ destinations.

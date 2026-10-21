@@ -1,3 +1,4 @@
+import {demoReturnTo, pendingDemoReturnTo, rememberDemoReturnTo, clearDemoReturnTo} from './demo-return';
 import {MessageAttachment as MessageAttachmentView} from "./components/MessageAttachment";
 import {useAttachments,restoreAttachments,type UploadedAttachment} from './attachments';
 import {ChatAttachments} from './components/ChatAttachments';
@@ -761,6 +762,12 @@ export default function App() {
     try {
       const me = await apiJson<AuthMe>("/api/auth/me");
       const nextUsername = me.username ?? "";
+      const destination = demoReturnTo(window.location.search, window.location.hash) ?? pendingDemoReturnTo();
+      if (nextUsername && !me.mustChangePassword && destination) {
+        clearDemoReturnTo();
+        window.location.replace(destination);
+        return;
+      }
       setUsername(nextUsername);
       setUserId(me.id ?? null);
       setLoginUsername(nextUsername || "admin");
@@ -1893,6 +1900,8 @@ export default function App() {
     return () => window.removeEventListener("resize", handleWindowResize);
   }, []);
 
+  const demoDestination = demoReturnTo(window.location.search, window.location.hash) ?? pendingDemoReturnTo();
+
   if (authLoading && !authenticated) {
     return <main className="loading-screen" role="status">Loading workspace…</main>;
   }
@@ -1914,7 +1923,7 @@ export default function App() {
             <span>Welcome back</span>
             <strong>Sign in to {branding.displayName}</strong>
           </div>
-          <GoogleSignIn apiUrl={apiUrl} />
+          <GoogleSignIn apiUrl={apiUrl} onStart={() => { if (demoDestination) rememberDemoReturnTo(demoDestination); }} />
           {error ? <div className="notice error" role="alert">{error}</div> : null}
           <label>
             Username

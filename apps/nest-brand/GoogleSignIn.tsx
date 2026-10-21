@@ -12,9 +12,11 @@ const messages: Record<string, string> = {
 export function GoogleSignIn({
   apiUrl,
   returnTo = "/",
+  onStart,
 }: {
   apiUrl: (path: string) => string;
   returnTo?: string;
+  onStart?: () => void;
 }) {
   const [config, setConfig] = useState<{
     enabled: boolean;
@@ -50,6 +52,7 @@ export function GoogleSignIn({
         <div className="google-sign-in">
           <a
             className="google-sign-in-button"
+            onClick={onStart}
             href={apiUrl(
               `/api/auth/google/start?returnTo=${encodeURIComponent(returnTo)}`,
             )}

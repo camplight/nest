@@ -8,10 +8,14 @@ export function registerDemoRoutes(app: Hono, {orgops, root}: {orgops: OrgOpsCli
   app.all('/demo', c => c.redirect('/demo/', 302));
   app.all('/demo/*', async c => {
     c.header('Cache-Control', 'private, no-store');
-    c.header('Vary', 'Cookie');
+    c.header('Vary', 'Cookie, Accept');
     c.header('X-Content-Type-Options', 'nosniff');
     c.header('X-Robots-Tag', 'noindex, nofollow');
     const human = await orgops.currentHuman(c.req.raw.headers);
+    if (!human && /(?:^|,)\s*text\/html(?:\s*;|\s*,|$)/i.test(c.req.header('Accept') ?? '')) {
+      const url = new URL(c.req.url);
+      return c.redirect('/?returnTo=' + encodeURIComponent(url.pathname + url.search), 302);
+    }
     if (!human) return c.html('<!doctype html><title>Sign in required</title><p><a href="/">Sign in to Nest</a> to view this demo, then reopen its link.</p>', 401);
     if (!['GET', 'HEAD'].includes(c.req.method)) return c.text('Method not allowed', 405, {Allow: 'GET, HEAD'});
     let path: string;
