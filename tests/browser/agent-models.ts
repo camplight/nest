@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import tailwindConfig from '../../apps/admin-ui/tailwind.config';
-import { createApp as createEngine } from '../../vendor/orgops/apps/api/src/app';
+import { createEngine } from './engine';
 import { createOrgOpsClient } from '../../packages/orgops-client/src/index';
 import { createApp } from '../../apps/api/src/app';
 const dir=mkdtempSync(join(tmpdir(),'nest-model-browser-'));

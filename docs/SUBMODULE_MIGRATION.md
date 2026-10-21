@@ -20,6 +20,49 @@ Do not edit `vendor/orgops`. Change Nest UI/API/client/launcher code for product
 features. Contribute engine changes to OrgOps separately, then update the gitlink.
 The parent npm lockfile locks the combined workspace dependency graph.
 
+## Upstream upgrade: `f7c95b7` → `cc8faa0`
+
+The untouched engine advances through OrgOps PRs #55, #56, #58 and #59. The parent
+lockfile reflects upstream's move of `tsx` into API/runner runtime dependencies.
+No Nest product migration, runner reassignment, credential rotation or installed
+skill replacement is required.
+
+The engine applies migrations `039`–`045` on startup. Migration `039` rebuilds the
+agents table, combines existing stored instructions and soul content into one
+`soul_contents` prompt, and drops `system_instructions` and `soul_path`. Existing
+IDs, ownership, workspaces, runner assignment, skills and wrapped configuration
+are retained. The previous runner already used inline soul content; this migration
+does not import files from former soul paths. Nest's HTTP adapter keeps the
+published `systemInstructions` field as an alias for the complete prompt, with
+explicit `soulContents` authoritative when both are provided.
+
+Before a production upgrade, stop the API and runner and snapshot both databases,
+private environment and runtime volumes through the existing deployment flow.
+Start the matching API/runner/UI image together, then verify login, personal-agent
+creation and settings, management retries, chat targeting, connections and a
+wrapped-agent turn. Rollback requires restoring the pre-upgrade engine database
+alongside the previous image; the old engine cannot read the rebuilt agents table.
+Keep runner identity files, Codex authentication, workspaces and runtime skills.
+
+Usage reporting, channel invitation and copy/move/federation HTTP capabilities
+come from upstream. No federation peers or channels are configured by the bump;
+Nest's existing UI does not automatically gain upstream billing/federation pages.
+The new default-system-agent seed remains opt-in and skips populated instances.
+
+The Nest integration suite exercises the actual upgraded engine. A migration
+fixture starts at schema `038`, runs the upstream migrator and verifies prompt
+composition, preserved identities/membership/secrets/runtime configuration and
+repeatability. Run `npm run test:engine` separately: upstream currently has known
+skill-enumeration ordering and fixed-delay shell-status assertions; report any
+failures rather than patching or excluding vendor tests. On macOS, a canonical
+temporary directory (`TMPDIR=/private/tmp`) avoids `/var` symlink mismatches in
+upstream file-upload tests.
+
+Product unit/browser fixtures disable federation polling with its existing interval setting:
+upstream currently leaves a poller alive after an embedded API database closes.
+This avoids callbacks into disposed test databases; it does not change production
+configuration or exclude any upstream federation tests.
+
 The home dashboard summary (`GET /api/projects/dashboard`) lives in Nest's
 project API. It aggregates product tasks only after the current human/project and
 live engine channel access checks. It adds no engine endpoint, DB migration,

@@ -47,7 +47,7 @@ it('executes a migrated Nest recipe in the unchanged OrgOps harness', async () =
       emitEvent:async (event:unknown) => {emitted.push(event);},
       getPackageSecretsEnv:async () => ({}),
     }}, {
-      name:'legacy-nest-agent', systemInstructions:'', soulPath:'', workspacePath,
+      name:'legacy-nest-agent', soulContents:'', workspacePath,
       modelId:'wrapped:none', desiredState:'RUNNING', runtimeState:'RUNNING', mode:'WRAPPED',
       wrappedConfig:compatibleRecipe({kind:'test',runtime:{
         command:'node -e "process.stdout.write(JSON.stringify({payloads:[{text:process.env.NEST_WRAPPED_MESSAGE}]}))"',
