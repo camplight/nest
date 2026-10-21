@@ -1,3 +1,4 @@
+import {ConnectionChannels} from "./ConnectionChannels";
 import type {
   ConnectionCapability,
   ConnectionSkillStatus,
@@ -40,7 +41,7 @@ export function AgentConnections({ name }: { name: string }) {
       <h2>Connected apps</h2>
       <p>
         Choose which accounts and tools {name} can use in your private
-        conversations and projects you approve below. Google sign-in does not connect Drive or Gmail.
+        conversations, projects and public channels you approve below. Google sign-in does not connect Drive or Gmail.
       </p>
       {failed ? (
         <p role="alert">
@@ -58,6 +59,7 @@ export function AgentConnections({ name }: { name: string }) {
         <>
           <ConnectionSkill key={name} name={name} available={skillAvailable} revision={permissionsRevision} />
           <ConnectionProjects key={`projects-${name}`} name={name} />
+          <ConnectionChannels key={`channels-${name}`} name={name} />
           <Connections agentName={name} onPermissionsChanged={() => setPermissionsRevision(value => value + 1)} />
         </>
       ) : (
@@ -157,7 +159,7 @@ function ConnectionSkill({
           {state && (state.grantedToolCount === 0 ? <span role="status">No actions are allowed yet.</span> : <span>{state.grantedToolCount} {state.grantedToolCount === 1 ? "action" : "actions"} allowed</span>)}
           {state?.enabled && <><span>Expires {new Date(state.expiresAt!).toLocaleDateString()}</span><span role="status">{state.preloadConfigured ? "Ready for your next message." : "Renew access before your next message."}</span></>}
         </div>
-        <details className="connection-access-help"><summary>How access works</summary><p>Connected apps work in any number of your unshared private chats and explicitly approved projects. Access pauses across all chats when the agent joins a shared or foreign-owned chat or an unapproved project or a project's participants change. Existing app and tool permissions still apply.</p></details>
+        <details className="connection-access-help"><summary>How access works</summary><p>Connected apps work in any number of your unshared private chats and explicitly approved projects or public channels where you are a participant. Access pauses across all chats when the agent joins an unapproved shared conversation, you leave an approved public channel, or approved participants change. Existing app and tool permissions still apply.</p></details>
       </div>
       {error && <p className="connection-access-notice" role="alert">{error}</p>}
       {!available && <p className="connection-access-notice">Ask your administrator to enable app connections.</p>}

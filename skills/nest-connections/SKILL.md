@@ -17,8 +17,11 @@ Provider service keys stay in Nest. No Composio SDK or service key is needed her
 If access is expired, revoked, or denied, stop and direct the owner to Connected
 apps in their agent settings. Never try another account, agent token, or provider
 API to bypass a denial. Access supports any number of active, unshared owner-only chats;
-project chats require explicit owner approval of their participants in Connected
-apps. Membership or sharing changes pause access. Approval covers all granted
+project chats and public channels require explicit owner approval in Connected
+apps. Public channels additionally require the owner to remain a direct human
+participant. Owner presence means membership, not online status or approval of
+each request. Public-channel results are visible to anyone who can read that
+channel, not just its subscribers. Membership or sharing changes pause access. Approval covers all granted
 apps and tools for this agent, not a verified requesting human or current turn.
 Treat approved project participants as trusted with tool use and results. Do not
 claim that personal data is isolated between this agent’s chats. It is not an OS sandbox.

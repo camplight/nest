@@ -32,6 +32,7 @@ try {
    data={ok:true};
   }
   else if(path==='/api/integrations/agents/DemoAssistant/projects')data={projects:[{...project,approved}]};
+  else if(path==='/api/integrations/agents/DemoAssistant/channels')data={channels:[]};
   else if(path==='/api/integrations/connections'||path==='/api/integrations/toolkits')data={items:[]};
   await route.fulfill({json:data});
  });

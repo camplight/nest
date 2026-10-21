@@ -15,8 +15,8 @@ export function createPrivateAgentContext({
   /** Connected apps may trust multiple private chats with the same owner. */
   multipleOwnerChats?: boolean;
   isProject?: (channelId: string) => boolean;
-  /** Connections may explicitly trust a frozen project roster. Other callers stay private-only. */
-  approvedProject?: (channel: Awaited<ReturnType<OrgOpsClient["connectionContext"]>>["channels"][number], agentId: string, ownerId: string) => boolean;
+  /** Connections may explicitly trust a frozen project or public-channel roster. Other callers stay private-only. */
+  approvedProject?: (channel: Awaited<ReturnType<OrgOpsClient["connectionContext"]>>["channels"][number], agentId: string, ownerId: string, ownerUsername: string) => boolean;
   onSecured?: (
     ownerId: string,
     details: { agentId: string; channelId: string },
@@ -70,7 +70,7 @@ export function createPrivateAgentContext({
         ch.kind === "GROUP",
     );
     const conversations = subscribed.filter((ch) => !lifecycle.includes(ch) &&
-      !(approvedProject?.(ch, agent.id, ownerId) ?? false));
+      !(approvedProject?.(ch, agent.id, ownerId, owner.username) ?? false));
     const ch = (channelId
       ? conversations.find((entry) => entry.id === channelId)
       : conversations[0]) ?? fail(403, "The credential requires an active owner-only conversation.");
@@ -95,7 +95,7 @@ export function createPrivateAgentContext({
       fail(
         403,
         multipleOwnerChats
-          ? "Connected apps require unshared owner-only chats or explicitly approved projects. Remove unsafe subscriptions or sharing, or approve eligible projects in Connected apps before retrying."
+          ? "Connected apps require unshared owner-only chats or explicitly approved projects/public channels with the agent owner present. Remove unsafe subscriptions or sharing, or approve eligible conversations in Connected apps before retrying."
           : "This agent needs one unshared owner-only conversation. Remove other subscriptions or sharing before retrying.",
       );
     if (

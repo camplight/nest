@@ -44,6 +44,7 @@
     "test:ui:onboarding": "node --import tsx tests/browser/onboarding.ts",
     "test:ui:models": "node --import tsx tests/browser/agent-models.ts",
     "test:ui:chat": "node --import tsx tests/browser/chat.ts",
+    "test:ui:connections": "node tests/browser/connection-projects.mjs && node tests/browser/connection-channels.mjs",
     "test:ui:images": "node --import tsx tests/browser/image-attachments.ts"
   },
   "devDependencies": {

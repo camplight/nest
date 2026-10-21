@@ -1,3 +1,4 @@
+import { createConnectionChannelAccess } from "./channel-access";
 import { createPrivateAgentContext } from "../agent-private-context";
 import { createConnectionProjectAccess } from "./project-access";
 import { z } from "zod";
@@ -186,8 +187,9 @@ export function registerIntegrationRoutes(
     return a;
   }
   const projectAccess = createConnectionProjectAccess(store);
+  const channelAccess = createConnectionChannelAccess(store);
   const privateContext = createPrivateAgentContext({ orgops, engineToken,
-    approvedProject: projectAccess.approved,
+    approvedProject: (ch, agentId, ownerId, username) => projectAccess.approved(ch, agentId, ownerId) || channelAccess.approved(ch, agentId, ownerId, username),
     multipleOwnerChats: true,
     isProject: projectAccess.isProject,
     onSecured: (owner, details) => audit("audit.connection.lifecycle.secured", owner, details),
@@ -200,8 +202,8 @@ export function registerIntegrationRoutes(
     const context = await orgops.connectionContext(name, engineToken!);
     if (context.agent.id !== a.id || context.agent.ownerHumanId !== owner || context.agent.visibility !== "PRIVATE" || context.agent.mode === "WRAPPED")
       fail(403, "Agent ownership changed");
-    const username = context.humans.find(h => h.id === owner)?.username;
-    return {a, channels:context.channels.filter(ch =>
+    const username = context.humans.find(h => h.id === owner)?.username ?? fail(403, "Agent owner is unavailable");
+    return {a, username, channels:context.channels.filter(ch =>
       ch.participants.some(p => p.subscriberType === "AGENT" && p.subscriberId === a.name) &&
       ch.participants.some(p => p.subscriberType === "HUMAN" && p.subscriberId === username))};
   }
@@ -225,6 +227,27 @@ export function registerIntegrationRoutes(
     db.prepare("DELETE FROM product_connection_projects WHERE agent_id=? AND owner_id=? AND project_id=?")
       .run(a.id, owner, c.req.param("id"));
     audit("audit.connection.project.revoked", owner, {agentId:a.id, projectId:c.req.param("id")});
+    return c.json({ok:true});
+  });
+  routes.get("/agents/:name/channels", async c => {
+    const owner=human(c).id;
+    const {a,username,channels}=await projectContext(c.req.param("name"),owner,c.req.raw.headers);
+    return c.json({channels:channels.filter(ch=>ch.visibility==='PUBLIC').map(ch=>channelAccess.review(ch,a.id,owner,username))});
+  });
+  routes.put("/agents/:name/channels/:id", async c => {
+    const owner=human(c).id;
+    const input=await body(c,z.object({audienceHash:z.string().regex(/^[a-f0-9]{64}$/),acknowledgePublicAccess:z.literal(true)}).strict());
+    const {a,username,channels}=await projectContext(c.req.param("name"),owner,c.req.raw.headers);
+    const ch=channels.find(ch=>ch.id===c.req.param("id")&&ch.visibility==='PUBLIC');
+    if(!ch)fail(403,"You and your agent must both be participants in the public channel");
+    channelAccess.approve(ch!,a.id,owner,username,input.audienceHash);
+    audit("audit.connection.channel.approved",owner,{agentId:a.id,channelId:ch!.id,audienceHash:input.audienceHash});
+    return c.json({ok:true});
+  });
+  routes.delete("/agents/:name/channels/:id", async c => {
+    const owner=human(c).id,a=await ownedAgent(c.req.param("name"),owner,c.req.raw.headers);
+    db.prepare("DELETE FROM product_connection_channels WHERE agent_id=? AND owner_id=? AND channel_id=?").run(a.id,owner,c.req.param("id"));
+    audit("audit.connection.channel.revoked",owner,{agentId:a.id,channelId:c.req.param("id")});
     return c.json({ok:true});
   });
   routes.get("/config", (c) => {

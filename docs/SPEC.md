@@ -998,6 +998,24 @@ retain their existing behaviour in project and standalone chats.
 
 Connected apps support any number of unshared, active owner-only conversations alongside explicitly approved projects. Every subscribed conversation must still pass the owner/privacy checks or project roster approval; archived or unsafe subscriptions pause access. The credential remains bound to its original private conversation, which must still exist. Assistant request dispatch retains its separate single-private-conversation boundary. No additional migration or engine change is required.
 
+### Owner-approved public channels for connected apps
+
+An owner can approve a public channel under Connected apps only when both the
+owner (direct HUMAN subscription) and their private native agent participate.
+`GET/PUT/DELETE /api/integrations/agents/:name/channels[/:id]` review, approve,
+and revoke this access. PUT requires a current audience hash and explicit
+`acknowledgePublicAccess:true`; approvals are stored by agent ID, owner ID and
+channel ID in migration 010. It does not require owning the public channel.
+
+All tool endpoints recheck the live roster through engine HTTP, including after
+provider metadata lookup. Leaving the channel, changed participants, archiving,
+visibility changes, additional shares, or revoked consent block use. The owner
+need not be online; this is membership consent, not per-message approval.
+Public readers beyond the subscribed roster may see tool results. Agent-scoped
+credentials mean an unapproved conversation still pauses connections across
+all chats, and the original private credential conversation remains required.
+Existing exact tool grants and private project approvals are unchanged.
+
 ## Authenticated published demos
 
 `/demo/*` is a Nest-owned file route with a live OrgOps human-session check,

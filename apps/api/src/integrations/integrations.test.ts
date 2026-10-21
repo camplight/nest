@@ -850,3 +850,60 @@ it('project approval denies other humans in additional chats and revoked tool gr
   expect((await execute(renewed)).status).toBe(403);
   expect(executionCount).toBe(0);
 });
+
+const publicPath='/api/integrations/agents/PuffOwner/channels';
+async function publicConversation() {
+  const r=await call('/api/channels','POST',{name:'Public work',visibility:'PUBLIC'});
+  expect(r.status).toBe(201);const id=(await r.json()).id;
+  for(const [subscriberType,subscriberId] of [['HUMAN','owner'],['AGENT','PuffOwner']])expect((await call(`/api/channels/${id}/subscribe`,'POST',{subscriberType,subscriberId})).ok).toBe(true);
+  await call('/api/humans/invite','POST',{username:'public-teammate',tempPassword:'password'});
+  await call(`/api/channels/${id}/subscribe`,'POST',{subscriberType:'HUMAN',subscriberId:'public-teammate'});
+  return id;
+}
+async function approvePublic(id:string) {
+  const review=(await(await call(publicPath)).json()).channels.find((c:any)=>c.channelId===id);
+  expect(review.audienceHash).toBeTruthy();
+  expect((await call(publicPath+'/'+id,'PUT',{audienceHash:review.audienceHash,acknowledgePublicAccess:true})).status).toBe(200);
+  return review;
+}
+it('allows public connected-app work only after owner consent and while the owner remains subscribed',async()=>{
+  const h=await enable(),id=await publicConversation();
+  expect((await execute(h)).status).toBe(403);
+  expect((await call(publicPath+'/'+id,'PUT',{})).status).toBe(400);
+  await approvePublic(id);
+  expect((await execute(h)).status).toBe(200);
+  await call(`/api/channels/${id}/unsubscribe`,'POST',{subscriberType:'HUMAN',subscriberId:'owner'});
+  expect((await execute(h)).status).toBe(403);
+  expect((await call('/api/integrations/skill/tools','GET',undefined,h)).status).toBe(403);
+  expect((await call('/api/integrations/skill/schema','POST',{connectionId:localId,tool:'TRELLO_GET_BOARDS'},h)).status).toBe(403);
+  expect(executionCount).toBe(1);
+});
+it.each(['roster','archive','private','revoke','grant','owner-during-lookup'] as const)('blocks public connected-app access after %s',async change=>{
+  const h=await enable(),id=await publicConversation();const previous=await approvePublic(id);
+  if(change==='roster'){
+    await call('/api/humans/invite','POST',{username:'other',tempPassword:'password'});
+    await call(`/api/channels/${id}/subscribe`,'POST',{subscriberType:'HUMAN',subscriberId:'other'});
+    expect((await call(publicPath+'/'+id,'PUT',{audienceHash:previous.audienceHash,acknowledgePublicAccess:true})).status).toBe(409);
+  }
+  if(change==='archive')await call(`/api/channels/${id}/archive`,'POST',{});
+  if(change==='private')await call(`/api/channels/${id}`,'PATCH',{visibility:'PRIVATE'});
+  if(change==='revoke')await call(publicPath+'/'+id,'DELETE');
+  if(change==='grant')await call('/api/integrations/agents/PuffOwner/grants/'+localId,'DELETE');
+  if(change==='owner-during-lookup')duringTool=async()=>{await call(`/api/channels/${id}/unsubscribe`,'POST',{subscriberType:'HUMAN',subscriberId:'owner'});};
+  expect((await execute(h)).status).toBe(403);expect(executionCount).toBe(0);
+});
+it('rejects public consent from non-owners or agent credentials and when the owner is absent',async()=>{
+  const h=await enable(),id=await publicConversation();const review=await approvePublic(id);
+  engine.db.prepare("UPDATE humans SET must_change_password=0 WHERE username='public-teammate'").run();
+  const login=await call('/api/auth/login','POST',{username:'public-teammate',password:'password'},{'content-type':'application/json'});
+  expect(login.status).toBe(200);
+  const other={...headers,cookie:login.headers.getSetCookie()[0].split(';')[0]};
+  for(const actor of [h,other]) {
+    expect((await call(publicPath,'GET',undefined,actor)).status).toBe(403);
+    expect((await call(publicPath+'/'+id,'PUT',{audienceHash:review.audienceHash,acknowledgePublicAccess:true},actor)).status).toBe(403);
+    expect((await call(publicPath+'/'+id,'DELETE',undefined,actor)).status).toBe(403);
+  }
+  await call(`/api/channels/${id}/unsubscribe`,'POST',{subscriberType:'HUMAN',subscriberId:'owner'});
+  expect((await call(publicPath+'/'+id,'PUT',{audienceHash:review.audienceHash,acknowledgePublicAccess:true})).status).toBe(403);
+  expect((await execute(h)).status).toBe(403);
+});

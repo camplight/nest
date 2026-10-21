@@ -39,3 +39,5 @@ export type ConnectionProjectReview = {
   audienceHash: string | null;
   approved: boolean;
 };
+
+export type ConnectionChannelReview = Omit<ConnectionProjectReview, 'projectId'> & { channelId: string };
