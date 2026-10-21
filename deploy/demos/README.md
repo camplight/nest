@@ -2,8 +2,8 @@
 
 Nest serves `/demo/*` through its API and validates the existing human session
 using OrgOps HTTP on every request. Anonymous, invalid and revoked sessions get
-401 with a sign-in link. Runner credentials do not grant viewing access. All
-responses disable caching. Sign in at `/`, then reopen the demo link.
+302 to the existing Nest login for HTML browser requests, preserving the demo return destination through password/Google sign-in. Non-HTML requests retain 401. Runner credentials do not grant viewing access. All
+responses disable caching. After sign-in, the browser returns to the original demo URL, including query parameters and fragment. Only local `/demo/` return destinations are accepted.
 
 Files remain in `.nest-data/demos` (`NEST_DEMO_ROOT` overrides the API path).
 The publisher still atomically writes `slug/index.html`; extensionless, trailing

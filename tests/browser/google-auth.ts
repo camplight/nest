@@ -2,7 +2,7 @@ import { chromium } from "playwright";
 import tailwindConfig from "../../apps/admin-ui/tailwind.config";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
@@ -25,7 +25,11 @@ const engine = createEngine({
   adminUser: "owner",
   adminPass: "test-password",
 });
+const demoRoot = join(dir, 'demos');
+mkdirSync(join(demoRoot, 'return-example'), {recursive:true});
+writeFileSync(join(demoRoot, 'return-example', 'index.html'), '<!doctype html><title>Demo fixture</title><h1>Returned to demo</h1>');
 const product = createApp({
+  demoRoot,
   orgops: createOrgOpsClient("http://engine", (async (url, init) =>
     engine.app.fetch(new Request(url, init))) as typeof fetch),
   dbPath: join(dir, "product.sqlite"),
@@ -39,6 +43,8 @@ const backend = serve({
 });
 await once(backend, "listening");
 const backendUrl = `http://127.0.0.1:${backend.address().port}`;
+process.env.NEST_INTERNAL_API_PORT = String(backend.address().port);
+const demoUrl = 'http://127.0.0.1:5300/demo/return-example?campaign=test#details';
 const servers: any[] = [];
 const originalGet = OAuth2Client.prototype.getToken,
   originalVerify = OAuth2Client.prototype.verifyIdToken;
@@ -101,6 +107,19 @@ try {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.routeWebSocket("**/ws", (socket) => socket.close());
+    await page.goto(demoUrl);
+    await page.getByRole('button', {name:'Continue',exact:true}).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('returnTo'), '/demo/return-example?campaign=test');
+    await page.getByLabel('Username', {exact:true}).fill('owner');
+    await page.getByLabel('Password', {exact:true}).fill('wrong-password');
+    await page.getByRole('button', {name:'Continue',exact:true}).click();
+    await page.getByRole('alert').waitFor();
+    assert(new URL(page.url()).searchParams.has('returnTo'));
+    await page.getByLabel('Password', {exact:true}).fill('test-password');
+    await page.getByRole('button', {name:'Continue',exact:true}).click();
+    await page.getByRole('heading', {name:'Returned to demo'}).waitFor();
+    assert.equal(page.url(), demoUrl);
+    await page.context().clearCookies();
     await page.goto("http://127.0.0.1:5300/");
     await page.getByRole("button", { name: "Continue", exact: true }).waitFor();
     assert.equal(
@@ -219,6 +238,18 @@ try {
       403,
     );
     await page.context().clearCookies();
+    await page.goto(demoUrl);
+    await page.getByRole('link', {name:'Continue with Google'}).waitFor();
+    const googleStart = new URL((await page.getByRole('link', {name:'Continue with Google'}).getAttribute('href'))!, page.url());
+    assert.equal(googleStart.searchParams.get('returnTo'), '/');
+    await page.setViewportSize({width:1440,height:1000});
+    await page.screenshot({path:join(screenshots,'demo-login-desktop.png'),fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    await page.screenshot({path:join(screenshots,'demo-login-mobile.png'),fullPage:true});
+    await page.getByRole('link', {name:'Continue with Google'}).click();
+    await page.getByRole('heading', {name:'Returned to demo'}).waitFor();
+    assert.equal(page.url(), demoUrl);
+    await page.context().clearCookies();
     await page.goto("http://127.0.0.1:5300/?authError=google_domain");
     await page
       .getByRole("alert")
@@ -226,7 +257,7 @@ try {
       .waitFor();
     assert.deepEqual(errors, []);
     console.log(
-      `PASS: disabled/enabled login, owner settings, desktop/mobile layouts, admin return URL, simulated Google redirect through real engine/gateway, JIT account and nonowner denial. Screenshots: ${screenshots}`,
+      `PASS: demo login redirects, password error/retry and Google return with query/fragment, disabled/enabled login, owner settings, desktop/mobile layouts, admin return URL, simulated Google redirect through real engine/gateway, JIT account and nonowner denial. Screenshots: ${screenshots}`,
     );
   } finally {
     await browser.close();

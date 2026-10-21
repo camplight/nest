@@ -39,6 +39,11 @@ describe('Nest product over unchanged OrgOps', () => {
         expect(denied.headers.get('cache-control')).toBe('private, no-store');
       }
     }
+    const navigation = await product.app.request('/demo/example?campaign=test', {headers:{Accept:'text/html,application/xhtml+xml'}});
+    expect(navigation.status).toBe(302);
+    expect(navigation.headers.get('location')).toBe('/?returnTo=%2Fdemo%2Fexample%3Fcampaign%3Dtest');
+    expect(navigation.headers.get('cache-control')).toBe('private, no-store');
+    expect(navigation.headers.get('vary')).toBe('Cookie, Accept');
     for (const path of ['/demo/example', '/demo/example/', '/demo/example.html', '/demo/example/index.html']) {
       const response = await product.app.request(path, {headers:{cookie}});
       expect(response.status).toBe(200);

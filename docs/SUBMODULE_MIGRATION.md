@@ -439,3 +439,5 @@ No engine source/pin change or database migration is needed. Install the updated
 host controller before deploying: the old anonymous demo byte check would roll
 back the protected release. Update persistent publishing helpers from
 `deploy/demos/publish.mjs`. See [rollout prerequisites](../deploy/demos/README.md).
+
+The demo login-return enhancement adds no migration or engine changes. The controller and publisher still receive 401 for non-HTML checks, so the authenticated-demo controller requires no additional installation for this enhancement.
