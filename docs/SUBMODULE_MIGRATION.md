@@ -439,3 +439,9 @@ No engine source/pin change or database migration is needed. Install the updated
 host controller before deploying: the old anonymous demo byte check would roll
 back the protected release. Update persistent publishing helpers from
 `deploy/demos/publish.mjs`. See [rollout prerequisites](../deploy/demos/README.md).
+
+## Demo artifact preview
+
+The chat-side demo preview is Nest UI only. It uses existing authenticated demo
+routes and normal message drafts; no engine change, new grant, DB migration or
+publisher replacement is required.

@@ -1005,3 +1005,18 @@ private/no-store responses and 401 plus a login link for anonymous requests.
 Vite development/preview middleware routes demo requests before static files,
 including legacy demo symlinks. Published files remain outside the UI tree in
 `.nest-data/demos`. See [deployment and publishing](../deploy/demos/README.md).
+
+## Demo artifacts beside chat
+
+Messages containing this instance's `/demo/<slug>` links expose a Preview button.
+Opening it shows an isolated iframe beside the chat (stacked on narrow screens),
+with phone-width, refresh, open-in-tab and close controls. Preview runs scripts
+without same-origin privileges, forms, popups or top navigation; some demo
+integrations may therefore need the full-page view. Existing authenticated demo
+routing remains authoritative; previewing does not publish or grant access.
+
+Request changes appends the demo URL to the current message draft without sending
+or choosing an agent. The human describes changes and selects the appropriate
+agent using the existing mention picker. The agent edits and republishes through
+the existing publisher; Refresh then reloads the artifact. This first version is
+chat-based editing, not a direct HTML/visual editor or automatic update stream.
