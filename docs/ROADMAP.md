@@ -104,6 +104,13 @@ checks alone do not establish production deployment.
 
 ### 3. Complete agent experience
 
+Room runtime indicators are implemented in project details, standalone rooms and
+the mobile member dialog. Compact dots and visible labels use the authorized
+engine roster, refreshed every ten seconds and on focus; unknown/failed lookups
+remain gray. Runtime state is distinct from task activity and verified runner or
+provider health. `tests/browser/agent-runtime-status.ts` checks engine control
+changes, refresh, lookup outages/recovery and desktop/mobile rendering.
+
 Extend the initial directory/detail slice with creation, assignment, explicit
 avatar selection and resource editing. Distinguish runtime online state from
 working on a task. Use existing engine APIs and their permission model.

@@ -73,7 +73,7 @@ export function Projects(props: Props) {
         {taskId && !selected && <p role="alert">Task not found in this project.</p>}
         {selected && <TaskPanel key={`${selected.id}:${selected.version}`} task={selected} detail={detail} onChanged={task=>setDetail(current=>current ? {...current,tasks:current.tasks.map(t=>t.id===task.id ? task : t)} : current)} onRefresh={()=>setRefresh(n=>n+1)} />}
       </>}
-      </div><ProjectContext key={detail.id} project={detail} participants={props.participants} owner={detail.ownerId===props.userId} onSaved={updated=>setDetail(current=>current?{...current,...updated}:current)} onMembersChanged={props.onMembersChanged} onManage={props.onManage}/></div></>}
+      </div><ProjectContext key={detail.id} project={detail} participants={props.participants} agents={agents} owner={detail.ownerId===props.userId} onSaved={updated=>setDetail(current=>current?{...current,...updated}:current)} onMembersChanged={props.onMembersChanged} onManage={props.onManage}/></div></>}
     </div>
   </section>;
 }
