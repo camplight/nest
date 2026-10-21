@@ -24,7 +24,7 @@ Before activation, persist the existing Git configuration (credential helper
 references only, no token values) at `codex-home/gitconfig`, and point
 `/home/node/.gitconfig` to it. GitHub credentials already live separately in the
 private `codex-home/github-cli-config` directory. The controller restores this
-symlink, node's login-shell Git PATH, and existing demo routes after container replacement.
+symlink, node's login-shell Git PATH, and legacy demo routes after container replacement. Protected images serve demos through the session-gated API.
 
 Accepted commands: `status [id]`, `logs [id]`, `restart`, and `deploy <full SHA>`.
 Deployment is restricted to the current `camplight/nest` main commit. systemd
@@ -36,7 +36,7 @@ Builds happen before stopping the service. SQLite is backed up while Nest is
 stopped. Failed starts restore the prior image and both SQLite snapshots; runtime
 workspaces and uploads retain their existing volume contents. Database writes
 during a failed deployment's startup window are discarded on rollback. The
-host checks health, branding, both UI routes, and the existing Kibrit demo.
+host checks health, branding, both UI routes, and the existing Kibrit demo (anonymous 401 for protected images; byte hash for legacy images and rollback).
 
 This grants production deployment authority: merged application code and its
 Dockerfile run on the production host. Repository permissions and PR review

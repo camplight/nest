@@ -432,3 +432,10 @@ new UI do not require a runtime helper update.
 
 
 Connected apps support any number of unshared, active owner-only conversations alongside explicitly approved projects. Every subscribed conversation must still pass the owner/privacy checks or project roster approval; archived or unsafe subscriptions pause access. The credential remains bound to its original private conversation, which must still exist. Assistant request dispatch retains its separate single-private-conversation boundary. No additional migration or engine change is required.
+
+## Authenticated demo hosting
+
+No engine source/pin change or database migration is needed. Install the updated
+host controller before deploying: the old anonymous demo byte check would roll
+back the protected release. Update persistent publishing helpers from
+`deploy/demos/publish.mjs`. See [rollout prerequisites](../deploy/demos/README.md).

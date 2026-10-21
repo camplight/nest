@@ -30,6 +30,24 @@ class DeploymentTests(unittest.TestCase):
         self.job = 'a' * 32
         self.sha = 'b' * 40
 
+    def test_health_requires_anonymous_demo_denial(self):
+        demo = ops.DATA / 'demos/kibrit'
+        demo.mkdir(parents=True)
+        (demo / 'index.html').write_text('fixture')
+        for status in ('200', '302', '404', '502'):
+            with self.subTest(status=status), patch.object(ops, 'run', side_effect=lambda *args, **kwargs: 'true' if 'node' in args else status), patch.object(ops, 'restore_tools'):
+                with self.assertRaisesRegex(RuntimeError, 'expected 401'):
+                    ops.health()
+        with patch.object(ops, 'run', side_effect=lambda *args, **kwargs: 'true' if 'node' in args else '401'), patch.object(ops, 'restore_tools'):
+            ops.health()
+
+    def test_old_image_health_remains_compatible_with_rollback(self):
+        demo = ops.DATA / 'demos/kibrit'
+        demo.mkdir(parents=True)
+        (demo / 'index.html').write_bytes(b'fixture')
+        with patch.object(ops, 'run', return_value='false'), patch.object(ops, 'restore_tools'), patch.object(ops.subprocess, 'check_output', return_value=b'fixture'):
+            ops.health()
+
     def test_non_main_commit_never_stops_service(self):
         with patch.object(ops, 'run', return_value='c' * 40 + '\n') as run:
             with self.assertRaisesRegex(RuntimeError, 'current .* main'):
