@@ -26,3 +26,23 @@ export function activityDetails(event:EventRow){
   // Preserve the entire recorded payload, including process output and tool arguments.
   return JSON.stringify({event:event.type,source:event.source,payload:event.payload},null,2);
 }
+
+/** Latest public update for each active wrapped turn, across interleaved messages. */
+export function activeAgentProgress(events:EventRow[]):Set<string>{
+  const active=new Map<string,EventRow>(),finished=new Set<string>();
+  for(const event of events){
+    const p=event.payload&&typeof event.payload==='object'?event.payload as Record<string,unknown>:{};
+    const agent=event.source.startsWith('agent:')?event.source.slice(6):typeof p.targetAgentName==='string'?p.targetAgentName:'';
+    if(!agent||typeof p.triggerEventId!=='string')continue;
+    const key=JSON.stringify([agent,p.triggerEventId]);
+    if(['agent.turn.completed','agent.turn.failed','wrapper.turn.completed','wrapper.turn.failed'].includes(event.type)){
+      finished.add(key);active.delete(key);
+    }else if(event.type==='agent.turn.started'){
+      finished.delete(key);
+      for(const [id,row] of active)if(row.source===`agent:${agent}`)active.delete(id);
+    }else if(event.type==='agent.turn.phase'&&p.phase==='codex-progress'&&typeof p.text==='string'&&p.text.trim()&&!finished.has(key)){
+      active.set(key,event);
+    }
+  }
+  return new Set([...active.values()].map(event=>event.id));
+}

@@ -743,6 +743,7 @@ button {
 }
 
 .trace-chips { display:flex; flex-wrap:wrap; gap:4px; }
+.trace-progress { margin:2px 0; color:var(--nest-muted); font-size:12px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
 .trace-chip { display:inline-grid; place-items:center; flex-shrink:0; width:22px; height:22px; padding:0; border:1px solid var(--nest-border); border-radius:6px; background:var(--nest-muted-surface); color:var(--nest-muted); cursor:pointer; }
 .trace-chip-success { border-color:#86efac; background:#f0fdf4; color:#15803d; }
 .trace-chip-danger { border-color:#fecdd3; background:#fff0eb; color:#b42332; }

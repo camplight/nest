@@ -16,7 +16,7 @@ function ActivityIconView({name}:{name:ActivityIcon}){
   };
   return <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
-export function AgentActivity({events,tone,formatTime}:{events:EventRow[];tone:'agent'|'system';formatTime:(time?:number)=>string}){
+export function AgentActivity({events,tone,formatTime,progressEvents=[]}:{events:EventRow[];tone:'agent'|'system';formatTime:(time?:number)=>string;progressEvents?:EventRow[]}){
   const id=useId();
   const [selected,setSelected]=useState<string|null>(null);
   const [tooltip,setTooltip]=useState<{event:EventRow;x:number;y:number;below:boolean}|null>(null);
@@ -35,6 +35,9 @@ export function AgentActivity({events,tone,formatTime}:{events:EventRow[];tone:'
         <ActivityIconView name={info.icon}/>
       </button>;
     })}</div>
+    {progressEvents.map(event=><p className="trace-progress" role="status" key={event.id}>
+      <strong>{event.source.slice(6)}:</strong> {String((event.payload as {text:string}).text)}
+    </p>)}
     {current&&<div className="trace-detail-card" id={`${id}-detail`} key={current.id}>
       <div className="trace-detail-meta"><strong>{activity(current).title}</strong><span>{formatTime(current.createdAt)}</span></div>
       <details><summary>Details</summary><pre>{activityDetails(current)}</pre></details>

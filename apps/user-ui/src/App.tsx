@@ -4,6 +4,7 @@ import {useAttachments,restoreAttachments,type UploadedAttachment} from './attac
 import {ChatAttachments} from './components/ChatAttachments';
 import {ChatFileDrop} from './components/ChatFileDrop';
 import {AgentActivity} from './components/AgentActivity';
+import {activeAgentProgress} from './activity';
 import {consumeConnectionReturn,forgetConnectionReturn} from './project-connection-return';
 import {ProjectConnections} from './ProjectConnections';
 import {loadChatDraft,saveChatDraft,clearSentDraft,clearOwnerDrafts,rememberProject,recentProject,type ChatDraft} from './drafts';
@@ -544,6 +545,7 @@ export default function App() {
     return items;
   }, [visibleTimelineEvents]);
   const isConversationEmpty = !messagesLoading && timelineItems.length === 0;
+  const activeProgressIds = useMemo(() => activeAgentProgress(events), [events]);
 
   const agentIsThinking = useMemo(() => {
     let activeTurns = 0;
@@ -2115,7 +2117,7 @@ export default function App() {
                     </article>
                   );
                 }
-                return <AgentActivity key={item.id} events={item.traceEvents} tone={item.tone} formatTime={formatTime}/>;
+                return <AgentActivity key={item.id} events={item.traceEvents} tone={item.tone} formatTime={formatTime} progressEvents={item.traceEvents.filter(event=>activeProgressIds.has(event.id))}/>;
               })
             )}
           </section>
