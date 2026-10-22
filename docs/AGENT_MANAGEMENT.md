@@ -8,6 +8,14 @@ The Docker image explicitly makes this public skill readable by the node account
 and checks both helper imports as that account during the build, even when the
 host checkout uses a private umask. Private runtime credentials are unchanged.
 
+During long turns, the same trusted bridge uses
+`packages/orgops-client/src/wrapped-progress.mjs` to publish public assistant
+updates through OrgOps's existing `agent.turn.phase` endpoint. Nest displays the
+latest update next to the compact activity icons until completion or failure.
+The final reply still uses normal wrapped output; reasoning, tool output and
+diagnostics stay out of progress. No additional agent/tool grant is needed, and
+the global runner credential still stays outside Codex's environment.
+
 Management permission is permanent until the administrator revokes it. It does
 not expire with human sign-out, API restarts or a time limit. The trusted bridge
 signs its originating agent/channel/event context using the existing runner key;
@@ -74,6 +82,11 @@ unchanged, and conflicting agents are never overwritten or renamed automatically
    image copy and run the helper as UID 1000. Verify the saved setup contains the
    reviewed bridge too; a context check alone does not prove that future Codex turns
    receive the management capability.
+   For progress updates, verify the image's adapter is readable as the runtime
+   user, then check a synthetic long turn shows an update before its final reply.
+   Install both the UI and adapter before refreshing the persistent bridge and
+   saved setup. Progress delivery is bounded and best-effort; an engine outage
+   reports a generic diagnostic and does not discard the final reply.
 
 Disable management by removing the two `NEST_MANAGEMENT_AGENT_*` settings and
 restarting the API. Deleting/replacing the configured manager also denies access.

@@ -809,6 +809,21 @@ OrgOps source and the submodule pin remain untouched.
 
 ## Wrapped agent management
 
+NestSystem's Nest-owned Codex bridge publishes completed interim assistant messages
+as the existing `agent.turn.phase` event with `phase=codex-progress`, text, and the
+originating trigger ID. A following Codex item identifies an interim message; the
+last assistant message remains on the runner's existing final-response path. Raw
+JSONL, reasoning, tool arguments/results and stderr are never forwarded as progress.
+`packages/orgops-client` posts the event to the engine using the bridge's retained
+runner credential, channel and parent event. Stable per-item identities reconcile
+lost responses; bounded best-effort delivery cannot prevent a final reply.
+
+The chat keeps its compact activity icons and shows only the latest progress text
+for each active turn, including across intervening human messages. Completion or
+failure clears that text; earlier updates remain available in activity details.
+These bookkeeping events cannot wake other agents or create message notifications.
+This does not change channel queuing, cancellation, timeouts or runtime isolation.
+
 An operator can permanently authorize one trusted wrapped manager using
 `NEST_MANAGEMENT_AGENT_NAME` and its pinned `NEST_MANAGEMENT_AGENT_ID`.
 `GET /api/agent-management/context`, `GET /api/agent-management/agents/:name`

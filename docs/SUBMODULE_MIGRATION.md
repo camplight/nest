@@ -350,6 +350,17 @@ controls can adapt OrgOps's existing targeted scheduled triggers through HTTP.
 
 ## NestSystem agent creation
 
+The NestSystem progress fix uses the pinned engine's existing `agent.turn.phase`
+HTTP/WS event and runner credential. No engine source, pin, database migration,
+new permission or Codex authentication change is needed. Deploy the product UI and
+`packages/orgops-client/src/wrapped-progress.mjs` together, then refresh both the
+persistent NestSystem bridge and its embedded saved setup following
+[AGENT_MANAGEMENT.md](AGENT_MANAGEMENT.md). Back up both copies first. A repository
+deploy alone does not update a bridge already on the persistent volume. Preserve
+session mappings, login, workspaces and other agent bridges. Verify a long turn
+shows a progress line before completion and produces one final reply; transport
+failure must still permit the existing final-response path.
+
 The permanent Nest management adapter uses existing agent/event/channel/model/runner
 HTTP APIs at the unchanged engine pin. No database migration is required. Deployment
 alone does not install the persistent wrapped bridge or grant management permission.
