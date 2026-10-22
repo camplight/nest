@@ -2047,7 +2047,7 @@ export default function App() {
         {error ? <div className="notice error" role="alert">{error}</div> : null}
         {loading ? <div className="notice">Loading workspace…</div> : null}
 
-        <div className="artifact-chat-layout">
+        <div className={`artifact-chat-layout${demoPreview?.channel===activeChannelId ? " has-preview" : ""}`}>
         <section className="chat-stack">
           <section
             className={`messages-panel${isConversationEmpty ? " messages-panel-empty" : ""}`}
