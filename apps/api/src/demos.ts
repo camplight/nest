@@ -1,10 +1,29 @@
-import {readFile, realpath, stat} from 'node:fs/promises';
+import {readFile, realpath, stat, readdir, lstat} from 'node:fs/promises';
 import {resolve, sep, extname} from 'node:path';
 import type {Hono} from 'hono';
 import type {OrgOpsClient} from '@nest/orgops-client';
 
 // Published files stay outside UI static roots. Every read revalidates the human session.
 export function registerDemoRoutes(app: Hono, {orgops, root}: {orgops: OrgOpsClient; root: string}) {
+  app.get('/api/artifacts',async c=>{
+    c.header('Cache-Control','private, no-store');
+    const human=await orgops.currentHuman(c.req.raw.headers);
+    if(!human)return c.json({error:'Sign in required'},401);
+    if(human.mustChangePassword)return c.json({error:'Complete password setup first'},403);
+    let base:string;
+    try{base=await realpath(root);}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return c.json({items:[]});throw e;}
+    const items=[];
+    for(const entry of await readdir(base,{withFileTypes:true})){
+      if(!entry.isDirectory()||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(entry.name)||entry.name.length>64)continue;
+      try{
+        const file=resolve(base,entry.name,'index.html');
+        if((await realpath(file))!==file)continue;
+        const info=await lstat(file);if(!info.isFile())continue;
+        items.push({name:entry.name.replaceAll('-',' '),url:'/demo/'+entry.name,updatedAt:info.mtimeMs,size:info.size});
+      }catch(e){if(!['ENOENT','ENOTDIR'].includes((e as NodeJS.ErrnoException).code??''))throw e;}
+    }
+    return c.json({items:items.sort((a,b)=>b.updatedAt-a.updatedAt||a.url.localeCompare(b.url))});
+  });
   app.all('/demo', c => c.redirect('/demo/', 302));
   app.all('/demo/*', async c => {
     c.header('Cache-Control', 'private, no-store');

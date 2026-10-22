@@ -32,10 +32,3 @@ export type ConnectionSkillStatus = {
   /** Whether the enabled skill is configured for preloading on the next turn. */
   preloadConfigured: boolean;
 };
-export type ConnectionProjectReview = {
-  projectId: string;
-  name: string;
-  participants: { subscriberType: string; subscriberId: string }[];
-  audienceHash: string | null;
-  approved: boolean;
-};

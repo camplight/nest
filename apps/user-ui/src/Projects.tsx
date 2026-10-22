@@ -1,3 +1,4 @@
+import {PublishedArtifacts} from './PublishedArtifacts';
 import {WorkspaceTopbar} from "./components/WorkspaceTopbar";
 import {DesignIcon} from "./Dashboard";
 import { useEffect, useRef, useState, type ReactNode, type FormEvent } from 'react';
@@ -64,7 +65,7 @@ export function Projects(props: Props) {
       <nav className="project-tabs" aria-label="Project sections">{['chat','files'].map(section => <button key={section} aria-current={tab === section ? 'page' : undefined} onClick={() => {setCreating(false);onSelect(detail.id,null,section);}}>{section[0].toUpperCase()+section.slice(1)}</button>)}</nav>
       <div className="project-workspace"><div className="project-main">
         {tab === 'chat' && <div className="project-chat">{chat}</div>}
-        {tab === 'files' && <ProjectFiles key={detail.channelId} channelId={detail.channelId} />}
+        {tab === 'files' && <><PublishedArtifacts/><ProjectFiles key={detail.channelId} channelId={detail.channelId} /></>}
         {tab === 'tasks' && <>
         {creating && <TaskForm key={detail.id} project={detail} agents={agents} onCreated={task=>{setCreating(false);setDetail({...detail,tasks:[...detail.tasks,task]});onSelect(detail.id,task.id);}} />}
         <section aria-label="Project tasks"><div className="dashboard-section-title"><h2>Tasks <span className="dashboard-count">{detail.tasks.length}</span></h2></div><div className="dashboard-list">{detail.tasks.map(task=><button className="dashboard-card project-task-row" aria-current={task.id===taskId ? 'true' : undefined} key={task.id} onClick={()=>onSelect(detail.id,task.id)}><AgentAvatar name={task.agentName} size={36} /><span><strong>{task.title}</strong><small>{task.agentName} · Attempt {task.attempt}</small></span><span className="dashboard-pill">{statusLabel[task.status]}</span></button>)}</div>

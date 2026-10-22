@@ -7,7 +7,7 @@ import {AgentActivity} from './components/AgentActivity';
 import {consumeConnectionReturn,forgetConnectionReturn} from './project-connection-return';
 import {ProjectConnections} from './ProjectConnections';
 import {loadChatDraft,saveChatDraft,clearSentDraft,clearOwnerDrafts,rememberProject,recentProject,type ChatDraft} from './drafts';
-import { prepareAssistantRequest, readAgentRequestLocation } from "./AgentRequests";
+import { readAgentRequestLocation } from "./AgentRequests";
 import {WorkspaceHeaderProvider, WorkspaceTopbar} from './components/WorkspaceTopbar';
 import type {SelectedMention} from '@nest/schemas';
 import { useMentionPicker } from "./components/useMentionPicker";
@@ -611,7 +611,7 @@ export default function App() {
     }
     for(const candidate of candidates){
       const agent=visibleAgents.find(agent=>candidate.kind==='Agent'&&agent.name===candidate.name);
-      if(agent?.visibility==='PRIVATE'&&agent.ownerHumanId!==userId)candidate.inviteBlockedReason='Only this agent’s owner can invite it';
+      if(agent?.visibility==='PRIVATE'&&agent.ownerHumanId!==userId&&!sharedAssistants.some(a=>a.agentName===agent.name))candidate.inviteBlockedReason='Only this agent’s owner can invite it';
     }
     return candidates;
   }, [visibleAgents, humans, activeChannel?.participants,sharedAssistants,userId]);
@@ -675,7 +675,7 @@ export default function App() {
     // Refresh the roster without navigating back if the user changed chats.
     setChannels(fresh);
   }
-  const mentions = useMentionPicker({value:draft, onChange:setDraft, onChoose:chooseMention, onAskAssistant:(name,brief)=>{if(userId){prepareAssistantRequest(userId,name,brief);selectAgent(null,{requests:true,assistant:name});}}, targeted:true, onInvite:canInviteMention?inviteMention:undefined, textareaRef:composerTextareaRef, candidates:mentionOptions, channelId:activeChannelId, disabled:!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending});
+  const mentions = useMentionPicker({value:draft, onChange:setDraft, onChoose:chooseMention, onAskAssistant:(name,brief)=>{if(userId)void apiJson<{channelId:string}>('/api/collaboration/agents/'+encodeURIComponent(name)+'/chat',{method:'POST',headers:getApiHeaders(),body:'{}'}).then(async r=>{const existing=loadChatDraft(userId,r.channelId);if(!existing.text&&!existing.attachments.length&&!existing.request)saveChatDraft(userId,r.channelId,{text:brief,mentions:[],attachments:[]});await refreshChannels(r.channelId);void loadShell();}).catch(()=>setError('Could not open the agent conversation. Try again.'));}, targeted:true, onInvite:canInviteMention?inviteMention:undefined, textareaRef:composerTextareaRef, candidates:mentionOptions, channelId:activeChannelId, disabled:!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending});
   const canStartConversation =
     Boolean(conversationName.trim()) || selectedConversationAgents.length === 1;
   const selectedConversationAgentRecords = useMemo(
@@ -2375,7 +2375,7 @@ export default function App() {
         />
       ) : null}
 
-      {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} onManage={activeChannelManageable?()=>setShowChannelManageDialog(true):undefined} /> : view === "agents" ? <Agents requestLocation={requestLocation} onRequests={(id,assistant)=>selectAgent(null,{requests:true,request:id,assistant})} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={selectChannel} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
+      {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} onManage={activeChannelManageable?()=>setShowChannelManageDialog(true):undefined} /> : view === "agents" ? <Agents requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
         resumeProject={userId?projectIndex.find(p=>p.id===recentProject(userId)):undefined} channels={visibleChannels} projects={projectIndex} onProject={selectProject} unreadCounts={unreadCounts} onCommunity={selectCommunity}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}
         onSelect={selectChannel} onCreate={() => selectProject(null, null, "new")}
