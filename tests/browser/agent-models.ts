@@ -65,4 +65,3 @@ try {
  console.log(`PASS: admin default creation and model changes against actual engine. Screenshots: ${screenshots}`);
 } finally {await browser.close();await server.close();product.store.close();engine.db.close();rmSync(dir,{recursive:true,force:true});}
 
-await import('./agent-requests');
