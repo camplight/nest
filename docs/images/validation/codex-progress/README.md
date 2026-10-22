@@ -16,7 +16,7 @@ Unit/integration checks additionally cover failed turns, reasoning/tool-output
 exclusion, lost-response deduplication, bounded delivery failure and suppression
 of agent wake-ups. Existing compact activity controls remain unchanged.
 
-Validation: `npm run lint`, `npm run build`, all 173 product tests, the demo
+Validation: `npm run lint`, `npm run build`, all 174 product tests, the demo
 publisher check, and `npm run test:ui:chat`. On macOS the publisher check needs
 `TMPDIR=/private/tmp` to avoid the existing temporary-path symlink mismatch.
 The OrgOps submodule is untouched. No live Codex turn was dispatched for these checks.

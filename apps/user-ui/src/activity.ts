@@ -38,6 +38,7 @@ export function activeAgentProgress(events:EventRow[]):Set<string>{
     if(['agent.turn.completed','agent.turn.failed','wrapper.turn.completed','wrapper.turn.failed'].includes(event.type)){
       finished.add(key);active.delete(key);
     }else if(event.type==='agent.turn.started'){
+      finished.delete(key);
       for(const [id,row] of active)if(row.source===`agent:${agent}`)active.delete(id);
     }else if(event.type==='agent.turn.phase'&&p.phase==='codex-progress'&&typeof p.text==='string'&&p.text.trim()&&!finished.has(key)){
       active.set(key,event);

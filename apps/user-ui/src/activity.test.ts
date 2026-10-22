@@ -32,4 +32,7 @@ describe('compact wrapped progress',()=>{
  it('does not reuse a previous turn update or expose arbitrary phase payloads',()=>{
   expect([...activeAgentProgress([progress('old'),event('agent.turn.started',{triggerEventId:'next'}),event('agent.turn.phase',{text:'private detail'})])]).toEqual([]);
  });
+ it('shows progress when the engine retries a previously failed trigger',()=>{
+  expect([...activeAgentProgress([event('agent.turn.failed',{triggerEventId:'turn'}),event('agent.turn.started',{triggerEventId:'turn'}),progress('retry')])]).toEqual(['retry']);
+ });
 });
