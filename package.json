@@ -36,15 +36,16 @@
     "engine:install": "git submodule update --init --recursive vendor/orgops",
     "test:engine": "cd vendor/orgops && node ../../node_modules/vitest/vitest.mjs run --config ../../vitest.engine.config.ts",
     "migrate:product": "node --import tsx scripts/migrate-product-data.ts",
-    "test:ui:agents": "node --import tsx tests/browser/agents.mjs && node --import tsx tests/browser/agent-models.ts && node --import tsx tests/browser/agent-runtime-status.ts",
+    "test:ui:agents": "node --import tsx tests/browser/agents.mjs && node --import tsx tests/browser/agent-models.ts && node --import tsx tests/browser/agent-runtime-status.ts && npm run test:ui:trusted",
     "test:ui:projects": "node --import tsx tests/browser/projects.ts && npm run test:ui:dashboard && npm run test:ui:chat",
     "test:ui:dashboard": "node --import tsx tests/browser/dashboard.ts",
     "test:ui:community": "node --import tsx tests/browser/community.ts",
     "test:ui:auth": "node --import tsx tests/browser/google-auth.ts",
     "test:ui:onboarding": "node --import tsx tests/browser/onboarding.ts",
     "test:ui:models": "node --import tsx tests/browser/agent-models.ts",
-    "test:ui:chat": "node --import tsx tests/browser/chat.ts",
+    "test:ui:chat": "node --import tsx tests/browser/chat.ts && node --import tsx tests/browser/codex-progress.mjs && npm run test:ui:demo-artifacts",
     "test:ui:images": "node --import tsx tests/browser/image-attachments.ts",
+    "test:ui:trusted": "node tests/browser/connection-projects.mjs",
     "test:ui:demo-artifacts": "node tests/browser/demo-artifacts.mjs"
   },
   "devDependencies": {

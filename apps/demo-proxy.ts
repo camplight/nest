@@ -12,7 +12,7 @@ export function demoProxy(): Plugin {
     if (path !== '/demo' && !path.startsWith('/demo/')) return next();
     const port = process.env.NEST_INTERNAL_API_PORT ?? '8787';
     const upstream = request({hostname: '127.0.0.1', port, path: req.url, method: req.method,
-      headers: {cookie: req.headers.cookie ?? ''}}, response => {
+      headers: {cookie: req.headers.cookie ?? '', accept: req.headers.accept ?? '*/*'}}, response => {
       res.writeHead(response.statusCode ?? 502, response.headers);
       response.pipe(res);
     });

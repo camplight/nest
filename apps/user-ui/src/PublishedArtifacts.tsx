@@ -1,0 +1,7 @@
+import {useEffect,useState} from 'react';
+import {apiJson} from './api';
+export function PublishedArtifacts(){
+ const [items,setItems]=useState<{name:string;url:string;updatedAt:number;size:number}[]>([]),[error,setError]=useState(''),[loading,setLoading]=useState(true),[revision,setRevision]=useState(0);
+ useEffect(()=>{const abort=new AbortController();setLoading(true);setError('');void apiJson<{items:typeof items}>('/api/artifacts',{signal:abort.signal}).then(r=>{if(!abort.signal.aborted)setItems(r.items);}).catch(()=>{if(!abort.signal.aborted)setError('Could not load published artifacts. Try refreshing.');}).finally(()=>{if(!abort.signal.aborted)setLoading(false);});return()=>abort.abort();},[revision]);
+ return <section className="dashboard-card project-form" aria-label="Published artifacts"><h2>Published artifacts</h2><p>All published demos and reports on this Nest instance. This library is shared across projects.</p><button className="dashboard-action" disabled={loading} onClick={()=>setRevision(r=>r+1)}>Refresh artifacts</button>{error&&<p role="alert">{error}</p>}{loading&&<p role="status">Loading artifacts…</p>}<ul className="project-file-list">{items.map(item=><li key={item.url}><a href={item.url} target="_blank" rel="noreferrer">{item.name} ↗</a><small> · Updated {new Date(item.updatedAt).toLocaleString()} · {Math.ceil(item.size/1024)} KB</small></li>)}</ul>{!loading&&!error&&!items.length&&<p>No artifacts have been published yet.</p>}</section>;
+}

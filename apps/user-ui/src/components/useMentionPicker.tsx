@@ -33,7 +33,7 @@ export function useMentionPicker({value,onChange,onChoose,onAskAssistant,onInvit
   const sync=(node:HTMLTextAreaElement)=>setSelection({start:node.selectionStart,end:node.selectionEnd});
   async function choose(candidate:MentionCandidate) {
     if(!query||pending.current||disabled)return;
-    if(candidate.assistantOwner && onAskAssistant){
+    if(candidate.assistantOwner && onAskAssistant && !onInvite){
       setDismissed(stamp);onAskAssistant(candidate.name,(value.slice(0,query.start)+value.slice(query.end)).trim());return;
     }
     if(targeted&&!candidate.inConversation){
@@ -85,14 +85,14 @@ export function useMentionPicker({value,onChange,onChoose,onAskAssistant,onInvit
       {shown.map((candidate,i)=><div key={candidate.id} id={`${id}-${i}`} role="option" aria-disabled={Boolean(inviting)||(targeted&&!candidate.inConversation&&!candidate.assistantOwner&&(!onInvite||Boolean(candidate.inviteBlockedReason)))} aria-selected={i===index} className="mention-option"
         onPointerDown={event=>event.preventDefault()} onPointerMove={()=>setHighlight(i)} onClick={()=>{void choose(candidate);}}>
         {candidate.kind==='Agent' ? <AgentAvatar name={candidate.name} size={34}/> : <span className="mention-person" aria-hidden="true">{candidate.name.slice(0,2).toUpperCase()}</span>}
-        <span className="mention-identity"><strong>{candidate.name}</strong><small>{candidate.assistantOwner?`Assistant to ${candidate.assistantOwner} · Request owner approval`:<>{candidate.kind} · {candidate.inConversation?(targeted?(candidate.kind==='Agent'?'Direct request':'Notify person'):'In this chat'):(projectDraft?'Add to this project':targeted?(candidate.inviteBlockedReason??(onInvite?'Add to chat and mention':'Ask a chat manager to add them')):'Not in this chat')}</>}</small></span>
+        <span className="mention-identity"><strong>{candidate.name}</strong><small>{candidate.assistantOwner?`Personal agent of ${candidate.assistantOwner} · ${onInvite?'Add to chat and mention':'Open conversation'}`:<>{candidate.kind} · {candidate.inConversation?(targeted?(candidate.kind==='Agent'?'Direct request':'Notify person'):'In this chat'):(projectDraft?'Add to this project':targeted?(candidate.inviteBlockedReason??(onInvite?'Add to chat and mention':'Ask a chat manager to add them')):'Not in this chat')}</>}</small></span>
         <span className="mention-at" aria-hidden="true">@</span>
       </div>)}
     </div>
     {inviting&&<p className="mention-empty" role="status">Adding {inviting}…</p>}
     {inviteError&&<p className="mention-empty" role="alert">{inviteError}</p>}
     {!shown.length && <p className="mention-empty" role="status">No matches. Try another name.</p>}
-    <div id={`${id}-help`} className="mention-help">↑↓ to browse · Enter or Tab to select · Esc to close<br/>{projectDraft?'Selected people and agents join when you send your first message.':targeted?(onInvite?'New teammates can read this chat’s history and files. Adding a private agent may pause its personal connections.':'Choose a chat recipient, or ask an assistant for owner-approved work.'):'Mentioning someone does not add them to this chat.'}</div>
+    <div id={`${id}-help`} className="mention-help">↑↓ to browse · Enter or Tab to select · Esc to close<br/>{projectDraft?'Selected people and agents join when you send your first message.':targeted?(onInvite?'New teammates can read this chat’s history and files. Agents keep their owner-granted tools.':'Choose a chat recipient, or open a conversation with a personal agent.'):'Mentioning someone does not add them to this chat.'}</div>
   </motion.div> : null;
   return {popup,textareaProps,onKeyDown,sync,inviting};
 }

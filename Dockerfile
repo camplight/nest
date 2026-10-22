@@ -35,9 +35,11 @@ COPY deploy/nestsystem-bridge.mjs /app/deploy/nestsystem-bridge.mjs
 
 # Host source checkouts can have a private umask. Codex runs as the node user.
 RUN chmod 0755 /app/skills /app/skills/nest-management /app/skills/nest-management/scripts \
-  && chmod 0644 /app/skills/nest-management/SKILL.md /app/skills/nest-management/scripts/*
+  && chmod 0644 /app/skills/nest-management/SKILL.md /app/skills/nest-management/scripts/* \
+  && chmod 0755 /app/packages /app/packages/orgops-client /app/packages/orgops-client/src \
+  && chmod 0644 /app/packages/orgops-client/src/wrapped-progress.mjs
 USER node
-RUN node --input-type=module -e 'import {accessSync,constants} from "node:fs"; accessSync("/app/skills/nest-management/SKILL.md",constants.R_OK); await import("/app/skills/nest-management/scripts/manage.mjs"); await import("/app/skills/nest-management/scripts/capability.mjs"); console.log("Management skill and helpers readable as runtime user")'
+RUN node --input-type=module -e 'import {accessSync,constants} from "node:fs"; accessSync("/app/skills/nest-management/SKILL.md",constants.R_OK); await import("/app/skills/nest-management/scripts/manage.mjs"); await import("/app/skills/nest-management/scripts/capability.mjs"); await import("/app/packages/orgops-client/src/wrapped-progress.mjs"); console.log("Management skill and bridge helpers readable as runtime user")'
 USER root
 
 RUN chmod +x /usr/local/bin/nest-entrypoint

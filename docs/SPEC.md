@@ -809,6 +809,21 @@ OrgOps source and the submodule pin remain untouched.
 
 ## Wrapped agent management
 
+NestSystem's Nest-owned Codex bridge publishes completed interim assistant messages
+as the existing `agent.turn.phase` event with `phase=codex-progress`, text, and the
+originating trigger ID. A following Codex item identifies an interim message; the
+last assistant message remains on the runner's existing final-response path. Raw
+JSONL, reasoning, tool arguments/results and stderr are never forwarded as progress.
+`packages/orgops-client` posts the event to the engine using the bridge's retained
+runner credential, channel and parent event. Stable per-item identities reconcile
+lost responses; bounded best-effort delivery cannot prevent a final reply.
+
+The chat keeps its compact activity icons and shows only the latest progress text
+for each active turn, including across intervening human messages. Completion or
+failure clears that text; earlier updates remain available in activity details.
+These bookkeeping events cannot wake other agents or create message notifications.
+This does not change channel queuing, cancellation, timeouts or runtime isolation.
+
 An operator can permanently authorize one trusted wrapped manager using
 `NEST_MANAGEMENT_AGENT_NAME` and its pinned `NEST_MANAGEMENT_AGENT_ID`.
 `GET /api/agent-management/context`, `GET /api/agent-management/agents/:name`
@@ -1001,10 +1016,67 @@ Connected apps support any number of unshared, active owner-only conversations a
 ## Authenticated published demos
 
 `/demo/*` is a Nest-owned file route with a live OrgOps human-session check,
-private/no-store responses and 401 plus a login link for anonymous requests.
+private/no-store responses. Anonymous HTML browser requests redirect to the existing login; non-HTML checks receive 401.
 Vite development/preview middleware routes demo requests before static files,
 including legacy demo symlinks. Published files remain outside the UI tree in
 `.nest-data/demos`. See [deployment and publishing](../deploy/demos/README.md).
+
+Demo browser navigations (Accept: text/html) redirect to the existing Nest login with a local demo return URL. Password and Google sign-in return to that demo, preserving query/fragment; first-time password changes complete before return. Non-HTML checks retain 401, preserving controller and publisher verification. Redirects accept only same-origin /demo/ destinations.
+
+## Default trusted collaboration and published artifacts
+
+### Current default trusted policy
+
+All signed-in humans who have completed account setup may discover the
+installation's registered personal agents and open a normal private conversation.
+There is no trust edge, offer publication, request approval, or owner-presence
+requirement. Project owners can invite registered personal agents using the same
+member picker as other teammates. Registration is checked against current engine
+agent ID, owner, native mode and private visibility; stale mappings do not grant
+access. Arbitrary hidden agents and wrapped agents are not added to this directory.
+
+Connected-account tokens remain scoped to the current agent and owner. Exact tool
+grants, account ownership, credential expiry and revocation are checked as before,
+including rechecks before execution. Teammates inherit existing grants, including
+write actions. The agent's room roster, shared viewers, archive state and lifecycle
+channel no longer grant or revoke tool access globally. Normal engine permissions
+still govern who can read or post in each room. Existing private chats are not
+opened to everyone, and no owner is silently added to a teammate's conversation.
+
+The legacy token channel_id is retained as metadata only, with an empty value for
+new tokens. Provider secrets are not handed to teammates. Agent settings, account
+linking, grants, revocation and project membership management remain owner-managed.
+Agents can carry information between conversations; this is not per-user memory
+isolation or a restriction to read-only tools.
+
+### Retired requests and approvals
+
+Both approval panels are removed. The old request UI becomes a retirement notice
+for bookmarked URLs. Request/offer mutations return 410 for authenticated humans.
+Participant-only list/detail history remains readable; no unreleased replies,
+private event IDs or channel IDs are returned. Pending requests are not dispatched,
+completed or released automatically. Existing offers and audience rows remain
+stored unused for rollback. There is no new database migration or engine patch.
+
+The directory and mention actions open ordinary direct chats idempotently. Project
+member options use the same registered-agent directory. Existing ordinary message
+routing and permission checks handle the conversation after admission.
+
+### Published artifacts
+
+Files now includes a separate Published artifacts library for all demos and
+reports on this Nest instance. Existing publication has no project registry, so
+this is explicitly instance-wide rather than implying that every item belongs to
+the currently open project. Chat uploads remain project-scoped in their own list.
+
+GET /api/artifacts requires a current human session and completed account setup.
+It scans only canonical slug directories and regular index.html files under the
+configured demo root, excludes symlinks and incomplete publications, and returns
+name, URL, modification time and byte count, with no-store caching. It does not
+expose paths, source HTML, backup history or arbitrary workspace files. Refresh
+picks up new publications; existing demos need no republish. Demo viewing retains
+its existing authenticated route. No publication or production deployment is
+performed by this refactor.
 
 ## Demo artifacts beside chat
 

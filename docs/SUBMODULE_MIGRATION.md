@@ -350,6 +350,17 @@ controls can adapt OrgOps's existing targeted scheduled triggers through HTTP.
 
 ## NestSystem agent creation
 
+The NestSystem progress fix uses the pinned engine's existing `agent.turn.phase`
+HTTP/WS event and runner credential. No engine source, pin, database migration,
+new permission or Codex authentication change is needed. Deploy the product UI and
+`packages/orgops-client/src/wrapped-progress.mjs` together, then refresh both the
+persistent NestSystem bridge and its embedded saved setup following
+[AGENT_MANAGEMENT.md](AGENT_MANAGEMENT.md). Back up both copies first. A repository
+deploy alone does not update a bridge already on the persistent volume. Preserve
+session mappings, login, workspaces and other agent bridges. Verify a long turn
+shows a progress line before completion and produces one final reply; transport
+failure must still permit the existing final-response path.
+
 The permanent Nest management adapter uses existing agent/event/channel/model/runner
 HTTP APIs at the unchanged engine pin. No database migration is required. Deployment
 alone does not install the persistent wrapped bridge or grant management permission.
@@ -439,6 +450,19 @@ No engine source/pin change or database migration is needed. Install the updated
 host controller before deploying: the old anonymous demo byte check would roll
 back the protected release. Update persistent publishing helpers from
 `deploy/demos/publish.mjs`. See [rollout prerequisites](../deploy/demos/README.md).
+
+The demo login-return enhancement adds no migration or engine changes. The controller and publisher still receive 401 for non-HTML checks, so the authenticated-demo controller requires no additional installation for this enhancement.
+
+## Default trusted collaboration
+
+Nest uses the existing engine direct-channel and subscription APIs for registered
+personal agents. Owner presence and audience approvals no longer control connected
+tools; account/tool ownership and revocation remain enforced. Historical token
+channel_id and approval records are retained but not consulted for access.
+Request mutations retire with 410; participant-only history remains. No pending
+work is automatically executed or released. The engine pin and migration history
+are unchanged. Published artifacts are indexed from the existing demo root;
+no republish or new registry is required. See [Trust model](TRUST_MODEL.md).
 
 ## Demo artifact preview
 

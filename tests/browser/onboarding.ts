@@ -564,10 +564,9 @@ try {
       await page.getByRole("heading",{name:"App access",exact:true}).evaluate(node => (node.closest("article") ?? node).scrollIntoView({block:"start"}));
       await page.screenshot({path:join(screenshots,"saved-tools-enabled-mobile.png")});
       await page.setViewportSize({width:1440,height:1100});
-      const secured = (await (await product.app.request("/api/channels", { headers })).json()).find((channel: any) => channel.id === lifecycleId);
-      assert.equal(secured.visibility, "PRIVATE");
-      assert(secured.ownerHumanId);
-      // A real eligibility error must survive the UI, rather than blaming runner setup.
+      const lifecycle = (await (await product.app.request("/api/channels", { headers })).json()).find((channel: any) => channel.id === lifecycleId);
+      assert.equal(lifecycle.visibility, "PUBLIC");
+      // Shared audiences do not pause owner-granted app access or rewrite rooms.
       assert((await product.app.request("/api/humans/invite", {
         method: "POST", headers, body: JSON.stringify({ username: "observer", tempPassword: "test-password" }),
       })).ok);
@@ -575,12 +574,13 @@ try {
         method: "POST", headers, body: JSON.stringify({ subscriberType: "HUMAN", subscriberId: "observer" }),
       })).ok);
       await page.getByRole("button", { name: "Renew app access", exact: true }).click();
-      await page.getByRole("alert").filter({ hasText: "lifecycle channel must be private" }).waitFor();
+      await page.getByText("Ready for your next message.", {exact:true}).waitFor();
+      assert.equal(await page.getByRole("alert").filter({hasText:"lifecycle channel must be private"}).count(),0);
       await page.getByRole("heading", { name: "App access", exact: true }).evaluate(node => node.scrollIntoView({ block: "start" }));
-      await page.screenshot({ path: join(screenshots, "skill-access-error-desktop.png"), fullPage: true });
+      await page.screenshot({ path: join(screenshots, "shared-access-ready-desktop.png"), fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
       await page.getByRole("heading", { name: "App access", exact: true }).evaluate(node => node.scrollIntoView({ block: "start" }));
-      await page.screenshot({ path: join(screenshots, "skill-access-error-mobile.png"), fullPage: true });
+      await page.screenshot({ path: join(screenshots, "shared-access-ready-mobile.png"), fullPage: true });
       await page.setViewportSize({ width: 1440, height: 1100 });
       assert((await product.app.request(`/api/channels/${lifecycleId}/unsubscribe`, {
         method: "POST", headers, body: JSON.stringify({ subscriberType: "HUMAN", subscriberId: "observer" }),

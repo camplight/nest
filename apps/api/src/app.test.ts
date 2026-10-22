@@ -26,6 +26,17 @@ describe('Nest product over unchanged OrgOps', () => {
     cookie = login.headers.get('set-cookie')!.split(';')[0];
   });
   afterEach(() => { product.store.close(); engine.db.close(); rmSync(dir, {recursive: true, force: true}); });
+  it('lists actual published artifacts for signed-in humans without exposing aliases or symlinks',async()=>{
+    expect((await product.app.request('/api/artifacts')).status).toBe(401);
+    expect((await product.app.request('/api/artifacts',{headers:{'x-nest-runner-token':'runner-secret'}})).status).toBe(401);
+    expect(await(await product.app.request('/api/artifacts',{headers:{cookie}})).json()).toEqual({items:[]});
+    mkdirSync(join(dir,'demos','report'),{recursive:true});writeFileSync(join(dir,'demos','report','index.html'),'<!doctype html><h1>Report</h1>');
+    symlinkSync('report/index.html',join(dir,'demos','report.html'));
+    mkdirSync(join(dir,'demos','incomplete'));mkdirSync(join(dir,'demos','escape'));writeFileSync(join(dir,'outside.html'),'private');symlinkSync(join(dir,'outside.html'),join(dir,'demos','escape','index.html'));
+    const response=await product.app.request('/api/artifacts',{headers:{cookie}});expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toBe('private, no-store');
+    const {items}=await response.json();expect(items).toHaveLength(1);expect(items[0]).toMatchObject({name:'report',url:'/demo/report'});expect(items[0]).not.toHaveProperty('path');
+    await product.app.request('/api/auth/logout',{method:'POST',headers:{cookie}});expect((await product.app.request('/api/artifacts',{headers:{cookie}})).status).toBe(401);
+  });
   it('gates all demo aliases and assets on a live human session', async () => {
     mkdirSync(join(dir, 'demos', 'example'), {recursive:true});
     writeFileSync(join(dir, 'demos', 'example', 'index.html'), '<!doctype html><title>Private demo</title>');
@@ -39,6 +50,11 @@ describe('Nest product over unchanged OrgOps', () => {
         expect(denied.headers.get('cache-control')).toBe('private, no-store');
       }
     }
+    const navigation = await product.app.request('/demo/example?campaign=test', {headers:{Accept:'text/html,application/xhtml+xml'}});
+    expect(navigation.status).toBe(302);
+    expect(navigation.headers.get('location')).toBe('/?returnTo=%2Fdemo%2Fexample%3Fcampaign%3Dtest');
+    expect(navigation.headers.get('cache-control')).toBe('private, no-store');
+    expect(navigation.headers.get('vary')).toBe('Cookie, Accept');
     for (const path of ['/demo/example', '/demo/example/', '/demo/example.html', '/demo/example/index.html']) {
       const response = await product.app.request(path, {headers:{cookie}});
       expect(response.status).toBe(200);

@@ -31,6 +31,7 @@ let connectionRequests=0;
 let failConnections=true;
 let releaseConnections;
 const connectionGate=new Promise(resolve=>{releaseConnections=resolve;});
+let malformedDirectory=false;
 let failModels=false;let failSave=false;const writes=[];
 await page.route('**/api/**',async route=>{
  const path=new URL(route.request().url()).pathname; let data=[];
@@ -50,6 +51,7 @@ await page.route('**/api/**',async route=>{
  connectionRequests++;await connectionGate;
  return route.fulfill(failConnections?{status:503,json:{error:'Unavailable'}}:{json:{configured:false}});
  }
+ else if(path==='/api/collaboration/agents')data=malformedDirectory?[]:{items:[]};
  else if(path==='/api/agents')data=agents;
  else if(path.startsWith('/api/agents/')){
  const name=decodeURIComponent(path.slice('/api/agents/'.length));const agent=agents.find(a=>a.name===name);
@@ -120,6 +122,7 @@ await page.getByRole('navigation').getByRole('button',{name:'Dashboard',exact:tr
 await page.setViewportSize({width:390,height:844});await page.screenshot({path:join(screenshotDir, 'nest-agent-mobile.png'),fullPage:true});
 assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
 await page.getByRole('button',{name:'Menu',exact:true}).click();assert.equal(await page.getByRole('navigation').getByRole('button',{name:'Agents',exact:true}).getAttribute('aria-current'),'page');
+malformedDirectory=true;await page.goto(`${base}/?view=agents`);await page.getByRole('alert').filter({hasText:'Shared agents are unavailable'}).waitFor();await page.getByRole('button',{name:'Manage NestSystem',exact:true}).waitFor();
 assert.equal(fullHealthRequests,0);assert(connectionRequests>0);assert.deepEqual(errors,[]);console.log('PASS: directory, selected navigation, encoded direct links, reload, history, settings persistence, failed saves, private read-only, wrapped settings, missing agents, chat links, dashboard links, mobile and avatar assets.');
 console.log(`Screenshots: ${screenshotDir}`);
 } finally { await browser.close(); }
