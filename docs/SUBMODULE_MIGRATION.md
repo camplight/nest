@@ -441,3 +441,14 @@ back the protected release. Update persistent publishing helpers from
 `deploy/demos/publish.mjs`. See [rollout prerequisites](../deploy/demos/README.md).
 
 The demo login-return enhancement adds no migration or engine changes. The controller and publisher still receive 401 for non-HTML checks, so the authenticated-demo controller requires no additional installation for this enhancement.
+
+## Trusted collaboration policy
+
+Nest replaces frozen project-audience approval with live owner-presence checks.
+The engine pin, account grants and migration history are unchanged. Existing
+project approval rows remain stored but are no longer consulted. Old consent
+endpoints return 410 after owner authorization; no revocation reports false
+success. Deployment intentionally enables existing granted tools in qualifying
+previously unapproved conversations. The private request inbox retains its strict
+boundary. See [the trust audit](TRUST_MODEL.md); open PR #49's parallel public
+approval policy is superseded by this approach.

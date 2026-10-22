@@ -759,94 +759,60 @@ async function connectionProject() {
     .run('project',owner.id,id,'Trusted project','',Date.now());
   return id;
 }
-async function approveProject() {
-  const review = (await (await call(projectPath)).json()).projects[0];
-  const response = await call(projectPath+'/project','PUT',{audienceHash:review.audienceHash,acknowledgeSharedAccess:true});
-  expect(response.status).toBe(200);
-  return review;
-}
-it('requires explicit project consent and permits existing exact grants after owner approval', async () => {
-  const h = await enable();
-  await connectionProject();
-  expect((await execute(h)).status).toBe(403);
-  expect((await call(projectPath+'/project','PUT',{})).status).toBe(400);
-  await approveProject();
+
+it('trusts project participants by default with exact existing grants', async () => {
+  const h=await enable(); const id=await connectionProject();
+  await call('/api/humans/invite','POST',{username:'other',tempPassword:'password'});
+  expect((await call('/api/channels/'+id+'/subscribe','POST',{subscriberType:'HUMAN',subscriberId:'other'})).ok).toBe(true);
   expect((await call('/api/integrations/skill/tools','GET',undefined,h)).status).toBe(200);
   expect((await call('/api/integrations/skill/schema','POST',{connectionId:localId,tool:'TRELLO_GET_BOARDS'},h)).status).toBe(200);
   expect((await execute(h)).status).toBe(200);
-  const renewed = await enable();
-  expect((await execute(renewed)).status).toBe(200);
-  expect((await call(projectPath+'/project','DELETE')).status).toBe(200);
-  expect((await execute(renewed)).status).toBe(403);
-  expect(executionCount).toBe(2);
+  await call('/api/channels/'+id+'/unsubscribe','POST',{subscriberType:'HUMAN',subscriberId:'other'});
+  expect((await execute(h)).status).toBe(200);
+  expect((await execute(await enable())).status).toBe(200);
 });
-it('rejects stale participant consent and pauses all tool endpoints when the roster changes', async () => {
-  const h = await enable();
-  const id = await connectionProject();
-  const previous = await approveProject();
-  await call('/api/humans/invite','POST',{username:'other',tempPassword:'password'});
-  expect((await call(`/api/channels/${id}/subscribe`,'POST',{subscriberType:'HUMAN',subscriberId:'other'})).ok).toBe(true);
-  expect((await call(projectPath+'/project','PUT',{audienceHash:previous.audienceHash,acknowledgeSharedAccess:true})).status).toBe(409);
+it.each(['public','foreign-project','foreign-channel','private-project'] as const)('trusts owner membership independent of %s metadata', async change=>{
+  const h=await enable();const id=await connectionProject();
+  if(change==='public')await call('/api/channels/'+id,'PATCH',{visibility:'PUBLIC'});
+  if(change==='foreign-channel')engine.db.prepare("UPDATE channels SET owner_human_id=NULL WHERE id=?").run(id);
+  if(change==='foreign-project')product.store.db.prepare("UPDATE product_projects SET owner_id='foreign'").run();
+  if(change==='private-project')product.store.db.prepare("UPDATE product_projects SET collaboration='private'").run();
+  expect((await execute(h)).status).toBe(200);
+});
+it.each(['archive','share','owner-removed'] as const)('pauses all connected endpoints after %s', async change=>{
+  const h=await enable();const id=await connectionProject();
+  if(change==='archive')await call('/api/channels/'+id+'/archive','POST',{});
+  if(change==='share')expect((await call('/api/channels/'+id+'/share','POST',{viewerType:'HUMAN',viewerId:'owner'})).ok).toBe(true);
+  if(change==='owner-removed')await call('/api/channels/'+id+'/unsubscribe','POST',{subscriberType:'HUMAN',subscriberId:'owner'});
   expect((await call('/api/integrations/skill/tools','GET',undefined,h)).status).toBe(403);
   expect((await call('/api/integrations/skill/schema','POST',{connectionId:localId,tool:'TRELLO_GET_BOARDS'},h)).status).toBe(403);
-  expect((await execute(h)).status).toBe(403);
-  await approveProject();
-  expect((await execute(h)).status).toBe(200);
-  await call(`/api/channels/${id}/unsubscribe`,'POST',{subscriberType:'HUMAN',subscriberId:'other'});
-  expect((await execute(h)).status).toBe(403);
-  expect(executionCount).toBe(1);
+  expect((await execute(h)).status).toBe(403);expect(executionCount).toBe(0);
 });
-it.each(['public','archive','share','foreign-project','private-project','owner-removed'] as const)('rejects project access after %s', async change => {
-  const h = await enable();
-  const id = await connectionProject();
-  await approveProject();
-  if (change === 'public') await call(`/api/channels/${id}`,'PATCH',{visibility:'PUBLIC'});
-  if (change === 'archive') await call(`/api/channels/${id}/archive`,'POST',{});
-  if (change === 'share') {
-    const shared = await call(`/api/channels/${id}/share`, 'POST', {viewerType:'HUMAN',viewerId:'owner'});
-    expect(shared.ok).toBe(true);
-  }
-  if (change === 'foreign-project') product.store.db.prepare("UPDATE product_projects SET owner_id='foreign'").run();
-  if (change === 'private-project') product.store.db.prepare("UPDATE product_projects SET collaboration='private'").run();
-  if (change === 'owner-removed') await call(`/api/channels/${id}/unsubscribe`,'POST',{subscriberType:'HUMAN',subscriberId:'owner'});
-  expect((await execute(h)).status).toBe(403);
-  expect(executionCount).toBe(0);
-});
-it('rejects agent credentials and another human attempting project approval or revocation', async () => {
-  const h = await enable();
-  await connectionProject();
-  const review = await approveProject();
+it('retires old consent endpoints explicitly and retains owner-only management',async()=>{
+  const h=await enable();await connectionProject();
   await call('/api/humans/invite','POST',{username:'other',tempPassword:'password'});
   engine.db.prepare("UPDATE humans SET must_change_password=0 WHERE username='other'").run();
-  const login = await call('/api/auth/login','POST',{username:'other',password:'password'},{'content-type':'application/json'});
-  const other = {...headers,cookie:login.headers.getSetCookie()[0].split(';')[0]};
-  for (const actor of [h,other]) {
+  const login=await call('/api/auth/login','POST',{username:'other',password:'password'},{'content-type':'application/json'});
+  const other={...headers,cookie:login.headers.getSetCookie()[0].split(';')[0]};
+  for(const actor of [h,other]){
     expect((await call(projectPath,'GET',undefined,actor)).status).toBe(403);
-    expect((await call(projectPath+'/project','PUT',{audienceHash:review.audienceHash,acknowledgeSharedAccess:true},actor)).status).toBe(403);
     expect((await call(projectPath+'/project','DELETE',undefined,actor)).status).toBe(403);
   }
-  expect((await execute(h)).status).toBe(200);
+  for(const method of ['PUT','DELETE'])expect((await call(projectPath+'/project',method,{})).status).toBe(410);
+  expect((await call(projectPath)).status).toBe(410);
 });
-
-it('rechecks project revocation after provider metadata lookup before sending an action', async () => {
-  const h = await enable();
-  await connectionProject();
-  await approveProject();
-  duringTool = async () => {expect((await call(projectPath+'/project','DELETE')).status).toBe(200);};
-  expect((await execute(h)).status).toBe(403);
-  expect(executionCount).toBe(0);
+it('rechecks owner membership after provider lookup before executing',async()=>{
+  const h=await enable();const id=await connectionProject();
+  duringTool=async()=>{await call('/api/channels/'+id+'/unsubscribe','POST',{subscriberType:'HUMAN',subscriberId:'owner'});};
+  expect((await execute(h)).status).toBe(403);expect(executionCount).toBe(0);
 });
-it('project approval denies other humans in additional chats and revoked tool grants', async () => {
-  const h = await enable();
-  await connectionProject();
-  await approveProject();
-  await call('/api/integrations/agents/PuffOwner/grants/'+localId,'DELETE');
-  expect((await execute(h)).status).toBe(403);
-  const renewed = await enable();
-  const extra = await (await call('/api/channels','POST',{name:'Unapproved',visibility:'PRIVATE'})).json();
+it('trusts ordinary group chats but still enforces tool revocation',async()=>{
+  const h=await enable();
+  const extra=await(await call('/api/channels','POST',{name:'Team chat',visibility:'PRIVATE'})).json();
   await call('/api/channels/'+extra.id+'/subscribe','POST',{subscriberType:'AGENT',subscriberId:'PuffOwner'});
   await call('/api/humans/invite','POST',{username:'other',tempPassword:'password'});
-  expect((await call('/api/channels/'+extra.id+'/subscribe','POST',{subscriberType:'HUMAN',subscriberId:'other'})).ok).toBe(true);
-  expect((await execute(renewed)).status).toBe(403);
-  expect(executionCount).toBe(0);
+  await call('/api/channels/'+extra.id+'/subscribe','POST',{subscriberType:'HUMAN',subscriberId:'other'});
+  expect((await execute(h)).status).toBe(200);
+  await call('/api/integrations/agents/PuffOwner/grants/'+localId,'DELETE');
+  expect((await execute(h)).status).toBe(403);expect(executionCount).toBe(1);
 });

@@ -1007,3 +1007,18 @@ including legacy demo symlinks. Published files remain outside the UI tree in
 `.nest-data/demos`. See [deployment and publishing](../deploy/demos/README.md).
 
 Demo browser navigations (Accept: text/html) redirect to the existing Nest login with a local demo return URL. Password and Google sign-in return to that demo, preserving query/fragment; first-time password changes complete before return. Non-HTML checks retain 401, preserving controller and publisher verification. Redirects accept only same-origin /demo/ destinations.
+
+## Trusted collaboration (supersedes project audience approval)
+
+Connected apps now trust direct participants by default while their personal
+agent's owner is a direct HUMAN member of every subscribed conversation. Private
+and public channels, ordinary group chats and teammate-owned projects use one
+rule. Roster changes require no approval. Exact tool grants, account ownership,
+lifecycle privacy and global rechecks remain enforced. Shared viewers, archived
+subscriptions or missing owners still pause access across chats.
+
+The project-approval UI and audience hash policy are retired. Owner requests to
+legacy approval endpoints return 410; users revoke through existing app/tool
+controls. Approval records are retained unused for rollback. This supersedes the
+older statements above that project membership or roster changes inherently pause
+apps. See [Trust model and history audit](TRUST_MODEL.md) for scope and migration.

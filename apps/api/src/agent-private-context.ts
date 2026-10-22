@@ -6,17 +6,12 @@ export function createPrivateAgentContext({
   orgops,
   engineToken,
   onSecured,
-  approvedProject,
-  multipleOwnerChats = false,
-  isProject,
+  trustedCollaboration = false,
 }: {
   orgops: OrgOpsClient;
   engineToken?: string;
-  /** Connected apps may trust multiple private chats with the same owner. */
-  multipleOwnerChats?: boolean;
-  isProject?: (channelId: string) => boolean;
-  /** Connections may explicitly trust a frozen project roster. Other callers stay private-only. */
-  approvedProject?: (channel: Awaited<ReturnType<OrgOpsClient["connectionContext"]>>["channels"][number], agentId: string, ownerId: string) => boolean;
+  /** Connected apps trust direct participants while their owner is present. */
+  trustedCollaboration?: boolean;
   onSecured?: (
     ownerId: string,
     details: { agentId: string; channelId: string },
@@ -69,24 +64,24 @@ export function createPrivateAgentContext({
         ch.description === `Lifecycle bootstrap channel for ${agent.name}` &&
         ch.kind === "GROUP",
     );
-    const conversations = subscribed.filter((ch) => !lifecycle.includes(ch) &&
-      !(approvedProject?.(ch, agent.id, ownerId) ?? false));
+    const conversations = subscribed.filter((ch) => !lifecycle.includes(ch));
     const ch = (channelId
       ? conversations.find((entry) => entry.id === channelId)
-      : conversations[0]) ?? fail(403, "The credential requires an active owner-only conversation.");
+      : conversations[0]) ?? fail(403, "The credential requires an active conversation.");
     if (
       !ch ||
-      (!multipleOwnerChats && conversations.length !== 1) ||
+      (!trustedCollaboration && conversations.length !== 1) ||
       conversations.some((entry) =>
-        (isProject?.(entry.id) ?? false) ||
         entry.archivedAt ||
-        entry.ownerHumanId !== ownerId ||
-        entry.visibility !== "PRIVATE" ||
+        (!trustedCollaboration && (entry.ownerHumanId !== ownerId || entry.visibility !== "PRIVATE")) ||
+        !["PRIVATE", "PUBLIC"].includes(entry.visibility) ||
         !Array.isArray(entry.shares) ||
         entry.shares.length > 0 ||
         !entry.participants.some((p) =>
           p.subscriberType === "HUMAN" && p.subscriberId === owner.username) ||
-        entry.participants.some((p) => !(
+        entry.participants.some((p) => trustedCollaboration
+          ? !["HUMAN", "AGENT"].includes(p.subscriberType)
+          : !(
           (p.subscriberType === "HUMAN" && p.subscriberId === owner.username) ||
           (p.subscriberType === "AGENT" && p.subscriberId === agent.name)
         ))
@@ -94,8 +89,8 @@ export function createPrivateAgentContext({
     )
       fail(
         403,
-        multipleOwnerChats
-          ? "Connected apps require unshared owner-only chats or explicitly approved projects. Remove unsafe subscriptions or sharing, or approve eligible projects in Connected apps before retrying."
+        trustedCollaboration
+          ? "Connected apps require the owner to be a direct participant in every active conversation. Remove archived subscriptions or shared viewers, or rejoin the owner before retrying."
           : "This agent needs one unshared owner-only conversation. Remove other subscriptions or sharing before retrying.",
       );
     if (
