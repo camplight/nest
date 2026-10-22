@@ -39,7 +39,7 @@ export function AgentConnections({ name }: { name: string }) {
       <h2>Connected apps</h2>
       <p>
         Choose which accounts and tools {name} can use in
-        conversations and projects where you are a member. Google sign-in does not connect Drive or Gmail.
+        conversations and projects with trusted teammates. Google sign-in does not connect Drive or Gmail.
       </p>
       {failed ? (
         <p role="alert">
@@ -156,7 +156,7 @@ function ConnectionSkill({
           {state && (state.grantedToolCount === 0 ? <span role="status">No actions are allowed yet.</span> : <span>{state.grantedToolCount} {state.grantedToolCount === 1 ? "action" : "actions"} allowed</span>)}
           {state?.enabled && <><span>Expires {new Date(state.expiresAt!).toLocaleDateString()}</span><span role="status">{state.preloadConfigured ? "Ready for your next message." : "Renew access before your next message."}</span></>}
         </div>
-        <details className="connection-access-help"><summary>How access works</summary><p>Participants are trusted by default when you and your agent share a conversation. No separate project approval is needed, including in public channels and projects owned by teammates. Participants can use the tools you grant and see their results; public channels may have other readers. Access pauses across the agent’s chats if you leave any conversation, a subscription is archived, or shared viewers are added. Turn off app access or remove tool grants to revoke access. Owner presence means membership, not being online or approving each request.</p></details>
+        <details className="connection-access-help"><summary>How access works</summary><p>Teammates are trusted by default. They can talk to your agent and use its granted tools, including write actions, without your presence or a separate approval. You control linked accounts and tool grants. Turn off app access or remove grants to revoke future tool use. Conversation permissions still control who can read and post; public channels may have other readers. The agent can carry information between chats.</p></details>
       </div>
       {error && <p className="connection-access-notice" role="alert">{error}</p>}
       {!available && <p className="connection-access-notice">Ask your administrator to enable app connections.</p>}

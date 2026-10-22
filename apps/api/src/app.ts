@@ -1,3 +1,4 @@
+import {registerCollaborationRoutes} from './collaboration';
 import { registerDemoRoutes } from './demos';
 import type {ProjectNamer} from './project-naming';
 import {registerAgentManagementRoutes,type AgentManagementConfig} from './agent-management';
@@ -66,10 +67,11 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   registerAgentManagementRoutes(app, {orgops, store, config: agentManagement});
   registerOnboardingRoutes(app, {store, orgops, config:config.personalAgent && {...config.personalAgent, modelId:defaultAgentModelId ?? config.personalAgent.modelId}, defaultModelId:defaultAgentModelId, connectionsAvailable:Boolean(provider)});
   registerMessageRoutes(app, {store,orgops});
+  registerCollaborationRoutes(app,{store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
   registerAgentRequestRoutes(app,{store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
   const namingSource=process.env.NEST_PROJECT_NAMING_AGENT_NAME??managementName;
   registerProjectRoutes(app, {
-    store,orgops,
+    store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN,
     namingModelId:config.projectNamingModelId??process.env.NEST_PROJECT_NAMING_MODEL_ID??defaultAgentModelId,
     namer:config.projectNamer,
     namingEnv:config.projectNamer?undefined:(model)=>orgops.projectNamingEnv({

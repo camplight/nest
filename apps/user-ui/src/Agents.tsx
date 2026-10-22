@@ -1,4 +1,5 @@
-import { AgentRequests, SharedAssistants, AssistantSharing, type AgentRequestLocation } from "./AgentRequests";
+import {SharedPersonalAgents} from './SharedPersonalAgents';
+import { type AgentRequestLocation } from "./AgentRequests";
 import {WorkspaceTopbar} from "./components/WorkspaceTopbar";
 import { AgentSetupForm } from "./Onboarding";
 import { AgentConnections } from "./AgentConnections";
@@ -12,7 +13,7 @@ import type { Agent } from "./types";
 import "./agents.css";
 
 type AgentSettings = Agent & { mode?: string; modelId?: string; workspacePath?: string; assignedRunnerId?: string; systemInstructions?: string; enabledSkills?: string[] };
-type Props = { requestLocation:AgentRequestLocation; onRequests:(id?:string,assistant?:string)=>void; setup: OnboardingSummary | null; creating:boolean; onCreate:()=>void; onCreated:(name:string)=>void; onChat:(id:string)=>void; agents: Agent[]; name: string | null; userId: string | null; loading: boolean; error: string | null; onSelect: (name: string | null) => void; onMenu: () => void; onRetry: () => void; onSaved: (agent: Agent) => void };
+type Props = { requestLocation:AgentRequestLocation; setup: OnboardingSummary | null; creating:boolean; onCreate:()=>void; onCreated:(name:string)=>void; onChat:(id:string)=>void; agents: Agent[]; name: string | null; userId: string | null; loading: boolean; error: string | null; onSelect: (name: string | null) => void; onMenu: () => void; onRetry: () => void; onSaved: (agent: Agent) => void };
 
 function modelLabel(name: string) {
   const labels: Record<string, string> = {
@@ -29,14 +30,13 @@ function errorMessage(reason: unknown) {
   catch { return message; }
 }
 
-export function Agents({ requestLocation,onRequests,setup, creating, onCreate, onCreated, onChat, agents, name, userId, loading, error, onSelect, onMenu, onRetry, onSaved }: Props) {
+export function Agents({ requestLocation,setup, creating, onCreate, onCreated, onChat, agents, name, userId, loading, error, onSelect, onMenu, onRetry, onSaved }: Props) {
   const [query, setQuery] = useState("");
   return <section className="dashboard agents-page" aria-label="Agents">
     <WorkspaceTopbar onMenu={onMenu} leading={name || creating ? <button className="dashboard-action" onClick={() => onSelect(null)}>← All agents</button> : requestLocation.active ? <span>Agents / Requests</span> : undefined} search={<label className="dashboard-search"><DesignIcon name="search"/><input aria-label="Search agents" placeholder="Search…" value={query} onChange={event=>{setQuery(event.target.value);if(name||creating||requestLocation.active)onSelect(null);}}/></label>}/>
 
     <div className="dashboard-content">
-      {!name&&!creating&&<nav className="agent-request-nav" aria-label="Agent views"><button className="dashboard-action" aria-pressed={!requestLocation.active} onClick={()=>onSelect(null)}>All agents</button><button className="dashboard-action" aria-pressed={requestLocation.active} onClick={()=>onRequests()}>Requests</button></nav>}
-      {creating ? <><div className="dashboard-title"><h1>Agents</h1></div><AgentSetupForm onCreated={onCreated}/></> : name ? <AgentDetails key={name} name={name} userId={userId} onSaved={onSaved} setup={setup} onChat={onChat} onResume={onCreate}/> : requestLocation.active ? <><div className="dashboard-title"><h1>Requests</h1></div><AgentRequests location={requestLocation} userId={userId} onSelect={onRequests}/></> : <>
+      {creating ? <><div className="dashboard-title"><h1>Agents</h1></div><AgentSetupForm onCreated={onCreated}/></> : name ? <AgentDetails key={name} name={name} userId={userId} onSaved={onSaved} setup={setup} onChat={onChat} onResume={onCreate}/> : requestLocation.active ? <><div className="dashboard-title"><h1>Requests</h1></div><p>This request workflow has been retired. Open a conversation with an agent from All agents.</p><button className="dashboard-action" onClick={()=>onSelect(null)}>All agents</button></> : <>
         <div className="dashboard-title"><h1>Agents</h1>{!setup?.setup && <button className="dashboard-action" onClick={onCreate}>Add your agent</button>}{setup?.setup && !setup.setup.channelId && <button className="dashboard-action" onClick={onCreate}>Resume agent setup</button>}</div>
         {error && <div role="alert">{error} <button onClick={onRetry}>Try again</button></div>}
         {loading && <p role="status">Loading agents…</p>}
@@ -48,7 +48,7 @@ export function Agents({ requestLocation,onRequests,setup, creating, onCreate, o
           </article>)}
           {!loading && !error && !agents.some(a => `${a.name} ${a.description ?? ""}`.toLowerCase().includes(query.toLowerCase())) && <div className="dashboard-card dashboard-empty"><h3>{agents.length ? "No matching agents" : "Your team starts here"}</h3><p>{agents.length ? "Try a different name or description." : "Agents available to you will appear here."}</p></div>}
         </div></section>
-        <SharedAssistants query={query} onAsk={name=>onRequests(undefined,name)}/>
+        <SharedPersonalAgents query={query} onChat={onChat}/>
       </>}
     </div>
   </section>;
@@ -148,7 +148,7 @@ function AgentDetails({ name, userId, onSaved, setup, onChat, onResume }: { name
         <div className="agent-save-row">{saved && <span role="status">Settings saved.</span>}{dirty && <span>Unsaved changes</span>}<button className="dashboard-action" type="submit" disabled={!editable || !dirty || busy}>{busy ? "Saving…" : "Save settings"}</button></div>
       </div>
     </form>}
-    {agent && !wrapped && agent.visibility === "PRIVATE" && setup?.setup?.name===name && agent.ownerHumanId===userId && <AssistantSharing name={name}/>}
+
     {agent && !wrapped && agent.visibility === "PRIVATE" && userId && agent.ownerHumanId === userId && <AgentConnections name={name}/>}
 
   </>;

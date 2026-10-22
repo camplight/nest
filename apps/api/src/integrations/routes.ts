@@ -1,4 +1,4 @@
-import { createPrivateAgentContext } from "../agent-private-context";
+
 import { z } from "zod";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
@@ -184,18 +184,22 @@ export function registerIntegrationRoutes(
       fail(409, "Reconnect this account before using it");
     return a;
   }
-  const privateContext = createPrivateAgentContext({ orgops, engineToken,
-    trustedCollaboration: true,
-    onSecured: (owner, details) => audit("audit.connection.lifecycle.secured", owner, details),
-  });
+  // App grants are agent-scoped. Conversation audiences do not grant or revoke them.
+  async function connectedAgentContext(name:string,owner:string,id?:string,channelId?:string,_headers?:Headers) {
+    if(!engineToken)fail(503,"Connection metadata is unavailable");
+    const agent=await orgops.agentManagement(engineToken!).agent(name);
+    if(!agent || agent.ownerHumanId!==owner || (id&&agent.id!==id) || agent.visibility!=="PRIVATE" || agent.mode==="WRAPPED")fail(403,"Agent ownership changed");
+    // channel_id is legacy metadata only; existing credentials remain valid.
+    return {agent:agent!,channelId:channelId??''};
+  }
   // Old clients must not report a successful approval/revocation under the new policy.
   routes.all("/agents/:name/projects", async c => {
     await ownedAgent(c.req.param("name"), human(c).id, c.req.raw.headers);
-    return c.json({error:"Project approvals have been replaced by owner-present collaboration. Reload Nest. Turn off app access or remove tool grants to revoke access."},410);
+    return c.json({error:"Project approvals have been replaced by trusted collaboration. Reload Nest. Turn off app access or remove tool grants to revoke access."},410);
   });
   routes.all("/agents/:name/projects/:id", async c => {
     await ownedAgent(c.req.param("name"), human(c).id, c.req.raw.headers);
-    return c.json({error:"Project approvals have been replaced by owner-present collaboration. Reload Nest. Turn off app access or remove tool grants to revoke access."},410);
+    return c.json({error:"Project approvals have been replaced by trusted collaboration. Reload Nest. Turn off app access or remove tool grants to revoke access."},410);
   });
   routes.get("/config", (c) => {
     human(c);
@@ -377,7 +381,7 @@ export function registerIntegrationRoutes(
     const owner = human(c).id,
       a = await ownedAgent(c.req.param("name"), owner, c.req.raw.headers);
     service();
-    const context = await privateContext(
+    const context = await connectedAgentContext(
       a.name,
       owner,
       a.id,
@@ -430,7 +434,7 @@ export function registerIntegrationRoutes(
         },
       );
       if (!enabled.ok) throw Error("Could not enable skill");
-      await privateContext(a.name, owner, a.id, context.channelId);
+      await connectedAgentContext(a.name, owner, a.id, context.channelId);
     } catch (error) {
       db.prepare(
         "UPDATE product_connection_tokens SET revoked_at=? WHERE id=?",
@@ -458,7 +462,7 @@ export function registerIntegrationRoutes(
   async function skill(c: Context<IntegrationEnv>) {
     const t = c.get("token") as Token | null;
     if (!t) fail(403, "Agent connection token required");
-    await privateContext(
+    await connectedAgentContext(
       t!.agent_name,
       t!.owner_id,
       t!.agent_id,

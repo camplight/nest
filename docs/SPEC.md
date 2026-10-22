@@ -1008,17 +1008,57 @@ including legacy demo symlinks. Published files remain outside the UI tree in
 
 Demo browser navigations (Accept: text/html) redirect to the existing Nest login with a local demo return URL. Password and Google sign-in return to that demo, preserving query/fragment; first-time password changes complete before return. Non-HTML checks retain 401, preserving controller and publisher verification. Redirects accept only same-origin /demo/ destinations.
 
-## Trusted collaboration (supersedes project audience approval)
+## Default trusted collaboration and published artifacts
 
-Connected apps now trust direct participants by default while their personal
-agent's owner is a direct HUMAN member of every subscribed conversation. Private
-and public channels, ordinary group chats and teammate-owned projects use one
-rule. Roster changes require no approval. Exact tool grants, account ownership,
-lifecycle privacy and global rechecks remain enforced. Shared viewers, archived
-subscriptions or missing owners still pause access across chats.
+### Current default trusted policy
 
-The project-approval UI and audience hash policy are retired. Owner requests to
-legacy approval endpoints return 410; users revoke through existing app/tool
-controls. Approval records are retained unused for rollback. This supersedes the
-older statements above that project membership or roster changes inherently pause
-apps. See [Trust model and history audit](TRUST_MODEL.md) for scope and migration.
+All signed-in humans who have completed account setup may discover the
+installation's registered personal agents and open a normal private conversation.
+There is no trust edge, offer publication, request approval, or owner-presence
+requirement. Project owners can invite registered personal agents using the same
+member picker as other teammates. Registration is checked against current engine
+agent ID, owner, native mode and private visibility; stale mappings do not grant
+access. Arbitrary hidden agents and wrapped agents are not added to this directory.
+
+Connected-account tokens remain scoped to the current agent and owner. Exact tool
+grants, account ownership, credential expiry and revocation are checked as before,
+including rechecks before execution. Teammates inherit existing grants, including
+write actions. The agent's room roster, shared viewers, archive state and lifecycle
+channel no longer grant or revoke tool access globally. Normal engine permissions
+still govern who can read or post in each room. Existing private chats are not
+opened to everyone, and no owner is silently added to a teammate's conversation.
+
+The legacy token channel_id is retained as metadata only, with an empty value for
+new tokens. Provider secrets are not handed to teammates. Agent settings, account
+linking, grants, revocation and project membership management remain owner-managed.
+Agents can carry information between conversations; this is not per-user memory
+isolation or a restriction to read-only tools.
+
+### Retired requests and approvals
+
+Both approval panels are removed. The old request UI becomes a retirement notice
+for bookmarked URLs. Request/offer mutations return 410 for authenticated humans.
+Participant-only list/detail history remains readable; no unreleased replies,
+private event IDs or channel IDs are returned. Pending requests are not dispatched,
+completed or released automatically. Existing offers and audience rows remain
+stored unused for rollback. There is no new database migration or engine patch.
+
+The directory and mention actions open ordinary direct chats idempotently. Project
+member options use the same registered-agent directory. Existing ordinary message
+routing and permission checks handle the conversation after admission.
+
+### Published artifacts
+
+Files now includes a separate Published artifacts library for all demos and
+reports on this Nest instance. Existing publication has no project registry, so
+this is explicitly instance-wide rather than implying that every item belongs to
+the currently open project. Chat uploads remain project-scoped in their own list.
+
+GET /api/artifacts requires a current human session and completed account setup.
+It scans only canonical slug directories and regular index.html files under the
+configured demo root, excludes symlinks and incomplete publications, and returns
+name, URL, modification time and byte count, with no-store caching. It does not
+expose paths, source HTML, backup history or arbitrary workspace files. Refresh
+picks up new publications; existing demos need no republish. Demo viewing retains
+its existing authenticated route. No publication or production deployment is
+performed by this refactor.

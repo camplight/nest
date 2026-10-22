@@ -442,13 +442,13 @@ back the protected release. Update persistent publishing helpers from
 
 The demo login-return enhancement adds no migration or engine changes. The controller and publisher still receive 401 for non-HTML checks, so the authenticated-demo controller requires no additional installation for this enhancement.
 
-## Trusted collaboration policy
+## Default trusted collaboration
 
-Nest replaces frozen project-audience approval with live owner-presence checks.
-The engine pin, account grants and migration history are unchanged. Existing
-project approval rows remain stored but are no longer consulted. Old consent
-endpoints return 410 after owner authorization; no revocation reports false
-success. Deployment intentionally enables existing granted tools in qualifying
-previously unapproved conversations. The private request inbox retains its strict
-boundary. See [the trust audit](TRUST_MODEL.md); open PR #49's parallel public
-approval policy is superseded by this approach.
+Nest uses the existing engine direct-channel and subscription APIs for registered
+personal agents. Owner presence and audience approvals no longer control connected
+tools; account/tool ownership and revocation remain enforced. Historical token
+channel_id and approval records are retained but not consulted for access.
+Request mutations retire with 410; participant-only history remains. No pending
+work is automatically executed or released. The engine pin and migration history
+are unchanged. Published artifacts are indexed from the existing demo root;
+no republish or new registry is required. See [Trust model](TRUST_MODEL.md).

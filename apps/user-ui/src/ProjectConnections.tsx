@@ -48,7 +48,7 @@ export function ProjectConnections({text,ownerId,projectId}:{text:string;ownerId
   return <aside className="project-connection-suggestions" aria-label="Suggested connections">
     <div><span>Work with your apps</span><button type="button" className="project-inline-action" disabled={!!busy} aria-label="Dismiss connection suggestions" onClick={()=>setDismissed(true)}>Dismiss</button></div>
     <div>{apps.map(app=><button type="button" className="dashboard-action" disabled={!!busy} key={app.slug} onClick={()=>void connect(app)}><IntegrationLogo toolkit={app.slug}/>{busy===app.slug?'Opening…':`Connect ${app.name}`}</button>)}</div>
-    <small>This links your own account. Choose tools for your agent in Connected apps; those grants work here while you are a member.</small>
+    <small>This links your own account. Choose tools for your agent in Connected apps; teammates can use those grants through the agent.</small>
     {error&&<p role="alert">{error}</p>}
   </aside>;
 }

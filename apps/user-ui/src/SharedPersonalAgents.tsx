@@ -1,0 +1,8 @@
+import {useEffect,useState} from 'react';
+import {apiJson,getApiHeaders} from './api';
+export function SharedPersonalAgents({query,onChat}:{query:string;onChat:(id:string)=>void}) {
+ const [agents,setAgents]=useState<{name:string;ownerName:string}[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState('');
+ useEffect(()=>{const abort=new AbortController();void apiJson<{items:typeof agents}>('/api/collaboration/agents',{signal:abort.signal}).then(r=>setAgents(r.items)).catch(()=>{if(!abort.signal.aborted)setError('Shared agents are unavailable. Reload to try again.');});return()=>abort.abort();},[]);
+ async function chat(name:string){setBusy(name);setError('');try{const r=await apiJson<{channelId:string}>('/api/collaboration/agents/'+encodeURIComponent(name)+'/chat',{method:'POST',headers:getApiHeaders(),body:'{}'});onChat(r.channelId);}catch{setError('Could not open the conversation. Try again.');}finally{setBusy('');}}
+ return <section aria-label="Shared personal agents"><h2>Talk to a personal agent</h2><p>Teammates can use each agent’s granted tools through chat. Its owner controls accounts and grants.</p>{error&&<p role="alert">{error}</p>}<div className="dashboard-list">{agents.filter(a=>(a.name+' '+a.ownerName).toLowerCase().includes(query.toLowerCase())).map(a=><article className="dashboard-card agent-directory-row" key={a.name}><div><strong>{a.name}</strong><p>Owned by {a.ownerName}</p></div><button className="dashboard-action" disabled={!!busy} onClick={()=>void chat(a.name)}>{busy===a.name?'Opening…':'Chat'}</button></article>)}</div></section>;
+}

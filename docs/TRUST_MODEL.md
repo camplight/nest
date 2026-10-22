@@ -1,8 +1,6 @@
 # Trusted collaboration
 
-The default is to trust people and agents invited into a conversation while the
-personal agent's owner is also a direct member. Membership is the collaboration
-boundary. It is not a claim that the owner is online or approves every action.
+The default is trusted collaboration among signed-in teammates, with owner-controlled credentials and tool grants.
 
 ## History reviewed
 
@@ -20,45 +18,55 @@ boundary. It is not a claim that the owner is online or approves every action.
 - Open #49 proposes another parallel audience-approval path for public channels.
   This refactor replaces that approach; it should not be merged unchanged on top.
 
-## One connected-app policy
+## Current default trusted policy
 
-Owner-granted tools work in private/public conversations and projects when the
-owner is a direct HUMAN participant. Project ownership and roster changes do not
-require another approval. Other participants can request actions and see results;
-public channels may have readers beyond the roster. The agent may carry context
-between conversations.
+All signed-in humans who have completed account setup may discover the
+installation's registered personal agents and open a normal private conversation.
+There is no trust edge, offer publication, request approval, or owner-presence
+requirement. Project owners can invite registered personal agents using the same
+member picker as other teammates. Registration is checked against current engine
+agent ID, owner, native mode and private visibility; stale mappings do not grant
+access. Arbitrary hidden agents and wrapped agents are not added to this directory.
 
-All of the agent's subscribed conversations are checked because credentials are
-agent-scoped, not bound to a verified incoming turn. An absent owner, archived
-subscription, shared viewers, unknown participant types, or invalid lifecycle
-context pauses calls globally. A caller cannot select a safe channel to bypass
-this check. The credential's original conversation must still exist and be valid.
-The lifecycle exception remains private and owner-controlled.
+Connected-account tokens remain scoped to the current agent and owner. Exact tool
+grants, account ownership, credential expiry and revocation are checked as before,
+including rechecks before execution. Teammates inherit existing grants, including
+write actions. The agent's room roster, shared viewers, archive state and lifecycle
+channel no longer grant or revoke tool access globally. Normal engine permissions
+still govern who can read or post in each room. Existing private chats are not
+opened to everyone, and no owner is silently added to a teammate's conversation.
 
-## Controls that remain
+The legacy token channel_id is retained as metadata only, with an empty value for
+new tokens. Provider secrets are not handed to teammates. Agent settings, account
+linking, grants, revocation and project membership management remain owner-managed.
+Agents can carry information between conversations; this is not per-user memory
+isolation or a restriction to read-only tools.
 
-Authentication and engine channel visibility still apply. Inviting new members
-and changing project settings remain owner/manager operations. Linking personal
-accounts, granting tools, credential renewal/revocation and agent ownership remain
-owner-controlled. This change does not enable all tools or share credentials.
+## Retired requests and approvals
 
-The private assistant request inbox remains an explicit request/reply boundary for
-people outside a shared conversation. Its approval flow is not a duplicate project
-permission, so it retains its strict private-context checks.
+Both approval panels are removed. The old request UI becomes a retirement notice
+for bookmarked URLs. Request/offer mutations return 410 for authenticated humans.
+Participant-only list/detail history remains readable; no unreleased replies,
+private event IDs or channel IDs are returned. Pending requests are not dispatched,
+completed or released automatically. Existing offers and audience rows remain
+stored unused for rollback. There is no new database migration or engine patch.
 
-## UI and compatibility
+The directory and mention actions open ordinary direct chats idempotently. Project
+member options use the same registered-agent directory. Existing ordinary message
+routing and permission checks handle the conversation after admission.
 
-The participant-approval panel is removed. Agent settings explain automatic
-membership-based trust once; project kickoff and connection suggestions agree.
-Users revoke through existing tool grants or Turn off app access, or remove the
-agent from a conversation. No implicit account linking or permission grant occurs.
+## Published artifacts
 
-Old project-approval endpoints return 410 to authenticated owners with actionable
-instructions, rather than pretending a revoke still controls access. Other humans
-and agent tokens remain forbidden. Existing approval rows are retained unused for
-rollback; migration history is untouched. Old unapproved projects now work if the
-membership rule is met. This is an intentional policy change for existing agents.
+Files now includes a separate Published artifacts library for all demos and
+reports on this Nest instance. Existing publication has no project registry, so
+this is explicitly instance-wide rather than implying that every item belongs to
+the currently open project. Chat uploads remain project-scoped in their own list.
 
-No engine patch, database migration, automatic invitation, merge, or deployment is
-included. This is the first consolidation of the connected-app access layer; it
-does not claim to remove every authorization check in Nest.
+GET /api/artifacts requires a current human session and completed account setup.
+It scans only canonical slug directories and regular index.html files under the
+configured demo root, excludes symlinks and incomplete publications, and returns
+name, URL, modification time and byte count, with no-store caching. It does not
+expose paths, source HTML, backup history or arbitrary workspace files. Refresh
+picks up new publications; existing demos need no republish. Demo viewing retains
+its existing authenticated route. No publication or production deployment is
+performed by this refactor.
