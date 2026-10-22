@@ -1,4 +1,7 @@
 import {demoReturnTo, pendingDemoReturnTo, rememberDemoReturnTo, clearDemoReturnTo} from './demo-return';
+
+import {demoArtifacts} from './demo-artifacts';
+import {DemoArtifact} from './components/DemoArtifact';
 import {MessageAttachment as MessageAttachmentView} from "./components/MessageAttachment";
 import {useAttachments,restoreAttachments,type UploadedAttachment} from './attachments';
 import {ChatAttachments} from './components/ChatAttachments';
@@ -462,6 +465,7 @@ export default function App() {
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [demoPreview, setDemoPreview] = useState<{channel:string;path:string}|null>(null);
   const [authenticated, setAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -2043,6 +2047,7 @@ export default function App() {
         {error ? <div className="notice error" role="alert">{error}</div> : null}
         {loading ? <div className="notice">Loading workspace…</div> : null}
 
+        <div className={`artifact-chat-layout${demoPreview?.channel===activeChannelId ? " has-preview" : ""}`}>
         <section className="chat-stack">
           <section
             className={`messages-panel${isConversationEmpty ? " messages-panel-empty" : ""}`}
@@ -2106,6 +2111,7 @@ export default function App() {
                       ) : (
                         <p>{text}</p>
                       )}
+                      {demoArtifacts(text, window.location.origin).map(path=><button className="demo-open" type="button" key={path} onClick={()=>setDemoPreview({channel:activeChannelId!,path})}>Preview {path.slice(6)}</button>)}
                       {attachments.length > 0 ? (
                         <div className="message-attachments">
                           <strong>Attachments</strong>
@@ -2215,6 +2221,8 @@ export default function App() {
           ) : null}
           </form>
         </section>
+        {demoPreview?.channel===activeChannelId && <DemoArtifact key={demoPreview.path} path={demoPreview.path} onClose={()=>setDemoPreview(null)} editable={!!activeChannel && !activeChannel.archivedAt && activeChannelCanPost && !sending} onEdit={()=>{setDraft(draft+(draft?'\n\n':'')+'Please update '+new URL(demoPreview.path,window.location.origin).href+': ');composerTextareaRef.current?.focus();}}/>}
+        </div>
       </section>;
   const chatMembers = <aside className="activity-panel">
         <section className="participants-card">

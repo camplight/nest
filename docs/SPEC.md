@@ -1077,3 +1077,23 @@ expose paths, source HTML, backup history or arbitrary workspace files. Refresh
 picks up new publications; existing demos need no republish. Demo viewing retains
 its existing authenticated route. No publication or production deployment is
 performed by this refactor.
+
+## Demo artifacts beside chat
+
+Messages containing this instance's `/demo/<slug>` links expose a Preview button.
+Opening it shows an isolated iframe beside the chat (stacked on narrow screens),
+with phone-width, refresh, open-in-tab and close controls. Preview runs scripts
+without same-origin privileges, forms, popups or top navigation; some demo
+integrations may therefore need the full-page view. Existing authenticated demo
+routing remains authoritative; previewing does not publish or grant access.
+
+Request changes appends the demo URL to the current message draft without sending
+or choosing an agent. The human describes changes and selects the appropriate
+agent using the existing mention picker. The agent edits and republishes through
+the existing publisher. While visible, the preview checks authenticated HEAD
+responses every three seconds and reloads when the file revision changes. It
+establishes its initial revision with one reload, leaves unchanged previews
+intact, and stops polling when closed. Errors show a manual-refresh fallback;
+requests time out after ten seconds and retry. Hidden tabs skip checks. Revision
+headers use file identity, size and nanosecond timestamps; no HTML body is
+downloaded by polling. This remains chat-based editing, not a direct HTML/visual editor.

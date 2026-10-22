@@ -463,3 +463,10 @@ Request mutations retire with 410; participant-only history remains. No pending
 work is automatically executed or released. The engine pin and migration history
 are unchanged. Published artifacts are indexed from the existing demo root;
 no republish or new registry is required. See [Trust model](TRUST_MODEL.md).
+
+## Demo artifact preview
+
+The chat-side demo preview uses existing authenticated demo routes and normal
+message drafts. Nest demo responses now include a file revision ETag for lightweight
+HEAD polling; no engine change, new grant, DB migration or
+publisher replacement is required.
