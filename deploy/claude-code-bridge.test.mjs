@@ -1,9 +1,10 @@
 import {it, expect, vi, describe, afterEach} from 'vitest';
 import {spawn} from 'node:child_process';
-import {mkdtempSync, rmSync, readdirSync, readFileSync, writeFileSync, realpathSync} from 'node:fs';
+import {mkdtempSync, rmSync, readdirSync, readFileSync, writeFileSync, realpathSync, statSync, symlinkSync} from 'node:fs';
+import {createServer} from 'node:http';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {createClaudeOutput, claudeArgs, claudeEnvironment, readBridgeConfig, runBridge} from './claude-code-bridge.mjs';
+import {PERMISSION_PROFILES, createClaudeOutput, claudeArgs, claudeEnvironment, forwardedSecrets, isProtectedName, readBridgeConfig, runBridge} from './claude-code-bridge.mjs';
 import {once} from 'node:events';
 import {existsSync, chmodSync, mkdirSync} from 'node:fs';
 
@@ -84,18 +85,21 @@ describe('stream-json output', () => {
 
 describe('turn configuration', () => {
   const base = {ORGOPS_WRAPPED_SESSION_ID:'key', ORGOPS_WRAPPED_MESSAGE:'hello', ORGOPS_WRAPPED_WORKSPACE_PATH:'/w/Claude'};
+  // Never the developer's checkout, which may hold a real product database.
+  const nestRoot = '/nonexistent/nest';
 
   it('maps each permission profile to Claude Code flags and rejects unknown profiles', () => {
-    const args = profile => claudeArgs(readBridgeConfig({...base, NEST_CLAUDE_PERMISSIONS:profile}));
-    expect(args('workspace')).toEqual(expect.arrayContaining(['--permission-mode', 'acceptEdits', '--tools', 'Bash,Read,Edit,Write,Glob,Grep,NotebookEdit,Skill,Agent', '--settings']));
+    expect(PERMISSION_PROFILES).toEqual(['workspace', 'full']);
+    const args = profile => claudeArgs(readBridgeConfig({...base, NEST_CLAUDE_PERMISSIONS:profile}, {nestRoot}));
+    expect(args('workspace')).toEqual(expect.arrayContaining(['--permission-mode', 'acceptEdits', '--tools', 'Bash,Read,Edit,Write,Glob,Grep,NotebookEdit,Skill,Agent', '--settings', '--strict-mcp-config']));
     expect(args('full')).not.toContain('--tools');
-    expect(args('read-only')).toEqual(expect.arrayContaining(['--permission-mode', 'dontAsk', '--tools', 'Read,Grep,Glob']));
-    expect(args('read-only')).not.toContain('--settings');
+    expect(args('full')).not.toContain('--settings');
     expect(args('full')).toEqual(expect.arrayContaining(['--permission-mode', 'bypassPermissions']));
     expect(args('full')).not.toContain('--strict-mcp-config');
-    for (const profile of ['read-only', 'workspace']) expect(args(profile)).toContain('--strict-mcp-config');
-    expect(claudeArgs(readBridgeConfig(base))).toEqual(expect.arrayContaining(['acceptEdits']));
-    expect(() => readBridgeConfig({...base, NEST_CLAUDE_PERMISSIONS:'anything'})).toThrow(/NEST_CLAUDE_PERMISSIONS/);
+    expect(claudeArgs(readBridgeConfig(base, {nestRoot}))).toEqual(expect.arrayContaining(['acceptEdits']));
+    for (const profile of ['anything', 'read-only']) {
+      expect(() => readBridgeConfig({...base, NEST_CLAUDE_PERMISSIONS:profile})).toThrow('NEST_CLAUDE_PERMISSIONS must be one of workspace, full');
+    }
   });
 
   it('sandboxes workspace shells: fail closed, Nest data and credentials unreadable, network opt-in', () => {
@@ -118,12 +122,49 @@ describe('turn configuration', () => {
     for (const secret of ['/home/node/.ssh', '/home/node/.codex', '/home/node/.config', '/home/node/.local/share', '/home/node/.zsh_history', '/home/node/.claude/plugins', '/home/node/.claude/plugins/data']) expect(config.allowRead).not.toContain(secret);
   });
 
-  it('refuses workspaces that would reopen protected folders and state paths that break the key helper', () => {
+  it('refuses workspaces overlapping protected paths in both directions', () => {
     const at = (workspace, extra = {}) => () => readBridgeConfig({...base, HOME:'/home/node', ORGOPS_WRAPPED_WORKSPACE_PATH:workspace, ...extra}, {nestRoot:'/home/node/nest'});
-    for (const workspace of ['/home/node', '/', '/home', '/home/node/nest', '/home/node/nest/.nest-data/engine']) expect(at(workspace, {ORGOPS_PROJECT_ROOT:'/home/node/nest/.nest-data/engine'})).toThrow(/workspace that does not contain/);
-    expect(at('/home/node/nest/.nest-data/workspaces/Claude')).not.toThrow();
+    const engine = {ORGOPS_PROJECT_ROOT:'/home/node/nest/.nest-data/engine'};
+    // A workspace containing protected folders would let sandboxed reads reach them.
+    for (const workspace of ['/home/node', '/', '/home', '/home/node/nest', '/home/node/nest/.nest-data/engine']) expect(at(workspace, engine)).toThrow(/workspace that does not contain/);
     expect(at('/home/node', {NEST_CLAUDE_PERMISSIONS:'full'})).not.toThrow();
-    expect(at('/w/Claude', {NEST_CLAUDE_STATE_DIR:"/tmp/it's"})).toThrow(/quote/);
+    // A workspace inside them hands them to Claude Code in every profile.
+    for (const permissions of ['workspace', 'full']) {
+      for (const [workspace, extra] of [
+        ['/home/node/nest/.nest-data/engine/claude-code/sessions/Claude', engine],
+        ['/state/Claude', {NEST_CLAUDE_STATE_DIR:'/state'}],
+        ['/home/node/nest/.nest-data/engine/Claude', engine],
+        ['/home/node/nest/.nest-product/Claude', {}],
+        ['/srv/product/Claude', {NEST_PRODUCT_DB_PATH:'/srv/product/nest.sqlite'}],
+      ]) expect(at(workspace, {...extra, NEST_CLAUDE_PERMISSIONS:permissions})).toThrow(/workspace outside/);
+      expect(at('/home/node/nest/.nest-data/workspaces/Claude', {...engine, NEST_CLAUDE_PERMISSIONS:permissions})).not.toThrow();
+    }
+  });
+
+  it('compares real paths, as the runner reaches workspaces through the engine root link', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'nest-claude-paths-')));
+    try {
+      // scripts/orgops-env.ts links <data>/engine/.nest-data to <data>; the runner resolves workspaces under it.
+      mkdirSync(join(dir, 'data', 'engine'), {recursive:true});
+      symlinkSync(join(dir, 'data'), join(dir, 'data', 'engine', '.nest-data'));
+      mkdirSync(join(dir, 'data', 'workspaces', 'Claude'), {recursive:true});
+      const at = workspace => () => readBridgeConfig({...base, ORGOPS_PROJECT_ROOT:join(dir, 'data', 'engine'), ORGOPS_WRAPPED_WORKSPACE_PATH:workspace, NEST_CLAUDE_PERMISSIONS:'full'}, {nestRoot:dir});
+      expect(at(join(dir, 'data', 'engine', '.nest-data', 'workspaces', 'Claude'))).not.toThrow();
+      expect(at(join(dir, 'data', 'engine', '.nest-data', 'engine', 'Claude'))).toThrow(/workspace outside/);
+    } finally { rmSync(dir, {recursive:true, force:true}); }
+  });
+
+  it('refuses the full profile when Nest\'s product database is visible', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'nest-claude-product-')));
+    try {
+      mkdirSync(join(dir, '.nest-product')); writeFileSync(join(dir, '.nest-product', 'nest.sqlite'), '');
+      writeFileSync(join(dir, 'elsewhere.sqlite'), '');
+      const config = (extra, root = dir) => () => readBridgeConfig({...base, ...extra}, {nestRoot:root});
+      expect(config({NEST_CLAUDE_PERMISSIONS:'full'})).toThrow("NEST_CLAUDE_PERMISSIONS=full refuses to run next to Nest's data (product database found). Assign this agent to the agents runner.");
+      expect(config({NEST_CLAUDE_PERMISSIONS:'full', NEST_PRODUCT_DB_PATH:join(dir, 'elsewhere.sqlite')}, '/nonexistent/nest')).toThrow(/Nest's data/);
+      expect(config({NEST_CLAUDE_PERMISSIONS:'workspace'})).not.toThrow();
+      expect(config({NEST_CLAUDE_PERMISSIONS:'full'}, '/nonexistent/nest')).not.toThrow();
+    } finally { rmSync(dir, {recursive:true, force:true}); }
   });
 
   it('adds optional model, setting sources and resume flags', () => {
@@ -140,18 +181,32 @@ describe('turn configuration', () => {
   });
 
   it('forwards only host, proxy and Claude authentication variables', () => {
-    const env = claudeEnvironment({
-      PATH:'/bin', HOME:'/home/node', ANTHROPIC_API_KEY:'sk-ant', CLAUDE_CODE_OAUTH_TOKEN:'oauth',
-      NEST_ADMIN_PASS:'admin', NEST_MASTER_KEY:'key', NEST_RUNNER_TOKEN:'runner', ORGOPS_RUNNER_TOKEN:'runner',
-      OPENAI_API_KEY:'sk-openai', ORGOPS_WRAPPED_MESSAGE:'hello',
-    });
-    expect(env).toEqual({PATH:'/bin', HOME:'/home/node', ANTHROPIC_API_KEY:'sk-ant', DISABLE_AUTOUPDATER:'1'});
+    const host = {
+      PATH:'/bin', HOME:'/home/node', ANTHROPIC_BASE_URL:'https://gateway.example', NEST_ADMIN_PASS:'admin', NEST_MASTER_KEY:'key',
+      NEST_RUNNER_TOKEN:'runner', ORGOPS_RUNNER_TOKEN:'runner', OPENAI_API_KEY:'sk-openai', ORGOPS_WRAPPED_MESSAGE:'hello',
+    };
+    // Without a credential secret Claude Code uses the host's own login and API URL.
+    expect(claudeEnvironment(host)).toEqual({PATH:'/bin', HOME:'/home/node', ANTHROPIC_BASE_URL:'https://gateway.example', DISABLE_AUTOUPDATER:'1'});
+    // With one, the credential never passes through and the proxy sets the URL.
+    for (const credential of [{ANTHROPIC_API_KEY:'sk-ant'}, {CLAUDE_CODE_OAUTH_TOKEN:'oauth'}]) {
+      expect(claudeEnvironment({...host, ...credential})).toEqual({PATH:'/bin', HOME:'/home/node', DISABLE_AUTOUPDATER:'1'});
+    }
+  });
+
+  it('forwards listed tool secrets and refuses protected names', () => {
+    const env = {PATH:'/bin', GH_TOKEN:'gh-secret', AWS_SECRET_ACCESS_KEY:'aws-unlisted', NEST_RUNNER_TOKEN:'runner', ORGOPS_X:'x',
+      ANTHROPIC_API_KEY:'sk-ant', CLAUDE_CODE_OAUTH_TOKEN:'oauth'};
+    const config = readBridgeConfig({...base, ...env, NEST_CLAUDE_SECRETS:'GH_TOKEN,NEST_RUNNER_TOKEN,ORGOPS_X,ANTHROPIC_API_KEY,CLAUDE_CODE_OAUTH_TOKEN,PATH'}, {nestRoot});
+    expect(forwardedSecrets(env, config.secrets)).toEqual({GH_TOKEN:'gh-secret'});
+    expect(claudeEnvironment(env, config)).toEqual({PATH:'/bin', GH_TOKEN:'gh-secret', DISABLE_AUTOUPDATER:'1'});
+    for (const name of ['NEST_RUNNER_TOKEN', 'ORGOPS_API_URL', 'ANTHROPIC_BASE_URL', 'CLAUDE_CONFIG_DIR', 'PATH', 'HOME', 'DISABLE_AUTOUPDATER', 'nest_admin_pass']) expect(isProtectedName(name)).toBe(true);
+    for (const name of ['GH_TOKEN', 'SSH_PRIVATE_KEY', 'AWS_SECRET_ACCESS_KEY']) expect(isProtectedName(name)).toBe(false);
   });
 });
 
 describe('bridge turns against a scripted Claude Code process', () => {
   const dirs = [];
-  afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, {recursive:true, force:true}); });
+  afterEach(() => { for (const dir of dirs.splice(0)) typeof dir === 'string' ? rmSync(dir, {recursive:true, force:true}) : dir.close(); });
 
   // The fake CLI replays one scripted scenario per call and records what it received.
   const fake = `
@@ -160,8 +215,16 @@ describe('bridge turns against a scripted Claude Code process', () => {
     const calls = JSON.parse(fs.readFileSync(dir + '/calls.json', 'utf8'));
     const scenario = JSON.parse(fs.readFileSync(dir + '/scenarios.json', 'utf8'))[calls.length];
     let input = ''; process.stdin.on('data', c => input += c);
-    process.stdin.on('end', () => {
-      calls.push({args: process.argv.slice(2), input, cwd: process.cwd(), env: Object.keys(process.env).filter(k => k !== 'FAKE').sort()});
+    process.stdin.on('end', async () => {
+      const values = {...process.env}; delete values.FAKE;
+      const call = {args: process.argv.slice(2), input, cwd: process.cwd(), env: Object.keys(values).sort(), values};
+      if (scenario.request) {
+        // What Claude Code does with ANTHROPIC_BASE_URL and its credential.
+        const headers = values.CLAUDE_CODE_OAUTH_TOKEN ? {authorization: 'Bearer ' + values.CLAUDE_CODE_OAUTH_TOKEN} : {'x-api-key': values.ANTHROPIC_API_KEY};
+        const res = await fetch(values.ANTHROPIC_BASE_URL + '/v1/messages?beta=true', {method: 'POST', headers, body: '{}'});
+        call.upstreamStatus = res.status; await res.text();
+      }
+      calls.push(call);
       fs.writeFileSync(dir + '/calls.json', JSON.stringify(calls));
       for (const event of scenario.events) process.stdout.write(JSON.stringify(event) + '\\n');
       if (scenario.stderr) process.stderr.write(scenario.stderr);
@@ -175,15 +238,26 @@ describe('bridge turns against a scripted Claude Code process', () => {
     writeFileSync(join(dir, 'scenarios.json'), JSON.stringify(scenarios));
     const env = {ORGOPS_WRAPPED_SESSION_ID:'Claude:room', ORGOPS_WRAPPED_MESSAGE:'Run the tests', ORGOPS_WRAPPED_WORKSPACE_PATH:join(dir, 'workspace'),
       NEST_CLAUDE_STATE_DIR:join(dir, 'state'), PATH:process.env.PATH, HOME:dir, NEST_ADMIN_PASS:'admin', ORGOPS_RUNNER_TOKEN:'runner'};
-    const spawnImpl = (_bin, args, options) => spawn(process.execPath, [join(dir, 'fake.cjs'), ...args], {...options, env:{...options.env, FAKE:JSON.stringify({dir})}});
-    const turn = async (overrides = {}) => {
+    const spawned = [];
+    const spawnImpl = (_bin, args, options) => { spawned.push(options); return spawn(process.execPath, [join(dir, 'fake.cjs'), ...args], {...options, env:{...options.env, FAKE:JSON.stringify({dir})}}); };
+    const turn = async (overrides = {}, {nestRoot = '/nonexistent/nest'} = {}) => {
       const out = [], err = [], updates = [];
-      const code = await runBridge({env:{...env, ...overrides}, spawnImpl, publishProgress: async item => { updates.push(item); }, stdout: v => out.push(v), stderr: v => err.push(v)});
+      const code = await runBridge({env:{...env, ...overrides}, spawnImpl, nestRoot, publishProgress: async item => { updates.push(item); }, stdout: v => out.push(v), stderr: v => err.push(v)});
       return {code, out, err, updates};
     };
     const calls = () => JSON.parse(readFileSync(join(dir, 'calls.json'), 'utf8'));
     const state = () => readdirSync(join(dir, 'state')).map(file => JSON.parse(readFileSync(join(dir, 'state', file), 'utf8')));
-    return {turn, calls, state, dir};
+    return {turn, calls, state, dir, spawned};
+  }
+
+  /** A local stand-in for api.anthropic.com; `status` sets its reply. */
+  async function fakeUpstream() {
+    const upstream = {seen:[], status:200};
+    const server = createServer((req, res) => { req.resume(); upstream.seen.push(req.headers); res.writeHead(upstream.status, {'content-type':'application/json'}); res.end('{}'); });
+    server.listen(0, '127.0.0.1'); await once(server, 'listening');
+    dirs.push({close: () => { server.closeAllConnections(); server.close(); }});
+    upstream.url = `http://127.0.0.1:${server.address().port}`;
+    return upstream;
   }
   const ok = (session, reply) => ({code:0, events:[{type:'system', subtype:'init', session_id:session}, assistant('m1', text(reply)), result({session_id:session, result:reply})]});
 
@@ -201,26 +275,97 @@ describe('bridge turns against a scripted Claude Code process', () => {
     expect(t.state()).toEqual([{sessionId:'first-session'}]);
   });
 
-  it('passes an API key through a per-turn helper file so tool subprocesses never inherit it', async () => {
-    const t = setup([ok('s', 'Done.')]);
-    await t.turn({ANTHROPIC_API_KEY:'sk-ant-agent-secret'});
-    const [call] = t.calls();
-    expect(call.env).not.toContain('ANTHROPIC_API_KEY');
-    const settings = JSON.parse(call.args[call.args.indexOf('--settings') + 1]);
-    const keyFile = settings.apiKeyHelper.match(/^cat '(.+)'$/)[1];
-    expect(keyFile.startsWith(join(t.dir, 'state'))).toBe(true);
-    expect(settings.sandbox.filesystem.denyRead).toContain(join(t.dir, 'state'));
-    expect(existsSync(keyFile)).toBe(false);
-    expect(readdirSync(join(t.dir, 'state')).filter(name => name.startsWith('.key-'))).toEqual([]);
+  it('starts the proxy for a credential secret and gives Claude Code only the dummy', async () => {
+    const upstream = await fakeUpstream();
+    const t = setup([{...ok('s', 'Done.'), request:true}, {...ok('s', 'Done.'), request:true}]);
+    for (const [name, real, other] of [['CLAUDE_CODE_OAUTH_TOKEN', 'sk-ant-oat01-fake-real', 'ANTHROPIC_API_KEY'], ['ANTHROPIC_API_KEY', 'sk-ant-api03-fake-real', 'CLAUDE_CODE_OAUTH_TOKEN']]) {
+      const finished = await t.turn({[name]:real, NEST_CLAUDE_UPSTREAM_URL:upstream.url});
+      expect(finished).toMatchObject({code:0, out:['Done.'], err:[]});
+      const call = t.calls().at(-1);
+      expect(call.values[name]).toMatch(/^nest-proxy-[0-9a-f-]{36}$/);
+      expect(call.values).not.toHaveProperty(other);
+      expect(call.values.ANTHROPIC_BASE_URL).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+      expect(JSON.stringify(call)).not.toContain(real);
+      expect(JSON.stringify(finished)).not.toContain(real);
+      // The swap happened in the proxy, not in Claude Code's environment.
+      expect(call.upstreamStatus).toBe(200);
+      expect(upstream.seen.at(-1)).toMatchObject(name === 'ANTHROPIC_API_KEY' ? {'x-api-key':real} : {authorization:`Bearer ${real}`});
+      await expect(fetch(`${call.values.ANTHROPIC_BASE_URL}/api/hello`, {method:'HEAD'})).rejects.toThrow();
+    }
   });
 
-  it('removes key files left by a killed bridge and keeps those of running turns', async () => {
+  it('uses the account\'s own login without a credential secret', async () => {
     const t = setup([ok('s', 'Done.')]);
-    mkdirSync(join(t.dir, 'state'), {recursive:true});
-    writeFileSync(join(t.dir, 'state', '.key-999999999-orphan'), 'sk-ant-old');
-    writeFileSync(join(t.dir, 'state', `.key-${process.pid}-running`), 'sk-ant-live');
-    await t.turn();
-    expect(readdirSync(join(t.dir, 'state')).filter(name => name.startsWith('.key-'))).toEqual([`.key-${process.pid}-running`]);
+    expect((await t.turn()).code).toBe(0);
+    const [call] = t.calls();
+    for (const name of ['ANTHROPIC_BASE_URL', 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN']) expect(call.values).not.toHaveProperty(name);
+  });
+
+  it('forwards listed tool secrets to the turn and nothing else', async () => {
+    const t = setup([ok('s', 'Done.')]);
+    await t.turn({NEST_CLAUDE_SECRETS:'GH_TOKEN,NEST_RUNNER_TOKEN', GH_TOKEN:'gh-fake', NEST_RUNNER_TOKEN:'runner', SSH_PRIVATE_KEY:'unlisted'});
+    const [call] = t.calls();
+    expect(call.values.GH_TOKEN).toBe('gh-fake');
+    for (const name of ['NEST_RUNNER_TOKEN', 'SSH_PRIVATE_KEY', 'NEST_CLAUDE_SECRETS']) expect(call.values).not.toHaveProperty(name);
+  });
+
+  it('writes secret files under Claude\'s home with mode 600 in 700 folders', async () => {
+    const t = setup([ok('s', 'One.'), ok('s', 'Two.'), ok('s', 'Three.')]);
+    const home = join(t.dir, 'accounts', 'claude-home');
+    const files = {NEST_CLAUDE_HOME:home, NEST_CLAUDE_SECRET_FILES:'SSH_PRIVATE_KEY:.ssh/id_ed25519, SSH_KNOWN_HOSTS:.ssh/known_hosts'};
+    const mode = path => statSync(path).mode & 0o777;
+    expect((await t.turn({...files, SSH_PRIVATE_KEY:'-----KEY ONE-----', SSH_KNOWN_HOSTS:'host ssh-ed25519 AAA\n'})).code).toBe(0);
+    expect(readFileSync(join(home, '.ssh', 'id_ed25519'), 'utf8')).toBe('-----KEY ONE-----\n');
+    expect(readFileSync(join(home, '.ssh', 'known_hosts'), 'utf8')).toBe('host ssh-ed25519 AAA\n');
+    expect([mode(join(home, '.ssh', 'id_ed25519')), mode(join(home, '.ssh', 'known_hosts'))]).toEqual([0o600, 0o600]);
+    expect([mode(home), mode(join(home, '.ssh'))]).toEqual([0o700, 0o700]);
+    // Folders above Claude's home stay traversable for its account.
+    expect(mode(join(t.dir, 'accounts'))).toBe(0o755);
+    // File secrets are files only, never environment variables.
+    expect(t.calls()[0].values).not.toHaveProperty('SSH_PRIVATE_KEY');
+    await t.turn({...files, SSH_PRIVATE_KEY:'-----KEY TWO-----', SSH_KNOWN_HOSTS:'host ssh-ed25519 AAA\n'});
+    expect(readFileSync(join(home, '.ssh', 'id_ed25519'), 'utf8')).toBe('-----KEY TWO-----\n');
+    // A secret removed in Admin is removed from disk on the next turn.
+    await t.turn({...files, SSH_PRIVATE_KEY:'-----KEY TWO-----'});
+    expect(existsSync(join(home, '.ssh', 'known_hosts'))).toBe(false);
+    expect(existsSync(join(home, '.ssh', 'id_ed25519'))).toBe(true);
+  });
+
+  it('refuses secret file paths outside Claude\'s home and protected names', async () => {
+    const t = setup([]);
+    const home = join(t.dir, 'claude-home');
+    for (const mapping of ['SSH_KEY:../x', 'SSH_KEY:/etc/x', 'SSH_KEY:.ssh/../../x', 'NEST_RUNNER_TOKEN:.x', 'SSH_KEY', 'SSH_KEY:', ':.x']) {
+      const failed = await t.turn({NEST_CLAUDE_HOME:home, NEST_CLAUDE_SECRET_FILES:mapping, SSH_KEY:'fake-key', NEST_RUNNER_TOKEN:'runner'});
+      expect(failed).toMatchObject({code:1, out:[]});
+      expect(failed.err).toEqual([expect.stringMatching(/^NEST_CLAUDE_SECRET_FILES /)]);
+      expect(failed.err[0]).not.toMatch(/fake-key|runner\b/);
+    }
+    // Without its own home, a mapping would write into the runner account's real one.
+    expect((await t.turn({NEST_CLAUDE_SECRET_FILES:'SSH_KEY:.ssh/id', SSH_KEY:'fake-key'})).err).toEqual([expect.stringMatching(/^NEST_CLAUDE_SECRET_FILES .*NEST_CLAUDE_HOME/)]);
+    expect(t.calls()).toEqual([]);
+    expect(existsSync(join(t.dir, 'x'))).toBe(false);
+  });
+
+  it('runs Claude Code with the configured account, home and config folder', async () => {
+    const t = setup([ok('s', 'Done.')]);
+    const home = join(t.dir, 'claude', 'home');
+    // The current account, so no chown is needed.
+    const finished = await t.turn({NEST_CLAUDE_PERMISSIONS:'full', NEST_CLAUDE_UID:String(process.getuid()), NEST_CLAUDE_GID:String(process.getgid()),
+      NEST_CLAUDE_HOME:home, NEST_CLAUDE_CONFIG_DIR:join(home, '.claude')});
+    expect(finished).toMatchObject({code:0, out:['Done.']});
+    expect(t.spawned[0]).toMatchObject({uid:process.getuid(), gid:process.getgid(), detached:true});
+    const [call] = t.calls();
+    expect(call.values).toMatchObject({HOME:home, CLAUDE_CONFIG_DIR:join(home, '.claude')});
+    expect(call.args).toEqual(expect.arrayContaining(['--permission-mode', 'bypassPermissions']));
+    for (const path of [home, join(home, '.claude'), join(t.dir, 'workspace')]) expect(statSync(path).isDirectory()).toBe(true);
+  });
+
+  it('refuses the full profile next to Nest\'s data before starting Claude Code', async () => {
+    const t = setup([]);
+    mkdirSync(join(t.dir, 'nest', '.nest-product'), {recursive:true}); writeFileSync(join(t.dir, 'nest', '.nest-product', 'nest.sqlite'), '');
+    const failed = await t.turn({NEST_CLAUDE_PERMISSIONS:'full'}, {nestRoot:join(t.dir, 'nest')});
+    expect(failed).toMatchObject({code:1, out:[], err:[expect.stringContaining("Nest's data")]});
+    expect(t.calls()).toEqual([]);
   });
 
   it('starts a new session with a visible notice when saved history is gone', async () => {
@@ -243,13 +388,30 @@ describe('bridge turns against a scripted Claude Code process', () => {
   ]});
 
   it('reports a sign-in problem in one line and never posts the CLI text as the reply', async () => {
-    const t = setup([ok('kept-session', 'Noted.'), notSignedIn('kept-session')]);
+    const t = setup([ok('kept-session', 'Noted.'), notSignedIn('new-session')]);
     await t.turn();
     const failed = await t.turn();
     expect(failed).toMatchObject({code:1, out:[], updates:[]});
-    expect(failed.err).toEqual([expect.stringContaining('not signed in')]);
+    expect(failed.err).toEqual(['Claude Code is not signed in. Add CLAUDE_CODE_OAUTH_TOKEN (from claude setup-token) or ANTHROPIC_API_KEY as a private secret of this agent.']);
     expect(t.calls()).toHaveLength(2);
     expect(t.state()).toEqual([{sessionId:'kept-session'}]);
+  });
+
+  it('does not save a session for a turn that failed sign-in', async () => {
+    // The real credential is rejected upstream; the proxy passes the 401 straight back.
+    const upstream = await fakeUpstream(); upstream.status = 401;
+    const t = setup([{...notSignedIn('fresh-session'), request:true}]);
+    const started = Date.now();
+    const failed = await t.turn({CLAUDE_CODE_OAUTH_TOKEN:'sk-ant-oat01-fake-revoked', NEST_CLAUDE_UPSTREAM_URL:upstream.url});
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(t.calls()[0].upstreamStatus).toBe(401);
+    expect(failed).toMatchObject({code:1, out:[], err:[expect.stringContaining('not signed in')]});
+    expect(t.state()).toEqual([]);
+  });
+
+  it('explains error_max_budget_usd', async () => {
+    const t = setup([{code:1, events:[result({subtype:'error_max_budget_usd', is_error:true, num_turns:4, result:undefined, session_id:'spent'})]}]);
+    expect((await t.turn()).err).toEqual(['Claude Code stopped after reaching its spending limit for this turn.']);
   });
 
   it('keeps the session of a turn that ran but failed, and explains a turn without a written reply', async () => {
@@ -340,6 +502,6 @@ describe('stopping a turn', () => {
     });
     let stderr = ''; bridge.stderr.on('data', chunk => { stderr += chunk; });
     expect((await once(bridge, 'exit'))[0]).toBe(1);
-    expect(stderr.trim()).toBe('NEST_CLAUDE_PERMISSIONS must be one of read-only, workspace, full');
+    expect(stderr.trim()).toBe('NEST_CLAUDE_PERMISSIONS must be one of workspace, full');
   });
 });
