@@ -3,6 +3,7 @@ import type { RunnerNode } from "./types";
 import {
   DEFAULT_CLAUDE_CODE_OPTIONS,
   buildClaudeCodeWrappedConfig,
+  defaultClaudeCodeWorkspace,
   isValidSecretName,
   isValidSecretPath,
   pickClaudeCodeRunner,
@@ -68,6 +69,30 @@ describe("Claude Code agent recipe", () => {
     expect(readClaudeCodeOptions(buildClaudeCodeWrappedConfig(apiKey))).toEqual(apiKey);
     expect(readClaudeCodeOptions({ kind: "custom", harness: "command" })).toBeNull();
     expect(readClaudeCodeOptions(undefined)).toBeNull();
+  });
+
+  it("keeps operator env the form does not manage", () => {
+    const stored = buildClaudeCodeWrappedConfig(withTools) as { runtime: { env: Record<string, string> } };
+    stored.runtime.env = { ...stored.runtime.env, NEST_CLAUDE_MODEL: "sonnet", NEST_CLAUDE_UPSTREAM_URL: "http://127.0.0.1:4010" };
+    const options = readClaudeCodeOptions(stored);
+    expect(options?.extraEnv).toEqual({ NEST_CLAUDE_MODEL: "sonnet", NEST_CLAUDE_UPSTREAM_URL: "http://127.0.0.1:4010" });
+    expect(buildClaudeCodeWrappedConfig(options!)).toEqual(stored);
+    // Managed keys always come from the form, even when extraEnv carries an old value.
+    const rebuilt = buildClaudeCodeWrappedConfig({
+      ...DEFAULT_CLAUDE_CODE_OPTIONS,
+      extraEnv: { NEST_CLAUDE_PERMISSIONS: "workspace", NEST_CLAUDE_SECRETS: "OLD", NEST_CLAUDE_MODEL: "sonnet" }
+    }) as { runtime: { env: Record<string, string> } };
+    expect(rebuilt.runtime.env.NEST_CLAUDE_PERMISSIONS).toBe("full");
+    expect(rebuilt.runtime.env).not.toHaveProperty("NEST_CLAUDE_SECRETS");
+    expect(rebuilt.runtime.env.NEST_CLAUDE_MODEL).toBe("sonnet");
+  });
+
+  it("gives each Claude Code agent its own workspace", () => {
+    expect(defaultClaudeCodeWorkspace("Coder")).toBe(".nest-data/workspaces/Coder");
+    expect(defaultClaudeCodeWorkspace(" Code Review/ops ")).toBe(".nest-data/workspaces/Code-Review-ops");
+    expect(defaultClaudeCodeWorkspace("../x")).toBe(".nest-data/workspaces/-x");
+    expect(defaultClaudeCodeWorkspace("..")).toBe(".nest-data/workspaces/default");
+    expect(defaultClaudeCodeWorkspace("")).toBe(".nest-data/workspaces/default");
   });
 
   it("de-duplicates allowedKeys", () => {

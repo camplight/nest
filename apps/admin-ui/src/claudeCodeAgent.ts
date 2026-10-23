@@ -5,19 +5,32 @@ export type ClaudeCodeOptions = {
   timeoutMinutes: number;
   secretNames: string[];
   secretFiles: { name: string; path: string }[];
+  // Recipe env the form does not manage (for example NEST_CLAUDE_MODEL), kept on edit.
+  extraEnv?: Record<string, string>;
 };
 
 export const DEFAULT_CLAUDE_CODE_OPTIONS: ClaudeCodeOptions = {
   credential: "oauth",
   timeoutMinutes: 120,
   secretNames: [],
-  secretFiles: []
+  secretFiles: [],
+  extraEnv: {}
 };
 
 // Set by deploy/compose.claude-agents.yaml for the runner-only agent container.
 export const CLAUDE_CODE_RUNNER_NAME = "nest-agents";
 
 const CLAUDE_HOME = "/app/.nest-data/claude/home";
+export const SHARED_DEFAULT_WORKSPACE = ".nest-data/workspaces/default";
+const MANAGED_ENV_KEYS = new Set([
+  "NEST_CLAUDE_PERMISSIONS",
+  "NEST_CLAUDE_UID",
+  "NEST_CLAUDE_GID",
+  "NEST_CLAUDE_HOME",
+  "NEST_CLAUDE_CONFIG_DIR",
+  "NEST_CLAUDE_SECRETS",
+  "NEST_CLAUDE_SECRET_FILES"
+]);
 const CREDENTIAL_NAMES = { oauth: "CLAUDE_CODE_OAUTH_TOKEN", apiKey: "ANTHROPIC_API_KEY" } as const;
 const PROTECTED_PREFIXES = ["NEST_", "ORGOPS_", "ANTHROPIC_", "CLAUDE_"];
 // The bridge never forwards these either; refusing them here keeps the form honest.
@@ -45,6 +58,9 @@ export function buildClaudeCodeWrappedConfig(options: ClaudeCodeOptions): Record
       parse: "text",
       timeoutMs: options.timeoutMinutes * 60000,
       env: {
+        ...Object.fromEntries(
+          Object.entries(options.extraEnv ?? {}).filter(([key]) => !MANAGED_ENV_KEYS.has(key))
+        ),
         NEST_CLAUDE_PERMISSIONS: "full",
         NEST_CLAUDE_UID: "1000",
         NEST_CLAUDE_GID: "1000",
@@ -80,8 +96,19 @@ export function readClaudeCodeOptions(wrappedConfig: unknown): ClaudeCodeOptions
     secretFiles: list(env.NEST_CLAUDE_SECRET_FILES).map((entry) => {
       const separator = entry.indexOf(":");
       return { name: entry.slice(0, separator), path: entry.slice(separator + 1) };
-    })
+    }),
+    extraEnv: Object.fromEntries(
+      Object.entries(env).filter(
+        (entry): entry is [string, string] => !MANAGED_ENV_KEYS.has(entry[0]) && typeof entry[1] === "string"
+      )
+    )
   };
+}
+
+// Claude Code sessions and files live in the workspace, so agents should not share the default one.
+export function defaultClaudeCodeWorkspace(agentName: string) {
+  const folder = agentName.trim().replace(/[^A-Za-z0-9._-]/g, "-").replace(/^\.+/, "");
+  return folder ? `.nest-data/workspaces/${folder}` : SHARED_DEFAULT_WORKSPACE;
 }
 
 export const pickClaudeCodeRunner = (runners: RunnerNode[]) =>
