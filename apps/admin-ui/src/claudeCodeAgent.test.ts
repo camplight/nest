@@ -2,14 +2,34 @@ import { describe, expect, it } from "vitest";
 import type { RunnerNode } from "./types";
 import {
   DEFAULT_CLAUDE_CODE_OPTIONS,
+  MAX_TURN_MINUTES,
+  PROTECTED_SECRET_NAMES,
+  PROTECTED_SECRET_PREFIXES,
   buildClaudeCodeWrappedConfig,
+  claudeCodeOptionsError,
   defaultClaudeCodeWorkspace,
   isValidSecretName,
   isValidSecretPath,
+  mergeClaudeCodeWrappedConfig,
   pickClaudeCodeRunner,
   readClaudeCodeOptions,
   requiredSecretNames
 } from "./claudeCodeAgent";
+
+// The developer-machine recipe from docs/CLAUDE_CODE_AGENT.md section 8.
+const devRecipe = {
+  kind: "claude-code",
+  harness: "command",
+  session: { scope: "per-channel" },
+  setup: { checkCommand: "claude --version" },
+  runtime: {
+    command: "exec node",
+    args: ["/path/to/nest/deploy/claude-code-bridge.mjs"],
+    env: { NEST_CLAUDE_PERMISSIONS: "workspace" },
+    parse: "text",
+    timeoutMs: 7200000
+  }
+};
 
 const withTools = {
   ...DEFAULT_CLAUDE_CODE_OPTIONS,
@@ -87,6 +107,61 @@ describe("Claude Code agent recipe", () => {
     expect(rebuilt.runtime.env.NEST_CLAUDE_MODEL).toBe("sonnet");
   });
 
+  it("leaves recipes that are not the container recipe to the raw JSON editor", () => {
+    expect(readClaudeCodeOptions(devRecipe)).toBeNull();
+    const container = buildClaudeCodeWrappedConfig(withTools) as { runtime: { args: string[]; env: Record<string, string> } };
+    expect(readClaudeCodeOptions({ ...container, runtime: { ...container.runtime, args: ["/srv/nest/deploy/claude-code-bridge.mjs"] } })).toBeNull();
+    expect(readClaudeCodeOptions({ ...container, runtime: { ...container.runtime, env: { ...container.runtime.env, NEST_CLAUDE_PERMISSIONS: "workspace" } } })).toBeNull();
+    const { NEST_CLAUDE_PERMISSIONS: _full, ...withoutPermissions } = container.runtime.env;
+    expect(readClaudeCodeOptions({ ...container, runtime: { ...container.runtime, env: withoutPermissions } })).toEqual(withTools);
+  });
+
+  it("merges the form into the stored recipe, keeping hand edits outside the managed keys", () => {
+    const built = buildClaudeCodeWrappedConfig(withTools) as Record<string, any>;
+    const stored = {
+      ...built,
+      description: "hand edit",
+      session: { scope: "per-agent" },
+      runtime: { ...built.runtime, cwd: "repo", timeoutMs: 60000, env: { ...built.runtime.env, NEST_CLAUDE_MODEL: "sonnet" } },
+      secrets: { allowedKeys: [...built.secrets.allowedKeys, "NPM_TOKEN"], note: "kept" }
+    };
+    const options = readClaudeCodeOptions(stored)!;
+    const edited = { ...options, credential: "apiKey" as const, timeoutMinutes: 30, secretNames: [] };
+    expect(mergeClaudeCodeWrappedConfig(stored, edited)).toEqual({
+      ...stored,
+      runtime: {
+        ...stored.runtime,
+        timeoutMs: 1800000,
+        env: {
+          NEST_CLAUDE_MODEL: "sonnet",
+          NEST_CLAUDE_PERMISSIONS: "full",
+          NEST_CLAUDE_UID: "1000",
+          NEST_CLAUDE_GID: "1000",
+          NEST_CLAUDE_HOME: "/home/node",
+          NEST_CLAUDE_CONFIG_DIR: "/home/node/.claude",
+          NEST_CLAUDE_SECRET_FILES: "SSH_PRIVATE_KEY:.ssh/id_ed25519"
+        }
+      },
+      // The old credential and the removed GH_TOKEN go; the hand-added NPM_TOKEN stays.
+      secrets: { allowedKeys: ["ANTHROPIC_API_KEY", "SSH_PRIVATE_KEY", "NPM_TOKEN"], note: "kept" }
+    });
+    // Managed keys win over hand edits.
+    const tampered = { ...stored, kind: "custom-ish", harness: "other", runtime: { ...stored.runtime, command: "sh", parse: "json" } };
+    const merged = mergeClaudeCodeWrappedConfig(tampered, options) as Record<string, any>;
+    expect([merged.kind, merged.harness, merged.runtime.command, merged.runtime.parse]).toEqual(["claude-code", "command", "exec node", "text"]);
+    // A stored config that is not a Claude Code recipe is replaced, not merged.
+    expect(mergeClaudeCodeWrappedConfig(devRecipe, withTools)).toEqual(buildClaudeCodeWrappedConfig(withTools));
+    expect(mergeClaudeCodeWrappedConfig(undefined, withTools)).toEqual(buildClaudeCodeWrappedConfig(withTools));
+  });
+
+  it("caps the turn limit where Node timers still work", () => {
+    expect(MAX_TURN_MINUTES).toBe(1440);
+    for (const timeoutMinutes of [1, 120, 1440]) expect(claudeCodeOptionsError({ ...withTools, timeoutMinutes })).toBeNull();
+    for (const timeoutMinutes of [0, -1, 1.5, 1441, 40000, Number.NaN]) {
+      expect(claudeCodeOptionsError({ ...withTools, timeoutMinutes })).toBe("Turn limit must be a whole number of minutes from 1 to 1440.");
+    }
+  });
+
   it("gives each Claude Code agent its own workspace", () => {
     expect(defaultClaudeCodeWorkspace("Coder")).toBe(".nest-data/workspaces/Coder");
     expect(defaultClaudeCodeWorkspace(" Code Review/ops ")).toBe(".nest-data/workspaces/Code-Review-ops");
@@ -103,6 +178,19 @@ describe("Claude Code agent recipe", () => {
     }) as { runtime: { env: Record<string, string> }; secrets: { allowedKeys: string[] } };
     expect(config.secrets.allowedKeys).toEqual(["CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN", "SSH_PRIVATE_KEY"]);
     expect(config.runtime.env.NEST_CLAUDE_SECRETS).toBe("GH_TOKEN,SSH_PRIVATE_KEY");
+  });
+
+  it("refuses exactly the names the bridge refuses", () => {
+    // Mirrors isProtectedName in deploy/claude-code-bridge.mjs.
+    expect(PROTECTED_SECRET_PREFIXES).toEqual(["NEST_", "ORGOPS_", "ANTHROPIC_", "CLAUDE_", "LD_", "DYLD_", "NODE_"]);
+    expect(PROTECTED_SECRET_NAMES).toEqual([
+      "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "TMPDIR", "TERM", "HTTPS_PROXY", "HTTP_PROXY",
+      "NO_PROXY", "NODE_EXTRA_CA_CERTS", "DISABLE_AUTOUPDATER", "NODE_OPTIONS", "BASH_ENV", "ENV"
+    ]);
+    for (const name of [...PROTECTED_SECRET_NAMES, "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "NODE_TLS_REJECT_UNAUTHORIZED"]) {
+      expect(isValidSecretName(name)).toBe(false);
+    }
+    for (const name of ["ENVIRONMENT", "TERMINAL_ID", "PATH_TOKEN", "NODEJS_TOKEN", "LDAP_PASSWORD"]) expect(isValidSecretName(name)).toBe(true);
   });
 
   it("rejects protected and malformed names and escaping paths", () => {

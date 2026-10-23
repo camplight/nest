@@ -21,9 +21,11 @@ try {
  const runner=(id,displayName,online)=>({id,displayName,online,createdAt:now,updatedAt:now,lastSeenAt:now});
  let runners=[runner('runner-nest','nest',true),runner('runner-agents','nest-agents',true)];
  // An existing agent with env the form does not manage, as the container check sets it.
- const tuned={...recipe,runtime:{...recipe.runtime,env:{...recipe.runtime.env,NEST_CLAUDE_MODEL:'sonnet',NEST_CLAUDE_UPSTREAM_URL:'http://127.0.0.1:4010'}}};
- const agents=[{name:'Tuned',mode:'WRAPPED',modelId:'wrapped:none',runtimeState:'STOPPED',desiredState:'STOPPED',visibility:'PUBLIC',workspacePath:'.nest-data/workspaces/Tuned',assignedRunnerId:'runner-agents',wrappedConfig:tuned},{name:'Helper',mode:'CLASSIC',modelId:'openrouter:moonshotai/kimi-k3',runtimeState:'RUNNING',desiredState:'RUNNING',visibility:'PUBLIC',workspacePath:'.nest-data/workspaces/Helper'}];
- const posts=[],patches=[];
+ const tuned={...recipe,description:'hand edit',runtime:{...recipe.runtime,env:{...recipe.runtime.env,NEST_CLAUDE_MODEL:'sonnet',NEST_CLAUDE_UPSTREAM_URL:'http://127.0.0.1:4010'}},secrets:{allowedKeys:[...recipe.secrets.allowedKeys,'NPM_TOKEN']}};
+ // The developer-machine recipe (docs/CLAUDE_CODE_AGENT.md section 8) is not the container recipe and stays raw JSON.
+ const devRecipe={kind:'claude-code',harness:'command',session:{scope:'per-channel'},setup:{checkCommand:'claude --version'},runtime:{command:'exec node',args:['/path/to/nest/deploy/claude-code-bridge.mjs'],env:{NEST_CLAUDE_PERMISSIONS:'workspace'},parse:'text',timeoutMs:7200000}};
+ const agents=[{name:'Laptop',mode:'WRAPPED',modelId:'wrapped:none',runtimeState:'STOPPED',desiredState:'STOPPED',visibility:'PRIVATE',workspacePath:'/Users/dev/nest',wrappedConfig:devRecipe},{name:'Tuned',mode:'WRAPPED',modelId:'wrapped:none',runtimeState:'STOPPED',desiredState:'STOPPED',visibility:'PUBLIC',workspacePath:'.nest-data/workspaces/Tuned',assignedRunnerId:'runner-agents',wrappedConfig:tuned},{name:'Helper',mode:'CLASSIC',modelId:'openrouter:moonshotai/kimi-k3',runtimeState:'RUNNING',desiredState:'RUNNING',visibility:'PUBLIC',workspacePath:'.nest-data/workspaces/Helper'}];
+ const posts=[],patches=[];let runnersGate=Promise.resolve();
  const page=await browser.newPage({viewport:{width:1440,height:1000}});
  page.setDefaultTimeout(10000);
  const errors=[];page.on('pageerror',error=>errors.push(error.message));
@@ -32,7 +34,7 @@ try {
   const r=route.request(),path=new URL(r.url()).pathname;
   if(path==='/api/auth/me')return route.fulfill({json:{id:'admin',username:'admin'}});
   if(path==='/api/agent-models')return route.fulfill({json:{models:[{id:'kimi',name:'moonshotai/kimi-k3',provider:'openrouter',reference:'openrouter:moonshotai/kimi-k3'}],defaultModel:'openrouter:moonshotai/kimi-k3'}});
-  if(path==='/api/runners')return route.fulfill({json:runners});
+  if(path==='/api/runners'){await runnersGate;return route.fulfill({json:runners});}
   if(path==='/api/events/stats')return route.fulfill({json:{total:0,byStatus:{}}});
   if(path==='/api/event-types')return route.fulfill({json:{eventTypes:[]}});
   if(path==='/api/agents'&&r.method()==='POST'){
@@ -40,7 +42,7 @@ try {
    agents.push({...body,runtimeState:'STOPPED',desiredState:'STOPPED'});
    return route.fulfill({status:201,json:{ok:true}});
   }
-  if(path==='/api/agents/Tuned'&&r.method()==='PATCH'){patches.push(r.postDataJSON());return route.fulfill({json:{ok:true}});}
+  if(path.startsWith('/api/agents/')&&r.method()==='PATCH'){patches.push(r.postDataJSON());return route.fulfill({json:{ok:true}});}
   if(path==='/api/agents')return route.fulfill({json:agents});
   return route.fulfill({json:[]});
  });
@@ -73,6 +75,25 @@ try {
  await page.getByLabel('Secret file path').fill('.ssh/id_ed25519');await page.getByRole('button',{name:'Add file'}).click();
  assert.equal(await settings.getByRole('alert').count(),0);
  for(const label of ['Tool secret name','Secret file name','Secret file path'])assert.equal(await page.getByLabel(label).inputValue(),'',`${label} is cleared after adding`);
+ // Switching to another mode and back keeps the Claude Code settings.
+ await page.getByLabel('Mode',{exact:true}).selectOption('WRAPPED');
+ await page.getByText('Wrapped runtime config',{exact:true}).waitFor();
+ await page.getByLabel('Mode',{exact:true}).selectOption('CLAUDE_CODE');
+ await settings.getByRole('list',{name:'Tool secrets'}).getByText('GH_TOKEN',{exact:true}).waitFor();
+ await settings.getByRole('list',{name:'Secret files'}).getByText('~/.ssh/id_ed25519',{exact:true}).waitFor();
+ // Turn limits past one day overflow Node timers in the runner.
+ assert.equal(await page.getByLabel('Turn limit in minutes').getAttribute('max'),'1440');
+ await page.getByLabel('Turn limit in minutes').fill('1441');
+ await settings.getByRole('alert').filter({hasText:'Turn limit must be a whole number of minutes from 1 to 1440.'}).waitFor();
+ assert(await page.getByRole('button',{name:'Create Agent',exact:true}).isDisabled(),'an over-long turn limit blocks saving');
+ await page.getByLabel('Turn limit in minutes').fill('120');
+ // Any runner other than the agent container gets a warning.
+ const runnerWarning=page.getByText("Claude Code agents need the nest-agents runner; the Nest container's own runner refuses them.",{exact:true});
+ assert.equal(await runnerWarning.count(),0);
+ await page.getByLabel('Assigned runner').selectOption('runner-nest');
+ await runnerWarning.waitFor();
+ await page.getByLabel('Assigned runner').selectOption('runner-agents');
+ assert.equal(await runnerWarning.count(),0);
  await settings.getByRole('note').filter({hasText:'Add these secrets in Admin → Secrets with scope Private, agent Coder: CLAUDE_CODE_OAUTH_TOKEN, GH_TOKEN, SSH_PRIVATE_KEY'}).waitFor();
  assert.equal(await settings.getByText('No agent container runner found',{exact:false}).count(),0);
  await settings.getByText('Generated recipe',{exact:true}).click();
@@ -113,7 +134,34 @@ try {
  await page.getByLabel('Turn limit in minutes').fill('30');
  await page.getByRole('button',{name:'Save Details',exact:true}).click();
  await page.getByText('Agent "Tuned" was saved successfully.',{exact:true}).first().waitFor();
+ // Hand edits outside the form (a top-level key, an extra allowed key) survive the save.
  assert.deepEqual(patches.at(-1).wrappedConfig,{...tuned,runtime:{...tuned.runtime,timeoutMs:1800000}});
+ // A saved developer-machine recipe opens unchanged in the raw JSON editor.
+ await page.getByRole('button',{name:'Close',exact:true}).click();
+ await page.getByRole('cell',{name:'Laptop',exact:true}).click();
+ await page.getByText('Wrapped runtime config',{exact:true}).waitFor();
+ await page.waitForFunction(()=>document.querySelector('input[aria-label="Workspace directory"]')?.value==='/Users/dev/nest');
+ assert.equal(await page.getByLabel('Mode',{exact:true}).inputValue(),'WRAPPED');
+ assert.equal(await settings.count(),0);
+ assert.deepEqual(JSON.parse(await page.locator('textarea.font-mono').inputValue()),devRecipe);
+ // Converting an existing agent puts it on the agent container's runner.
+ await page.getByRole('button',{name:'Close',exact:true}).click();
+ await page.getByRole('cell',{name:'Helper',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('input[aria-label="Workspace directory"]')?.value==='.nest-data/workspaces/Helper');
+ assert.equal(await page.getByLabel('Assigned runner').inputValue(),'');
+ await page.getByLabel('Mode',{exact:true}).selectOption('CLAUDE_CODE');
+ await settings.waitFor();
+ assert.equal(await page.getByLabel('Assigned runner').inputValue(),'runner-agents','a converted agent moves to nest-agents');
+ await page.getByRole('button',{name:'Close',exact:true}).click();
+ // Runners that load after Claude Code was chosen still set the default.
+ let releaseRunners;runnersGate=new Promise(resolve=>{releaseRunners=resolve;});
+ await page.reload();await nav.getByRole('button',{name:'Agents',exact:true}).click();
+ await page.getByRole('button',{name:'New agent',exact:true}).click();
+ await page.getByLabel('Mode',{exact:true}).selectOption('CLAUDE_CODE');
+ await settings.waitFor();
+ assert.equal(await page.getByLabel('Assigned runner').inputValue(),'');
+ releaseRunners();runnersGate=Promise.resolve();
+ await page.waitForFunction(()=>document.querySelector('select[aria-label="Assigned runner"]')?.value==='runner-agents');
  // An edited workspace stops following the name; a plain WRAPPED agent keeps the raw JSON recipe path.
  await page.getByRole('button',{name:'Close',exact:true}).click();
  runners=[runner('runner-nest','nest',true)];
@@ -129,5 +177,5 @@ try {
  await page.getByText('Wrapped runtime config',{exact:true}).waitFor();
  assert.equal(await settings.count(),0);
  assert.deepEqual(errors,[]);
- console.log(`PASS: Claude Code option, hidden model fields, runner default, per-agent workspace, kept operator env, cleared inputs, secret validation, notice, recipe preview, exact POST body, reopen view, missing runner notice, raw WRAPPED path and mobile layout. Screenshots: ${screenshots}`);
+ console.log(`PASS: Claude Code option, hidden model fields, runner default (new, converted and late-loading), wrong-runner warning, mode switch keeps options, turn limit cap, dev recipe stays raw JSON, hand edits kept on save, per-agent workspace, kept operator env, cleared inputs, secret validation, notice, recipe preview, exact POST body, reopen view, missing runner notice, raw WRAPPED path and mobile layout. Screenshots: ${screenshots}`);
 } finally {await browser.close();await server.close();}

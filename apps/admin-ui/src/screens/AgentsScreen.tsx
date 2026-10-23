@@ -13,13 +13,17 @@ import { Button, Card, Input, Textarea } from "../components/ui";
 import { useEscapeKey } from "../hooks/useEscapeKey";
 import { formatTimestamp } from "../utils/formatTimestamp";
 import {
+  CLAUDE_CODE_RUNNER_NAME,
   DEFAULT_CLAUDE_CODE_OPTIONS,
-  buildClaudeCodeWrappedConfig,
+  MAX_TURN_MINUTES,
+  PROTECTED_SECRET_PREFIXES,
+  claudeCodeOptionsError,
   credentialSecretName,
   isValidSecretName,
   isValidSecretPath,
   SHARED_DEFAULT_WORKSPACE,
   defaultClaudeCodeWorkspace,
+  mergeClaudeCodeWrappedConfig,
   pickClaudeCodeRunner,
   readClaudeCodeOptions,
   requiredSecretNames,
@@ -45,6 +49,8 @@ type AgentForm = {
   wrappedConfig?: Record<string, unknown>;
   // Set when the WRAPPED agent is a Claude Code agent built from the form, not raw JSON.
   claudeCode?: ClaudeCodeOptions | null;
+  // The Claude Code options while another mode is chosen, so switching back restores them.
+  lastClaudeCode?: ClaudeCodeOptions | null;
 };
 
 const DEFAULT_WRAPPED_CONFIG = JSON.stringify(
@@ -80,7 +86,8 @@ const DEFAULT_AGENT_FORM: AgentForm = {
   enabledSkills: [],
   alwaysPreloadedSkills: [],
   wrappedConfigJson: DEFAULT_WRAPPED_CONFIG,
-  claudeCode: null
+  claudeCode: null,
+  lastClaudeCode: null
 };
 
 function parseOptionalPositiveIntInput(
@@ -127,23 +134,22 @@ function formatAgentModelLabel(agent: Agent): string {
 }
 
 const SECRET_NAME_HINT =
-  "Use capital letters, digits and underscores. Names starting with NEST_, ORGOPS_, ANTHROPIC_ or CLAUDE_ are reserved.";
+  `Use capital letters, digits and underscores. Names starting with ${PROTECTED_SECRET_PREFIXES.join(", ")} and system names such as PATH, HOME or NODE_OPTIONS are reserved.`;
 
-function readClaudeCodeValidationMessage(options: ClaudeCodeOptions | null | undefined) {
-  if (!options) return null;
-  return Number.isInteger(options.timeoutMinutes) && options.timeoutMinutes > 0
-    ? null
-    : "Turn limit must be a whole number of minutes.";
-}
+const readClaudeCodeValidationMessage = (options: ClaudeCodeOptions | null | undefined) =>
+  options ? claudeCodeOptionsError(options) : null;
 
 function ClaudeCodeFields({
   agentName,
   options,
+  storedConfig,
   hasAgentRunner,
   onChange
 }: {
   agentName: string;
   options: ClaudeCodeOptions;
+  // The saved recipe, whose hand edits outside the form are kept on save.
+  storedConfig: unknown;
   hasAgentRunner: boolean;
   onChange: (options: ClaudeCodeOptions) => void;
 }) {
@@ -151,9 +157,10 @@ function ClaudeCodeFields({
   const [fileDraft, setFileDraft] = useState({ name: "", path: "" });
   const [draftError, setDraftError] = useState<string | null>(null);
   const preview = useMemo(
-    () => JSON.stringify(buildClaudeCodeWrappedConfig(options), null, 2),
-    [options]
+    () => JSON.stringify(mergeClaudeCodeWrappedConfig(storedConfig, options), null, 2),
+    [storedConfig, options]
   );
+  const timeoutError = claudeCodeOptionsError(options);
   const addSecret = () => {
     const name = secretDraft.trim();
     if (!isValidSecretName(name)) return setDraftError(SECRET_NAME_HINT);
@@ -202,14 +209,21 @@ function ClaudeCodeFields({
           aria-label="Turn limit in minutes"
           type="number"
           min={1}
+          max={MAX_TURN_MINUTES}
           step={1}
           inputMode="numeric"
           value={Number.isNaN(options.timeoutMinutes) ? "" : String(options.timeoutMinutes)}
           onChange={(e) => onChange({ ...options, timeoutMinutes: e.target.value ? Number(e.target.value) : Number.NaN })}
         />
-        <p className="text-xs text-slate-500">
-          A turn that runs longer is stopped, together with the tools it started.
-        </p>
+        {timeoutError ? (
+          <p role="alert" className="text-xs text-rose-400">
+            {timeoutError}
+          </p>
+        ) : (
+          <p className="text-xs text-slate-500">
+            A turn that runs longer is stopped, together with the tools it started. At most {MAX_TURN_MINUTES} minutes (one day).
+          </p>
+        )}
       </div>
       <div className="space-y-2">
         <div>
@@ -484,6 +498,7 @@ export function AgentsScreen({
   const isWrappedMode = form.mode === "WRAPPED";
   const claudeCode = isWrappedMode ? form.claudeCode ?? null : null;
   const claudeCodeRunnerId = pickClaudeCodeRunner(runners);
+  const assignedRunner = runners.find((runner) => runner.id === form.assignedRunnerId);
   const workspaceSegments =
     workspaceData && workspaceData.path !== "."
       ? workspaceData.path.split("/").filter(Boolean)
@@ -536,9 +551,17 @@ export function AgentsScreen({
       alwaysPreloadedSkills: selectedAgent.alwaysPreloadedSkills ?? [],
       wrappedConfigJson: stringifyWrappedConfig(selectedAgent.wrappedConfig),
       claudeCode:
-        selectedAgent.mode === "WRAPPED" ? readClaudeCodeOptions(selectedAgent.wrappedConfig) : null
+        selectedAgent.mode === "WRAPPED" ? readClaudeCodeOptions(selectedAgent.wrappedConfig) : null,
+      lastClaudeCode: null
     });
   }, [isCreating, selectedAgent, isFormDirty]);
+
+  // Runners can arrive after Claude Code was chosen; place the agent on the agent container unless the operator picked a runner.
+  useEffect(() => {
+    if (!claudeCode || runnerChosen || form.assignedRunnerId || !claudeCodeRunnerId) return;
+    if (!isCreating && !isFormDirty) return;
+    setForm((prev) => ({ ...prev, assignedRunnerId: claudeCodeRunnerId }));
+  }, [claudeCode, runnerChosen, form.assignedRunnerId, claudeCodeRunnerId, isCreating, isFormDirty]);
 
   useEffect(() => {
     if (!focusAgentName) return;
@@ -547,6 +570,7 @@ export function AgentsScreen({
     setIsCreating(false);
     setActiveTab("details");
     setIsFormDirty(false);
+    setRunnerChosen(false);
     setSaveStatus(null);
     setPanelError(null);
     setSelectedEventId(null);
@@ -605,6 +629,7 @@ export function AgentsScreen({
     setIsCreating(false);
     setActiveTab("details");
     setIsFormDirty(false);
+    setRunnerChosen(false);
     setSaveStatus(null);
     setPanelError(null);
     setSelectedEventId(null);
@@ -815,12 +840,12 @@ export function AgentsScreen({
       const claudeCodeError = readClaudeCodeValidationMessage(claudeCode);
       if (claudeCodeError) throw new Error(claudeCodeError);
       const wrappedConfig = claudeCode
-        ? buildClaudeCodeWrappedConfig(claudeCode)
+        ? mergeClaudeCodeWrappedConfig(isCreating ? undefined : selectedAgent?.wrappedConfig, claudeCode)
         : isWrappedMode
           ? parseWrappedConfigJson(form.wrappedConfigJson)
           : {};
       // The engine stores wrappedConfig; the form-only Claude Code options never leave the browser.
-      const { claudeCode: _formOnly, ...fields } = form;
+      const { claudeCode: _formOnly, lastClaudeCode: _formDraft, ...fields } = form;
       const modelId = isWrappedMode ? "wrapped:none" : form.modelId.trim() || modelCatalog?.defaultModel || "";
       const memoryContextMode = isWrappedMode ? "OFF" : form.memoryContextMode;
       const emitAuditEvents = isWrappedMode ? true : form.emitAuditEvents;
@@ -1382,12 +1407,16 @@ export function AgentsScreen({
                                   ? ""
                                   : prev.modelId,
                             claudeCode: isClaudeCode
-                              ? prev.claudeCode ?? DEFAULT_CLAUDE_CODE_OPTIONS
+                              ? prev.claudeCode ??
+                                prev.lastClaudeCode ??
+                                (isCreating ? null : readClaudeCodeOptions(selectedAgent?.wrappedConfig)) ??
+                                DEFAULT_CLAUDE_CODE_OPTIONS
                               : null,
+                            lastClaudeCode: isClaudeCode ? null : prev.claudeCode ?? prev.lastClaudeCode,
                             // Claude Code belongs in the agent container, not on the Nest container's runner.
                             assignedRunnerId:
-                              isClaudeCode && isCreating && !runnerChosen
-                                ? claudeCodeRunnerId
+                              isClaudeCode && !runnerChosen
+                                ? claudeCodeRunnerId || prev.assignedRunnerId
                                 : prev.assignedRunnerId,
                             workspacePath:
                               isClaudeCode &&
@@ -1419,6 +1448,7 @@ export function AgentsScreen({
                       <ClaudeCodeFields
                         agentName={form.name}
                         options={claudeCode}
+                        storedConfig={isCreating ? undefined : selectedAgent?.wrappedConfig}
                         hasAgentRunner={Boolean(claudeCodeRunnerId)}
                         onChange={(options) => {
                           setIsFormDirty(true);
@@ -1545,6 +1575,11 @@ export function AgentsScreen({
                           </option>
                         ))}
                       </select>
+                      {claudeCode && claudeCodeRunnerId && assignedRunner?.displayName !== CLAUDE_CODE_RUNNER_NAME ? (
+                        <p role="status" className="rounded border border-amber-600 bg-slate-900 p-3 text-sm text-slate-200">
+                          Claude Code agents need the {CLAUDE_CODE_RUNNER_NAME} runner; the Nest container's own runner refuses them.
+                        </p>
+                      ) : null}
                     </div>
                     {!isWrappedMode ? (
                     <div className="space-y-1">
