@@ -18,6 +18,8 @@ import {
   credentialSecretName,
   isValidSecretName,
   isValidSecretPath,
+  SHARED_DEFAULT_WORKSPACE,
+  defaultClaudeCodeWorkspace,
   pickClaudeCodeRunner,
   readClaudeCodeOptions,
   requiredSecretNames,
@@ -413,6 +415,8 @@ export function AgentsScreen({
   const [form, setForm] = useState<AgentForm>(DEFAULT_AGENT_FORM);
   const [isFormDirty, setIsFormDirty] = useState(false);
   const [runnerChosen, setRunnerChosen] = useState(false);
+  // While false, a new Claude Code agent's workspace follows its name.
+  const [workspaceEdited, setWorkspaceEdited] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{
     kind: "success" | "error";
     message: string;
@@ -583,6 +587,7 @@ export function AgentsScreen({
     setForm(DEFAULT_AGENT_FORM);
     setIsFormDirty(false);
     setRunnerChosen(false);
+    setWorkspaceEdited(false);
     setSaveStatus(null);
     setPanelError(null);
     setSelectedEventId(null);
@@ -1293,7 +1298,15 @@ export function AgentsScreen({
                         onChange={(e) => {
                           setIsFormDirty(true);
                           setSaveStatus(null);
-                          setForm((prev) => ({ ...prev, name: e.target.value }));
+                          const name = e.target.value;
+                          setForm((prev) => ({
+                            ...prev,
+                            name,
+                            workspacePath:
+                              isCreating && prev.mode === "WRAPPED" && prev.claudeCode && !workspaceEdited
+                                ? defaultClaudeCodeWorkspace(name)
+                                : prev.workspacePath
+                          }));
                         }}
                         placeholder="Agent name"
                       />
@@ -1375,7 +1388,14 @@ export function AgentsScreen({
                             assignedRunnerId:
                               isClaudeCode && isCreating && !runnerChosen
                                 ? claudeCodeRunnerId
-                                : prev.assignedRunnerId
+                                : prev.assignedRunnerId,
+                            workspacePath:
+                              isClaudeCode &&
+                              isCreating &&
+                              !workspaceEdited &&
+                              [SHARED_DEFAULT_WORKSPACE, ""].includes(prev.workspacePath.trim())
+                                ? defaultClaudeCodeWorkspace(prev.name)
+                                : prev.workspacePath
                           }));
                         }}
                         className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
@@ -1566,8 +1586,10 @@ export function AgentsScreen({
                         onChange={(e) => {
                           setIsFormDirty(true);
                           setSaveStatus(null);
+                          setWorkspaceEdited(true);
                           setForm((prev) => ({ ...prev, workspacePath: e.target.value }));
                         }}
+                        aria-label="Workspace directory"
                         placeholder=".nest-data/workspaces/agent-name"
                       />
                     </div>
