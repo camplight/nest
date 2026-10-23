@@ -824,6 +824,29 @@ failure clears that text; earlier updates remain available in activity details.
 These bookkeeping events cannot wake other agents or create message notifications.
 This does not change channel queuing, cancellation, timeouts or runtime isolation.
 
+Wrapped bridges choose the progress phase through the shared adapter:
+NestSystem keeps `codex-progress`, and other runtimes use `wrapped-progress`.
+The chat renders both the same way; any other phase stays out of the chat.
+
+## Claude Code wrapped runtime
+
+`deploy/claude-code-bridge.mjs` runs Claude Code headlessly as a command recipe
+(`kind: "claude-code"`, per-channel sessions). Each turn resumes the Claude Code
+session mapped to the runner's session key, stored outside the workspace; a
+missing history starts a new session with a progress notice. Stream-json output
+is reduced to top-level assistant text: interim text becomes `wrapped-progress`
+and the `result` is the reply. Failures print one classified line, because the
+runner shows stderr in chat. The bridge passes only host basics and Claude Code
+credentials, never Nest's admin, master-key or runner credentials; an API key
+reaches Claude Code through a per-turn helper file rather than the environment.
+
+`NEST_CLAUDE_PERMISSIONS` selects `read-only` (`dontAsk`, no shell), `workspace`
+(`acceptEdits` plus a fail-closed OS sandbox that denies shell reads of the Nest
+checkout, its data folders and the account's HOME apart from toolchains, with
+opt-in network domains) or `full` (`bypassPermissions`, dedicated hosts only).
+The bridge runs Claude Code in its own process group, forwards SIGTERM and
+escalates to SIGKILL. See [Claude Code agents](CLAUDE_CODE_AGENT.md).
+
 An operator can permanently authorize one trusted wrapped manager using
 `NEST_MANAGEMENT_AGENT_NAME` and its pinned `NEST_MANAGEMENT_AGENT_ID`.
 `GET /api/agent-management/context`, `GET /api/agent-management/agents/:name`

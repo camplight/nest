@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
 
-/** Only the trusted wrapper calls this adapter; its credential never reaches Codex. */
-export function createWrappedProgressPublisher({env = process.env, fetchImpl = fetch, timeoutMs = 2500} = {}) {
+/** Progress phases the chat renders. `codex-progress` stays for installed NestSystem bridges. */
+export const WRAPPED_PROGRESS_PHASES = ['codex-progress', 'wrapped-progress'];
+
+/** Only the trusted wrapper calls this adapter; its credential never reaches the wrapped runtime. */
+export function createWrappedProgressPublisher({env = process.env, fetchImpl = fetch, timeoutMs = 2500, phase = 'codex-progress'} = {}) {
+  if (!WRAPPED_PROGRESS_PHASES.includes(phase)) throw Error('Unknown wrapped progress phase');
   const agentName = env.ORGOPS_WRAPPED_AGENT_NAME || env.NEST_WRAPPED_AGENT_NAME;
   const channelId = env.ORGOPS_WRAPPED_CHANNEL_ID || env.NEST_WRAPPED_CHANNEL_ID;
   const triggerEventId = env.ORGOPS_WRAPPED_TRIGGER_EVENT_ID || env.NEST_WRAPPED_TRIGGER_EVENT_ID;
@@ -17,8 +21,8 @@ export function createWrappedProgressPublisher({env = process.env, fetchImpl = f
     const body = JSON.stringify({
       type: 'agent.turn.phase', source: `agent:${agentName}`, channelId,
       parentEventId: triggerEventId, status: 'DELIVERED',
-      idempotencyKey: `nest:codex-progress:${identity}`,
-      payload: {phase: 'codex-progress', text: text.trim().slice(0, 1600), triggerEventId},
+      idempotencyKey: `nest:${phase}:${identity}`,
+      payload: {phase, text: text.trim().slice(0, 1600), triggerEventId},
     });
     // A committed response can be lost. Retrying the same identity cannot duplicate it.
     for (let attempt = 0; attempt < 2; attempt++) {

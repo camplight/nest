@@ -40,7 +40,7 @@ export function activeAgentProgress(events:EventRow[]):Set<string>{
     }else if(event.type==='agent.turn.started'){
       finished.delete(key);
       for(const [id,row] of active)if(row.source===`agent:${agent}`)active.delete(id);
-    }else if(event.type==='agent.turn.phase'&&p.phase==='codex-progress'&&typeof p.text==='string'&&p.text.trim()&&!finished.has(key)){
+    }else if(event.type==='agent.turn.phase'&&(p.phase==='codex-progress'||p.phase==='wrapped-progress')&&typeof p.text==='string'&&p.text.trim()&&!finished.has(key)){
       active.set(key,event);
     }
   }

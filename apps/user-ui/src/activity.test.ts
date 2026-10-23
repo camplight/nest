@@ -35,4 +35,8 @@ describe('compact wrapped progress',()=>{
  it('shows progress when the engine retries a previously failed trigger',()=>{
   expect([...activeAgentProgress([event('agent.turn.failed',{triggerEventId:'turn'}),event('agent.turn.started',{triggerEventId:'turn'}),progress('retry')])]).toEqual(['retry']);
  });
+ it('shows runtime-neutral wrapped progress alongside existing Codex progress',()=>{
+  const wrapped={...event('agent.turn.phase',{phase:'wrapped-progress',text:'Running the tests.',triggerEventId:'claude-turn'}),id:'claude',source:'agent:Claude'};
+  expect([...activeAgentProgress([progress('codex'),wrapped])]).toEqual(['codex','claude']);
+ });
 });

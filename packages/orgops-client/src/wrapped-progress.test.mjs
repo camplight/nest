@@ -4,6 +4,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createWrappedProgressPublisher} from './wrapped-progress.mjs';
 import {createCodexOutput} from '../../../deploy/nestsystem-bridge.mjs';
+import {createClaudeOutput} from '../../../deploy/claude-code-bridge.mjs';
 import {createApp} from '../../../vendor/orgops/apps/api/src/app';
 import {shouldHandleEventForAgent} from '../../../vendor/orgops/apps/agent-runner/src/event-routing';
 
@@ -60,4 +61,37 @@ it('does not retry authorization errors or send credentials through redirects',a
   await expect(publish({id:'update',text:'Working.'})).rejects.toThrow('Wrapped progress unavailable');expect(calls).toBe(1);
   expect(()=>createWrappedProgressPublisher({env:{...env,ORGOPS_WRAPPED_CHANNEL_ID:''}})).toThrow('context missing');
   expect(()=>createWrappedProgressPublisher({env:{...env,ORGOPS_API_URL:'https://user:secret@engine/'}})).toThrow('HTTP origin');
+});
+
+it('publishes Claude Code progress with the runtime-neutral phase without waking agents',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'nest-claude-progress-'));
+  const engine=createApp({dbPath:join(dir,'engine.sqlite'),projectRoot:dir,dataDir:dir,adminUser:'owner',adminPass:'password',runnerToken:env.ORGOPS_RUNNER_TOKEN});
+  try{
+    const headers={'content-type':'application/json','x-orgops-runner-token':env.ORGOPS_RUNNER_TOKEN};
+    const login=await engine.app.request('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'owner',password:'password'})});
+    const humanHeaders={'content-type':'application/json',cookie:login.headers.getSetCookie()[0].split(';')[0]};
+    const post=async(path,body)=>{const r=await engine.app.request(path,{method:'POST',headers:humanHeaders,body:JSON.stringify(body)});expect(r.ok,await r.clone().text()).toBe(true);return r.json();};
+    const channel=await post('/api/channels',{name:'Synthetic Claude room',visibility:'PRIVATE'});
+    const trigger=await post('/api/events',{type:'message.created',source:'human:owner',channelId:channel.id,payload:{text:'Run the tests'}});
+    const publish=createWrappedProgressPublisher({phase:'wrapped-progress',env:{...env,ORGOPS_WRAPPED_AGENT_NAME:'Claude',ORGOPS_WRAPPED_CHANNEL_ID:channel.id,ORGOPS_WRAPPED_TRIGGER_EVENT_ID:trigger.id},fetchImpl:(url,init)=>engine.app.fetch(new Request(url,init))});
+    const output=createClaudeOutput({publishProgress:publish});
+    const assistant=(id,block)=>({type:'assistant',session_id:'s',message:{id,content:[block]}});
+    for(const event of [
+      assistant('m1',{type:'text',text:'Running the tests.'}),
+      assistant('m1',{type:'tool_use',id:'t',name:'Bash',input:{command:'private command'}}),
+      {type:'user',message:{content:[{type:'tool_result',tool_use_id:'t',content:'private output'}]}},
+      assistant('m2',{type:'text',text:'Tests pass.'}),
+      {type:'result',subtype:'success',is_error:false,num_turns:2,result:'Tests pass.',session_id:'s'},
+    ])output.write(JSON.stringify(event)+'\n');
+    expect((await output.finish()).finalText).toBe('Tests pass.');
+    const events=await(await engine.app.request(`/api/events?channelId=${channel.id}&type=agent.turn.phase`,{headers})).json();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({source:'agent:Claude',parentEventId:trigger.id,payload:{phase:'wrapped-progress',text:'Running the tests.',triggerEventId:trigger.id}});
+    expect(events[0].idempotencyKey).toMatch(/^nest:wrapped-progress:/);
+    expect(shouldHandleEventForAgent({name:'Claude'},events[0])).toBe(false);
+  }finally{engine.db.close();rmSync(dir,{recursive:true,force:true});}
+});
+
+it('rejects unknown progress phases before any request',()=>{
+  expect(()=>createWrappedProgressPublisher({env,phase:'private-phase'})).toThrow('Unknown wrapped progress phase');
 });
