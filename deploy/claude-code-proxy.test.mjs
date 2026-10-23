@@ -84,10 +84,10 @@ describe('credential proxy', () => {
     expect(chunks.join('')).toContain('message_stop');
   });
 
-  it('rejects requests without the per-turn dummy and never forwards them', async () => {
+  it('rejects requests carrying another credential and never forwards them', async () => {
     const upstream = await fakeUpstream();
     const proxy = await proxyFor({kind:'oauth', value:'real-oauth'}, upstream.url);
-    for (const headers of [{}, {authorization:'Bearer something-else'}, {'x-api-key':'nest-proxy-guess'}, {authorization:proxy.dummy}]) {
+    for (const headers of [{authorization:'Bearer something-else'}, {'x-api-key':'nest-proxy-guess'}, {authorization:proxy.dummy}]) {
       const reply = await send(proxy.url, {headers});
       expect(reply.status).toBe(401);
       expect(JSON.parse(reply.body)).toMatchObject({type:'error', error:{type:'authentication_error'}});
@@ -111,6 +111,15 @@ describe('credential proxy', () => {
     const proxy = await proxyFor({kind:'oauth', value:'real-oauth'}, upstream.url);
     expect((await send(proxy.url, {method:'HEAD', path:'/api/hello', headers:{authorization:`Bearer ${proxy.dummy}`}})).status).toBe(204);
     expect(upstream.seen).toMatchObject([{method:'HEAD', url:'/api/hello'}]);
+  });
+
+  it('passes credential-free requests such as Claude Code\'s HEAD /api/hello through without adding the credential', async () => {
+    const upstream = await fakeUpstream((_req, res) => { res.writeHead(200); res.end(); });
+    const proxy = await proxyFor({kind:'oauth', value:'real-oauth'}, upstream.url);
+    expect((await send(proxy.url, {method:'HEAD', path:'/api/hello'})).status).toBe(200);
+    expect(upstream.seen).toMatchObject([{method:'HEAD', url:'/api/hello'}]);
+    expect(upstream.seen[0].headers).not.toHaveProperty('authorization');
+    expect(upstream.seen[0].headers).not.toHaveProperty('x-api-key');
   });
 
   it('keeps a path prefix of the upstream URL', async () => {

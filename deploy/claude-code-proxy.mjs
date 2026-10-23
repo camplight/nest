@@ -25,6 +25,7 @@ function forwardedHeaders(headers, credential) {
   // Headers named in Connection are hop-by-hop too.
   const named = new Set(String(headers.connection ?? "").split(",").map((name) => name.trim().toLowerCase()).filter(Boolean));
   const result = Object.fromEntries(Object.entries(headers).filter(([name]) => !DROPPED_REQUEST.has(name) && !named.has(name) && !name.startsWith("proxy-")));
+  if (!credential) return result;
   if (credential.kind === "oauth") result.authorization = `Bearer ${credential.value}`;
   else result["x-api-key"] = credential.value;
   return result;
@@ -46,14 +47,16 @@ export async function startCredentialProxy({ credential, upstream = "https://api
 
   const server = createServer((req, res) => {
     const bearer = /^Bearer (.+)$/i.exec(req.headers.authorization ?? "")?.[1];
-    if (!same(bearer, dummy) && !same(req.headers["x-api-key"], dummy)) {
+    // Claude Code's HEAD /api/hello check carries no credential; it is forwarded without one.
+    const anonymous = req.headers.authorization === undefined && req.headers["x-api-key"] === undefined;
+    if (!anonymous && !same(bearer, dummy) && !same(req.headers["x-api-key"], dummy)) {
       req.resume();
       sendError(res, 401, "authentication_error", "This proxy only serves the Claude Code turn that started it.");
       return;
     }
     const outgoing = send({
       protocol: target.protocol, hostname: target.hostname, port: target.port || undefined, agent,
-      method: req.method, path: `${prefix}${req.url}`, headers: forwardedHeaders(req.headers, credential),
+      method: req.method, path: `${prefix}${req.url}`, headers: forwardedHeaders(req.headers, anonymous ? undefined : credential),
     }, (upstreamRes) => {
       const headers = Object.fromEntries(Object.entries(upstreamRes.headers).filter(([name]) => !DROPPED_RESPONSE.has(name)));
       res.writeHead(upstreamRes.statusCode, upstreamRes.statusMessage, headers);
