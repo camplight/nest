@@ -50,6 +50,8 @@ In **Admin → Agents → Create agent**, choose **Claude Code** as the mode. Th
 fills in the wrapped recipe for the agent container:
 
 - runner `nest-agents` (preselected when it is online);
+- workspace `.nest-data/workspaces/<agent name>`, which follows the name until
+  you edit it;
 - `full` permission profile, running Claude Code as the `node` account with its
   home on the agent volume;
 - one Claude Code session per channel;
@@ -171,8 +173,9 @@ Then run the container check (section 9) against the new image.
 
 ## 7. Configuration
 
-The Admin form sets these in the recipe's `runtime.env`; edit them through the
-JSON view for other setups.
+The Admin form sets the account, home, permission and secret variables in the
+recipe's `runtime.env`. Other variables, such as `NEST_CLAUDE_MODEL`, can be added
+through the API or raw WRAPPED JSON; the form keeps them when it saves.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -180,7 +183,7 @@ JSON view for other setups.
 | `NEST_CLAUDE_UID`, `NEST_CLAUDE_GID` | none | Account Claude Code runs as; `1000` (`node`) in the image. |
 | `NEST_CLAUDE_HOME`, `NEST_CLAUDE_CONFIG_DIR` | account's `HOME` | Claude Code's home and config folder. |
 | `NEST_CLAUDE_SECRETS` | none | Comma-separated tool secret names passed as variables. |
-| `NEST_CLAUDE_SECRET_FILES` | none | Comma-separated `NAME:path` pairs, paths under Claude Code's home. |
+| `NEST_CLAUDE_SECRET_FILES` | none | Comma-separated `NAME:path` pairs, paths under `NEST_CLAUDE_HOME` (required with it). |
 | `NEST_CLAUDE_UPSTREAM_URL` | `https://api.anthropic.com` | Where the proxy sends Claude Code's API traffic. |
 | `NEST_CLAUDE_MODEL` | Claude Code's default | Passed as `--model`, for example `sonnet`. |
 | `NEST_CLAUDE_SETTING_SOURCES` | all | Passed as `--setting-sources`. |
