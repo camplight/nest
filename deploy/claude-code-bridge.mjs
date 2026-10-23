@@ -531,7 +531,7 @@ export async function runBridge({ env = process.env, spawnImpl = spawn, publishP
   let progressFailed = false;
   const onProgressError = () => { progressFailed = true; };
   // The runner's SIGTERM can arrive at any point of the turn, not only while Claude Code runs.
-  const stop = { requested: false, forward: undefined };
+  const stop = { requested: false, rejected: false, forward: undefined };
   const onSignal = (signal) => { stop.requested = true; stop.forward?.(signal); };
   for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, onSignal);
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
@@ -541,7 +541,9 @@ export async function runBridge({ env = process.env, spawnImpl = spawn, publishP
   if (config.secretFiles.length) writeSecretFiles({ env, mappings: config.secretFiles, home: config.home, uid: config.uid, gid: config.gid });
   const statePath = join(config.stateDir, `${createHash("sha256").update(config.sessionKey).digest("hex")}.json`);
   const credential = readCredential(env);
-  const proxy = credential ? await startCredentialProxy({ credential, upstream: env.NEST_CLAUDE_UPSTREAM_URL || undefined }) : undefined;
+  // A rejected credential would otherwise keep Claude Code retrying for minutes.
+  const onRejected = () => { if (!stop.rejected) { stop.rejected = true; stop.forward?.("SIGTERM"); } };
+  const proxy = credential ? await startCredentialProxy({ credential, upstream: env.NEST_CLAUDE_UPSTREAM_URL || undefined, onRejected }) : undefined;
   try {
     return await runTurn({ config, statePath, stdout, stderr, publishProgress, stop, progressFailed: () => progressFailed,
       deps: { env, publishProgress, onProgressError, spawnImpl, killGraceMs, proxyEnv: proxy?.childEnv, stop, reaper } });
@@ -554,7 +556,7 @@ export async function runBridge({ env = process.env, spawnImpl = spawn, publishP
 async function runTurn({ config, statePath, stdout, stderr, publishProgress, stop, progressFailed, deps }) {
   const state = readState(statePath);
   let run = await runClaude(config, state.sessionId, deps);
-  if (state.sessionId && !stop.requested && run.code !== 0 && !run.output.started && MISSING_SESSION.test(run.stderr)) {
+  if (state.sessionId && !stop.requested && !stop.rejected && run.code !== 0 && !run.output.started && MISSING_SESSION.test(run.stderr)) {
     // Claude Code's local history for this chat is gone; continue in a new session rather than failing forever.
     const missing = state.sessionId;
     // Forgotten even if the new session fails too, so later turns do not repeat the failed resume.
@@ -566,9 +568,13 @@ async function runTurn({ config, statePath, stdout, stderr, publishProgress, sto
   const { output } = run;
   // Keep any session Claude Code actually ran, so a failed turn's context is not lost;
   // a turn that never signed in has no context worth resuming.
-  if (output.started && output.sessionId && output.sessionId !== state.sessionId && !isSignInFailure(run)) {
+  if (output.started && output.sessionId && output.sessionId !== state.sessionId && !isSignInFailure(run) && !stop.rejected) {
     writeFileSync(`${statePath}.tmp`, JSON.stringify({ sessionId: output.sessionId }), { mode: 0o600 });
     renameSync(`${statePath}.tmp`, statePath);
+  }
+  if (stop.rejected) {
+    stderr(describeFailure({ output: { errorStatus: 401 } }));
+    return 1;
   }
   if (run.code !== 0 || output.failure || !output.finalText.trim() || run.stopped || stop.requested) {
     stderr(describeFailure({ ...run, stopped: run.stopped || stop.requested, bin: config.bin }));

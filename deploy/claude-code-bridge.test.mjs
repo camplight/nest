@@ -466,7 +466,8 @@ describe('bridge turns against a scripted Claude Code process', () => {
     const started = Date.now();
     const failed = await t.turn({CLAUDE_CODE_OAUTH_TOKEN:'sk-ant-oat01-fake-revoked', NEST_CLAUDE_UPSTREAM_URL:upstream.url});
     expect(Date.now() - started).toBeLessThan(5000);
-    expect(t.calls()[0].upstreamStatus).toBe(401);
+    // The upstream saw the real credential once; the rejection then ended the turn.
+    expect(upstream.seen.map(headers => headers.authorization)).toEqual(['Bearer sk-ant-oat01-fake-revoked']);
     expect(failed).toMatchObject({code:1, out:[], err:[expect.stringContaining('not signed in')]});
     expect(t.state()).toEqual([]);
   });
@@ -554,6 +555,30 @@ describe('processes a turn leaves behind', () => {
       // Without /proc (macOS) the table comes from ps and includes this process.
       expect(readProcessTable(join(proc, 'missing')).find(row => row.pid === process.pid)).toMatchObject({ppid:process.ppid});
     } finally { rmSync(proc, {recursive:true, force:true}); }
+  });
+});
+
+describe('a rejected credential', () => {
+  it('ends the turn at once with the sign-in line instead of waiting for Claude Code\'s retries', async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'nest-claude-rejected-')));
+    const upstream = createServer((req, res) => { req.resume(); res.writeHead(401, {'content-type':'application/json'}); res.end('{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}'); });
+    upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');
+    try {
+      // Sends one message request through the proxy, then keeps "retrying" until stopped.
+      writeFileSync(join(dir, 'claude.mjs'), `await fetch(process.env.ANTHROPIC_BASE_URL + '/v1/messages?beta=true', {method:'POST', headers:{'x-api-key':process.env.ANTHROPIC_API_KEY}}).catch(() => {});
+        setInterval(() => {}, 1000);`);
+      const err = [], started = Date.now();
+      const code = await runBridge({
+        env:{PATH:process.env.PATH, HOME:dir, ORGOPS_WRAPPED_SESSION_ID:'k', ORGOPS_WRAPPED_MESSAGE:'hi', ORGOPS_WRAPPED_WORKSPACE_PATH:join(dir, 'w'),
+          NEST_CLAUDE_STATE_DIR:join(dir, 'state'), ANTHROPIC_API_KEY:'sk-ant-revoked', NEST_CLAUDE_UPSTREAM_URL:`http://127.0.0.1:${upstream.address().port}`},
+        spawnImpl:(_bin, _args, options) => spawn(process.execPath, [join(dir, 'claude.mjs')], options),
+        nestRoot:'/nonexistent/nest', killGraceMs:200, publishProgress:async () => {}, stdout:() => {}, stderr:v => err.push(v),
+      });
+      expect(code).toBe(1);
+      expect(err).toEqual([expect.stringContaining('not signed in')]);
+      expect(Date.now() - started).toBeLessThan(5000);
+      expect(readdirSync(join(dir, 'state'))).toEqual([]);
+    } finally { upstream.close(); rmSync(dir, {recursive:true, force:true}); }
   });
 });
 

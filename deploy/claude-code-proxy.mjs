@@ -39,7 +39,7 @@ const sendError = (res, status, type, message) => {
 };
 
 /** Start a proxy on 127.0.0.1 for one turn; `close()` stops it and drops open connections. */
-export async function startCredentialProxy({ credential, upstream = "https://api.anthropic.com" }) {
+export async function startCredentialProxy({ credential, upstream = "https://api.anthropic.com", onRejected = () => {} }) {
   const target = new URL(upstream);
   const secure = target.protocol === "https:";
   const send = secure ? httpsRequest : httpRequest;
@@ -61,10 +61,13 @@ export async function startCredentialProxy({ credential, upstream = "https://api
       sendError(res, 401, "authentication_error", "This proxy only serves the Claude Code turn that started it.");
       return;
     }
+    const credentialed = !anonymous && MESSAGE_PATHS.test(`${req.method} ${req.url}`);
     const outgoing = send({
       protocol: target.protocol, hostname: target.hostname, port: target.port || undefined, agent,
-      method: req.method, path: `${prefix}${req.url}`, headers: forwardedHeaders(req.headers, anonymous || !MESSAGE_PATHS.test(`${req.method} ${req.url}`) ? undefined : credential),
+      method: req.method, path: `${prefix}${req.url}`, headers: forwardedHeaders(req.headers, credentialed ? credential : undefined),
     }, (upstreamRes) => {
+      // Claude Code retries a rejected API key for minutes; the bridge ends the turn at once instead.
+      if (credentialed && upstreamRes.statusCode === 401) onRejected();
       const headers = Object.fromEntries(Object.entries(upstreamRes.headers).filter(([name]) => !DROPPED_RESPONSE.has(name)));
       res.writeHead(upstreamRes.statusCode, upstreamRes.statusMessage, headers);
       // Streamed as it arrives: Claude Code reads server-sent events.

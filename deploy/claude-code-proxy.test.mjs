@@ -1,4 +1,4 @@
-import {it, expect, describe, afterEach} from 'vitest';
+import {it, expect, describe, afterEach, vi} from 'vitest';
 import {createServer, request} from 'node:http';
 import {once} from 'node:events';
 import {readCredential, startCredentialProxy} from './claude-code-proxy.mjs';
@@ -18,8 +18,8 @@ async function fakeUpstream(handler = (_req, res) => { res.writeHead(200, {'cont
   return {url:`http://127.0.0.1:${server.address().port}`, seen};
 }
 
-async function proxyFor(credential, upstream) {
-  const proxy = await startCredentialProxy({credential, upstream});
+async function proxyFor(credential, upstream, options = {}) {
+  const proxy = await startCredentialProxy({credential, upstream, ...options});
   cleanup.push(() => proxy.close());
   return proxy;
 }
@@ -100,11 +100,16 @@ describe('credential proxy', () => {
 
   it('surfaces an upstream 401 directly and quickly', async () => {
     const upstream = await fakeUpstream((_req, res) => { res.writeHead(401, {'content-type':'application/json'}); res.end('{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}'); });
-    const proxy = await proxyFor({kind:'apiKey', value:'sk-ant-revoked'}, upstream.url);
+    const rejected = vi.fn();
+    const proxy = await proxyFor({kind:'apiKey', value:'sk-ant-revoked'}, upstream.url, {onRejected:rejected});
     const started = Date.now();
     const reply = await send(proxy.url, {headers:{'x-api-key':proxy.dummy}});
     expect(Date.now() - started).toBeLessThan(1000);
     expect(reply.status).toBe(401);
+    expect(rejected).toHaveBeenCalledOnce();
+    // A credential-free request the upstream refuses says nothing about the credential.
+    await send(proxy.url, {method:'HEAD', path:'/api/hello'});
+    expect(rejected).toHaveBeenCalledOnce();
     expect(JSON.parse(reply.body).error.type).toBe('authentication_error');
   });
 
