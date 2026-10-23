@@ -209,3 +209,13 @@ describe("Claude Code agent recipe", () => {
     expect(pickClaudeCodeRunner([])).toBe("");
   });
 });
+
+describe("secret names shared with the bridge", () => {
+  it("refuses exactly what deploy/claude-code-bridge.mjs refuses", async () => {
+    // @ts-expect-error The bridge is plain ESM without type declarations.
+    const { isProtectedName } = await import("../../../deploy/claude-code-bridge.mjs");
+    const names = [...PROTECTED_SECRET_NAMES, ...PROTECTED_SECRET_PREFIXES.map((prefix) => `${prefix}X`),
+      "GH_TOKEN", "SSH_PRIVATE_KEY", "AWS_SECRET_ACCESS_KEY", "ENVIRONMENT", "PATHS", "NODEJS"];
+    for (const name of names) expect([name, isValidSecretName(name)]).toEqual([name, !isProtectedName(name)]);
+  });
+});
