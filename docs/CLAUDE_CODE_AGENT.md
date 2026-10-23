@@ -48,7 +48,7 @@ Check that **Admin → Runners** lists `nest-agents` as online.
 
 ## 2. Create the agent
 
-In **Admin → Agents → Create agent**, choose **Claude Code** as the mode. The form
+In **Admin → Agents → New agent**, choose **Claude Code** as the mode. The form
 fills in the wrapped recipe for the agent container:
 
 - runner `nest-agents` (preselected when it is online);
@@ -85,19 +85,24 @@ The form lists the names it expects.
 **Claude credential.** Claude Code never receives the real token or key. Each
 turn, the bridge starts a proxy on `127.0.0.1` and gives Claude Code its address
 and a random dummy credential. The proxy replaces the dummy with the real
-credential on its way to `api.anthropic.com` and stops when the turn ends. A
+credential on its way to `api.anthropic.com` and stops when the turn ends. Only
+message requests get the real credential; other requests go out without it. A
 rejected credential fails the turn at once with a sign-in message.
 
 **Tool secrets as variables.** List names such as `GH_TOKEN` in the form. They
 are passed to Claude Code exactly, and Claude Code passes them on to the commands
 it runs, so `gh` and `git` over HTTPS can use them. Names starting with `NEST_`,
-`ORGOPS_`, `ANTHROPIC_` or `CLAUDE_` are never forwarded.
+`ORGOPS_`, `ANTHROPIC_`, `CLAUDE_`, `NODE_`, `LD_` or `DYLD_`, the host basics
+(`PATH`, `HOME`, locale, proxy settings), `BASH_ENV` and `ENV` are refused: the
+runner also passes secrets to the bridge, which runs as root.
 
 **Tool secrets as files.** Map a secret to a path under Claude Code's home, for
 example `SSH_PRIVATE_KEY` to `.ssh/id_ed25519` and `SSH_KNOWN_HOSTS` to
 `.ssh/known_hosts`. Before every turn the bridge writes each file with mode 600 in
 folders with mode 700, owned by the account Claude Code runs as. Changing a secret
-takes effect on the next turn; deleting it removes the file.
+takes effect on the next turn; deleting the secret removes the file. Removing
+only the mapping leaves the file in place on the `nest-agents-home` volume; delete
+it there, or delete the secret first, to revoke it.
 
 Typical GitHub and SSH setup:
 
@@ -120,8 +125,9 @@ the boundary.
 
 It can reach:
 
-- its workspace, its Claude Code home and history, and the tool secrets listed
-  for it;
+- its workspace (it works in the workspace's `work/` folder; the workspace itself
+  stays owned by root, because the runner writes chat attachments there as root),
+  its Claude Code home and history, and the tool secrets listed for it;
 - the network;
 - the Nest API only through the runner's normal paths.
 
@@ -168,7 +174,7 @@ To upgrade, change the pin, rebuild the image and restart both services:
 
 ```sh
 docker build --build-arg CLAUDE_CODE_VERSION=<version> -t <image> .
-docker compose -f compose.yaml -f compose.claude-agents.yaml up -d
+NEST_IMAGE=<image> docker compose -f compose.yaml -f compose.claude-agents.yaml up -d
 ```
 
 Then run the container check (section 9) against the new image.
@@ -183,7 +189,7 @@ through the API or raw WRAPPED JSON; the form keeps them when it saves.
 | --- | --- | --- |
 | `NEST_CLAUDE_PERMISSIONS` | `workspace` | `full` (agent container) or `workspace` (developer machine). |
 | `NEST_CLAUDE_UID`, `NEST_CLAUDE_GID` | none | Account Claude Code runs as; `1000` (`node`) in the image. |
-| `NEST_CLAUDE_HOME`, `NEST_CLAUDE_CONFIG_DIR` | account's `HOME` | Claude Code's home and config folder. |
+| `NEST_CLAUDE_HOME`, `NEST_CLAUDE_CONFIG_DIR` | account's `HOME` | Claude Code's home and config folder (`full` only). |
 | `NEST_CLAUDE_SECRETS` | none | Comma-separated tool secret names passed as variables. |
 | `NEST_CLAUDE_SECRET_FILES` | none | Comma-separated `NAME:path` pairs, paths under `NEST_CLAUDE_HOME` (required with it). |
 | `NEST_CLAUDE_UPSTREAM_URL` | `https://api.anthropic.com` | Where the proxy sends Claude Code's API traffic. |
@@ -239,9 +245,20 @@ workspace and every shell command in Claude Code's sandbox, which fails closed:
 - built-in tools are limited to Bash, Read, Edit, Write, Glob, Grep, NotebookEdit,
   Skill and Agent, and MCP servers are off.
 
-The bridge refuses a workspace that contains `HOME`, the Nest checkout or the
-session folder, or that lies inside the session folder, the engine project root
-or the product database folder.
+The bridge refuses a workspace that contains `HOME`, the Nest checkout, the
+engine project root or the session folder, or that lies inside the session
+folder, the engine project root or the product database folder. Secret files and
+`NEST_CLAUDE_HOME` belong to the `full` profile.
+
+In the agent container, Claude Code runs under `tini` as a subreaper, and the
+bridge follows every process a turn starts through `/proc`, so background tools
+are stopped with the turn. On macOS the bridge looks for them with `ps` every
+half second; a background tool whose shell exits within that time can outlive
+the turn.
+
+With a credential secret, the sandbox also keeps shell commands from reading the
+bridge's environment: on macOS, verified with Claude Code 2.1.309, `ps`, `sysctl`
+and the process list are not permitted inside the sandbox.
 
 ## 9. Verification
 

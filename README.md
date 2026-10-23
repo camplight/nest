@@ -126,7 +126,7 @@ Three execution modes are available through OrgOps:
 | `WRAPPED` | Delegates each turn to an external runtime through a configured harness. That runtime owns its prompting, memory, tools, and filesystem policy. |
 
 For wrapped agents, configure the external runtime's credentials and boundaries
-on the runner host. Native skill and memory settings are not automatically
+on the runner host, or, for Claude Code agents, as agent secrets in Admin. Native skill and memory settings are not automatically
 injected into that runtime. See [wrapped agent invites](docs/WRAPPED_AGENT_INVITES.md)
 and [Claude Code agents](docs/CLAUDE_CODE_AGENT.md) for running Claude Code this way.
 

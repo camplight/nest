@@ -855,8 +855,12 @@ which is what ends a runaway turn because the engine cannot cancel one.
 On developer machines, `workspace` runs file tools with `acceptEdits` and shell
 commands in a fail-closed OS sandbox that denies reads of the Nest checkout, its
 data folders and the account's HOME apart from toolchains, with opt-in network
-domains. The bridge runs Claude Code in its own process group, forwards SIGTERM
-and escalates to SIGKILL. See [Claude Code agents](CLAUDE_CODE_AGENT.md).
+domains. The bridge runs Claude Code in its own process group (under `tini` as a
+subreaper on Linux), follows the processes a turn starts through `/proc` or `ps`,
+forwards SIGTERM to all of them and escalates to SIGKILL. In the container the
+workspace stays owned by root and Claude Code works in its `work/` folder,
+because the runner writes chat attachments there as root. See
+[Claude Code agents](CLAUDE_CODE_AGENT.md).
 
 An operator can permanently authorize one trusted wrapped manager using
 `NEST_MANAGEMENT_AGENT_NAME` and its pinned `NEST_MANAGEMENT_AGENT_ID`.
