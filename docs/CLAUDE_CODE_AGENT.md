@@ -36,9 +36,11 @@ The agent container:
 - registers with the Nest container over HTTP as the runner `nest-agents`, using
   `NEST_RUNNER_TOKEN`. It does not load Nest's `.env`, so Nest's admin password
   and master key never enter it;
-- keeps workspaces, Claude Code's home, history and session state on its own
-  volume (`nest-agents-data`, mounted at `/app/.nest-data`). Nest's data, product
-  and files volumes are not mounted;
+- keeps workspaces and session state on its own volume (`nest-agents-data`, at
+  `/app/.nest-data`) and Claude Code's home, config, history and secret files on
+  another (`nest-agents-home`, at `/home/node`). `/home/node` is the `node`
+  account's home in `/etc/passwd`, which `ssh` uses regardless of `HOME`. Nest's
+  data, product and files volumes are not mounted;
 - has the image's health check disabled (it runs no API) and a memory limit of
   `NEST_AGENTS_MEMORY`, 2 GB by default, so a runaway turn cannot starve Nest.
 
@@ -53,7 +55,7 @@ fills in the wrapped recipe for the agent container:
 - workspace `.nest-data/workspaces/<agent name>`, which follows the name until
   you edit it;
 - `full` permission profile, running Claude Code as the `node` account with its
-  home on the agent volume;
+  home at `/home/node` on the agent home volume;
 - one Claude Code session per channel;
 - a turn limit, 2 hours by default. The engine cannot cancel a running wrapped
   turn, so the limit is what ends a runaway turn; the bridge then stops Claude

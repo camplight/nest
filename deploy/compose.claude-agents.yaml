@@ -18,6 +18,9 @@ services:
       NEST_RUNNER_NAME: nest-agents
     volumes:
       - nest-agents-data:/app/.nest-data
+      # Claude Code's home: its config, history, and secret files such as ~/.ssh. It is the
+      # node account's passwd home, which ssh uses regardless of HOME.
+      - nest-agents-home:/home/node
     # The image's health check probes the API, which this container does not run.
     healthcheck:
       disable: true
@@ -25,3 +28,4 @@ services:
     mem_limit: ${NEST_AGENTS_MEMORY:-2g}
 volumes:
   nest-agents-data:
+  nest-agents-home:

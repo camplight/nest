@@ -20,7 +20,8 @@ export const DEFAULT_CLAUDE_CODE_OPTIONS: ClaudeCodeOptions = {
 // Set by deploy/compose.claude-agents.yaml for the runner-only agent container.
 export const CLAUDE_CODE_RUNNER_NAME = "nest-agents";
 
-const CLAUDE_HOME = "/app/.nest-data/claude/home";
+// The node account's passwd home, so ssh finds ~/.ssh; compose.claude-agents.yaml puts it on a volume.
+const CLAUDE_HOME = "/home/node";
 export const SHARED_DEFAULT_WORKSPACE = ".nest-data/workspaces/default";
 const MANAGED_ENV_KEYS = new Set([
   "NEST_CLAUDE_PERMISSIONS",

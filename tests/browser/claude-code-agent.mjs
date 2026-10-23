@@ -7,7 +7,7 @@ import { tsImport } from 'tsx/esm/api';
 
 // Admin "Claude Code" agent creation against a mocked admin API. The recipe
 // below is the contract the container check (tests/container) inlines.
-const recipe={kind:'claude-code',harness:'command',session:{scope:'per-channel'},setup:{checkCommand:'claude --version'},runtime:{command:'exec node',args:['/app/deploy/claude-code-bridge.mjs'],parse:'text',timeoutMs:7200000,env:{NEST_CLAUDE_PERMISSIONS:'full',NEST_CLAUDE_UID:'1000',NEST_CLAUDE_GID:'1000',NEST_CLAUDE_HOME:'/app/.nest-data/claude/home',NEST_CLAUDE_CONFIG_DIR:'/app/.nest-data/claude/home/.claude',NEST_CLAUDE_SECRETS:'GH_TOKEN',NEST_CLAUDE_SECRET_FILES:'SSH_PRIVATE_KEY:.ssh/id_ed25519'}},secrets:{allowedKeys:['CLAUDE_CODE_OAUTH_TOKEN','GH_TOKEN','SSH_PRIVATE_KEY']}};
+const recipe={kind:'claude-code',harness:'command',session:{scope:'per-channel'},setup:{checkCommand:'claude --version'},runtime:{command:'exec node',args:['/app/deploy/claude-code-bridge.mjs'],parse:'text',timeoutMs:7200000,env:{NEST_CLAUDE_PERMISSIONS:'full',NEST_CLAUDE_UID:'1000',NEST_CLAUDE_GID:'1000',NEST_CLAUDE_HOME:'/home/node',NEST_CLAUDE_CONFIG_DIR:'/home/node/.claude',NEST_CLAUDE_SECRETS:'GH_TOKEN',NEST_CLAUDE_SECRET_FILES:'SSH_PRIVATE_KEY:.ssh/id_ed25519'}},secrets:{allowedKeys:['CLAUDE_CODE_OAUTH_TOKEN','GH_TOKEN','SSH_PRIVATE_KEY']}};
 const screenshots=join(process.cwd(),'docs/images/validation/claude-code-agent');mkdirSync(screenshots,{recursive:true});
 const req=createRequire(join(process.cwd(),'apps/admin-ui/package.json'));
 const {default:tailwindConfig}=await tsImport('../../apps/admin-ui/tailwind.config.ts',import.meta.url);

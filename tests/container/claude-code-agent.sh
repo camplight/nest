@@ -75,7 +75,7 @@ recipe() { # recipe TIMEOUT_MS
     setup: {checkCommand: "claude --version"},
     runtime: {command: "exec node", args: ["/app/deploy/claude-code-bridge.mjs"], parse: "text", timeoutMs: $timeout,
       env: {NEST_CLAUDE_PERMISSIONS: "full", NEST_CLAUDE_UID: "1000", NEST_CLAUDE_GID: "1000",
-        NEST_CLAUDE_HOME: "/app/.nest-data/claude/home", NEST_CLAUDE_CONFIG_DIR: "/app/.nest-data/claude/home/.claude",
+        NEST_CLAUDE_HOME: "/home/node", NEST_CLAUDE_CONFIG_DIR: "/home/node/.claude",
         NEST_CLAUDE_UPSTREAM_URL: $upstream, ANTHROPIC_BASE_URL: $upstream}},
     secrets: {allowedKeys: ["CLAUDE_CODE_OAUTH_TOKEN"]}}'
 }

@@ -37,8 +37,8 @@ describe("Claude Code agent recipe", () => {
           NEST_CLAUDE_PERMISSIONS: "full",
           NEST_CLAUDE_UID: "1000",
           NEST_CLAUDE_GID: "1000",
-          NEST_CLAUDE_HOME: "/app/.nest-data/claude/home",
-          NEST_CLAUDE_CONFIG_DIR: "/app/.nest-data/claude/home/.claude",
+          NEST_CLAUDE_HOME: "/home/node",
+          NEST_CLAUDE_CONFIG_DIR: "/home/node/.claude",
           NEST_CLAUDE_SECRETS: "GH_TOKEN",
           NEST_CLAUDE_SECRET_FILES: "SSH_PRIVATE_KEY:.ssh/id_ed25519"
         }
