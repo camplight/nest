@@ -14,12 +14,14 @@ services:
       NEST_API_URL: http://nest:8787
       NEST_RUNNER_TOKEN: ${NEST_RUNNER_TOKEN:?set NEST_RUNNER_TOKEN for the agent runner}
       NEST_RUNNER_ID_FILE: /app/.nest-data/runner-id
+      # Admin's Claude Code option assigns new agents to the runner with this name.
+      NEST_RUNNER_NAME: nest-agents
     volumes:
       - nest-agents-data:/app/.nest-data
     # The image's health check probes the API, which this container does not run.
     healthcheck:
       disable: true
     # Agent turns are separate Node processes; keep them from starving the Nest container.
-    mem_limit: ${NEST_AGENTS_MEMORY:-1g}
+    mem_limit: ${NEST_AGENTS_MEMORY:-2g}
 volumes:
   nest-agents-data:
