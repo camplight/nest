@@ -1,12 +1,13 @@
 // Wrapped runtime bridge for Claude Code. See docs/CLAUDE_CODE_AGENT.md.
 // Each Nest session key (agent + channel) resumes its own Claude Code session.
 import { spawn } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, existsSync, readFileSync, readdirSync, writeFileSync, renameSync, rmSync, statSync, chownSync } from "node:fs";
-import { dirname, join, relative, resolve, isAbsolute } from "node:path";
+import { createHash } from "node:crypto";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, rmSync, lstatSync, lchownSync, realpathSync, openSync, fchmodSync, writeSync, closeSync, constants } from "node:fs";
+import { basename, dirname, join, normalize, relative, resolve, isAbsolute, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readCredential, startCredentialProxy } from "./claude-code-proxy.mjs";
 
-export const PERMISSION_PROFILES = ["read-only", "workspace", "full"];
+export const PERMISSION_PROFILES = ["workspace", "full"];
 
 const INSTRUCTIONS = "You are reached through a Nest chat channel. Reply directly to the people in it; your final response is posted to the same channel, and short text you write before using tools may be shown as progress. The input may be a JSON batch of Nest events: respond to its human messages. Never reveal credentials.";
 
@@ -16,13 +17,19 @@ const INSTRUCTIONS = "You are reached through a Nest chat channel. Reply directl
  */
 const PASSTHROUGH_ENV = [
   "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "TMPDIR", "TERM",
-  "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "NODE_EXTRA_CA_CERTS", "ANTHROPIC_BASE_URL",
-  // Agent secrets. Outside `full`, the key reaches Claude Code through a helper file instead.
-  "ANTHROPIC_API_KEY",
+  "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "NODE_EXTRA_CA_CERTS",
 ];
 
-/** Credentials Claude Code would pass on to tool subprocesses; only `full` forwards them, scrubbed. */
-const SCRUBBED_ENV = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"];
+/** Names an agent's tool secrets can never take: Nest, engine, Anthropic and bridge-controlled variables. */
+export function isProtectedName(name) {
+  const upper = String(name).toUpperCase();
+  return /^(NEST_|ORGOPS_|ANTHROPIC_|CLAUDE_)/.test(upper) || PASSTHROUGH_ENV.includes(upper) || upper === "DISABLE_AUTOUPDATER";
+}
+
+/** The listed tool secrets that are set, minus protected names. */
+export function forwardedSecrets(env, names) {
+  return Object.fromEntries(names.filter((name) => !isProtectedName(name) && env[name]).map((name) => [name, env[name]]));
+}
 
 /** The Nest checkout holding .env, both databases and uploads; the bridge lives in its deploy/ folder. */
 const NEST_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -39,16 +46,40 @@ const HOME_READABLE = [
   ".yarn", ".nix-profile", "go/bin", "Library/pnpm",
 ];
 
-// Built-in tools per profile, so tools added by future Claude Code releases (scheduling,
+// Built-in tools for `workspace`, so tools added by future Claude Code releases (scheduling,
 // remote triggers, notifications) stay off until reviewed. `full` keeps the default set.
-const READ_ONLY_TOOLS = "Read,Grep,Glob";
 const WORKSPACE_TOOLS = "Bash,Read,Edit,Write,Glob,Grep,NotebookEdit,Skill,Agent";
 
-// The runner sends one SIGTERM to its shell and never escalates. Remove the process-group
-// handling here once camplight/orgops#70 lands.
+// The runner sends one SIGTERM to its shell and never escalates.
 const KILL_GRACE_MS = 10_000;
 
 const list = (value) => (value ? value.split(",").map((item) => item.trim()).filter(Boolean) : []);
+
+const inside = (parent, child) => { const path = relative(parent, child); return !path || (!path.startsWith("..") && !isAbsolute(path)); };
+
+/** The real location of a path whose tail may not exist yet; the runner reaches workspaces through a link. */
+function realPath(path) {
+  const rest = [];
+  for (let current = resolve(path); ; current = dirname(current)) {
+    try { return join(realpathSync(current), ...rest); } catch {}
+    if (dirname(current) === current) return resolve(path);
+    rest.unshift(basename(current));
+  }
+}
+
+/** `NAME:relative/path` entries; a bad one stops the turn before anything is written. */
+function readSecretFiles(value, home) {
+  const mappings = list(value).map((item) => {
+    const at = item.indexOf(":");
+    const name = at > 0 ? item.slice(0, at).trim() : "", path = at > 0 ? item.slice(at + 1).trim() : "";
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || isProtectedName(name) || !path || isAbsolute(path) || path.split(/[\\/]/).includes("..") || normalize(path) === ".") {
+      throw Error(`NEST_CLAUDE_SECRET_FILES entries must be NAME:relative/path inside Claude's home, not a protected name (${JSON.stringify(item)})`);
+    }
+    return { name, path: normalize(path) };
+  });
+  if (mappings.length && !home) throw Error("NEST_CLAUDE_SECRET_FILES needs NEST_CLAUDE_HOME, so secret files never land in the runner account's own home");
+  return mappings;
+}
 
 /** Read the bridge configuration from the recipe's runtime.env and the runner's turn variables. */
 export function readBridgeConfig(env = process.env, { nestRoot = NEST_ROOT } = {}) {
@@ -73,15 +104,21 @@ export function readBridgeConfig(env = process.env, { nestRoot = NEST_ROOT } = {
   if (permissions === "full" && uid === undefined && process.getuid?.() === 0) {
     throw Error("NEST_CLAUDE_PERMISSIONS=full needs a non-root account: set NEST_CLAUDE_UID (and NEST_CLAUDE_HOME)");
   }
-  // The key helper is a shell command quoting this path.
-  if (stateDir.includes("'")) throw Error("NEST_CLAUDE_STATE_DIR must not contain a quote character");
-  if (workspace && permissions !== "full") {
-    const inside = (parent, child) => { const path = relative(parent, child); return !path || (!path.startsWith("..") && !isAbsolute(path)); };
+  const productDb = resolve(nestRoot, env.NEST_PRODUCT_DB_PATH || ".nest-product/nest.sqlite");
+  // Without a sandbox, a runner that can see Nest's data hands it to every shell command.
+  if (permissions === "full" && existsSync(productDb)) {
+    throw Error("NEST_CLAUDE_PERMISSIONS=full refuses to run next to Nest's data (product database found). Assign this agent to the agents runner.");
+  }
+  if (workspace) {
+    const real = realPath(workspace);
     // Reads are allowed inside the workspace, so it must not contain what the sandbox protects.
-    for (const protectedPath of [nestRoot, stateDir, home].filter(Boolean)) {
-      if (inside(resolve(workspace), protectedPath)) {
-        throw Error("NEST_CLAUDE_PERMISSIONS needs a workspace that does not contain HOME, the Nest checkout or the session folder");
-      }
+    if (permissions !== "full" && [nestRoot, stateDir, home].filter(Boolean).some((path) => inside(real, realPath(path)))) {
+      throw Error("NEST_CLAUDE_PERMISSIONS needs a workspace that does not contain HOME, the Nest checkout or the session folder");
+    }
+    // Claude Code owns its workspace, so it must not sit in the session state or either database's folder.
+    const protectedParents = [stateDir, env.ORGOPS_PROJECT_ROOT, dirname(productDb)].filter(Boolean);
+    if (protectedParents.some((path) => inside(realPath(path), real))) {
+      throw Error("NEST_CLAUDE_PERMISSIONS needs a workspace outside the session folder, ORGOPS_PROJECT_ROOT and Nest's product data");
     }
   }
   return {
@@ -98,6 +135,8 @@ export function readBridgeConfig(env = process.env, { nestRoot = NEST_ROOT } = {
     gid,
     home: env.NEST_CLAUDE_HOME || undefined,
     configDir: env.NEST_CLAUDE_CONFIG_DIR || undefined,
+    secrets: list(env.NEST_CLAUDE_SECRETS),
+    secretFiles: readSecretFiles(env.NEST_CLAUDE_SECRET_FILES, env.NEST_CLAUDE_HOME),
     denyRead: [
       nestRoot,
       stateDir,
@@ -116,14 +155,12 @@ export function readBridgeConfig(env = process.env, { nestRoot = NEST_ROOT } = {
 }
 
 /** Command-line arguments for one turn. The permission profile is the only security switch. */
-export function claudeArgs(config, sessionId, { apiKeyFile } = {}) {
+export function claudeArgs(config, sessionId) {
   const args = ["-p", "--output-format", "stream-json", "--verbose", "--append-system-prompt", INSTRUCTIONS];
-  // Claude Code reads the key through a helper, so tool subprocesses never inherit it.
-  const credentials = apiKeyFile ? { apiKeyHelper: `cat '${apiKeyFile}'` } : {};
   if (config.permissions === "full") {
     // Only for a runner that is isolated by its own machine or OS account.
     args.push("--permission-mode", "bypassPermissions");
-  } else if (config.permissions === "workspace") {
+  } else {
     // File tools edit inside the workspace and need approval elsewhere, which a headless
     // turn denies. Shell commands run in the OS sandbox: writes stay in the workspace,
     // Nest's data and the host account's HOME are unreadable apart from toolchains and
@@ -131,7 +168,6 @@ export function claudeArgs(config, sessionId, { apiKeyFile } = {}) {
     // Claude Code itself refuses writes to .claude/ settings and .mcp.json, so a turn
     // cannot plant hooks or MCP servers that would run outside the sandbox later.
     args.push("--permission-mode", "acceptEdits", "--tools", WORKSPACE_TOOLS, "--settings", JSON.stringify({
-      ...credentials,
       sandbox: {
         enabled: true,
         failIfUnavailable: true,
@@ -141,11 +177,6 @@ export function claudeArgs(config, sessionId, { apiKeyFile } = {}) {
         network: { allowedDomains: config.allowedDomains },
       },
     }));
-  } else {
-    // An allowlist of built-in tools: dontAsk alone still runs commands Claude Code classes
-    // as read-only, unsandboxed, through Bash, Monitor or a subagent. Reads stay in the workspace.
-    args.push("--permission-mode", "dontAsk", "--tools", READ_ONLY_TOOLS);
-    if (apiKeyFile) args.push("--settings", JSON.stringify(credentials));
   }
   // MCP tools run outside the sandbox with the account's own access; only `full` keeps them.
   if (config.permissions !== "full") args.push("--strict-mcp-config");
@@ -155,26 +186,56 @@ export function claudeArgs(config, sessionId, { apiKeyFile } = {}) {
   return args;
 }
 
+/** Claude Code's environment. A credential secret never enters it; the turn's proxy supplies a dummy. */
 export function claudeEnvironment(env, config = {}) {
   const result = Object.fromEntries(PASSTHROUGH_ENV.filter((key) => env[key]).map((key) => [key, env[key]]));
+  // Without a credential secret, the host account's own login and API URL apply.
+  if (env.ANTHROPIC_BASE_URL && !readCredential(env)) result.ANTHROPIC_BASE_URL = env.ANTHROPIC_BASE_URL;
+  Object.assign(result, forwardedSecrets(env, config.secrets ?? []));
   // A bridged turn is not an interactive install; updates come from the image or the operator.
   result.DISABLE_AUTOUPDATER = "1";
   if (config.home) result.HOME = config.home;
   if (config.configDir) result.CLAUDE_CONFIG_DIR = config.configDir;
-  if (config.permissions === "full") {
-    // Without an OS sandbox, Claude Code strips its credentials from tool subprocesses itself.
-    // (The scrub also changes sandbox behaviour, so the sandboxed profiles use a key file instead.)
-    for (const key of SCRUBBED_ENV) if (env[key]) result[key] = env[key];
-    result.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1";
-  }
   return result;
 }
 
-/** Create a folder Claude Code writes to, owned by the account it runs as. */
+/** Create a folder Claude Code writes to, owned by the account it runs as; folders above it stay traversable. */
 function ensureOwnedDir(dir, { uid, gid }) {
   if (!dir) return;
+  mkdirSync(dirname(dir), { recursive: true, mode: 0o755 });
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  if (uid !== undefined && statSync(dir).uid !== uid) chownSync(dir, uid, gid);
+  // Claude Code can replace folders under its home with links; never chown through one.
+  const stat = lstatSync(dir);
+  if (uid !== undefined && stat.isDirectory() && stat.uid !== uid) lchownSync(dir, uid, gid);
+}
+
+/** Run file work in Claude's home with its account's rights, so a link it planted cannot redirect root's writes. */
+function asAccount({ uid, gid }, action) {
+  if (uid === undefined || uid === 0 || process.geteuid?.() !== 0) return action();
+  const groups = process.getgroups(), egid = process.getegid();
+  process.setgroups([gid]); process.setegid(gid); process.seteuid(uid);
+  try { return action(); } finally { process.seteuid(0); process.setegid(egid); process.setgroups(groups); }
+}
+
+/** Write each mapped secret under Claude's home (600, new folders 700); remove files whose secret is gone. */
+export function writeSecretFiles({ env, mappings, home, uid, gid }) {
+  asAccount({ uid, gid: gid ?? uid }, () => {
+    for (const { name, path } of mappings) {
+      const file = join(home, path);
+      if (!env[name]) { rmSync(file, { force: true }); continue; }
+      let dir = home;
+      for (const part of dirname(path).split(sep).filter((item) => item && item !== ".")) {
+        dir = join(dir, part);
+        if (!existsSync(dir)) mkdirSync(dir, { mode: 0o700 });
+      }
+      const fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o600);
+      try {
+        fchmodSync(fd, 0o600);
+        // Keys and known_hosts files need a final newline.
+        writeSync(fd, env[name].endsWith("\n") ? env[name] : `${env[name]}\n`);
+      } finally { closeSync(fd); }
+    }
+  });
 }
 
 /** Consume Claude Code stream-json; publish only assistant text, never thinking, tool input or tool output. */
@@ -256,13 +317,16 @@ export function createClaudeOutput({ publishProgress, onProgressError = () => {}
   };
 }
 
+/** Claude Code reports a rejected or missing credential in its stream, not on stderr. */
+const isSignInFailure = ({ stderr = "", output }) => output?.errorStatus === 401 || /authentication_failed|not logged in|invalid api key|\/login/i.test(`${stderr}\n${output?.errorText ?? ""}`);
+
 /** One short, actionable line for the chat; raw Claude Code diagnostics stay out of Nest events. */
 export function describeFailure({ code, stderr, output, missingBinary, stopped, bin }) {
   if (missingBinary) return `Could not start Claude Code (${bin}). Install it on the runner host or set NEST_CLAUDE_BIN.`;
   if (stopped) return "Claude Code was stopped before it finished.";
   const text = `${stderr}\n${output?.errorText ?? ""}`;
-  if (output?.errorStatus === 401 || /authentication_failed|not logged in|invalid api key|\/login/i.test(text)) {
-    return "Claude Code is not signed in on the runner host. Run `claude` there and sign in, or configure ANTHROPIC_API_KEY as an agent secret.";
+  if (isSignInFailure({ stderr, output })) {
+    return "Claude Code is not signed in. Add CLAUDE_CODE_OAUTH_TOKEN (from claude setup-token) or ANTHROPIC_API_KEY as a private secret of this agent.";
   }
   if (/sandbox required but unavailable/i.test(text)) {
     return "Claude Code's sandbox is unavailable on the runner host. Install bubblewrap and socat there, or choose another permission profile.";
@@ -271,6 +335,7 @@ export function describeFailure({ code, stderr, output, missingBinary, stopped, 
     return "Claude Code reached a usage, rate or billing limit. Try again later.";
   }
   if (output?.subtype === "error_max_turns") return "Claude Code stopped after reaching its maximum number of steps.";
+  if (output?.subtype === "error_max_budget_usd") return "Claude Code stopped after reaching its spending limit for this turn.";
   if (output?.started && !output.failure) return "Claude Code finished the turn without a written reply.";
   if (code === null) return "Claude Code was stopped before it finished.";
   return "Claude Code did not complete the turn. Check the runner host's Claude Code installation and sign-in.";
@@ -278,31 +343,17 @@ export function describeFailure({ code, stderr, output, missingBinary, stopped, 
 
 const MISSING_SESSION = /No conversation found/i;
 
-function isAlive(pid) {
-  try { process.kill(pid, 0); return true; } catch (error) { return error.code === "EPERM"; }
-}
-
-/** Key files of bridges that were killed before their cleanup ran. */
-function removeOrphanedKeyFiles(stateDir) {
-  for (const name of readdirSync(stateDir)) {
-    const pid = Number(/^\.key-(\d+)-/.exec(name)?.[1]);
-    if (pid && !isAlive(pid)) rmSync(join(stateDir, name), { force: true });
-  }
-}
-
 function readState(path) {
   try { return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {}; } catch { return {}; }
 }
 
-function runClaude(config, sessionId, { env, publishProgress, onProgressError, spawnImpl, killGraceMs, apiKeyFile }) {
+function runClaude(config, sessionId, { env, publishProgress, onProgressError, spawnImpl, killGraceMs, proxyEnv }) {
   return new Promise((done) => {
     const output = createClaudeOutput({ publishProgress, onProgressError });
     let stderr = "", missingBinary = false, closed = false, stopped = false, killTimer;
-    const childEnv = claudeEnvironment(env, config);
-    if (apiKeyFile) delete childEnv.ANTHROPIC_API_KEY;
-    const child = spawnImpl(config.bin, claudeArgs(config, sessionId, { apiKeyFile }), {
+    const child = spawnImpl(config.bin, claudeArgs(config, sessionId), {
       cwd: config.workspace,
-      env: childEnv,
+      env: { ...claudeEnvironment(env, config), ...proxyEnv },
       stdio: ["pipe", "pipe", "pipe"],
       // Its own process group, so tool subprocesses are stopped with it.
       detached: true,
@@ -338,8 +389,13 @@ function runClaude(config, sessionId, { env, publishProgress, onProgressError, s
 }
 
 /** Run one Nest turn. Returns the process exit code; prints only the final reply or one diagnostic line. */
-export async function runBridge({ env = process.env, spawnImpl = spawn, publishProgress, stdout = console.log, stderr = console.error, killGraceMs = KILL_GRACE_MS } = {}) {
-  const config = readBridgeConfig(env);
+export async function runBridge({ env = process.env, spawnImpl = spawn, publishProgress, stdout = console.log, stderr = console.error, killGraceMs = KILL_GRACE_MS, nestRoot = NEST_ROOT } = {}) {
+  let config;
+  try { config = readBridgeConfig(env, { nestRoot }); } catch (error) {
+    if (!/NEST_CLAUDE_/.test(error?.message)) throw error;
+    stderr(error.message);
+    return 1;
+  }
   if (!config.sessionKey || !config.message || !config.workspace) {
     stderr("Missing Nest session, message or workspace.");
     return 1;
@@ -360,15 +416,15 @@ export async function runBridge({ env = process.env, spawnImpl = spawn, publishP
   };
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
   for (const dir of [config.workspace, config.home, config.configDir]) ensureOwnedDir(dir, config);
+  // Rewritten every turn, so rotating or removing a secret in Admin takes effect on the next one.
+  if (config.secretFiles.length) writeSecretFiles({ env, mappings: config.secretFiles, home: config.home, uid: config.uid, gid: config.gid });
   const statePath = join(config.stateDir, `${createHash("sha256").update(config.sessionKey).digest("hex")}.json`);
-  // The state folder is unreadable to sandboxed shells; the key file lives only for this turn.
-  removeOrphanedKeyFiles(config.stateDir);
-  const apiKeyFile = env.ANTHROPIC_API_KEY && config.permissions !== "full" ? join(config.stateDir, `.key-${process.pid}-${randomUUID()}`) : undefined;
-  if (apiKeyFile) writeFileSync(apiKeyFile, env.ANTHROPIC_API_KEY, { mode: 0o600 });
+  const credential = readCredential(env);
+  const proxy = credential ? await startCredentialProxy({ credential, upstream: env.NEST_CLAUDE_UPSTREAM_URL || undefined }) : undefined;
   try {
-    return await runTurn({ config, statePath, stdout, stderr, publishProgress, deps: { env, publishProgress, onProgressError, spawnImpl, killGraceMs, apiKeyFile } });
+    return await runTurn({ config, statePath, stdout, stderr, publishProgress, deps: { env, publishProgress, onProgressError, spawnImpl, killGraceMs, proxyEnv: proxy?.childEnv } });
   } finally {
-    if (apiKeyFile) rmSync(apiKeyFile, { force: true });
+    await proxy?.close();
   }
 }
 
@@ -381,8 +437,9 @@ async function runTurn({ config, statePath, stdout, stderr, publishProgress, dep
     run = await runClaude(config, undefined, deps);
   }
   const { output } = run;
-  // Keep any session Claude Code actually ran, so a failed turn's context is not lost.
-  if (output.started && output.sessionId && output.sessionId !== state.sessionId) {
+  // Keep any session Claude Code actually ran, so a failed turn's context is not lost;
+  // a turn that never signed in has no context worth resuming.
+  if (output.started && output.sessionId && output.sessionId !== state.sessionId && !isSignInFailure(run)) {
     writeFileSync(`${statePath}.tmp`, JSON.stringify({ sessionId: output.sessionId }), { mode: 0o600 });
     renameSync(`${statePath}.tmp`, statePath);
   }

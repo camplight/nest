@@ -12,6 +12,19 @@ import type {
 import { Button, Card, Input, Textarea } from "../components/ui";
 import { useEscapeKey } from "../hooks/useEscapeKey";
 import { formatTimestamp } from "../utils/formatTimestamp";
+import {
+  DEFAULT_CLAUDE_CODE_OPTIONS,
+  buildClaudeCodeWrappedConfig,
+  credentialSecretName,
+  isValidSecretName,
+  isValidSecretPath,
+  SHARED_DEFAULT_WORKSPACE,
+  defaultClaudeCodeWorkspace,
+  pickClaudeCodeRunner,
+  readClaudeCodeOptions,
+  requiredSecretNames,
+  type ClaudeCodeOptions
+} from "../claudeCodeAgent";
 
 type AgentForm = {
   name: string;
@@ -30,6 +43,8 @@ type AgentForm = {
   alwaysPreloadedSkills: string[];
   wrappedConfigJson: string;
   wrappedConfig?: Record<string, unknown>;
+  // Set when the WRAPPED agent is a Claude Code agent built from the form, not raw JSON.
+  claudeCode?: ClaudeCodeOptions | null;
 };
 
 const DEFAULT_WRAPPED_CONFIG = JSON.stringify(
@@ -64,7 +79,8 @@ const DEFAULT_AGENT_FORM: AgentForm = {
   soulContents: "",
   enabledSkills: [],
   alwaysPreloadedSkills: [],
-  wrappedConfigJson: DEFAULT_WRAPPED_CONFIG
+  wrappedConfigJson: DEFAULT_WRAPPED_CONFIG,
+  claudeCode: null
 };
 
 function parseOptionalPositiveIntInput(
@@ -108,6 +124,218 @@ function formatAgentModelLabel(agent: Agent): string {
   const name = readWrappedDisplayValue(config.name);
   const harness = readWrappedDisplayValue(config.harness) ?? readWrappedDisplayValue(config.transport);
   return `wrapped: ${kind ?? name ?? harness ?? "custom"}`;
+}
+
+const SECRET_NAME_HINT =
+  "Use capital letters, digits and underscores. Names starting with NEST_, ORGOPS_, ANTHROPIC_ or CLAUDE_ are reserved.";
+
+function readClaudeCodeValidationMessage(options: ClaudeCodeOptions | null | undefined) {
+  if (!options) return null;
+  return Number.isInteger(options.timeoutMinutes) && options.timeoutMinutes > 0
+    ? null
+    : "Turn limit must be a whole number of minutes.";
+}
+
+function ClaudeCodeFields({
+  agentName,
+  options,
+  hasAgentRunner,
+  onChange
+}: {
+  agentName: string;
+  options: ClaudeCodeOptions;
+  hasAgentRunner: boolean;
+  onChange: (options: ClaudeCodeOptions) => void;
+}) {
+  const [secretDraft, setSecretDraft] = useState("");
+  const [fileDraft, setFileDraft] = useState({ name: "", path: "" });
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const preview = useMemo(
+    () => JSON.stringify(buildClaudeCodeWrappedConfig(options), null, 2),
+    [options]
+  );
+  const addSecret = () => {
+    const name = secretDraft.trim();
+    if (!isValidSecretName(name)) return setDraftError(SECRET_NAME_HINT);
+    setDraftError(null);
+    setSecretDraft("");
+    if (!options.secretNames.includes(name)) onChange({ ...options, secretNames: [...options.secretNames, name] });
+  };
+  const addFile = () => {
+    const name = fileDraft.name.trim();
+    const path = fileDraft.path.trim();
+    if (!isValidSecretName(name)) return setDraftError(SECRET_NAME_HINT);
+    if (!isValidSecretPath(path)) {
+      return setDraftError("Use a path inside Claude's home, such as .ssh/id_ed25519.");
+    }
+    setDraftError(null);
+    setFileDraft({ name: "", path: "" });
+    onChange({
+      ...options,
+      secretFiles: [...options.secretFiles.filter((file) => file.path !== path), { name, path }]
+    });
+  };
+  const selectClassName =
+    "w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100";
+  return (
+    <div className="space-y-4 rounded border border-slate-800 bg-slate-950 p-3" aria-label="Claude Code settings" role="group">
+      <div className="space-y-1">
+        <div className="text-sm text-slate-400">Sign-in</div>
+        <select
+          aria-label="Claude credential"
+          value={options.credential}
+          onChange={(e) =>
+            onChange({ ...options, credential: e.target.value === "apiKey" ? "apiKey" : "oauth" })
+          }
+          className={selectClassName}
+        >
+          <option value="oauth">Subscription token</option>
+          <option value="apiKey">API key</option>
+        </select>
+        <p className="text-xs text-slate-500">
+          Stored as the secret {credentialSecretName(options)}. Claude Code never sees this value; the agent container swaps in the real credential for each request.
+        </p>
+      </div>
+      <div className="space-y-1">
+        <div className="text-sm text-slate-400">Turn limit (minutes)</div>
+        <Input
+          aria-label="Turn limit in minutes"
+          type="number"
+          min={1}
+          step={1}
+          inputMode="numeric"
+          value={Number.isNaN(options.timeoutMinutes) ? "" : String(options.timeoutMinutes)}
+          onChange={(e) => onChange({ ...options, timeoutMinutes: e.target.value ? Number(e.target.value) : Number.NaN })}
+        />
+        <p className="text-xs text-slate-500">
+          A turn that runs longer is stopped, together with the tools it started.
+        </p>
+      </div>
+      <div className="space-y-2">
+        <div>
+          <div className="text-sm text-slate-400">Tool secrets as environment variables</div>
+          <p className="text-xs text-slate-500">For example GH_TOKEN for the GitHub CLI.</p>
+        </div>
+        {options.secretNames.length ? (
+          <ul className="space-y-1" aria-label="Tool secrets">
+            {options.secretNames.map((name) => (
+              <li key={name} className="flex items-center justify-between gap-2 rounded border border-slate-800 px-2 py-1 text-sm">
+                <code className="min-w-0 break-all text-slate-200">{name}</code>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="shrink-0 px-2 py-1 text-xs"
+                  aria-label={`Remove ${name}`}
+                  onClick={() => onChange({ ...options, secretNames: options.secretNames.filter((item) => item !== name) })}
+                >
+                  Remove
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            aria-label="Tool secret name"
+            value={secretDraft}
+            placeholder="GH_TOKEN"
+            onChange={(e) => setSecretDraft(e.target.value.toUpperCase())}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addSecret();
+              }
+            }}
+          />
+          <Button type="button" variant="secondary" className="shrink-0 text-sm" onClick={addSecret}>
+            Add secret
+          </Button>
+        </div>
+      </div>
+      <div className="space-y-2">
+        <div>
+          <div className="text-sm text-slate-400">Secret files</div>
+          <p className="text-xs text-slate-500">
+            Written under Claude's home before each turn, readable only by Claude Code.
+          </p>
+        </div>
+        {options.secretFiles.length ? (
+          <ul className="space-y-1" aria-label="Secret files">
+            {options.secretFiles.map((file) => (
+              <li key={file.path} className="flex items-center justify-between gap-2 rounded border border-slate-800 px-2 py-1 text-sm">
+                <span className="min-w-0 break-all text-slate-200">
+                  <code>{file.name}</code> <span className="text-slate-500">to</span> <code>~/{file.path}</code>
+                </span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="shrink-0 px-2 py-1 text-xs"
+                  aria-label={`Remove ${file.path}`}
+                  onClick={() => onChange({ ...options, secretFiles: options.secretFiles.filter((item) => item.path !== file.path) })}
+                >
+                  Remove
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+          <Input
+            aria-label="Secret file name"
+            value={fileDraft.name}
+            placeholder="SSH_PRIVATE_KEY"
+            onChange={(e) => setFileDraft((prev) => ({ ...prev, name: e.target.value.toUpperCase() }))}
+          />
+          <Input
+            aria-label="Secret file path"
+            value={fileDraft.path}
+            placeholder=".ssh/id_ed25519"
+            onChange={(e) => setFileDraft((prev) => ({ ...prev, path: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addFile();
+              }
+            }}
+          />
+          <Button type="button" variant="secondary" className="text-sm" onClick={addFile}>
+            Add file
+          </Button>
+        </div>
+      </div>
+      {draftError ? (
+        <p role="alert" className="text-xs text-rose-400">
+          {draftError}
+        </p>
+      ) : null}
+      <div role="note" className="rounded border border-blue-300 bg-slate-900 p-3 text-sm text-slate-200">
+        Add these secrets in Admin → Secrets with scope Private, agent {agentName.trim() || "(this agent's name)"}:{" "}
+        {requiredSecretNames(options).map((name, index) => (
+          <span key={name}>
+            {index ? ", " : ""}
+            <code className="whitespace-nowrap font-mono">{name}</code>
+          </span>
+        ))}
+        <span className="mt-1 block text-xs text-slate-500">
+          {credentialSecretName(options)} is required. The others hold your tool credentials.
+        </span>
+      </div>
+      {!hasAgentRunner ? (
+        <p role="status" className="rounded border border-amber-600 bg-slate-900 p-3 text-sm text-slate-200">
+          No agent container runner found. Claude Code agents need the nest-agents container (docs/CLAUDE_CODE_AGENT.md).
+        </p>
+      ) : null}
+      <details className="rounded border border-slate-800">
+        <summary className="cursor-pointer px-3 py-2 text-sm text-slate-300">Generated recipe</summary>
+        <pre
+          aria-label="Generated recipe"
+          className="max-w-full overflow-x-auto whitespace-pre-wrap break-all border-t border-slate-800 p-3 font-mono text-xs text-slate-300"
+        >
+          {preview}
+        </pre>
+      </details>
+    </div>
+  );
 }
 
 type AgentsScreenProps = {
@@ -186,6 +414,9 @@ export function AgentsScreen({
   );
   const [form, setForm] = useState<AgentForm>(DEFAULT_AGENT_FORM);
   const [isFormDirty, setIsFormDirty] = useState(false);
+  const [runnerChosen, setRunnerChosen] = useState(false);
+  // While false, a new Claude Code agent's workspace follows its name.
+  const [workspaceEdited, setWorkspaceEdited] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{
     kind: "success" | "error";
     message: string;
@@ -251,6 +482,8 @@ export function AgentsScreen({
   const drawerOpen = Boolean(selectedAgent || isCreating);
   const eventDetailsDrawerOpen = activeTab === "events" && Boolean(selectedEvent);
   const isWrappedMode = form.mode === "WRAPPED";
+  const claudeCode = isWrappedMode ? form.claudeCode ?? null : null;
+  const claudeCodeRunnerId = pickClaudeCodeRunner(runners);
   const workspaceSegments =
     workspaceData && workspaceData.path !== "."
       ? workspaceData.path.split("/").filter(Boolean)
@@ -265,13 +498,14 @@ export function AgentsScreen({
           : null;
   const wrappedConfigValidationMessage = useMemo(() => {
     if (form.mode !== "WRAPPED") return null;
+    if (form.claudeCode) return readClaudeCodeValidationMessage(form.claudeCode);
     try {
       parseWrappedConfigJson(form.wrappedConfigJson);
       return null;
     } catch (error) {
       return error instanceof Error ? error.message : "Wrapped config must be valid JSON.";
     }
-  }, [form.mode, form.wrappedConfigJson]);
+  }, [form.mode, form.wrappedConfigJson, form.claudeCode]);
 
   useEffect(() => {
     if (isCreating) return;
@@ -300,7 +534,9 @@ export function AgentsScreen({
       soulContents: selectedAgent.soulContents ?? "",
       enabledSkills: selectedAgent.enabledSkills ?? [],
       alwaysPreloadedSkills: selectedAgent.alwaysPreloadedSkills ?? [],
-      wrappedConfigJson: stringifyWrappedConfig(selectedAgent.wrappedConfig)
+      wrappedConfigJson: stringifyWrappedConfig(selectedAgent.wrappedConfig),
+      claudeCode:
+        selectedAgent.mode === "WRAPPED" ? readClaudeCodeOptions(selectedAgent.wrappedConfig) : null
     });
   }, [isCreating, selectedAgent, isFormDirty]);
 
@@ -350,6 +586,8 @@ export function AgentsScreen({
     setActiveTab("details");
     setForm(DEFAULT_AGENT_FORM);
     setIsFormDirty(false);
+    setRunnerChosen(false);
+    setWorkspaceEdited(false);
     setSaveStatus(null);
     setPanelError(null);
     setSelectedEventId(null);
@@ -574,8 +812,15 @@ export function AgentsScreen({
       const contextSessionGapMs = isWrappedMode
         ? null
         : parseOptionalPositiveIntInput(form.contextSessionGapMs, "Context session gap");
-      const wrappedConfig =
-        isWrappedMode ? parseWrappedConfigJson(form.wrappedConfigJson) : {};
+      const claudeCodeError = readClaudeCodeValidationMessage(claudeCode);
+      if (claudeCodeError) throw new Error(claudeCodeError);
+      const wrappedConfig = claudeCode
+        ? buildClaudeCodeWrappedConfig(claudeCode)
+        : isWrappedMode
+          ? parseWrappedConfigJson(form.wrappedConfigJson)
+          : {};
+      // The engine stores wrappedConfig; the form-only Claude Code options never leave the browser.
+      const { claudeCode: _formOnly, ...fields } = form;
       const modelId = isWrappedMode ? "wrapped:none" : form.modelId.trim() || modelCatalog?.defaultModel || "";
       const memoryContextMode = isWrappedMode ? "OFF" : form.memoryContextMode;
       const emitAuditEvents = isWrappedMode ? true : form.emitAuditEvents;
@@ -586,7 +831,7 @@ export function AgentsScreen({
       if (isCreating) {
         const normalizedName = form.name.trim();
         await onCreateAgent({
-          ...form,
+          ...fields,
           name: normalizedName,
           modelId,
           visibility: form.visibility,
@@ -1053,7 +1298,15 @@ export function AgentsScreen({
                         onChange={(e) => {
                           setIsFormDirty(true);
                           setSaveStatus(null);
-                          setForm((prev) => ({ ...prev, name: e.target.value }));
+                          const name = e.target.value;
+                          setForm((prev) => ({
+                            ...prev,
+                            name,
+                            workspacePath:
+                              isCreating && prev.mode === "WRAPPED" && prev.claudeCode && !workspaceEdited
+                                ? defaultClaudeCodeWorkspace(name)
+                                : prev.workspacePath
+                          }));
                         }}
                         placeholder="Agent name"
                       />
@@ -1107,12 +1360,14 @@ export function AgentsScreen({
                     <div className="space-y-1">
                       <div className="text-sm text-slate-400">Mode</div>
                       <select
-                        value={form.mode}
+                        aria-label="Mode"
+                        value={claudeCode ? "CLAUDE_CODE" : form.mode}
                         onChange={(e) => {
                           setIsFormDirty(true);
                           setSaveStatus(null);
+                          const isClaudeCode = e.target.value === "CLAUDE_CODE";
                           const nextMode =
-                            e.target.value === "WRAPPED"
+                            e.target.value === "WRAPPED" || isClaudeCode
                               ? "WRAPPED"
                               : e.target.value === "RLM_REPL"
                                 ? "RLM_REPL"
@@ -1125,7 +1380,22 @@ export function AgentsScreen({
                                 ? "wrapped:none"
                                 : prev.modelId === "wrapped:none"
                                   ? ""
-                                  : prev.modelId
+                                  : prev.modelId,
+                            claudeCode: isClaudeCode
+                              ? prev.claudeCode ?? DEFAULT_CLAUDE_CODE_OPTIONS
+                              : null,
+                            // Claude Code belongs in the agent container, not on the Nest container's runner.
+                            assignedRunnerId:
+                              isClaudeCode && isCreating && !runnerChosen
+                                ? claudeCodeRunnerId
+                                : prev.assignedRunnerId,
+                            workspacePath:
+                              isClaudeCode &&
+                              isCreating &&
+                              !workspaceEdited &&
+                              [SHARED_DEFAULT_WORKSPACE, ""].includes(prev.workspacePath.trim())
+                                ? defaultClaudeCodeWorkspace(prev.name)
+                                : prev.workspacePath
                           }));
                         }}
                         className="w-full rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
@@ -1133,14 +1403,31 @@ export function AgentsScreen({
                         <option value="CLASSIC">CLASSIC</option>
                         <option value="RLM_REPL">RLM_REPL</option>
                         <option value="WRAPPED">WRAPPED</option>
+                        <option value="CLAUDE_CODE">Claude Code</option>
                       </select>
-                      {form.mode === "WRAPPED" ? (
+                      {claudeCode ? (
+                        <p className="text-xs text-slate-500">
+                          Claude Code runs in the agent container under its own account. Nest builds its runtime recipe from the settings below.
+                        </p>
+                      ) : form.mode === "WRAPPED" ? (
                         <p className="text-xs text-slate-500">
                           Wrapped agents use an external runtime harness. Nest manages lifecycle and routing.
                         </p>
                       ) : null}
                     </div>
-                    {form.mode === "WRAPPED" ? (
+                    {claudeCode ? (
+                      <ClaudeCodeFields
+                        agentName={form.name}
+                        options={claudeCode}
+                        hasAgentRunner={Boolean(claudeCodeRunnerId)}
+                        onChange={(options) => {
+                          setIsFormDirty(true);
+                          setSaveStatus(null);
+                          setForm((prev) => ({ ...prev, claudeCode: options }));
+                        }}
+                      />
+                    ) : null}
+                    {form.mode === "WRAPPED" && !claudeCode ? (
                       <div className="space-y-2 rounded border border-slate-800 bg-slate-950 p-3">
                         <div className="flex items-center justify-between gap-2">
                           <div>
@@ -1239,8 +1526,10 @@ export function AgentsScreen({
                       <div className="text-sm text-slate-400">Assigned runner</div>
                       <select
                         value={form.assignedRunnerId}
+                        aria-label="Assigned runner"
                         onChange={(e) => {
                           setIsFormDirty(true);
+                          setRunnerChosen(true);
                           setSaveStatus(null);
                           setForm((prev) => ({
                             ...prev,
@@ -1297,8 +1586,10 @@ export function AgentsScreen({
                         onChange={(e) => {
                           setIsFormDirty(true);
                           setSaveStatus(null);
+                          setWorkspaceEdited(true);
                           setForm((prev) => ({ ...prev, workspacePath: e.target.value }));
                         }}
+                        aria-label="Workspace directory"
                         placeholder=".nest-data/workspaces/agent-name"
                       />
                     </div>

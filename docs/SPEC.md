@@ -831,21 +831,32 @@ The chat renders both the same way; any other phase stays out of the chat.
 ## Claude Code wrapped runtime
 
 `deploy/claude-code-bridge.mjs` runs Claude Code headlessly as a command recipe
-(`kind: "claude-code"`, per-channel sessions). Each turn resumes the Claude Code
-session mapped to the runner's session key, stored outside the workspace; a
-missing history starts a new session with a progress notice. Stream-json output
-is reduced to top-level assistant text: interim text becomes `wrapped-progress`
-and the `result` is the reply. Failures print one classified line, because the
-runner shows stderr in chat. The bridge passes only host basics and Claude Code
-credentials, never Nest's admin, master-key or runner credentials; an API key
-reaches Claude Code through a per-turn helper file rather than the environment.
+(`kind: "claude-code"`, per-channel sessions only). Each turn resumes the Claude
+Code session mapped to the runner's session key, stored outside the workspace; a
+missing history starts a new session with a progress notice, and a turn that
+fails sign-in does not replace the saved session. Stream-json output is reduced
+to top-level assistant text: interim text becomes `wrapped-progress` and the
+`result` is the reply. Failures print one classified line, because the runner
+shows stderr in chat.
 
-`NEST_CLAUDE_PERMISSIONS` selects `read-only` (`dontAsk`, no shell), `workspace`
-(`acceptEdits` plus a fail-closed OS sandbox that denies shell reads of the Nest
-checkout, its data folders and the account's HOME apart from toolchains, with
-opt-in network domains) or `full` (`bypassPermissions`, dedicated hosts only).
-The bridge runs Claude Code in its own process group, forwards SIGTERM and
-escalates to SIGKILL. See [Claude Code agents](CLAUDE_CODE_AGENT.md).
+The supported deployment is a runner-only `nest-agents` container from the same
+image (`deploy/compose.claude-agents.yaml`) without Nest's `.env` or data volumes.
+The bridge runs as root there and starts Claude Code as `node` with
+`bypassPermissions` (`NEST_CLAUDE_PERMISSIONS=full`); `full` refuses to run as
+root or where Nest's product database is visible. The Claude credential
+(`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` agent secret) stays in the
+bridge: a per-turn proxy on `127.0.0.1` swaps a random dummy credential for it.
+Claude Code receives only host basics, the dummy, the tool secrets named in
+`NEST_CLAUDE_SECRETS` and files from `NEST_CLAUDE_SECRET_FILES` written under its
+home; `NEST_*`, `ORGOPS_*`, `ANTHROPIC_*` and `CLAUDE_*` names are never
+forwarded. Admin's Claude Code option builds this recipe with a 2 hour turn limit,
+which is what ends a runaway turn because the engine cannot cancel one.
+
+On developer machines, `workspace` runs file tools with `acceptEdits` and shell
+commands in a fail-closed OS sandbox that denies reads of the Nest checkout, its
+data folders and the account's HOME apart from toolchains, with opt-in network
+domains. The bridge runs Claude Code in its own process group, forwards SIGTERM
+and escalates to SIGKILL. See [Claude Code agents](CLAUDE_CODE_AGENT.md).
 
 An operator can permanently authorize one trusted wrapped manager using
 `NEST_MANAGEMENT_AGENT_NAME` and its pinned `NEST_MANAGEMENT_AGENT_ID`.
