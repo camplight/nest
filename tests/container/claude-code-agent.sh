@@ -185,7 +185,7 @@ fi
 docker cp "$ROOT/tests/container/mock-anthropic.mjs" "$AGENTS:/tmp/mock-anthropic.mjs" >/dev/null
 docker exec -d "$AGENTS" sh -c "node /tmp/mock-anthropic.mjs $MOCK_PORT /tmp/mock-anthropic.jsonl >/tmp/mock-anthropic.out 2>&1"
 mock_up=0
-for _ in $(seq 1 20); do inside curl -fsS -m 2 -I "http://127.0.0.1:$MOCK_PORT/api/hello" >/dev/null 2>&1 && { mock_up=1; break; }; sleep 0.5; done
+for _ in $(seq 1 20); do inside curl -fsS -m 2 -I "http://127.0.0.1:$MOCK_PORT/mock-ready" >/dev/null 2>&1 && { mock_up=1; break; }; sleep 0.5; done
 if [[ "$mock_up" == 1 ]]; then record "4 mock API in agent container" PASS "127.0.0.1:$MOCK_PORT"
 else record "4 mock API in agent container" FAIL "mock did not answer"; skip_rest "5 agent, secret and turn created"; fi
 
