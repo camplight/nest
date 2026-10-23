@@ -1,0 +1,38 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {mkdirSync} from 'node:fs';
+import {join,dirname} from 'node:path';
+import {createRequire} from 'node:module';
+const require=createRequire(join(process.cwd(),'apps/user-ui/package.json'));
+const server=spawn(process.execPath,[join(dirname(require.resolve('vite/package.json')),'bin/vite.js'),'--host','127.0.0.1','--port','5312','--strictPort'],{cwd:join(process.cwd(),'apps/user-ui'),stdio:'pipe'});
+const screenshots=join(process.cwd(),'docs/images/validation/quick-tour');mkdirSync(screenshots,{recursive:true});
+let browser;
+try{
+ await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Vite timeout')),20000);server.stdout.on('data',b=>{if(b.toString().includes('5312')){clearTimeout(timer);resolve();}});server.on('exit',()=>{clearTimeout(timer);reject(Error('Vite exited'));});});
+ browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));let user='tour-user',writes=0;
+ await page.route('**/api/**',async route=>{const r=route.request(),p=new URL(r.url()).pathname;if(r.method()!=='GET')writes++;let data=[];
+ if(p==='/api/auth/me')data={id:user,username:user};
+ else if(p==='/api/branding')data={displayName:'Camplight',logoUrl:'/brand/camplight-logo-white.svg',primaryColor:'#350956',accentColor:'#ff7557',backgroundColor:'#f8f4ff'};
+ else if(p==='/api/onboarding/summary')data={setup:null};
+ else if(p==='/api/collaboration/agents')data={items:[]};
+ else if(p==='/api/projects/dashboard')data={projects:[],tasks:{total:0,finished:0,needsReview:0,changesRequested:0},reviews:[],changes:[]};
+ else if(p==='/api/community/skills')data={skills:[],total:0,offset:0,limit:8};
+ else if(p==='/api/mentions')data={items:[]};
+ await route.fulfill({json:data});});await page.routeWebSocket('**/ws',()=>{});
+ await page.goto('http://127.0.0.1:5312/?view=agents');const start=page.getByRole('button',{name:'Quick tour',exact:true});await start.waitFor();assert.equal(await start.textContent(),'Start here · 3 steps');
+ assert.equal(await page.getByRole('dialog').count(),0);const originalUrl=page.url();
+ await start.click();const dialog=page.getByRole('dialog',{name:'Meet your agents'});await dialog.waitFor();assert(await page.locator('.app-shell').evaluate(el=>el.inert));
+ await page.screenshot({path:join(screenshots,'desktop.png'),fullPage:true});
+ await page.keyboard.press('Tab');assert(await page.getByRole('button',{name:'Skip tour'}).evaluate(el=>el===document.activeElement));await page.keyboard.press('Shift+Tab');assert(await page.getByRole('button',{name:'Next',exact:true}).evaluate(el=>el===document.activeElement));
+ await page.getByRole('button',{name:'Next',exact:true}).click();await page.getByRole('heading',{name:'Start with a conversation'}).waitFor();await page.getByRole('button',{name:'Back',exact:true}).click();await dialog.waitFor();
+ await page.keyboard.press('Escape');assert.equal(await page.getByRole('dialog').count(),0);assert.equal(await start.textContent(),'Quick tour');assert(await start.evaluate(el=>el===document.activeElement));assert.equal(page.url(),originalUrl);
+ await page.reload();await start.waitFor();assert.equal(await start.textContent(),'Quick tour');
+ await page.setViewportSize({width:390,height:844});await start.click();await dialog.waitFor();await page.waitForTimeout(400);
+ assert(await page.locator('.sidebar').evaluate(el=>el.classList.contains('sidebar-mobile-open')));assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+ await page.screenshot({path:join(screenshots,'mobile.png'),fullPage:true});
+ await page.getByRole('button',{name:'Next',exact:true}).click();await page.getByRole('button',{name:'Next',exact:true}).click();await page.getByRole('heading',{name:'Give your agent new skills'}).waitFor();await page.getByRole('button',{name:'Get started',exact:true}).click();assert(!await page.locator('.sidebar').evaluate(el=>el.classList.contains('sidebar-mobile-open')));assert(!await page.locator('.app-shell').evaluate(el=>el.inert));
+ await page.setViewportSize({width:390,height:600});await start.click();await page.getByRole('button',{name:'Next',exact:true}).click();await page.getByRole('button',{name:'Next',exact:true}).click();await page.waitForTimeout(400);const bounds=await page.locator('[data-tour="community"]').boundingBox(),card=await page.getByRole('dialog').boundingBox();assert(bounds&&card&&bounds.y+bounds.height<card.y);await page.keyboard.press('Escape');
+ user='second-user';await page.reload();await start.waitFor();assert.equal(await start.textContent(),'Start here · 3 steps');await start.click();await page.getByRole('button',{name:'Skip tour'}).click();assert.equal(await start.textContent(),'Quick tour');assert.equal(writes,0);assert.deepEqual(errors,[]);
+ console.log('PASS: first-visit prompt, three spotlights, back/next/finish/skip/Escape, focus trap/restore, inert background, replay, per-user persistence, mobile sidebar/overflow, no navigation or writes. Synthetic screenshots.');
+}finally{await browser?.close();server.kill('SIGTERM');}

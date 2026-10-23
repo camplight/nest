@@ -29,7 +29,7 @@ export function ProjectNavigation({projects, currentProjectId, inProjects, creat
   function browse() { setExpanded(true); onBrowse(); }
   return <div className="project-navigation">
     <div className={`project-navigation-parent${inProjects ? ' is-active' : ''}`}>
-      <button type="button" className="project-navigation-browse" aria-current={inProjects && !currentProjectId && !creating ? 'page' : undefined} onClick={browse}>
+      <button type="button" data-tour="projects" className="project-navigation-browse" aria-current={inProjects && !currentProjectId && !creating ? 'page' : undefined} onClick={browse}>
         <DesignIcon name="conversations"/><span>Projects</span><span className="project-navigation-count" aria-hidden="true">{projects.length}</span>
       </button>
       <button type="button" className="project-navigation-toggle" aria-label={expanded ? 'Collapse projects' : 'Expand projects'} aria-expanded={expanded} aria-controls={childrenId} onClick={() => setExpanded(value => !value)}>
