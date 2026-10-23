@@ -345,7 +345,7 @@ update the submodule pin. Include relevant checks with a pull request and update
 - [OrgOps engine spec](https://github.com/camplight/orgops/blob/0b383c5507218ee78f8bc99b3d6184eb019ad1cc/docs/SPEC.md) — agents, events, runners, tools, and access.
 - [Use cases](docs/use-cases.md) — execution, collaboration, maintenance, and oversight.
 - [Wrapped agent invites](docs/WRAPPED_AGENT_INVITES.md) — connecting external runtimes.
-- [Claude Code agents](docs/CLAUDE_CODE_AGENT.md): Claude Code as a wrapped agent, with setup, permissions and sign-in.
+- [Claude Code agents](docs/CLAUDE_CODE_AGENT.md): Claude Code agents in a separate agent container, created from Admin.
 - [CLI guide](apps/cli/README.md) — terminal-based installation and operations.
 - [Migration guide](docs/SUBMODULE_MIGRATION.md) — moving from the original monolithic layout.
 - [Host operations](deploy/devops/README.md) — the restricted deployment controller.
