@@ -2,7 +2,7 @@
 // Each Nest session key (agent + channel) resumes its own Claude Code session.
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, rmSync, lstatSync, lchownSync, realpathSync, openSync, fchmodSync, writeSync, closeSync, constants } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, readdirSync, writeFileSync, renameSync, rmSync, lstatSync, lchownSync, realpathSync, openSync, fchmodSync, writeSync, closeSync, constants } from "node:fs";
 import { basename, dirname, join, normalize, relative, resolve, isAbsolute, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readCredential, startCredentialProxy } from "./claude-code-proxy.mjs";
@@ -52,6 +52,8 @@ const WORKSPACE_TOOLS = "Bash,Read,Edit,Write,Glob,Grep,NotebookEdit,Skill,Agent
 
 // The runner sends one SIGTERM to its shell and never escalates.
 const KILL_GRACE_MS = 10_000;
+// How often a running turn looks for tool processes that left Claude Code's process group.
+const PROCESS_SCAN_MS = 500;
 
 const list = (value) => (value ? value.split(",").map((item) => item.trim()).filter(Boolean) : []);
 
@@ -347,6 +349,61 @@ function readState(path) {
   try { return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {}; } catch { return {}; }
 }
 
+/** The Linux process table from /proc; empty where there is none (macOS keeps group signalling only). */
+export function readProcessTable(proc = "/proc") {
+  let names;
+  try { names = readdirSync(proc); } catch { return []; }
+  const rows = [];
+  for (const name of names) {
+    if (!/^\d+$/.test(name)) continue;
+    try {
+      const stat = readFileSync(join(proc, name, "stat"), "utf8");
+      // Fields after the command name, which may itself contain spaces and parentheses.
+      const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+      rows.push({ pid: Number(name), ppid: Number(fields[1]), pgrp: Number(fields[2]), session: Number(fields[3]), start: fields[19] });
+    } catch {}
+  }
+  return rows;
+}
+
+/**
+ * Follows every process a turn starts. Claude Code runs each Bash command in a session of its
+ * own, so a background tool leaves Claude Code's process group and, once its shell exits, its
+ * parentage too; its session and group stay. Root can read /proc/<pid>/stat but not another
+ * account's environment, so these ids are what identifies a turn's processes. A process is
+ * remembered with its start time, so a reused process id is never signalled.
+ */
+export function createProcessTracker(rootPid, { list = readProcessTable, kill = (pid, signal) => process.kill(pid, signal) } = {}) {
+  const known = new Map(), groups = new Set([rootPid]);
+  let rootStart;
+  const scan = () => {
+    const rows = list();
+    const live = new Map(rows.map((row) => [row.pid, row.start]));
+    const owns = (row) => (row.pid === rootPid ? (rootStart ??= row.start) === row.start
+      : groups.has(row.pgrp) || groups.has(row.session) || (known.has(row.ppid) && known.get(row.ppid) === live.get(row.ppid)));
+    for (let added = true; added;) {
+      added = false;
+      for (const row of rows) {
+        if (known.get(row.pid) === row.start || !owns(row)) continue;
+        known.set(row.pid, row.start);
+        groups.add(row.pgrp).add(row.session);
+        added = true;
+      }
+    }
+    // A finished group's id can be reused by an unrelated process that becomes a leader.
+    for (const id of groups) if (!rows.some((row) => row.pgrp === id || row.session === id)) groups.delete(id);
+    for (const [pid, start] of known) if (live.get(pid) !== start) known.delete(pid);
+    return rows;
+  };
+  return {
+    scan,
+    kill(signal) {
+      scan();
+      for (const pid of known.keys()) { try { kill(pid, signal); } catch {} }
+    },
+  };
+}
+
 function runClaude(config, sessionId, { env, publishProgress, onProgressError, spawnImpl, killGraceMs, proxyEnv }) {
   return new Promise((done) => {
     const output = createClaudeOutput({ publishProgress, onProgressError });
@@ -359,8 +416,12 @@ function runClaude(config, sessionId, { env, publishProgress, onProgressError, s
       detached: true,
       ...(config.uid !== undefined ? { uid: config.uid, gid: config.gid } : {}),
     });
+    const tracker = child.pid ? createProcessTracker(child.pid) : undefined;
+    const scanTimer = tracker && setInterval(tracker.scan, PROCESS_SCAN_MS);
+    scanTimer?.unref?.();
     const killGroup = (signal) => {
       try { process.kill(-child.pid, signal); } catch { try { child.kill(signal); } catch {} }
+      tracker?.kill(signal);
     };
     const forward = (signal) => {
       stopped = true;
@@ -380,6 +441,7 @@ function runClaude(config, sessionId, { env, publishProgress, onProgressError, s
     child.on("close", async (code) => {
       closed = true;
       clearTimeout(killTimer);
+      clearInterval(scanTimer);
       for (const signal of ["SIGTERM", "SIGINT"]) process.off(signal, forward);
       // Background tool processes must not outlive the turn that started them.
       if (child.pid) killGroup("SIGKILL");

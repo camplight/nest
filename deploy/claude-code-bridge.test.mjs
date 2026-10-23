@@ -4,7 +4,7 @@ import {mkdtempSync, rmSync, readdirSync, readFileSync, writeFileSync, realpathS
 import {createServer} from 'node:http';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {PERMISSION_PROFILES, createClaudeOutput, claudeArgs, claudeEnvironment, forwardedSecrets, isProtectedName, readBridgeConfig, runBridge} from './claude-code-bridge.mjs';
+import {PERMISSION_PROFILES, createClaudeOutput, createProcessTracker, readProcessTable, claudeArgs, claudeEnvironment, forwardedSecrets, isProtectedName, readBridgeConfig, runBridge} from './claude-code-bridge.mjs';
 import {once} from 'node:events';
 import {existsSync, chmodSync, mkdirSync} from 'node:fs';
 
@@ -439,6 +439,57 @@ describe('bridge turns against a scripted Claude Code process', () => {
       publishProgress:async()=>{}, stdout:()=>{}, stderr:v=>err.push(v)});
     expect(code).toBe(1);
     expect(err).toEqual([expect.stringContaining('Could not start Claude Code')]);
+  });
+});
+
+describe('processes a turn leaves behind', () => {
+  // Claude Code 2.1.309 starts each Bash command in a session of its own, so a tool can
+  // outlive Claude Code's process group after it is reparented to init.
+  const row = (pid, ppid, pgrp, session, start = `t${pid}`) => ({pid, ppid, pgrp, session, start});
+
+  it('kills tools that left Claude Code\'s process group, and nothing else', () => {
+    let table = [row(100, 1, 100, 100), row(101, 100, 101, 101), row(200, 1, 200, 200)];
+    const killed = [];
+    const tracker = createProcessTracker(100, {list: () => table, kill: (pid, signal) => killed.push([pid, signal])});
+    tracker.scan();
+    // The tool shell starts a grandchild, exits, and the grandchild is reparented to init.
+    table = [row(100, 1, 100, 100), row(102, 1, 102, 101), row(200, 1, 200, 200)];
+    tracker.scan();
+    tracker.kill('SIGKILL');
+    expect(killed).toEqual([[100, 'SIGKILL'], [102, 'SIGKILL']]);
+  });
+
+  it('finds members of a tracked session that appeared between scans', () => {
+    let table = [row(100, 1, 100, 100), row(101, 100, 101, 101)];
+    const killed = [];
+    const tracker = createProcessTracker(100, {list: () => table, kill: pid => killed.push(pid)});
+    tracker.scan();
+    table = [row(103, 1, 103, 101)];
+    tracker.kill('SIGKILL');
+    expect(killed).toEqual([103]);
+  });
+
+  it('never kills a reused process id or a new group that reuses a finished group id', () => {
+    let table = [row(100, 1, 100, 100), row(101, 100, 101, 101)];
+    const killed = [];
+    const tracker = createProcessTracker(100, {list: () => table, kill: pid => killed.push(pid)});
+    tracker.scan();
+    table = [];
+    tracker.scan();
+    table = [row(101, 1, 101, 101, 'later'), row(100, 1, 100, 100, 'later')];
+    tracker.kill('SIGKILL');
+    expect(killed).toEqual([]);
+  });
+
+  it('reads pid, parent, group, session and start time from /proc stat lines', () => {
+    const proc = realpathSync(mkdtempSync(join(tmpdir(), 'nest-proc-')));
+    try {
+      mkdirSync(join(proc, '42')); mkdirSync(join(proc, 'self'));
+      // The command name may contain spaces and parentheses.
+      writeFileSync(join(proc, '42', 'stat'), '42 (we (ird) name) S 7 40 39 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 98765 1 2 3');
+      expect(readProcessTable(proc)).toEqual([{pid:42, ppid:7, pgrp:40, session:39, start:'98765'}]);
+      expect(readProcessTable(join(proc, 'missing'))).toEqual([]);
+    } finally { rmSync(proc, {recursive:true, force:true}); }
   });
 });
 
