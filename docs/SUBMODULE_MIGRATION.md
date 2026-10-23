@@ -470,3 +470,9 @@ The chat-side demo preview uses existing authenticated demo routes and normal
 message drafts. Nest demo responses now include a file revision ETag for lightweight
 HEAD polling; no engine change, new grant, DB migration or
 publisher replacement is required.
+
+## First-visit visual tour
+
+UI-only orientation; no engine changes, API routes, credentials or database
+migration. Per-user/browser completion uses versioned localStorage. Existing
+users can also take or replay the tour from the workspace header.

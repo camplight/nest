@@ -278,7 +278,8 @@ try {
       );
     } else {
       const controls = page.getByRole("group", { name: "Workspace controls" });
-      assert.equal(await controls.getByRole("button").count(), 4);
+      assert.equal(await controls.getByRole("button").count(), 5);
+      assert(await controls.getByRole("button", {name:"Quick tour",exact:true}).isVisible());
       assert.deepEqual(
         await controls.locator("img").evaluateAll((images) =>
           images.map((img) => {
@@ -368,7 +369,7 @@ try {
           .getByRole("group", { name: "Workspace controls" })
           .getByRole("button")
           .count(),
-        4,
+        5,
       );
       await nav.getByRole("button", { name: "Dashboard", exact: true }).click();
       const room = (await request(`/api/projects/${reviewProject}`)).channelId;
@@ -451,7 +452,7 @@ try {
             ?.textContent === "1",
       );
       await page.setViewportSize({ width: 390, height: 844 });
-      assert.equal(await controls.getByRole("button").count(), 4);
+      assert.equal(await controls.getByRole("button").count(), 5);
       await capture("header-mobile.png");
       await page.getByRole("button", { name: "Account", exact: true }).click();
       await capture("header-account-mobile.png");
@@ -480,7 +481,7 @@ try {
       await page.goto(`http://127.0.0.1:5312/?status=success&connected_account_id=synthetic-account&channel=${personal.id}`);
       await page.getByRole("textbox", {name:"Message",exact:true}).waitFor();
       assert.equal(await page.locator(".workspace-topbar").count(),1);
-      assert.equal(await controls.getByRole("button").count(),4);
+      assert.equal(await controls.getByRole("button").count(), 5);
       await page.getByRole("button", {name:"Manage channel",exact:true}).waitFor();
       assert.equal(await page.locator(".sidebar .mention-inbox,.sidebar .account-actions").count(),0);
       await page.getByRole("textbox", {name:"Search channels",exact:true}).fill("unmatched-channel");

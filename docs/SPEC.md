@@ -1097,3 +1097,18 @@ intact, and stops polling when closed. Errors show a manual-refresh fallback;
 requests time out after ten seconds and retry. Hidden tabs skip checks. Revision
 headers use file identity, size and nanosecond timestamps; no HTML body is
 downloaded by polling. This remains chat-based editing, not a direct HTML/visual editor.
+
+## First-visit visual tour
+
+The signed-in workspace header offers “Start here · 3 steps” until the human
+finishes or skips the quick tour, then keeps “Quick tour” available for replay.
+The invitation is non-blocking: it does not auto-open over a deep link or draft.
+The three steps spotlight Agents, Projects and Community with brief explanations.
+The tour does not create resources, navigate, send messages or change grants.
+Completion is versioned per human ID in this browser's localStorage; another
+browser shows the invitation again. Storage failure does not block the tour.
+
+During the tour the underlying shell is inert, focus stays in the dialog, Escape
+and Skip dismiss it, and focus returns to the launch control. On phones the
+navigation opens for the spotlight and restores its prior state on dismissal.
+Resize/scroll reposition the highlight. Existing personal-agent setup is unchanged.

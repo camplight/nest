@@ -13,6 +13,8 @@ import { MentionInbox } from "./MentionInbox";
 import "./workspace-topbar.css";
 
 type WorkspaceActions = {
+  onTour?: () => void;
+  tourNew?: boolean;
   username: string;
   onAgents: () => void;
   onSignOut: () => void;
@@ -112,6 +114,7 @@ function WorkspaceControls() {
       role="group"
       aria-label="Workspace controls"
     >
+      {actions.onTour&&<button className="quick-tour-trigger" onClick={actions.onTour} aria-label="Quick tour">{actions.tourNew?"Start here · 3 steps":"Quick tour"}</button>}
       <ThemeToggle iconSrc={asset("theme")} className="workspace-control" />
       <MentionInbox
         icon={<Icon name="notifications" />}

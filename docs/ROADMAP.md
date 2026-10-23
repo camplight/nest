@@ -465,3 +465,10 @@ Private assistants owned by others retain their existing approval workflow.
 Human/agent message headers show initials/configured Figma character avatars.
 Names and timestamps remain visible on desktop and mobile. System activity keeps
 its compact icon strip. Human profile photos await an engine HTTP profile field.
+
+## First-visit visual orientation
+
+Implemented for review: a replayable three-step spotlight tour in the workspace
+header, with a first-visit invitation, Agents/Projects/Community explanations,
+keyboard controls and mobile navigation handling. This supplements existing
+personal-agent onboarding; it does not provision an agent or require completion.
