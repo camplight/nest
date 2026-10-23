@@ -23,7 +23,8 @@ function scriptedReply(body) {
     ? message.content.filter((block) => block?.type === "tool_result") : []));
   const prompt = messages.filter((message) => message.role === "user").map((message) => textOf(message.content)).join("\n");
   if (results.length === 0) {
-    const command = /SLEEP/.test(prompt) ? "sleep 600" : CHECK_COMMAND;
+    // The background sleep's shell exits at once, as with `cmd &`, so it is orphaned outside Claude Code's group.
+    const command = /SLEEP/.test(prompt) ? "sh -c 'sleep 601 >/dev/null 2>&1 &'; sleep 600" : CHECK_COMMAND;
     return {
       blocks: [
         { type: "text", text: "Checking the container." },

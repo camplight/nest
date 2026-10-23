@@ -23,7 +23,7 @@ Without `KEEP=1` the stack and its volumes are removed on exit, also after a fai
 5. Agent `ClaudeCheck` is created with the Admin recipe, `NEST_CLAUDE_UPSTREAM_URL` pointing at the mock, and a private `CLAUDE_CODE_OAUTH_TOKEN` secret with a random fake value; it is mentioned in a new channel.
 6. From the channel events: a `wrapped-progress` event `Checking the container.`, a reply showing `uid=1000(node)`, `ANTHROPIC_BASE_URL` set to the per-turn proxy rather than the mock, no visible credential other than a `nest-proxy-` dummy, no `NEST_` or `ORGOPS_` variables, `/proc/1/environ` unreadable, no `.sqlite` file, the fake value absent from all events, and the mock's log showing `Authorization: Bearer <fake>` (the proxy swapped the dummy for the real value).
 7. As `node`, no readable file or process environment in the agent container contains the fake value.
-8. Agent `ClaudeStop` (turn limit 20 s) runs `sleep 600`; the turn ends with the stop line and no `sleep 600` or `claude` process is left.
+8. Agent `ClaudeStop` (turn limit 20 s) runs `sleep 600` and starts a background `sleep 601` from a shell that exits at once, so it is orphaned outside Claude Code's process group; the turn ends with the stop line and no `sleep 600`, `sleep 601` or `claude` process is left.
 9. Agent `ClaudeRefuse`, assigned to the Nest container's runner, fails with the `Nest's data` refusal.
 
 Claude Code removes its own `CLAUDE_CODE_OAUTH_TOKEN` from tool environments (verified with 2.1.309), so step 6 checks the proxy through `ANTHROPIC_BASE_URL` and the mock's log rather than the token variable. The recipe also sets `ANTHROPIC_BASE_URL` to the mock so that a bridge without the credential proxy still stays local; the proxy replaces it.
@@ -42,7 +42,7 @@ All calls go through the Nest API with the admin session cookie from `POST /api/
 
 `mock-anthropic.mjs <port> [log file]` answers `HEAD`/`GET` with `200 {}`, `POST /v1/messages/count_tokens`, and `POST /v1/messages` in Anthropic's streaming SSE format (`message_start` with usage, `content_block_start`, `text_delta` / `input_json_delta`, `content_block_stop`, `message_delta` with `stop_reason`, `message_stop`) or as plain JSON when `stream` is false. Every request's method, path and auth headers go to the log; unknown paths get a 404 and show up there, which is how to find what a new Claude Code release calls.
 
-The scripted agent counts `tool_result` blocks: with none it says `Checking the container.` and runs one `Bash` inspection command (or `sleep 600` when the prompt contains `SLEEP`); afterwards it replies `RESULT:` followed by the tool output. Requests without tools get a short text reply.
+The scripted agent counts `tool_result` blocks: with none it says `Checking the container.` and runs one `Bash` inspection command (or the two sleeps of step 8 when the prompt contains `SLEEP`); afterwards it replies `RESULT:` followed by the tool output. Requests without tools get a short text reply.
 
 To check the mock against the CLI alone, run in the built image as `node`:
 

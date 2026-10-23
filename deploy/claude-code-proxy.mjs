@@ -7,6 +7,8 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 
 // Never forwarded: the client's credential, and hop-by-hop headers that belong to one connection.
 const DROPPED_REQUEST = new Set(["authorization", "x-api-key", "host", "connection", "keep-alive", "te", "trailer", "transfer-encoding", "upgrade"]);
+// The only requests that get the real credential; anything else a turn sends goes out without it.
+const MESSAGE_PATHS = /^POST \/v1\/messages(\/count_tokens)?(\?|$)/;
 const DROPPED_RESPONSE = new Set(["connection", "keep-alive", "te", "trailer", "transfer-encoding", "upgrade"]);
 
 /** The agent's Anthropic credential; a subscription token wins over an API key. */
@@ -47,6 +49,11 @@ export async function startCredentialProxy({ credential, upstream = "https://api
 
   const server = createServer((req, res) => {
     const bearer = /^Bearer (.+)$/i.exec(req.headers.authorization ?? "")?.[1];
+    if (!/^\/[^\s]*$/.test(req.url) || /(^|\/|%2f)(\.|%2e){2}(\/|%2f|\?|$)/i.test(req.url.split("?")[0])) {
+      req.resume();
+      sendError(res, 400, "invalid_request_error", "Invalid request path.");
+      return;
+    }
     // Claude Code's HEAD /api/hello check carries no credential; it is forwarded without one.
     const anonymous = req.headers.authorization === undefined && req.headers["x-api-key"] === undefined;
     if (!anonymous && !same(bearer, dummy) && !same(req.headers["x-api-key"], dummy)) {
@@ -56,7 +63,7 @@ export async function startCredentialProxy({ credential, upstream = "https://api
     }
     const outgoing = send({
       protocol: target.protocol, hostname: target.hostname, port: target.port || undefined, agent,
-      method: req.method, path: `${prefix}${req.url}`, headers: forwardedHeaders(req.headers, anonymous ? undefined : credential),
+      method: req.method, path: `${prefix}${req.url}`, headers: forwardedHeaders(req.headers, anonymous || !MESSAGE_PATHS.test(`${req.method} ${req.url}`) ? undefined : credential),
     }, (upstreamRes) => {
       const headers = Object.fromEntries(Object.entries(upstreamRes.headers).filter(([name]) => !DROPPED_RESPONSE.has(name)));
       res.writeHead(upstreamRes.statusCode, upstreamRes.statusMessage, headers);

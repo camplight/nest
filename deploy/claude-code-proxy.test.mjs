@@ -26,7 +26,9 @@ async function proxyFor(credential, upstream) {
 
 function send(url, {method = 'POST', path = '/v1/messages?beta=true', headers = {}, body} = {}) {
   return new Promise((done, fail) => {
-    const req = request(`${url}${path}`, {method, headers}, res => {
+    // Options rather than a URL string, which would normalise `..` before sending.
+    const {hostname, port} = new URL(url);
+    const req = request({hostname, port, path, method, headers}, res => {
       let text = ''; res.setEncoding('utf8'); res.on('data', chunk => { text += chunk; });
       res.on('end', () => done({status:res.statusCode, headers:res.headers, body:text}));
     });
@@ -111,6 +113,26 @@ describe('credential proxy', () => {
     const proxy = await proxyFor({kind:'oauth', value:'real-oauth'}, upstream.url);
     expect((await send(proxy.url, {method:'HEAD', path:'/api/hello', headers:{authorization:`Bearer ${proxy.dummy}`}})).status).toBe(204);
     expect(upstream.seen).toMatchObject([{method:'HEAD', url:'/api/hello'}]);
+  });
+
+  it('adds the credential only to message requests, so other endpoints never see it', async () => {
+    const upstream = await fakeUpstream((_req, res) => { res.writeHead(200); res.end('{}'); });
+    const proxy = await proxyFor({kind:'oauth', value:'real-oauth'}, upstream.url);
+    const auth = {authorization:`Bearer ${proxy.dummy}`};
+    await send(proxy.url, {path:'/v1/messages?beta=true', headers:auth});
+    await send(proxy.url, {path:'/v1/messages/count_tokens?beta=true', headers:auth});
+    await send(proxy.url, {method:'GET', path:'/api/oauth/profile', headers:auth});
+    await send(proxy.url, {method:'GET', path:'/v1/messages', headers:auth});
+    expect(upstream.seen.map(r => r.headers.authorization ?? null)).toEqual(['Bearer real-oauth', 'Bearer real-oauth', null, null]);
+  });
+
+  it('refuses request targets that leave the upstream prefix', async () => {
+    const upstream = await fakeUpstream();
+    const proxy = await proxyFor({kind:'oauth', value:'real-oauth'}, `${upstream.url}/prefix`);
+    for (const path of ['/../v1/messages', '/v1/%2e%2e/messages', '/v1/..%2fx']) {
+      expect((await send(proxy.url, {path, headers:{authorization:`Bearer ${proxy.dummy}`}})).status).toBe(400);
+    }
+    expect(upstream.seen).toHaveLength(0);
   });
 
   it('passes credential-free requests such as Claude Code\'s HEAD /api/hello through without adding the credential', async () => {

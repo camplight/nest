@@ -232,7 +232,7 @@ fi
 # 8. A turn timeout ends Claude Code and its tool processes.
 if STOP_CHANNEL="$(start_turn ClaudeStop "$AGENTS_RUNNER" 20000 "SLEEP")" && wait_turn ClaudeStop "$STOP_CHANNEL" 60; then
   sleep 12 # the bridge's kill grace period
-  left="$(inside sh -c 'for p in /proc/[0-9]*; do tr "\0" " " <"$p/cmdline" 2>/dev/null; echo; done' | grep -E 'sleep 600|(^|/)claude( |$)' || true)"
+  left="$(inside sh -c 'for p in /proc/[0-9]*; do tr "\0" " " <"$p/cmdline" 2>/dev/null; echo; done' | grep -E 'sleep 60[01]|(^|/)claude( |$)' || true)"
   if ! grep -q "stopped before it finished" "$WORK/ClaudeStop.txt"; then record "8 timeout stops Claude Code" FAIL "no stop line: $(head -c 80 "$WORK/ClaudeStop.txt" | tr '\n' ' ')"
   elif [[ -n "$left" ]]; then record "8 timeout stops Claude Code" FAIL "left running: $(echo "$left" | tr '\n' ' ' | cut -c1-80)"
   else record "8 timeout stops Claude Code" PASS; fi

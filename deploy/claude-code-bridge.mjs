@@ -1,8 +1,8 @@
 // Wrapped runtime bridge for Claude Code. See docs/CLAUDE_CODE_AGENT.md.
 // Each Nest session key (agent + channel) resumes its own Claude Code session.
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, existsSync, readFileSync, readdirSync, writeFileSync, renameSync, rmSync, lstatSync, lchownSync, realpathSync, openSync, fchmodSync, writeSync, closeSync, constants } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, readdirSync, writeFileSync, renameSync, rmSync, lstatSync, lchownSync, chmodSync, realpathSync, openSync, fchmodSync, writeSync, closeSync, constants } from "node:fs";
 import { basename, dirname, join, normalize, relative, resolve, isAbsolute, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readCredential, startCredentialProxy } from "./claude-code-proxy.mjs";
@@ -20,10 +20,15 @@ const PASSTHROUGH_ENV = [
   "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "NODE_EXTRA_CA_CERTS",
 ];
 
-/** Names an agent's tool secrets can never take: Nest, engine, Anthropic and bridge-controlled variables. */
+/**
+ * Names an agent's tool secrets can never take: Nest, engine, Anthropic and bridge-controlled
+ * variables, and loader or runtime variables, because the runner also injects the secrets into
+ * the bridge, which runs as root.
+ */
 export function isProtectedName(name) {
   const upper = String(name).toUpperCase();
-  return /^(NEST_|ORGOPS_|ANTHROPIC_|CLAUDE_)/.test(upper) || PASSTHROUGH_ENV.includes(upper) || upper === "DISABLE_AUTOUPDATER";
+  return /^(NEST_|ORGOPS_|ANTHROPIC_|CLAUDE_|NODE_|LD_|DYLD_)/.test(upper) || PASSTHROUGH_ENV.includes(upper)
+    || ["DISABLE_AUTOUPDATER", "BASH_ENV", "ENV"].includes(upper);
 }
 
 /** The listed tool secrets that are set, minus protected names. */
@@ -57,7 +62,7 @@ const PROCESS_SCAN_MS = 500;
 
 const list = (value) => (value ? value.split(",").map((item) => item.trim()).filter(Boolean) : []);
 
-const inside = (parent, child) => { const path = relative(parent, child); return !path || (!path.startsWith("..") && !isAbsolute(path)); };
+const inside = (parent, child) => { const path = relative(parent, child); return !path || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path)); };
 
 /** The real location of a path whose tail may not exist yet; the runner reaches workspaces through a link. */
 function realPath(path) {
@@ -102,8 +107,12 @@ export function readBridgeConfig(env = process.env, { nestRoot = NEST_ROOT } = {
   const uid = account("NEST_CLAUDE_UID");
   const gid = account("NEST_CLAUDE_GID") ?? uid;
   if (uid !== undefined && permissions !== "full") throw Error("NEST_CLAUDE_UID is for the full profile, where the account is the boundary");
+  // The workspace sandbox protects the runner account's HOME; another home would be left readable.
+  if ((env.NEST_CLAUDE_HOME || env.NEST_CLAUDE_CONFIG_DIR) && permissions !== "full") {
+    throw Error("NEST_CLAUDE_HOME and NEST_CLAUDE_CONFIG_DIR are for the full profile");
+  }
   // Claude Code refuses bypassPermissions as root; say how to fix it instead of failing every turn.
-  if (permissions === "full" && uid === undefined && process.getuid?.() === 0) {
+  if (permissions === "full" && (uid === 0 || (uid === undefined && process.getuid?.() === 0))) {
     throw Error("NEST_CLAUDE_PERMISSIONS=full needs a non-root account: set NEST_CLAUDE_UID (and NEST_CLAUDE_HOME)");
   }
   const productDb = resolve(nestRoot, env.NEST_PRODUCT_DB_PATH || ".nest-product/nest.sqlite");
@@ -113,9 +122,11 @@ export function readBridgeConfig(env = process.env, { nestRoot = NEST_ROOT } = {
   }
   if (workspace) {
     const real = realPath(workspace);
-    // Reads are allowed inside the workspace, so it must not contain what the sandbox protects.
-    if (permissions !== "full" && [nestRoot, stateDir, home].filter(Boolean).some((path) => inside(real, realPath(path)))) {
-      throw Error("NEST_CLAUDE_PERMISSIONS needs a workspace that does not contain HOME, the Nest checkout or the session folder");
+    // Claude Code can read and change its whole workspace, so it must not contain Nest's data or
+    // the session folder (nor, under the sandbox, the runner account's HOME).
+    const contained = [nestRoot, stateDir, env.ORGOPS_PROJECT_ROOT, ...(permissions === "full" ? [] : [home])].filter(Boolean);
+    if (contained.some((path) => inside(real, realPath(path)))) {
+      throw Error("NEST_CLAUDE_PERMISSIONS needs a workspace that does not contain HOME, the Nest checkout, the engine data or the session folder");
     }
     // Claude Code owns its workspace, so it must not sit in the session state or either database's folder.
     const protectedParents = [stateDir, env.ORGOPS_PROJECT_ROOT, dirname(productDb)].filter(Boolean);
@@ -211,6 +222,29 @@ function ensureOwnedDir(dir, { uid, gid }) {
   if (uid !== undefined && stat.isDirectory() && stat.uid !== uid) lchownSync(dir, uid, gid);
 }
 
+/**
+ * With a separate account, the runner still writes chat attachments into the workspace as root
+ * (`.orgops-wrapped-attachments`), creating folders and following links. The workspace therefore
+ * stays owned by the bridge's account and Claude Code works in `work/` below it, so it cannot
+ * redirect those writes. Returns the folder Claude Code runs in.
+ */
+export function prepareWorkspace({ workspace, uid, gid }) {
+  if (uid === undefined) { mkdirSync(workspace, { recursive: true, mode: 0o700 }); return workspace; }
+  const owner = process.geteuid?.() ?? uid;
+  mkdirSync(workspace, { recursive: true, mode: 0o755 });
+  const stat = lstatSync(workspace);
+  if (!stat.isDirectory()) throw Error("NEST_CLAUDE_UID needs the agent workspace to be a folder");
+  if (stat.uid !== owner) lchownSync(workspace, owner, process.getegid?.() ?? gid);
+  chmodSync(workspace, 0o755);
+  const attachments = join(workspace, ".orgops-wrapped-attachments");
+  const existing = (() => { try { return lstatSync(attachments); } catch { return undefined; } })();
+  // Planted by an earlier turn: keep it for inspection, but out of the runner's way.
+  if (existing && (!existing.isDirectory() || existing.uid !== owner)) renameSync(attachments, `${attachments}.untrusted-${Date.now()}`);
+  const work = join(workspace, "work");
+  ensureOwnedDir(work, { uid, gid });
+  return work;
+}
+
 /** Run file work in Claude's home with its account's rights, so a link it planted cannot redirect root's writes. */
 function asAccount({ uid, gid }, action) {
   if (uid === undefined || uid === 0 || process.geteuid?.() !== 0) return action();
@@ -242,7 +276,7 @@ export function writeSecretFiles({ env, mappings, home, uid, gid }) {
 
 /** Consume Claude Code stream-json; publish only assistant text, never thinking, tool input or tool output. */
 export function createClaudeOutput({ publishProgress, onProgressError = () => {} }) {
-  let buffer = "", sessionId, result, candidate, segment = 0, lastMessageId, assistantError;
+  let buffer = "", sessionId, result, candidate, segment = 0, lastMessageId, assistantError, answered = false;
   let pending = Promise.resolve(), progressFailed = false;
   function publishCandidate() {
     if (!candidate) return;
@@ -271,6 +305,7 @@ export function createClaudeOutput({ publishProgress, onProgressError = () => {}
     if (event.type === "user") { publishCandidate(); return; }
     if (event.type !== "assistant" || !event.message || !Array.isArray(event.message.content)) return;
     if (typeof event.error === "string") assistantError = event.error;
+    else answered = true;
     const messageId = typeof event.message.id === "string" ? event.message.id : "";
     for (const block of event.message.content) {
       if (block?.type === "text" && typeof block.text === "string" && block.text.trim()) {
@@ -305,7 +340,8 @@ export function createClaudeOutput({ publishProgress, onProgressError = () => {}
         finalText: success ? result.result : "",
         failure: !success,
         // Zero turns means Claude Code rejected the request before running it.
-        started: Boolean(result) && result.num_turns !== 0,
+        // A turn stopped by its limit has no result, but its history is saved as it runs.
+        started: (Boolean(result) && result.num_turns !== 0) || answered,
         errorStatus: result?.api_error_status ?? undefined,
         subtype: result?.subtype,
         // Claude Code reports sign-in and limit failures here, not on stderr.
@@ -349,10 +385,19 @@ function readState(path) {
   try { return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {}; } catch { return {}; }
 }
 
-/** The Linux process table from /proc; empty where there is none (macOS keeps group signalling only). */
-export function readProcessTable(proc = "/proc") {
+/** `ps` where there is no /proc (macOS): no session ids, so a process group stands in for its session. */
+function readPsTable() {
+  try {
+    return execFileSync("ps", ["-A", "-o", "pid=,ppid=,pgid=,lstart="], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+      .split("\n").map((line) => /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line)).filter(Boolean)
+      .map(([, pid, ppid, pgrp, start]) => ({ pid: Number(pid), ppid: Number(ppid), pgrp: Number(pgrp), session: Number(pgrp), start }));
+  } catch { return []; }
+}
+
+/** The process table from /proc, or from `ps` where there is none. */
+export function readProcessTable(proc = "/proc", { fallback = readPsTable } = {}) {
   let names;
-  try { names = readdirSync(proc); } catch { return []; }
+  try { names = readdirSync(proc); } catch { return fallback(); }
   const rows = [];
   for (const name of names) {
     if (!/^\d+$/.test(name)) continue;
@@ -404,12 +449,15 @@ export function createProcessTracker(rootPid, { list = readProcessTable, kill = 
   };
 }
 
-function runClaude(config, sessionId, { env, publishProgress, onProgressError, spawnImpl, killGraceMs, proxyEnv }) {
+function runClaude(config, sessionId, { env, publishProgress, onProgressError, spawnImpl, killGraceMs, proxyEnv, stop, reaper }) {
   return new Promise((done) => {
     const output = createClaudeOutput({ publishProgress, onProgressError });
     let stderr = "", missingBinary = false, closed = false, stopped = false, killTimer;
-    const child = spawnImpl(config.bin, claudeArgs(config, sessionId), {
-      cwd: config.workspace,
+    // Under a subreaper, tools whose shell exits are reparented to it rather than to init, so the
+    // tracker can still tell they belong to this turn.
+    const [command, ...args] = [...(reaper ? [reaper, "-s", "--"] : []), config.bin, ...claudeArgs(config, sessionId)];
+    const child = spawnImpl(command, args, {
+      cwd: config.cwd ?? config.workspace,
       env: { ...claudeEnvironment(env, config), ...proxyEnv },
       stdio: ["pipe", "pipe", "pipe"],
       // Its own process group, so tool subprocesses are stopped with it.
@@ -429,7 +477,8 @@ function runClaude(config, sessionId, { env, publishProgress, onProgressError, s
       killTimer ??= setTimeout(() => { if (!closed) killGroup("SIGKILL"); }, killGraceMs);
       killTimer.unref?.();
     };
-    for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, forward);
+    stop.forward = forward;
+    if (stop.requested) forward("SIGTERM");
     child.stdin.on("error", () => {});
     child.stdin.end(config.message);
     child.stdout.setEncoding("utf8");
@@ -440,9 +489,11 @@ function runClaude(config, sessionId, { env, publishProgress, onProgressError, s
     child.on("error", (error) => { if (error.code === "ENOENT") missingBinary = true; });
     child.on("close", async (code) => {
       closed = true;
+      // tini reports a program it could not start with 127.
+      if (reaper && code === 127 && /exec .* failed/i.test(stderr)) missingBinary = true;
       clearTimeout(killTimer);
       clearInterval(scanTimer);
-      for (const signal of ["SIGTERM", "SIGINT"]) process.off(signal, forward);
+      stop.forward = undefined;
       // Background tool processes must not outlive the turn that started them.
       if (child.pid) killGroup("SIGKILL");
       done({ code, stderr, missingBinary, stopped, output: await output.finish() });
@@ -450,8 +501,13 @@ function runClaude(config, sessionId, { env, publishProgress, onProgressError, s
   });
 }
 
+/** tini, shipped in the Nest image, as a child subreaper on Linux; elsewhere the process scan alone. */
+function defaultReaper() {
+  return process.platform === "linux" && existsSync("/usr/bin/tini") ? "/usr/bin/tini" : undefined;
+}
+
 /** Run one Nest turn. Returns the process exit code; prints only the final reply or one diagnostic line. */
-export async function runBridge({ env = process.env, spawnImpl = spawn, publishProgress, stdout = console.log, stderr = console.error, killGraceMs = KILL_GRACE_MS, nestRoot = NEST_ROOT } = {}) {
+export async function runBridge({ env = process.env, spawnImpl = spawn, publishProgress, stdout = console.log, stderr = console.error, killGraceMs = KILL_GRACE_MS, nestRoot = NEST_ROOT, reaper = defaultReaper() } = {}) {
   let config;
   try { config = readBridgeConfig(env, { nestRoot }); } catch (error) {
     if (!/NEST_CLAUDE_/.test(error?.message)) throw error;
@@ -471,31 +527,40 @@ export async function runBridge({ env = process.env, spawnImpl = spawn, publishP
       publishProgress = async () => {};
     }
   }
-  let progressWarned = false;
-  const onProgressError = () => {
-    if (!progressWarned) stderr("Progress updates are unavailable; the final reply will still be returned.");
-    progressWarned = true;
-  };
+  // Reported only with a reply: a failed turn gets exactly one line.
+  let progressFailed = false;
+  const onProgressError = () => { progressFailed = true; };
+  // The runner's SIGTERM can arrive at any point of the turn, not only while Claude Code runs.
+  const stop = { requested: false, forward: undefined };
+  const onSignal = (signal) => { stop.requested = true; stop.forward?.(signal); };
+  for (const signal of ["SIGTERM", "SIGINT"]) process.on(signal, onSignal);
   mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
-  for (const dir of [config.workspace, config.home, config.configDir]) ensureOwnedDir(dir, config);
+  config.cwd = prepareWorkspace(config);
+  for (const dir of [config.home, config.configDir]) ensureOwnedDir(dir, config);
   // Rewritten every turn, so rotating or removing a secret in Admin takes effect on the next one.
   if (config.secretFiles.length) writeSecretFiles({ env, mappings: config.secretFiles, home: config.home, uid: config.uid, gid: config.gid });
   const statePath = join(config.stateDir, `${createHash("sha256").update(config.sessionKey).digest("hex")}.json`);
   const credential = readCredential(env);
   const proxy = credential ? await startCredentialProxy({ credential, upstream: env.NEST_CLAUDE_UPSTREAM_URL || undefined }) : undefined;
   try {
-    return await runTurn({ config, statePath, stdout, stderr, publishProgress, deps: { env, publishProgress, onProgressError, spawnImpl, killGraceMs, proxyEnv: proxy?.childEnv } });
+    return await runTurn({ config, statePath, stdout, stderr, publishProgress, stop, progressFailed: () => progressFailed,
+      deps: { env, publishProgress, onProgressError, spawnImpl, killGraceMs, proxyEnv: proxy?.childEnv, stop, reaper } });
   } finally {
     await proxy?.close();
+    for (const signal of ["SIGTERM", "SIGINT"]) process.off(signal, onSignal);
   }
 }
 
-async function runTurn({ config, statePath, stdout, stderr, publishProgress, deps }) {
+async function runTurn({ config, statePath, stdout, stderr, publishProgress, stop, progressFailed, deps }) {
   const state = readState(statePath);
   let run = await runClaude(config, state.sessionId, deps);
-  if (state.sessionId && run.code !== 0 && !run.output.started && MISSING_SESSION.test(run.stderr)) {
+  if (state.sessionId && !stop.requested && run.code !== 0 && !run.output.started && MISSING_SESSION.test(run.stderr)) {
     // Claude Code's local history for this chat is gone; continue in a new session rather than failing forever.
-    await publishProgress({ id: `session-reset:${state.sessionId}`, text: "Earlier Claude Code history for this chat is unavailable, so this reply starts a new session." }).catch(() => {});
+    const missing = state.sessionId;
+    // Forgotten even if the new session fails too, so later turns do not repeat the failed resume.
+    rmSync(statePath, { force: true });
+    state.sessionId = undefined;
+    await publishProgress({ id: `session-reset:${missing}`, text: "Earlier Claude Code history for this chat is unavailable, so this reply starts a new session." }).catch(() => {});
     run = await runClaude(config, undefined, deps);
   }
   const { output } = run;
@@ -505,10 +570,11 @@ async function runTurn({ config, statePath, stdout, stderr, publishProgress, dep
     writeFileSync(`${statePath}.tmp`, JSON.stringify({ sessionId: output.sessionId }), { mode: 0o600 });
     renameSync(`${statePath}.tmp`, statePath);
   }
-  if (run.code !== 0 || output.failure || !output.finalText.trim() || run.stopped) {
-    stderr(describeFailure({ ...run, bin: config.bin }));
+  if (run.code !== 0 || output.failure || !output.finalText.trim() || run.stopped || stop.requested) {
+    stderr(describeFailure({ ...run, stopped: run.stopped || stop.requested, bin: config.bin }));
     return 1;
   }
+  if (progressFailed()) stderr("Progress updates are unavailable; the final reply will still be returned.");
   stdout(output.finalText);
   return 0;
 }
