@@ -1,0 +1,107 @@
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join,dirname} from 'node:path';
+import {createRequire} from 'node:module';
+import {once} from 'node:events';
+import {serve} from '@hono/node-server';
+import {chromium} from 'playwright';
+import {createEngine} from './engine';
+import {createOrgOpsClient} from '../../packages/orgops-client/src/index';
+import {createApp} from '../../apps/api/src/app';
+import {attachEngineWebSocket} from '../../apps/api/src/websocket';
+import {createClaudeOutput} from '../../deploy/claude-code-bridge.mjs';
+import {createWrappedProgressPublisher} from '../../packages/orgops-client/src/wrapped-progress.mjs';
+
+const dir=mkdtempSync(join(tmpdir(),'nest-claude-code-progress-'));
+const screenshots=mkdtempSync(join(tmpdir(),'nest-claude-code-progress-screenshots-'));
+const engine=createEngine({dbPath:join(dir,'engine.sqlite'),projectRoot:dir,dataDir:dir,adminUser:'demo-owner',adminPass:'password',runnerToken:'fixture-runner'});
+const upstream=serve({fetch:engine.app.fetch,port:0});engine.injectWebSocket(upstream);await once(upstream,'listening');
+const engineUrl=`http://127.0.0.1:${upstream.address().port}`;
+const product=createApp({orgops:createOrgOpsClient(engineUrl),dbPath:join(dir,'product.sqlite'),connections:null});
+const api=serve({fetch:product.app.fetch,port:0});attachEngineWebSocket(api,engineUrl);await once(api,'listening');
+const apiUrl=`http://127.0.0.1:${api.address().port}`;
+const req=createRequire(join(process.cwd(),'apps/user-ui/package.json'));
+const vite=spawn(process.execPath,[join(dirname(req.resolve('vite/package.json')),'bin/vite.js'),'--host','127.0.0.1','--port','5326','--strictPort'],{cwd:join(process.cwd(),'apps/user-ui'),stdio:'pipe'});
+vite.stderr.on('data',chunk=>process.stderr.write(chunk));
+const base='http://127.0.0.1:5326';let browser;
+try{
+  await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error('Vite timeout')),20000);vite.on('error',reject);vite.on('exit',code=>reject(Error(`Vite exited ${code}`)));vite.stdout.on('data',c=>{if(c.toString().includes('5326')){clearTimeout(timeout);resolve();}});});
+  const post=async(path,body,headers)=>{const response=await fetch(apiUrl+path,{method:'POST',headers,body:JSON.stringify(body)});assert(response.ok,await response.clone().text());return response;};
+  const login=await post('/api/auth/login',{username:'demo-owner',password:'password'},{'content-type':'application/json'});
+  const cookie=login.headers.getSetCookie()[0].split(';')[0],headers={cookie,'content-type':'application/json'};
+  const runnerHeaders={'content-type':'application/json','x-nest-runner-token':'fixture-runner'};
+  await post('/api/agents',{name:'Claude',icon:'pip',visibility:'PUBLIC',mode:'WRAPPED',modelId:'wrapped:none',workspacePath:join(dir,'workspace'),wrappedConfig:{kind:'claude-code',harness:'command',runtime:{command:'exec node',args:['deploy/claude-code-bridge.mjs'],parse:'text',timeoutMs:0}}},headers);
+  const project=await(await post('/api/projects',{id:crypto.randomUUID(),name:'Release preparation',description:'Synthetic test project',members:[{subscriberType:'AGENT',subscriberId:'Claude'}]},headers)).json();
+  const trigger=await(await post('/api/events',{type:'message.created',source:'human:demo-owner',channelId:project.channelId,payload:{text:'@Claude check the release',targetAgentName:'Claude'}},headers)).json();
+  const emit=async(type,payload)=>post('/api/events',{type,source:'agent:Claude',channelId:project.channelId,payload},runnerHeaders);
+  await emit('agent.turn.started',{triggerEventId:trigger.id});
+  const output=createClaudeOutput({publishProgress:createWrappedProgressPublisher({phase:'wrapped-progress',env:{ORGOPS_WRAPPED_AGENT_NAME:'Claude',ORGOPS_WRAPPED_CHANNEL_ID:project.channelId,ORGOPS_WRAPPED_TRIGGER_EVENT_ID:trigger.id,ORGOPS_RUNNER_TOKEN:'fixture-runner',ORGOPS_API_URL:engineUrl}})});
+  const assistant=(id,content)=>({type:'assistant',session_id:'session',message:{id,content:[content]}});
+  const toolResult={type:'user',session_id:'session',message:{content:[{type:'tool_result',tool_use_id:'tool',content:'private tool output'}]}};
+  const write=event=>output.write(JSON.stringify(event)+'\n');
+  browser=await chromium.launch();
+  const context=await browser.newContext({viewport:{width:1440,height:1000}});
+  await context.addCookies([{name:'nest_session',value:cookie.slice('nest_session='.length),url:base,httpOnly:true}]);
+  await context.addInitScript(ws=>{globalThis.__NEST_USER_UI_CONFIG__={wsBaseUrl:ws};},apiUrl.replace('http:','ws:')+'/ws');
+  await context.route('**/api/**',async route=>{
+    const request=route.request(),url=new URL(request.url());
+    const response=await fetch(apiUrl+url.pathname+url.search,{method:request.method(),headers:request.headers(),...(request.postDataBuffer()?{body:request.postDataBuffer()}:{}),redirect:'manual'});
+    await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:Buffer.from(await response.arrayBuffer())});
+  });
+  const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(15000);
+  await page.goto(base+'/?view=projects&project='+project.id);
+  await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Agent is thinking',exact:true}).waitFor();
+  // The browser is already open: the real engine -> gateway WS delivers this update.
+  write({type:'system',subtype:'init',session_id:'session'});
+  write(assistant('m1',{type:'thinking',thinking:'private reasoning'}));
+  write(assistant('m1',{type:'text',text:'Checking the release on desktop and mobile.'}));
+  write(assistant('m1',{type:'tool_use',id:'tool',name:'Bash',input:{command:'private command'}}));
+  await page.getByRole('status').filter({hasText:'Checking the release on desktop and mobile.'}).waitFor();
+  assert.equal(await page.locator('.message-agent').count(),0,'Progress is not another final chat message');
+  // Human follow-ups can split trace groups; only the latest turn update stays visible.
+  await post('/api/events',{type:'message.created',source:'human:demo-owner',channelId:project.channelId,payload:{text:'How is it going?'}},headers);
+  await page.getByText('How is it going?',{exact:true}).waitFor();
+  write(toolResult);
+  write(assistant('m2',{type:'text',text:'Product checks passed. Waiting for the remaining release checks.'}));
+  write(assistant('m2',{type:'tool_use',id:'tool-2',name:'Read',input:{file_path:'private path'}}));
+  const progress=page.locator('.trace-progress');
+  await progress.filter({hasText:'Product checks passed.'}).waitFor();
+  assert.equal(await progress.count(),1);assert.equal(await page.getByText('Checking the release on desktop and mobile.',{exact:true}).count(),0);
+  for(const secret of ['private reasoning','private command','private tool output','private path'])assert.equal(await page.getByText(secret).count(),0,`${secret} must not reach the chat`);
+  await page.setViewportSize({width:390,height:844});
+  await progress.scrollIntoViewIfNeeded();
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  const bounds=await progress.boundingBox();assert(bounds&&bounds.x>=0&&bounds.x+bounds.width<=390);
+  await page.reload();await page.locator('.trace-progress').filter({hasText:'Product checks passed.'}).waitFor();
+  // A final message is held for the runner, then published once through its normal path.
+  write(toolResult);
+  write(assistant('m3',{type:'text',text:'All checks passed. The release is ready.'}));
+  write({type:'result',subtype:'success',is_error:false,num_turns:3,result:'All checks passed. The release is ready.',session_id:'session'});
+  assert.equal((await output.finish()).finalText,'All checks passed. The release is ready.');
+  await emit('message.created',{text:'All checks passed. The release is ready.'});
+  await emit('agent.turn.completed',{triggerEventId:trigger.id});
+  await page.getByText('All checks passed. The release is ready.',{exact:true}).waitFor();
+  await page.waitForFunction(()=>document.querySelectorAll('.trace-progress').length===0);
+  assert.equal(await page.locator('.message-agent').count(),1);
+  await page.reload();await page.getByText('All checks passed. The release is ready.',{exact:true}).waitFor();
+  assert.equal(await page.locator('.trace-progress').count(),0,'Completed progress stays cleared after refresh');
+  assert.deepEqual(errors,[]);
+  // Capture the final implementation after assertions, with a second synthetic active turn.
+  const next=await(await post('/api/events',{type:'message.created',source:'human:demo-owner',channelId:project.channelId,payload:{text:'@Claude prepare the next release'}},headers)).json();
+  await emit('agent.turn.started',{triggerEventId:next.id});
+  await createWrappedProgressPublisher({phase:'wrapped-progress',env:{ORGOPS_WRAPPED_AGENT_NAME:'Claude',ORGOPS_WRAPPED_CHANNEL_ID:project.channelId,ORGOPS_WRAPPED_TRIGGER_EVENT_ID:next.id,ORGOPS_RUNNER_TOKEN:'fixture-runner',ORGOPS_API_URL:engineUrl}})({id:'preview',text:'Preparing the next release. I’ll keep you updated while the checks run.'});
+  await page.locator('.trace-progress').filter({hasText:'Preparing the next release.'}).waitFor();
+  await page.locator('.trace-progress').scrollIntoViewIfNeeded();
+  await page.screenshot({path:join(screenshots,'progress-mobile.png'),fullPage:true});
+  await page.setViewportSize({width:1440,height:1000});
+  await page.locator('.trace-progress').scrollIntoViewIfNeeded();
+  await page.screenshot({path:join(screenshots,'progress-desktop.png'),fullPage:true});
+  console.log(`PASS: interim Claude Code text before completion, real engine HTTP/WS, interleaved follow-ups, only latest progress, mobile wrapping, refresh recovery and one final reply. Screenshots: ${screenshots}`);
+}finally{
+  await browser?.close();vite.kill('SIGTERM');
+  await new Promise(resolve=>api.close(resolve));await new Promise(resolve=>upstream.close(resolve));
+  product.store.db.close();engine.db.close();rmSync(dir,{recursive:true,force:true});
+}

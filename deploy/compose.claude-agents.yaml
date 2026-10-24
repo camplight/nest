@@ -1,0 +1,31 @@
+# Optional agent container for Claude Code agents, added next to compose.yaml:
+#   docker compose -f compose.yaml -f compose.claude-agents.yaml up -d
+# It runs only an OrgOps runner, without Nest's data volumes or .env, so agents
+# cannot read Nest's databases or admin credentials. See docs/CLAUDE_CODE_AGENT.md.
+services:
+  nest-agents:
+    image: ${NEST_IMAGE:-nest:deploy-20260923}
+    restart: unless-stopped
+    depends_on:
+      nest:
+        condition: service_healthy
+    environment:
+      NEST_COMPONENTS: runner
+      NEST_API_URL: http://nest:8787
+      NEST_RUNNER_TOKEN: ${NEST_RUNNER_TOKEN:?set NEST_RUNNER_TOKEN for the agent runner}
+      NEST_RUNNER_ID_FILE: /app/.nest-data/runner-id
+      # Admin's Claude Code option assigns new agents to the runner with this name.
+      NEST_RUNNER_NAME: nest-agents
+    volumes:
+      - nest-agents-data:/app/.nest-data
+      # Claude Code's home: its config, history, and secret files such as ~/.ssh. It is the
+      # node account's passwd home, which ssh uses regardless of HOME.
+      - nest-agents-home:/home/node
+    # The image's health check probes the API, which this container does not run.
+    healthcheck:
+      disable: true
+    # Agent turns are separate Node processes; keep them from starving the Nest container.
+    mem_limit: ${NEST_AGENTS_MEMORY:-2g}
+volumes:
+  nest-agents-data:
+  nest-agents-home:
