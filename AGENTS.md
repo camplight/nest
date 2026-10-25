@@ -66,7 +66,10 @@ maintain CHANGELOG.md by hand. Never expose credentials in logs or commits.
 
 Include screenshots only when a PR changes visible UI. Capture the implemented
 screens on desktop and mobile; include before/after views when useful. Use images
-accessible to GitHub reviewers, not local file paths. Label test data and design
+uploaded directly to GitHub PR attachments, not committed to the repository. Keep
+captures in a temporary directory outside the checkout and use `gh pr edit --attach`
+(or the browser upload) to embed them. Do not use repository branches, Git LFS, or
+committed screenshot folders as attachment storage. Label test data and design
 references accurately, exclude credentials and private tenant content, and capture
 the final implementation after checks pass.
 
