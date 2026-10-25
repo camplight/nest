@@ -307,6 +307,7 @@ describe('project workflow against the unchanged engine',()=>{
   });
 
   async function namingSetup(namer:import('./project-naming').ProjectNamer) {
+    vi.stubEnv('NEST_RUNNER_TOKEN','runner-secret');
     await request('/api/models',{id:'naming-model',provider:'openrouter',modelName:'fixture',enabled:true});
     product.store.close();product=createApp({orgops:client,dbPath:join(dir,'product.sqlite'),projectNamingModelId:'naming-model',projectNamer:namer});
     const messageRequestId=randomUUID();
@@ -318,7 +319,11 @@ describe('project workflow against the unchanged engine',()=>{
     const body=await namingSetup(namer);
     const path=`/api/projects/${projectId}/suggest-details`;
     expect((await request(path,{...body,messageRequestId:randomUUID()})).status).toBe(400);
-    const result=await request(path,body);expect(await result.json()).toEqual({status:'named'});
+    expect(await (await request(path,body)).json()).toEqual({status:'pending'});
+    await product.projectNaming.tick();
+    const firstJob=product.store.db.prepare('SELECT request_id FROM product_project_naming WHERE project_id=?').get(projectId);
+    await request('/api/messages',{id:randomUUID(),channelId,text:'Later unrelated request'});
+    expect(product.store.db.prepare('SELECT request_id FROM product_project_naming WHERE project_id=?').get(projectId)).toEqual(firstJob);
     expect(namer).toHaveBeenCalledWith(expect.objectContaining({model:'openrouter:fixture',text:'Plan an autumn website launch with a clear owner review.'}));
     expect(product.store.projects.project(projectId)?.name).toBe('Autumn website launch');
     expect(await (await request(path,body)).json()).toEqual({status:'kept'});expect(namer).toHaveBeenCalledTimes(1);
@@ -329,17 +334,18 @@ describe('project workflow against the unchanged engine',()=>{
     const begun=new Promise<void>(resolve=>{started=resolve;});
     const result=new Promise<{name:string;description:string}>(resolve=>{release=resolve;});
     const body=await namingSetup(async()=>{started();return result;});
-    const pending=request(`/api/projects/${projectId}/suggest-details`,body);await begun;
+    const pending=product.projectNaming.tick();await begun;
     expect(await (await request(`/api/projects/${projectId}/suggest-details`,body)).json()).toEqual({status:'pending'});
     expect((await product.app.request(`/api/projects/${projectId}`,{method:'PATCH',headers,body:JSON.stringify({...body.expected,expected:body.expected})})).status).toBe(200);
     release({name:'AI must not overwrite',description:'Generated after the owner saved'});
-    expect(await (await pending).json()).toEqual({status:'kept'});
+    await pending;
     expect(product.store.projects.project(projectId)?.name).toBe('Launch');
   });
   it('keeps chat and fallback metadata usable on a provider failure without exposing diagnostics',async()=>{
     const body=await namingSetup(async()=>{throw Error('fixture-secret-must-not-be-returned');});
     const response=await request(`/api/projects/${projectId}/suggest-details`,body);
-    expect(await response.json()).toEqual({status:'unavailable'});
+    expect(await response.json()).toEqual({status:'pending'});
+    await product.projectNaming.tick();
     expect(product.store.projects.project(projectId)?.name).toBe('Launch');
     expect((await request(`/api/projects/${projectId}`)).status).toBe(200);
   });

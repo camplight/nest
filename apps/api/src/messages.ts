@@ -276,9 +276,19 @@ export function registerMessageRoutes(
     }
     if (!validReceipt(row, event))
       fail(409, "Message receipt does not match this send request");
-    db.prepare(
-      "UPDATE product_message_requests SET delivered_at=COALESCE(delivered_at,?) WHERE id=?",
-    ).run(Date.now(), row.id);
+    db.transaction(()=>{
+      db.prepare(
+        "UPDATE product_message_requests SET delivered_at=COALESCE(delivered_at,?) WHERE id=?",
+      ).run(Date.now(), row.id);
+      // Persist only references, never message text or a user's session credentials.
+      db.prepare(`INSERT OR IGNORE INTO product_project_naming(project_id,request_id,expected_name,expected_description)
+        SELECT p.id,r.id,p.name,p.description FROM product_projects p JOIN product_message_requests r ON r.channel_id=p.channel_id
+        WHERE r.id=? AND p.owner_id=r.sender_id AND NOT EXISTS (
+          SELECT 1 FROM product_message_requests earlier WHERE earlier.channel_id=r.channel_id
+          AND earlier.sender_id=p.owner_id AND earlier.delivered_at IS NOT NULL AND earlier.rowid<r.rowid)
+        AND NOT EXISTS (SELECT 1 FROM product_audit WHERE type IN ('audit.project.updated','audit.project.naming.applied')
+          AND json_extract(payload_json,'$.projectId')=p.id)`).run(row.id);
+    })();
     return c.json(event, 201);
   });
   routes.get("/mentions", async (c) => {

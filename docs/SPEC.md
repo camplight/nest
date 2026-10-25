@@ -253,7 +253,7 @@ New project opens an empty chat, with no engine channel or product record create
 until the first Send. Its first message supplies the initial product name (first
 nonempty line, bounded to 120 characters) and description (opening text, bounded
 to 4,000), excluding selected mention spans. These are immediate fallback labels.
-After confirmed message delivery, a separate request generates an AI name and
+After confirmed message delivery, a durable core job generates an AI name and
 project brief using the enabled instance default model (or
 `NEST_PROJECT_NAMING_MODEL_ID`). The brief includes the goal, expected outcome,
 supplied context/constraints and important open questions without inventing facts.
@@ -1112,3 +1112,40 @@ During the tour the underlying shell is inert, focus stays in the dialog, Escape
 and Skip dismiss it, and focus returns to the launch control. On phones the
 navigation opens for the spotlight and restores its prior state on dismissal.
 Resize/scroll reposition the highlight. Existing personal-agent setup is unchanged.
+
+### Durable project naming
+
+Naming is a Nest core background job, not an agent routine. On confirmed delivery
+of the first owner message through `/api/messages`, Nest atomically stores a unique
+job and delivery receipt. The browser no longer launches inference. The API polls
+once every five seconds, processing one job at a time per process. SQLite leases
+coordinate API processes sharing the same product database. Expired leases recover
+after ten minutes; a lease token fences stale results. Provider calls can repeat
+following a crash, but only one metadata update is applied.
+
+Jobs keep request references and the expected metadata snapshot, never message
+text, session cookies or provider credentials. The OrgOps adapter reads the source
+and checks project channel ownership/archive state before and after inference.
+Missing/deleted sources or changed ownership stop the job. Manual saves, including
+same-value saves, take precedence through the existing audit/CAS rule. Only the
+first delivered owner send is eligible; later conversation messages do not rename
+projects. Legacy `suggest-details` calls now report pending/unavailable without
+starting a second inference path.
+
+The worker uses the existing enabled `NEST_PROJECT_NAMING_MODEL_ID` override or
+instance default model. Select an OpenRouter registry entry to use the existing
+OpenRouter key. Keys resolve from the API environment or the configured system
+agent's encrypted environment via HTTP; no agent turn or online runner is needed.
+The source agent record must still exist with owner-human secret delegation off.
+`NEST_RUNNER_TOKEN` is required for the worker's engine metadata reads. Missing
+configuration, disabled models, timeouts, rate limits and invalid output retry
+up to five attempts with 30/60/120/240-second backoff, then keep fallback metadata.
+Operator diagnostics are the job status/attempt count in Nest product storage;
+raw provider errors are neither logged nor returned. There is no automatic bulk
+backfill or infinite retry. Failed jobs remain available for inspection.
+
+Prompts ask for a short noun-phrase title and a transformed brief, removing filler
+and preserving supplied constraints without inventing scope. JSON/schema validation
+bounds output; semantic quality still depends on the configured model. Original
+chat text remains unchanged. Existing project refresh/polling reveals new metadata.
+Attachments are not read by this routine; file-only openings use their message text.
