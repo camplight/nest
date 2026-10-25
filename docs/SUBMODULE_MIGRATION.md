@@ -476,3 +476,14 @@ publisher replacement is required.
 UI-only orientation; no engine changes, API routes, credentials or database
 migration. Per-user/browser completion uses versioned localStorage. Existing
 users can also take or replay the tour from the workspace header.
+
+## Durable project naming
+
+Product migration010 adds a reference-only naming queue. Deploy Nest API/UI together
+with normal snapshots of both databases; no engine pin/source or agent instructions
+change. The API worker needs `NEST_RUNNER_TOKEN`, an enabled naming/default model,
+and the existing provider-key source (see SPEC). A system agent supplying the key
+does not need to be online. Older browser `suggest-details` calls remain accepted
+but no longer execute inference. Existing manual/AI naming audit entries suppress
+renaming. No historical job backfill is run. Preserve the product volume so pending
+jobs survive restarts; multiple processes must share the same SQLite database.

@@ -78,7 +78,6 @@ function StartChat({ownerId,onCreated,onCancel}:{ownerId:string;onCreated:(proje
       const sending={...next,channelId:project.channelId};setDraft(sending);try{if(JSON.parse(readDraft(ownerId)??'null')?.id===next.id)setStored(writeDraft(ownerId,sending));}catch{}
       await apiJson('/api/messages',{method:'POST',headers:getApiHeaders(),body:JSON.stringify({id:next.messageId,channelId:project.channelId,text:next.text,mentions:next.mentions,attachments:next.attachments,...(next.assistant&&!recipients.some(m=>m.kind==='AGENT')?{targetAgentName:next.assistant}:{})})});
       try{if(JSON.parse(readDraft(ownerId)??'null')?.id===next.id){localStorage.removeItem(projectDraftKey(ownerId));sessionStorage.removeItem(legacyStorageKey);};}catch{}
-      void apiJson(`/api/projects/${project.id}/suggest-details`,{method:'POST',headers:getApiHeaders(),body:JSON.stringify({messageRequestId:next.messageId,expected:{name:project.name,description:project.description}})}).catch(()=>{});
       if(mounted.current)onCreated(project);
     }catch(reason){if(mounted.current)setError(message(reason));}finally{if(mounted.current)setBusy(false);}
   }
