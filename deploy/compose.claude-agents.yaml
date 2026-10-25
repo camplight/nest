@@ -1,5 +1,5 @@
 # Optional agent container for Claude Code agents, added next to compose.yaml:
-#   docker compose -f compose.yaml -f compose.claude-agents.yaml up -d
+#   Follow docs/CLAUDE_CODE_AGENT.md to pin the deployed image and start only nest-agents.
 # It runs only an OrgOps runner, without Nest's data volumes or .env, so agents
 # cannot read Nest's databases or admin credentials. See docs/CLAUDE_CODE_AGENT.md.
 services:

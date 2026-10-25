@@ -27,9 +27,25 @@ the bridge. `deploy/compose.claude-agents.yaml` adds a `nest-agents` service fro
 the same image that runs only an agent runner:
 
 ```sh
-# .env next to compose.yaml already holds NEST_RUNNER_TOKEN for the Nest container.
-docker compose -f compose.yaml -f compose.claude-agents.yaml up -d
+# Run in the deployment directory, with Nest already running.
+# Keep its deployed image and any production override; start only the sidecar.
+(
+  set -eu
+  nest_id=$(docker compose ps -q nest)
+  test -n "$nest_id" || { echo "Start Nest before enabling its agent runner." >&2; exit 1; }
+  NEST_IMAGE=$(docker inspect --format '{{.Config.Image}}' "$nest_id")
+  export NEST_IMAGE
+  set -- -f compose.yaml
+  if [ -f compose.override.yaml ]; then set -- "$@" -f compose.override.yaml; fi
+  docker compose "$@" -f compose.claude-agents.yaml up -d --no-deps nest-agents
+)
 ```
+
+The host deployment controller currently updates only the Nest service. After a
+Nest image upgrade, rerun this command to update the agent container to the same
+image. Do not run an unrestricted `up -d` with only the two base files: that
+omits the production image override and can recreate Nest on the fallback image.
+This sidecar operation does not change the running Nest service or its volumes.
 
 The agent container:
 

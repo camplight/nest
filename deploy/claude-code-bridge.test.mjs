@@ -4,7 +4,7 @@ import {mkdtempSync, rmSync, readdirSync, readFileSync, writeFileSync, realpathS
 import {createServer} from 'node:http';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {PERMISSION_PROFILES, createClaudeOutput, createProcessTracker, readProcessTable, claudeArgs, claudeEnvironment, forwardedSecrets, isProtectedName, readBridgeConfig, runBridge} from './claude-code-bridge.mjs';
+import {PERMISSION_PROFILES, createClaudeOutput, createProcessTracker, readProcessTable, readPsTable, claudeArgs, claudeEnvironment, forwardedSecrets, isProtectedName, readBridgeConfig, runBridge} from './claude-code-bridge.mjs';
 import {once} from 'node:events';
 import {existsSync, chmodSync, mkdirSync} from 'node:fs';
 
@@ -394,7 +394,7 @@ describe('bridge turns against a scripted Claude Code process', () => {
     expect(await t.turn({}, {reaper:'/usr/bin/tini'})).toMatchObject({code:0, out:['Done.']});
     expect(t.spawned[0].bin).toBe('/usr/bin/tini');
     expect(t.spawned[0].args.slice(0, 4)).toEqual(['-s', '--', 'claude', '-p']);
-    await t.turn();
+    await t.turn({}, {reaper:null});
     expect(t.spawned[1].bin).toBe('claude');
   });
 
@@ -552,8 +552,15 @@ describe('processes a turn leaves behind', () => {
       writeFileSync(join(proc, '42', 'stat'), '42 (we (ird) name) S 7 40 39 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 98765 1 2 3');
       expect(readProcessTable(proc)).toEqual([{pid:42, ppid:7, pgrp:40, session:39, start:'98765'}]);
       expect(readProcessTable(join(proc, 'missing'), {fallback: () => []})).toEqual([]);
-      // Without /proc (macOS) the table comes from ps and includes this process.
-      expect(readProcessTable(join(proc, 'missing')).find(row => row.pid === process.pid)).toMatchObject({ppid:process.ppid});
+      // Exercise fallback without requiring ps to be installed in the test container.
+      const rows = [{pid:42, ppid:7, pgrp:40, session:40, start:'Sun Oct 25 10:00:00 2026'}];
+      const fallback = vi.fn(() => rows);
+      expect(readProcessTable(join(proc, 'missing'), {fallback})).toEqual(rows);
+      expect(fallback).toHaveBeenCalledOnce();
+      const run = vi.fn(() => '  42  7  40  Sun Oct 25 10:00:00 2026\n');
+      expect(readPsTable(run)).toEqual(rows);
+      expect(run).toHaveBeenCalledWith('ps', ['-A', '-o', 'pid=,ppid=,pgid=,lstart='], expect.any(Object));
+      expect(readPsTable(() => {throw Error('ps unavailable');})).toEqual([]);
     } finally { rmSync(proc, {recursive:true, force:true}); }
   });
 });

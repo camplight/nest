@@ -386,9 +386,9 @@ function readState(path) {
 }
 
 /** `ps` where there is no /proc (macOS): no session ids, so a process group stands in for its session. */
-function readPsTable() {
+export function readPsTable(run = execFileSync) {
   try {
-    return execFileSync("ps", ["-A", "-o", "pid=,ppid=,pgid=,lstart="], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+    return run("ps", ["-A", "-o", "pid=,ppid=,pgid=,lstart="], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
       .split("\n").map((line) => /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line)).filter(Boolean)
       .map(([, pid, ppid, pgrp, start]) => ({ pid: Number(pid), ppid: Number(ppid), pgrp: Number(pgrp), session: Number(pgrp), start }));
   } catch { return []; }
