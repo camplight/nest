@@ -472,3 +472,7 @@ Implemented for review: a replayable three-step spotlight tour in the workspace
 header, with a first-visit invitation, Agents/Projects/Community explanations,
 keyboard controls and mobile navigation handling. This supplements existing
 personal-agent onboarding; it does not provision an agent or require completion.
+
+- Project naming reliability: first-send inference moves from a browser request to
+  a durable core job, with bounded retry, restart recovery and manual-edit priority.
+  The existing chat-first UI and editable project details remain the entry points.

@@ -1,3 +1,4 @@
+import {createProjectNamingWorker} from './project-naming-worker';
 import {registerCollaborationRoutes} from './collaboration';
 import { registerDemoRoutes } from './demos';
 import type {ProjectNamer} from './project-naming';
@@ -72,12 +73,6 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   const namingSource=process.env.NEST_PROJECT_NAMING_AGENT_NAME??managementName;
   registerProjectRoutes(app, {
     store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN,
-    namingModelId:config.projectNamingModelId??process.env.NEST_PROJECT_NAMING_MODEL_ID??defaultAgentModelId,
-    namer:config.projectNamer,
-    namingEnv:config.projectNamer?undefined:(model)=>orgops.projectNamingEnv({
-      model,token:managementKey,agentName:namingSource,
-      agentId:namingSource===managementName?managementId:undefined,
-    }),
   });
   registerCommunityRoutes(app, {store, orgops});
   // Unknown product endpoints do not fall through to a privileged service account.
@@ -95,5 +90,15 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   };
   app.all('/api/*', proxy);
   app.all('/v1/*', proxy);
-  return { app, store, orgops };
+  const projectNaming=createProjectNamingWorker({store,namer:config.projectNamer,context:async(projectId,requestId)=>{
+    const project=store.projects.project(projectId);
+    if(!project)return null;
+    const receipt=store.db.prepare('SELECT event_id,sender_name FROM product_message_requests WHERE id=? AND channel_id=? AND sender_id=? AND delivered_at IS NOT NULL').get(requestId,project.channelId,project.ownerId) as {event_id:string;sender_name:string}|undefined;
+    if(!receipt)return null;
+    const input=await orgops.projectNamingContext({token:managementKey,modelId:config.projectNamingModelId??process.env.NEST_PROJECT_NAMING_MODEL_ID??defaultAgentModelId,eventId:receipt.event_id,channelId:project.channelId,ownerId:project.ownerId,senderName:receipt.sender_name});
+    if(!input)return null;
+    const env=config.projectNamer?undefined:await orgops.projectNamingEnv({model:input.model,token:managementKey,agentName:namingSource,agentId:namingSource===managementName?managementId:undefined});
+    return {...input,env};
+  }});
+  return { app, store, orgops, projectNaming };
 }

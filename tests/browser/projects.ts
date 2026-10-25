@@ -27,7 +27,9 @@ const connections:ConnectionProvider={id:'synthetic',subject:owner=>owner,
   link:async owner=>{linkOwner=owner;return {redirectUrl:'https://connect.example.test/authorize'};},
   account:async()=>{throw Error('Unexpected account call');},revoke:async()=>{},tools:async()=>({items:[],nextCursor:null}),tool:async()=>{throw Error('Unexpected tool call');},execute:async()=>{throw Error('No tool execution in this test');},
 };
+const previousNamingToken=process.env.NEST_RUNNER_TOKEN;process.env.NEST_RUNNER_TOKEN='test-runner';
 const product=createApp({orgops,connections,dbPath:join(dir,'product.sqlite'),projectNamingModelId:'naming-model',projectNamer:async({text})=>{if(text.startsWith('Website launch')){startNaming();await namingGate;return {name:'Website launch',description:aiBrief};}return {name:text.split('\n')[0].slice(0,120),description:text.slice(0,4000)};}});
+if(previousNamingToken===undefined)delete process.env.NEST_RUNNER_TOKEN;else process.env.NEST_RUNNER_TOKEN=previousNamingToken;
 const uiRequire=createRequire(join(process.cwd(),'apps/user-ui/package.json'));
 const viteCli=join(dirname(uiRequire.resolve('vite/package.json')),'bin/vite.js');
 const server=spawn(process.execPath,[viteCli,'--host','127.0.0.1','--port','5298','--strictPort'],{cwd:join(process.cwd(),'apps/user-ui'),stdio:'pipe'});
@@ -130,7 +132,8 @@ try {
     await page.getByRole('heading',{name:'Website launch',exact:true,level:1}).waitFor();
     assert(new URL(page.url()).searchParams.get('project'));
     const projectId=new URL(page.url()).searchParams.get('project')!;
-    await namingStarted;assert.notEqual(product.store.projects.project(projectId)?.description,aiBrief,'Chat opens before AI naming completes');releaseNaming();
+    const namingRun=(async()=>{for(let n=0;n<20;n++)await product.projectNaming.tick();})();
+    await namingStarted;assert.notEqual(product.store.projects.project(projectId)?.description,aiBrief,'Chat opens before AI naming completes');releaseNaming();await namingRun;
     await page.locator('.project-about').getByText(aiBrief,{exact:true}).waitFor();
     channelId=product.store.projects.project(projectId)!.channelId;
     const projectChannel=(await (await product.app.request('/api/channels',{headers})).json()).find((channel:any)=>channel.id===channelId);

@@ -1,5 +1,4 @@
 import {createPersonalAgentDirectory} from './collaboration';
-import {generateProjectDetails,type ProjectNamer} from './project-naming';
 import {PROJECT_KICKOFF_GUIDANCE} from './project-guidance';
 import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
@@ -11,7 +10,7 @@ import { ProjectMemberSchema, NewProjectSchema, ProjectSettingsSchema, ProjectNa
 
 type Channel = {id: string; canManage: boolean; canPost: boolean; archivedAt?: number | null; ownerHumanId?: string; participants?:{subscriberType:string;subscriberId:string}[]; metadata?: {nestProjectChat?: string}};
 type EngineEvent = {id: string; type: string; source: string; channelId: string; createdAt: number; payload?: {text?: unknown; nestTaskId?: unknown; nestTaskAttempt?: unknown; targetAgentName?: unknown}; idempotencyKey?: string};
-export function registerProjectRoutes(app: Hono, {store, orgops, engineToken, namingModelId, namingEnv, namer=generateProjectDetails}: {store: ProductDb; orgops: OrgOpsClient; engineToken?:string; namingModelId?:string; namingEnv?:(model:string)=>Promise<Record<string,string|undefined>>; namer?:ProjectNamer}) {
+export function registerProjectRoutes(app: Hono, {store, orgops, engineToken}: {store: ProductDb; orgops: OrgOpsClient; engineToken?:string}) {
   const routes = new Hono<{Variables: {human: Human; channels: Channel[]}}>();
   const db = store.projects;
   const sharedAgents=createPersonalAgentDirectory({store,orgops,engineToken});
@@ -203,30 +202,14 @@ export function registerProjectRoutes(app: Hono, {store, orgops, engineToken, na
     }
     return c.json({status:'joined'});
   });
-  const naming=new Set<string>();
+  // Compatibility for older clients: status only; the core worker owns inference.
   routes.post('/api/projects/:projectId/suggest-details',async c=>{
-    const human=c.get('human');const project=owned(c.req.param('projectId'),human,c.get('channels'));
+    const project=owned(c.req.param('projectId'),c.get('human'),c.get('channels'));
     const body=parse(ProjectNamingSchema,await c.req.json().catch(()=>null));
     if(!db.openingMessage(project,body.messageRequestId))return c.json({error:'A confirmed opening message from this project owner is required'},400);
     if(!db.canNameProject(project.id)||project.name!==body.expected.name||project.description!==body.expected.description)return c.json({status:'kept'});
-    if(!namingModelId)return c.json({status:'unavailable'});
-    if(naming.has(project.id))return c.json({status:'pending'},202);
-    naming.add(project.id);
-    try{
-      const model=await orgops.nativeModelReference(namingModelId,c.req.raw.headers);
-      if(!model)return c.json({status:'unavailable'});
-      const receipt=db.openingMessage(project,body.messageRequestId)!;
-      const event=await orgops.humanJson<{id:string;channelId:string;source:string;type:string;payload:{text?:unknown}}>(`/api/events/${encodeURIComponent(receipt.eventId)}`,c.req.raw.headers);
-      if(event.id!==receipt.eventId||event.channelId!==project.channelId||event.source!==`human:${human.username}`||event.type!=='message.created'||typeof event.payload.text!=='string')return c.json({status:'unavailable'});
-      const env=await namingEnv?.(model);
-      const proposed=await namer({text:event.payload.text,model,env});
-      const details=parse(NewProjectSchema.pick({name:true,description:true}),proposed);
-      const freshHuman=await orgops.currentHuman(c.req.raw.headers);
-      if(!freshHuman||freshHuman.id!==human.id||freshHuman.mustChangePassword)return c.json({status:'kept'});
-      const channels=await orgops.humanJson<Channel[]>('/api/channels',c.req.raw.headers);owned(project.id,freshHuman,channels);
-      const updated=db.updateProject(project.id,human.id,details,body.expected,'ai');
-      return c.json({status:updated?'named':'kept'});
-    }catch{return c.json({status:'unavailable'});}finally{naming.delete(project.id);}
+    const job=store.db.prepare('SELECT status FROM product_project_naming WHERE project_id=?').get(project.id) as {status:string}|undefined;
+    return c.json({status:job?.status==='pending'?'pending':'unavailable'},job?.status==='pending'?202:200);
   });
   routes.patch('/api/projects/:projectId',async c=>{
     const project=owned(c.req.param('projectId'),c.get('human'),c.get('channels'));
