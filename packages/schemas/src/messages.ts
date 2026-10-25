@@ -23,6 +23,7 @@ export const SendMessageSchema = z
     channelId: z.string().min(1).max(200),
     text: z.string().min(1).max(32000),
     targetAgentName: z.string().min(1).max(200).optional(),
+    replyTo: z.string().min(1).max(200).optional(),
     mentions: z.array(SelectedMentionSchema).max(30).default([]),
     attachments: z.array(MessageAttachmentSchema).max(MAX_MESSAGE_ATTACHMENTS).default([]),
   })

@@ -1,9 +1,10 @@
 import {useEffect,useRef,useState,type SetStateAction} from 'react';
 import {MAX_MESSAGE_ATTACHMENTS,type SendMessage} from '@nest/schemas';
-import {apiFetch,apiJson} from './api';
+import {apiJson} from './api';
+import {apiUrl} from './config';
 
 export type UploadedAttachment={localId:string;fileId:string;name:string;mime:string;size:number;sha256?:string};
-export type PendingAttachment={localId:string;name:string;mime:string;size:number;status:'uploading'|'ready'|'error';uploaded?:UploadedAttachment;error?:string};
+export type PendingAttachment={localId:string;name:string;mime:string;size:number;status:'uploading'|'ready'|'error';uploaded?:UploadedAttachment;error?:string;progress?:number;file?:File};
 export function restoreAttachments(files:SendMessage['attachments']):PendingAttachment[]{
   return files.map(file=>({localId:file.fileId,name:file.name,mime:file.mime??'application/octet-stream',size:file.size??0,status:'ready',uploaded:{...file,localId:file.fileId,mime:file.mime??'application/octet-stream',size:file.size??0}}));
 }
@@ -12,6 +13,26 @@ export function formatAttachmentSize(size?:number){
   if(size<1024)return `${size} B`;
   const kb=size/1024;if(kb<1024)return `${kb.toFixed(kb>=100?0:1)} KB`;
   const mb=kb/1024;return `${mb.toFixed(mb>=100?0:1)} MB`;
+}
+
+/**
+ * POST /api/files through XMLHttpRequest for upload progress, with apiFetch's contract: the apiUrl() URL, credentials
+ * included, and a non-2xx answer thrown as Error(responseText || 'Request failed: <status>').
+ */
+function postFile(body:FormData,onProgress:(fraction:number)=>void){
+  return new Promise<{id:string}>((resolve,reject)=>{
+    const request=new XMLHttpRequest();
+    request.open('POST',apiUrl('/api/files'));
+    request.withCredentials=true;
+    request.upload.onprogress=event=>{if(event.lengthComputable&&event.total>0)onProgress(Math.min(1,event.loaded/event.total));};
+    request.onload=()=>{
+      if(request.status<200||request.status>=300){reject(new Error(request.responseText||`Request failed: ${request.status}`));return;}
+      try{resolve(JSON.parse(request.responseText) as {id:string});}catch(reason){reject(reason);}
+    };
+    // fetch rejects a network failure with TypeError('Failed to fetch'); keep that message.
+    request.onerror=request.onabort=()=>reject(new TypeError('Failed to fetch'));
+    request.send(body);
+  });
 }
 
 /** One upload path for picker, paste and drops; results stay in their original draft. */
@@ -33,11 +54,10 @@ export function useAttachments(scope:string,initial:PendingAttachment[]=[]){
   async function upload(file:File,localId:string){
     try{
       const body=new FormData();body.append('file',file,file.name);
-      const response=await apiFetch('/api/files',{method:'POST',body});
-      const payload=await response.json() as {id:string};
+      const payload=await postFile(body,progress=>setAttachments(items=>items.map(item=>item.localId===localId&&item.status==='uploading'?{...item,progress}:item)));
       const meta=await apiJson<{original_name?:string;mime?:string;size?:number;sha256?:string}>(`/api/files/${encodeURIComponent(payload.id)}/meta`);
       const uploaded:UploadedAttachment={localId,fileId:payload.id,name:meta.original_name||file.name||'upload',mime:meta.mime||file.type||'application/octet-stream',size:typeof meta.size==='number'?meta.size:file.size,...(meta.sha256?{sha256:meta.sha256}:{})};
-      setAttachments(items=>items.map(item=>item.localId===localId?{...item,name:uploaded.name,mime:uploaded.mime,size:uploaded.size,status:'ready',uploaded,error:undefined}:item));
+      setAttachments(items=>items.map(item=>item.localId===localId?{...item,name:uploaded.name,mime:uploaded.mime,size:uploaded.size,status:'ready',uploaded,error:undefined,progress:undefined}:item));
     }catch(reason){
       let error=reason instanceof Error?reason.message:'Upload failed';try{error=JSON.parse(error).error??error;}catch{}
       setAttachments(items=>items.map(item=>item.localId===localId?{...item,status:'error',error}:item));
@@ -45,7 +65,7 @@ export function useAttachments(scope:string,initial:PendingAttachment[]=[]){
   }
   function uploadFiles(files:File[]){
     const accepted=files.slice(0,Math.max(0,MAX_MESSAGE_ATTACHMENTS-latest.current.items.length));
-    const items=accepted.map(file=>({localId:crypto.randomUUID(),name:file.name||'upload',mime:file.type||'application/octet-stream',size:file.size,status:'uploading' as const}));
+    const items=accepted.map(file=>({localId:crypto.randomUUID(),name:file.name||'upload',mime:file.type||'application/octet-stream',size:file.size,status:'uploading' as const,progress:0,file}));
     update(value=>({...value,items:[...value.items,...items],error:files.length>accepted.length?`You can attach up to ${MAX_MESSAGE_ATTACHMENTS} files. ${files.length-accepted.length} ${files.length-accepted.length===1?'file was':'files were'} not added.`:null}));
     accepted.forEach((file,index)=>{void upload(file,items[index].localId);});
   }

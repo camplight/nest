@@ -96,7 +96,7 @@ try{
   holdNext=true;const started=new Promise<void>(resolve=>{uploadStarted=resolve;});
   await drag(page,'.composer',['slow.txt']);await started;
   await page.evaluate(id=>{history.pushState({},'', '/?channel='+id);dispatchEvent(new PopStateEvent('popstate'));},other.id);
-  await page.getByPlaceholder(/Message # Other demo chat/).waitFor();
+  await page.getByPlaceholder(/Message to # Other demo chat/).waitFor();
   const lateMeta=page.waitForResponse(response=>/\/api\/files\/[^/]+\/meta$/.test(new URL(response.url()).pathname));
   releaseUpload!();await lateMeta;await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));assert.equal(await page.locator('.composer-attachments article').count(),0);
   // A new project accepts file-only first messages without creating an empty project on drop.

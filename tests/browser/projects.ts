@@ -9,6 +9,13 @@ import { createEngine } from './engine';
 import { createOrgOpsClient } from '../../packages/orgops-client/src/index';
 import { createApp } from '../../apps/api/src/app';
 import type {ConnectionProvider} from '../../apps/api/src/integrations/provider';
+// The project list opens from the sidebar's Projects entry (the topbar shows the open project's name instead);
+// on narrow screens the sidebar is behind the Menu button.
+async function browseProjects(page:import('playwright').Page){
+  const browse=page.locator('.project-navigation-browse');
+  if(!await browse.isVisible())await page.getByRole('button',{name:'Menu',exact:true}).click();
+  await browse.click();
+}
 
 const dir=mkdtempSync(join(tmpdir(),'nest-project-browser-'));
 const screenshots=mkdtempSync(join(tmpdir(),'nest-project-screenshots-'));
@@ -160,14 +167,14 @@ try {
     }finally{await teammateContext.close();}
     const sections=page.getByRole('navigation',{name:'Project sections'});
     assert.equal(new URL(page.url()).searchParams.get('tab'),'chat');
-    assert((await page.getByRole('textbox',{name:'Message',exact:true}).getAttribute('placeholder'))?.startsWith('Message Website launch'));
+    assert((await page.getByRole('textbox',{name:'Message',exact:true}).getAttribute('placeholder'))?.startsWith('Message to Website launch'));
     await page.getByRole('textbox',{name:'Message',exact:true}).fill('Project kickoff');
     await page.getByRole('button',{name:'Send',exact:true}).click();
     await page.getByText('Project kickoff',{exact:true}).waitFor();
     const composer=page.getByRole('textbox',{name:'Message',exact:true});
     await composer.fill('Remember this project draft');
     await page.getByText('Draft saved on this device',{exact:true}).waitFor();
-    await page.getByRole('button',{name:'All projects',exact:true}).click();
+    await browseProjects(page);
     await page.locator('.project-grid').getByText('Website launch',{exact:true}).click();
     assert.equal(await composer.inputValue(),'Remember this project draft');
     await page.reload();await page.getByRole('heading',{name:'Website launch',level:1,exact:true}).waitFor();
@@ -265,7 +272,7 @@ try {
     await page.goBack();await page.getByRole('heading',{name:'Projects',exact:true}).waitFor();
     await page.goBack();await page.getByText('Approved by a human. This task is complete.',{exact:true}).waitFor();
 
-    await page.getByRole('button',{name:'All projects',exact:true}).click();await page.getByRole('heading',{name:'Projects',exact:true}).waitFor();
+    await browseProjects(page);await page.getByRole('heading',{name:'Projects',exact:true}).waitFor();
     await page.goBack();await page.getByText('Approved by a human. This task is complete.',{exact:true}).waitFor();
     await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'New task +',exact:true}).waitFor({state:'visible'});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     await page.screenshot({path:join(screenshots,'project-mobile.png'),fullPage:true});
@@ -275,7 +282,7 @@ try {
     const detail=product.store.projects.detail(product.store.projects.project(id)!);
     assert.equal(detail.tasks[0].status,'done');assert.equal(detail.deliverables.length,2);assert.equal(detail.reviews.length,2);
     await page.setViewportSize({width:1440,height:1100});
-    await page.getByRole('button',{name:'All projects',exact:true}).click();
+    await browseProjects(page);
     await page.getByRole('button',{name:'New project +',exact:true}).click();
     await page.getByRole('textbox',{name:'Message',exact:true}).fill('Just a name');
     await page.waitForFunction(()=>JSON.parse(localStorage.getItem('nest:project-draft:'+encodeURIComponent(localStorage.getItem('fixture-owner')??''))??'null')?.text==='Just a name');

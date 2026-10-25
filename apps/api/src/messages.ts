@@ -185,6 +185,21 @@ export function registerMessageRoutes(
           headers,
         )
       : [];
+    // Validate a reply target only for a new request, so an unchanged retry recovers after the target vanished.
+    if (input.replyTo && !intent(input.id)) {
+      const target = await engineEvent(input.replyTo, headers);
+      if (
+        target?.type !== "message.created" ||
+        target.channelId !== input.channelId
+      )
+        return c.json(
+          {
+            error: "The message you are replying to is unavailable.",
+            code: "REPLY_TARGET_INVALID",
+          },
+          400,
+        );
+    }
     const resolved = recipients.map((m) => ({
       ...m,
       ...(m.kind === "HUMAN"
@@ -202,6 +217,7 @@ export function registerMessageRoutes(
       ...(targetAgentName
         ? { targetAgentName }
         : {}),
+      ...(input.replyTo ? { inReplyTo: input.replyTo } : {}),
     };
     const inputHash = hash({ ...input, mentions: sorted });
     db.transaction(() => {

@@ -1,14 +1,10 @@
 import type { Agent, ChannelParticipant } from './types';
+import {findTrigger} from './chat/triggers';
 export type MentionCandidate = {id:string; name:string; kind:'Agent'|'Person'; inConversation:boolean; assistantOwner?:string;inviteBlockedReason?:string};
 export type MentionQuery = {start:number; end:number; query:string};
 export function findMention(value:string, caret:number, selectionEnd=caret): MentionQuery | null {
-  if (caret !== selectionEnd) return null;
-  const before=value.slice(0,caret);
-  if ((before.match(/```/g)?.length ?? 0) % 2) return null;
-  if ((before.split('\n').at(-1)?.match(/`/g)?.length ?? 0) % 2) return null;
-  const match=before.match(/(?:^|[\s([{])@([\p{L}\p{N}_.-]{0,64})$/u);
-  if (!match) return null;
-  return {start:caret-match[1].length-1,end:caret,query:match[1]};
+  const trigger=findTrigger(value,caret,selectionEnd);
+  return trigger?.trigger==='@' ? {start:trigger.start,end:trigger.end,query:trigger.query} : null;
 }
 const normalize=(s:string)=>s.normalize('NFKD').replace(/\p{M}/gu,'').toLocaleLowerCase();
 export function mentionCandidates(agents:Agent[],humans:{username:string}[],participants:ChannelParticipant[]): MentionCandidate[] {

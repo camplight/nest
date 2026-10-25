@@ -7,7 +7,10 @@ import {ProjectMemberPicker} from './components/ProjectMemberPicker';
 import {AgentAvatar} from './components/AgentAvatar';
 import {AgentRuntimeStatus} from './components/AgentRuntimeStatus';
 
-export function ProjectContext({project,participants,agents,owner,onSaved,onMembersChanged,onManage}:{project:Project;participants:ChannelParticipant[];agents:Agent[];owner:boolean;onSaved:(project:Project)=>void;onMembersChanged:()=>Promise<void>;onManage?:()=>void}) {
+// The project's sections (Chat, Files) switch at the top of this panel, so the page needs no tab row above the chat.
+const SECTIONS=[['chat','Chat'],['files','Files']] as const;
+
+export function ProjectContext({project,participants,agents,owner,onSaved,onMembersChanged,onManage,section,onSection}:{project:Project;participants:ChannelParticipant[];agents:Agent[];owner:boolean;onSaved:(project:Project)=>void;onMembersChanged:()=>Promise<void>;onManage?:()=>void;section?:string;onSection?:(section:string)=>void}) {
   const [expanded,setExpanded]=useState(()=>window.matchMedia('(min-width:1101px)').matches);
   const dialog=useRef<HTMLDialogElement>(null);
   const [selected,setSelected]=useState<ProjectMember[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState<string|null>(null);
@@ -21,6 +24,7 @@ export function ProjectContext({project,participants,agents,owner,onSaved,onMemb
     finally{setBusy(false);}
   }
   return <aside className="dashboard-card project-about" aria-label="Project details">
+    {onSection&&<nav className="project-sections" aria-label="Project sections">{SECTIONS.map(([id,label])=><button type="button" key={id} aria-current={section===id?'page':undefined} onClick={()=>onSection(id)}>{label}</button>)}</nav>}
     <details className="project-context-disclosure" open={expanded} onToggle={event=>setExpanded(event.currentTarget.open)}>
       <summary>Project details <span>{people.length} {people.length===1?'person':'people'} · {agentMembers.length} {agentMembers.length===1?'agent':'agents'}</span></summary>
       <div className="project-context-body">

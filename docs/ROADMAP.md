@@ -466,6 +466,18 @@ Human/agent message headers show initials/configured Figma character avatars.
 Names and timestamps remain visible on desktop and mobile. System activity keeps
 its compact icon strip. Human profile photos await an engine HTTP profile field.
 
+## Chat on assistant-ui: implemented for review
+
+Project and standalone chats now render on assistant-ui with Nest's own event store, composer and permissions. Readers get history that pages messages and activity together, deep links that load a message outside the loaded pages, a working row with live progress while an agent's turn runs, per-message Copy, Copy link and Quote actions, selection quotes, quote replies stored as the engine's `inReplyTo`, Markdown export without activity details, `/invite` and `/files` slash commands, upload progress bars with thumbnails, image zoom, message grouping and date separators. The old message list and its switch are removed. Pull request: to be added by the operator.
+
+Deferred:
+
+- Interactive upstream message cards (spec 7.6): `json-render` blocks and the inline secret input form.
+- Editing, deleting, regenerating or stopping a reply; token streaming; reactions; reply threads; typing indicators; presence.
+- The assistant-ui thread list and Assistant Cloud.
+
+Remaining gap: CI does not yet run `npm run test:ui:chat-next`.
+
 ## First-visit visual orientation
 
 Implemented for review: a replayable three-step spotlight tour in the workspace

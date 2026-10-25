@@ -793,22 +793,6 @@ button {
   word-break: break-word;
 }
 
-.load-older-button {
-  align-self: center;
-  padding: 9px 13px;
-  border: 1px solid var(--nest-border);
-  border-radius: 999px;
-  background: var(--nest-surface);
-  color: var(--nest-muted);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.load-older-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.56;
-}
-
 .message-human {
   align-self: flex-end;
   border-color: var(--nest-border);
@@ -825,25 +809,6 @@ button {
   background: var(--nest-surface);
 }
 
-.message-meta {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  color: var(--nest-muted);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.message-sender {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.message-sender strong { min-width: 0; overflow-wrap: anywhere; }
-.message-meta > span { white-space: nowrap; font-size: 11px; }
 .message-human-avatar {
   display: inline-grid;
   place-items: center;
@@ -864,80 +829,6 @@ button {
   font-size: 16px;
   line-height: 1.5;
   white-space: pre-wrap;
-}
-
-.message-markdown {
-  margin-top: 8px;
-  color: var(--nest-muted);
-  font-size: 16px;
-  line-height: 1.5;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-.message-markdown > :first-child {
-  margin-top: 0;
-}
-
-.message-markdown > :last-child {
-  margin-bottom: 0;
-}
-
-.message-markdown p,
-.message-markdown ul,
-.message-markdown ol,
-.message-markdown pre,
-.message-markdown blockquote,
-.message-markdown table {
-  margin: 0 0 10px;
-}
-
-.message-markdown ul,
-.message-markdown ol {
-  padding-left: 20px;
-}
-
-.message-markdown code {
-  padding: 1px 5px;
-  border-radius: 6px;
-  background: rgba(15, 23, 42, 0.08);
-  font-size: 0.92em;
-}
-
-.message-markdown pre {
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(15, 23, 42, 0.08);
-  overflow-x: auto;
-}
-
-.message-markdown pre code {
-  padding: 0;
-  background: transparent;
-}
-
-.message-markdown a {
-  color: var(--nest-forest);
-  text-decoration: underline;
-}
-
-.message-markdown blockquote {
-  margin-left: 0;
-  padding-left: 12px;
-  border-left: 3px solid var(--nest-border);
-  color: var(--nest-muted);
-}
-
-.message-markdown table {
-  border-collapse: collapse;
-  width: 100%;
-}
-
-.message-markdown th,
-.message-markdown td {
-  padding: 6px 8px;
-  border: 1px solid var(--nest-border);
-  text-align: left;
 }
 
 .message-attachments {
@@ -1819,3 +1710,62 @@ button {
 .message-attachments .message-image-link { display: block; max-width: 100%; }
 .message-image-link img { display: block; width: auto; height: auto; max-width: min(100%, 680px); max-height: 480px; object-fit: contain; border-radius: 10px; border: 1px solid var(--border, #ddd); }
 .message-attachment > a { overflow-wrap: anywhere; }
+
+/* T11 composer look (spec 7.4, D-12): assistant-ui's composer (thread composer at @assistant-ui/react 0.15.31) in plain
+   CSS, themed only with the Nest tokens chat.css aliases, so the classic chat and the new chat share it. The textarea
+   height stays inline (resizeComposerTextarea); nothing here sets it. Chip rules are unscoped: ProjectStart uses them. */
+.nest-chat-composer { flex: 0 0 auto; align-self: stretch; width: 100%; min-width: 0; margin-top: auto; }
+.nest-chat-composer .composer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; margin-top: 0; padding: 10px 8px 8px; border: 1px solid var(--nest-border); border-radius: 20px; background: var(--nest-surface); box-shadow: none; transition: border-color .15s ease, box-shadow .15s ease; }
+.nest-chat-composer .composer:focus-within { border-color: color-mix(in srgb, var(--nest-text) 22%, var(--nest-border)); }
+/* The classic `.composer button` rule (filled forest, 13px 22px) must not reach buttons inside the new composer's chips. */
+.nest-chat-composer .composer [data-slot="reply-chip"] button { padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; font-weight: inherit; }
+.nest-chat-composer .composer textarea { display: block; min-height: 34px; max-height: none; padding: 4px 8px 6px; border: 0; background: transparent; color: var(--nest-text); resize: none; }
+.nest-chat-composer .composer textarea:focus-visible { outline: none; }
+.nest-chat-composer .composer textarea::placeholder { color: color-mix(in srgb, var(--nest-muted) 60%, var(--nest-surface)); }
+.nest-chat-composer .composer-attachments { padding: 0 6px 6px; }
+.nest-chat-composer .mention-delivery, .nest-chat-composer .mention-delivery-hint { padding: 0 8px; }
+.nest-chat-composer .mention-delivery-hint { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; margin: 0; color: var(--nest-muted); font-size: 11px; line-height: 1.4; }
+.nest-chat-composer .mention-delivery-hint > span { margin: 0; }
+.nest-chat-composer .composer > .composer-attachment-error:last-child { padding: 0 8px 4px; }
+.nest-chat-composer .composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; }
+.nest-chat-composer .composer .composer-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 0 12px 0 14px; border-radius: 999px; font-size: 13px; font-weight: 600; line-height: 1; transition: background-color .15s ease, color .15s ease, opacity .15s ease; }
+.nest-chat-composer .composer .composer-actions .composer-secondary { padding: 0 12px 0 10px; border: 0 !important; background: transparent !important; color: var(--nest-muted) !important; }
+.nest-chat-composer .composer .composer-actions .composer-secondary:enabled:hover { background: var(--nest-muted-surface) !important; color: var(--nest-text) !important; }
+.nest-chat-composer .composer .composer-actions .composer-send { border: 0; background: var(--nest-forest); color: var(--nest-white); }
+.nest-chat-composer .composer .composer-actions .composer-send:enabled:hover { background: color-mix(in srgb, var(--nest-forest) 85%, var(--nest-white)); }
+.nest-chat-composer .composer .composer-actions button:disabled { opacity: .5; }
+.nest-chat-composer .composer .composer-actions button:focus-visible { outline: 2px solid color-mix(in srgb, var(--nest-text) 40%, transparent); outline-offset: 2px; }
+.nest-chat-composer .composer-compact { padding: 8px 8px 6px; }
+.nest-chat-composer .composer-compact textarea { padding: 4px 8px 4px; }
+@media (max-width: 760px) {
+  .nest-chat-composer .composer { margin-top: 10px; padding: 8px 6px 6px; border-radius: 18px; }
+}
+
+.composer-attachments { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 8px; }
+.composer-attachments .composer-attachment { position: relative; flex: 0 1 240px; display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 100%; padding: 6px 6px 6px 6px; border: 1px solid var(--nest-border); border-radius: 14px; background: var(--nest-muted-surface); }
+.composer-attachments .composer-attachment.is-error { border-color: var(--nest-coral); }
+.composer-attachments .composer-attachment-preview { flex: 0 0 40px; display: grid; place-items: center; width: 40px; height: 40px; margin: 0; overflow: hidden; border-radius: 10px; background: var(--nest-surface); color: var(--nest-muted); white-space: normal; }
+.composer-attachments .composer-attachment-preview img { display: block; width: 100%; height: 100%; max-width: none; object-fit: cover; }
+.composer-attachments .composer-attachment-progress { display: block; height: 4px; margin-top: 6px; overflow: hidden; border-radius: 999px; background: var(--nest-border); }
+.composer-attachments .composer-attachment-progress > span { display: block; height: 100%; margin: 0; border-radius: inherit; background: var(--nest-lime); transition: width .2s ease; }
+.composer-attachments .composer-attachment-remove { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--nest-muted); transition: background-color .15s ease, color .15s ease; }
+.composer-attachments .composer-attachment-remove:enabled:hover { background: var(--nest-border); color: var(--nest-text); }
+.composer-attachments .composer-attachment-remove:focus-visible { outline: 2px solid var(--nest-lime); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) {
+  .nest-chat-composer .composer, .nest-chat-composer .composer-actions button, .composer-attachments .composer-attachment-progress > span, .composer-attachments .composer-attachment-remove { transition: none; }
+}
+
+/* The chat composer's picker (spec 7.4.1): assistant-ui's popover look on the shared .mention-popup. ProjectStart keeps the default look. */
+.mention-popup.mention-popup-chat { bottom: calc(100% + 8px); left: 4px; width: min(380px, calc(100% - 8px)); padding: 4px; border-radius: 12px; box-shadow: 0 8px 24px color-mix(in srgb, var(--nest-text) 14%, transparent), 0 1px 2px color-mix(in srgb, var(--nest-text) 8%, transparent); }
+.mention-popup-chat .mention-heading { padding: 6px 8px 4px; border-bottom: 0; font-size: 11px; font-weight: 600; letter-spacing: .02em; color: var(--nest-muted); }
+.mention-popup-chat .mention-options { max-height: min(264px, 32dvh); }
+.mention-popup-chat .mention-option { gap: 10px; padding: 6px 8px; border-radius: 8px; }
+.mention-popup-chat .mention-option[aria-selected="true"] { background: var(--nest-muted-surface); box-shadow: none; }
+.mention-popup-chat .mention-identity { gap: 1px; }
+.mention-popup-chat .mention-identity strong { font-size: 13px; }
+.mention-popup-chat .mention-person, .mention-popup-chat .mention-command-icon { display: grid; place-items: center; flex: 0 0 28px; height: 28px; border-radius: 8px; background: var(--nest-muted-surface); font-size: 11px; font-weight: 600; }
+.mention-popup-chat .mention-command-icon { font-size: 14px; color: var(--nest-muted); }
+.mention-popup-chat .mention-option img { width: 28px; height: 28px; }
+.mention-popup-chat .mention-at { font-size: 13px; }
+.mention-popup-chat .mention-empty { padding: 12px 8px; }
+.mention-popup-chat .mention-help { margin-top: 4px; padding: 6px 8px 4px; }

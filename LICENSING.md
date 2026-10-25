@@ -23,6 +23,7 @@ transition does not create a payment obligation for those versions.
 | Nest and inherited OrgOps portions already released under Apache 2.0 | Their existing Apache 2.0 rights remain. The original license is preserved in [LICENSES/Apache-2.0.txt](LICENSES/Apache-2.0.txt) and repository history. |
 | Untouched engine in `vendor/orgops` | Its own [Apache 2.0 license](https://github.com/camplight/orgops/blob/3e3ed361cc8e6adc3ca352da56029d717d4b49bd/LICENSE) and [notice](https://github.com/camplight/orgops/blob/3e3ed361cc8e6adc3ca352da56029d717d4b49bd/NOTICE). Using OrgOps alone does not require a Nest commercial license. |
 | SmoothUI adaptation | Its retained [MIT license](apps/user-ui/src/components/smooth-ui/LICENSE). |
+| assistant-ui adaptation | Its retained [MIT license](apps/user-ui/src/chat/ui/LICENSE). |
 | Connected-app logos | Their retained [license](apps/user-ui/public/integrations/LICENSE-logos.txt); third-party names and marks remain their owners' property. |
 | Other dependencies and separately licensed files | Their own applicable licenses and notices. |
 
