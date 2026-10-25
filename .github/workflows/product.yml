@@ -29,5 +29,7 @@ jobs:
       - run: npm run test:ui:onboarding
       - run: python3 -m unittest discover -s deploy/devops -p 'test_*.py'
       - run: docker build -t nest:check .
+      - name: Verify bounded resource failure and recovery
+        run: node deploy/devops/check-resources.mjs
       - name: Assert engine is untouched
         run: test -z "$(git -C vendor/orgops status --porcelain)"

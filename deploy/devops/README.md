@@ -47,3 +47,80 @@ Validation: `python3 -m unittest discover -s deploy/devops -p 'test_*.py'` cover
 unmerged SHA rejection, command rejection, and image/database rollback. A live
 restart check passed (operation `7029420743884523982a408e2a075723`). Public-page
 checks retry briefly because API health can precede UI readiness.
+
+## Host resource budgets and health recovery
+
+The deployment template defaults to a 1536 MiB RAM limit, a **2048 MiB combined
+RAM + swap limit** (therefore at most 512 MiB container swap), 0.80 CPU and 384
+processes/threads for Nest. This leaves host capacity for SSH, Docker and Caddy
+on the current 2 GiB / 1 CPU machine. `NEST_MEMORY_LIMIT`,
+`NEST_MEMORY_SWAP_LIMIT`, `NEST_CPU_LIMIT` and `NEST_PIDS_LIMIT` override these
+Compose settings for a differently sized host. Use positive values; zero can
+remove a limit. The swap limit must be at least the RAM limit. Nest logs use
+Docker's rotating local driver, capped at three 10 MiB files.
+
+Host swap is independent of these limits. Production now has about 2 GiB total
+swap, including the operator-added `/swap-nest-extra` file. Never disable active
+swap on a pressured host to resize it: add a mode-0600 swap file, activate it,
+back up fstab, and persist the entry. Swap is a burst buffer, not additional RAM.
+Do not run heavy browser/build/full-suite validation on the production host;
+use GitHub Actions or a separate bounded build runner.
+
+Budget exhaustion can still terminate an agent or API process in this shared
+container. The existing supervisor and `unless-stopped` policy restart exited
+process stacks, but Docker does **not** restart a still-running `unhealthy`
+container. The optional `nest-watchdog` systemd timer observes health every minute:
+
+- Three consecutive unhealthy observations trigger a fixed container restart.
+- Healthy, starting, explicitly stopped, unknown and recreated containers reset
+  the streak. Unknown/missing Docker state never triggers a restart.
+- It shares the deployment controller's flock, so it skips deployment snapshots,
+  migration/startup and rollback. It never deploys an image or reboots the host.
+- Restart attempts are limited to one per hour, including failed attempts and
+  container/host restarts. Corrupt state fails closed for operator review.
+- Journald receives state/resource metadata, not application logs, commands,
+  database contents, prompts or credential-bearing environment configuration.
+
+### Reviewed operator installation
+
+Repository deployment does not update host Compose settings or install this
+watchdog. First snapshot the existing private Compose files, environment, both
+databases and runtime volumes through the normal upgrade procedure. Merge only
+the reviewed resource/logging settings into the existing `/opt/nest/compose.yaml`;
+preserve its image selection, private settings, runner identity and mounts. Check
+`docker compose config --quiet` without printing its expanded credentials.
+Recreating Nest applies limits and interrupts active work; schedule that change,
+then verify health, login, runner heartbeat and demo access before enabling recovery.
+A larger/separate runner remains the stronger availability boundary. Host-owned
+Docker image builds and direct root commands are outside Nest's cgroup; prefer
+prebuilt CI images or separately bounded build capacity for those workloads.
+
+From the reviewed source checkout, install as an operator with host access:
+
+```sh
+sudo install -d -o root -g root -m 700 /var/lib/nest-watchdog
+sudo install -o root -g root -m 755 deploy/devops/nest-watchdog.py /usr/local/lib/nest-watchdog.py
+sudo install -o root -g root -m 644 deploy/devops/nest-watchdog.service /etc/systemd/system/nest-watchdog.service
+sudo install -o root -g root -m 644 deploy/devops/nest-watchdog.timer /etc/systemd/system/nest-watchdog.timer
+sudo systemd-analyze verify /etc/systemd/system/nest-watchdog.service /etc/systemd/system/nest-watchdog.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now nest-watchdog.timer
+sudo systemctl list-timers nest-watchdog.timer
+sudo journalctl -u nest-watchdog.service --since today
+```
+
+For maintenance, disable the timer before intentionally inducing an unhealthy
+state: `sudo systemctl disable --now nest-watchdog.timer`. To roll back budgets,
+restore the saved Compose settings and recreate the same image against the same
+volumes. Removing the watchdog does not remove application data. Do not delete
+or reset watchdog state merely to bypass its cooldown.
+
+Validation: `python3 -m unittest discover -s deploy/devops -p 'test_*.py'` covers
+recovery decisions, cooldown, unknown state, failed restarts and deployment locks.
+After building `nest:check`, `node deploy/devops/check-resources.mjs` checks actual
+Compose rendering and uses a disposable, network-isolated 64 MiB container to
+verify cgroup OOM containment, automatic restart, real watchdog recovery from
+unhealthy state and synthetic volume persistence.
+Run this **locally or in CI**, never as a stress test of production.
+
+See [the incident record](INCIDENT-2026-10-25.md) for evidence and remaining limits.

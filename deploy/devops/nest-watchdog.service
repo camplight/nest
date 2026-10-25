@@ -1,0 +1,17 @@
+[Unit]
+Description=Check Nest container health and recover sustained failures
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /usr/local/lib/nest-watchdog.py
+TimeoutStartSec=130
+UMask=0077
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nest-watchdog /opt/nest/operations
+StateDirectory=nest-watchdog
+StateDirectoryMode=0700

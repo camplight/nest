@@ -50,3 +50,15 @@ host shell, port forwarding, or Docker socket access. Keep its files private.
 Do not replace the host controller from agent-writable files; controller changes
 require a separate operator installation. If rollback fails, report the operation
 ID and error for host-level recovery instead of repeatedly restarting.
+
+## Production resource safety
+
+This agent shares a small production host with the live UI, APIs and other agents.
+Run full builds, full test suites and Chromium/browser validation in GitHub Actions
+or a separate build runner. Push the PR and inspect its checks; do not run those
+workloads alongside production. Required validation is still required, through CI.
+Keep any small diagnostic commands bounded and avoid overlapping expensive jobs.
+A Docker "unhealthy" container is not automatically restarted by `unless-stopped`.
+The optional operator-installed watchdog handles sustained unhealthy state with a
+shared deployment lock and a one-hour restart cooldown; agents do not install it
+or change host resource limits through the restricted deployment endpoint.

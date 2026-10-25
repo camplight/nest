@@ -2,6 +2,17 @@ services:
   nest:
     image: ${NEST_IMAGE:-nest:deploy-20260923}
     restart: unless-stopped
+    # Reserve host capacity for SSH, Docker and Caddy on the 2 GiB / 1 vCPU VPS.
+    mem_limit: ${NEST_MEMORY_LIMIT:-1536m}
+    # Docker counts RAM + swap here: this permits at most 512 MiB of container swap.
+    memswap_limit: ${NEST_MEMORY_SWAP_LIMIT:-2048m}
+    cpus: ${NEST_CPU_LIMIT:-0.80}
+    pids_limit: ${NEST_PIDS_LIMIT:-384}
+    logging:
+      driver: local
+      options:
+        max-size: '10m'
+        max-file: '3'
     env_file: .env
     environment:
       NEST_COMPONENTS: api,runner,admin-ui,user-ui

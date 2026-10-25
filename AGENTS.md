@@ -35,6 +35,12 @@ npm run build
 npm run --workspace @nest/cli test
 ```
 
+When working from an agent checkout on the live Nest production host, run full
+builds, full test suites and browser validation in GitHub Actions or on a separate
+bounded build runner. Do not run them alongside the live APIs/agents on the small
+production VPS. Push the PR and verify required CI results; this changes where
+checks run, not whether they are required.
+
 Track numbered product migrations under `packages/db/migrations`; keep product
 types in `packages/schemas` synchronized. Project UI work follows `docs/ROADMAP.md`.
 
