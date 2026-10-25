@@ -481,6 +481,8 @@ product/engine HTTP handlers. It simulates runner-authored responses without a
 model invocation. `apps/api/src/projects.test.ts` additionally covers authorization,
 immutable reviews, malformed input, idempotency and restart recovery.
 
+`npm run test:ui:chat-next` runs every browser suite under `tests/browser/chat-next/` (thread, realtime, working row, actions, quote reply, attachments, composer, slash commands and the absence of the old chat) against real engine and product handlers with synthetic data. The earlier browser suites still run against the chat as it renders by default: `test:ui:chat` (`chat.ts`, `codex-progress.mjs`, `claude-code-progress.mjs` and `demo-artifacts.mjs`), `test:ui:projects`, `test:ui:dashboard`, `test:ui:images`, `test:ui:onboarding` (with `test:ui:tour`), `test:ui:agents` (with `connection-projects.mjs`), `tests/browser/targeted-mentions.ts` and `tests/browser/mentions.mjs`. On macOS three upstream tests fail in `npm run test:engine` independently of Nest (the agent runner's two `file-upload` tests and the skills merge test "merges skills from multiple roots with first-name-wins"), and `npm test`'s `deploy/demos/publish.check.mjs` node test fails there too; these four known failures are compared by test ID rather than treated as regressions.
+
 ## Private Community catalog
 
 Nest owns reusable package metadata, immutable releases, package bytes and scoped
@@ -742,6 +744,8 @@ visibility, human identity and current channel posting rights. It derives source
 from the human session. Sending itself never subscribes a recipient or expands
 tool grants; the explicit picker invitation is a separate operation.
 
+`POST /api/messages` also accepts an optional `replyTo`, the engine event ID (1 to 200 characters) of the message being answered. It is part of the send identity and the stored fingerprint, so changing it under the same send ID is rejected like any other changed content. The target is validated only when no intent row exists for the send ID, so an unchanged retry still recovers after the target disappeared: it must be a `message.created` event in the same channel that the sender can read through the engine's `GET /api/events/:id`. Otherwise the response is 400 `{error, code: "REPLY_TARGET_INVALID"}` with one message for every cause, so it does not reveal whether the target exists. The reply is recorded as the engine's existing `payload.inReplyTo`; `parentEventId` is never set. A reply adds no targeting: only selected mentions decide who is asked. The composer's picker also serves the `/` commands described under "Chat on assistant-ui".
+
 Migration `006_mentions.sql` stores Nest send intent hashes, a planned engine
 event UUID, delivery confirmations and notification read state. Text and
 attachments remain authoritative in the engine event log. A retry of unchanged
@@ -934,6 +938,8 @@ The creation roster also returns `personalAgent` only when the product onboardin
 
 `POST /api/messages` accepts an optional explicit `targetAgentName` without changing human text. It must match the sole selected agent mention when present (combining an explicit single target with multiple selected agents is rejected), be a current subscribed visible agent, and is included in the durable send identity and receipt. The engine's existing target field is used unchanged.
 
+An optional `replyTo` sits beside `targetAgentName` in the same durable send identity and receipt (see "Selected mentions and message delivery").
+
 Chat/Files are normal project tabs. Project details contains the brief, owner-only inline editing with existing compare-and-swap, counts and typed member list, and searchable invitations. Mobile exposes it above chat in a disclosure. Legacy Members links render chat with details available. Advanced sharing remains in the existing engine-backed dialog. `POST /api/projects/:id/members` requires the current product owner with live engine manage/post access, validates exact existing HUMAN/AGENT identities and current agent visibility, and reconciles ambiguous subscriptions before reporting success. It grants no personal connected-account access.
 
 Personal connected skills require an unshared owner-only conversation and explicit approval for every additional project audience. Automatic project invitation grants no app access; joining pauses connected tools until owner approval. No new provisioning, model calls, account grants, engine changes or migrations are introduced by this workspace refinement.
@@ -944,6 +950,8 @@ Personal connected skills require an unshared owner-only conversation and explic
 Fresh project drafts now use owner-scoped local storage, with recovery from the earlier owner-bound tab draft. Existing conversations save text, selected mentions and already-uploaded file references by current human ID and engine channel ID. The stable send request ID/fingerprint is saved before posting, so an uncertain response can be recovered after refresh with one explicit Send. Local file bytes and in-progress uploads are not persisted; only confirmed upload references can be restored. Nothing is sent automatically.
 
 Drafts are stored on this browser/device, not synchronized between devices or used as server permissions. Invalid/blocked/quota-failed storage is tolerated and the composer reports when saving is unavailable. Signing out clears the current owner's drafts and recent project reference. Owner/channel scopes and matching-snapshot removal prevent one conversation or a late response from clearing another draft. The dashboard's Continue your project action resolves only against the currently accessible project index, so removed access cannot reveal a saved project title.
+
+A conversation draft also stores its reply target as `replyTo: {eventId, author, excerpt}`, with the excerpt cut to at most 500 characters. The field is optional, so drafts saved before it existed still load.
 
 
 ## Kickoff guidance and contextual connections
@@ -979,6 +987,8 @@ event payload; clicking/tapping the box again closes the card. Mobile needs no
 hover. No summary prose or step list is shown by default. Diagnostic output and missing process exit codes
 do not imply failure. Event colours describe individual events, never project
 acceptance. No execution, retry or engine event semantics change.
+
+Live progress text no longer appears inside the activity group: it moves to the working row of the active turn (see "Chat on assistant-ui"). Uploads go through `XMLHttpRequest` to the same authenticated file API, so each pending file shows a real progress bar, and image files show a thumbnail before sending. The activity chips themselves are unchanged.
 
 ## Project connection approval
 
@@ -1019,6 +1029,8 @@ the file link; SVG and other file types remain links rather than inline images.
 Native agents publish generated files with OrgOps `fs_upload`, then include the
 returned attachment in their message payload. No public static copy is created.
 
+A plain click on an inline preview opens a zoom view of the image with an "Open original" link. A click with a modifier key, a middle click and keyboard activation still follow the file link as before. SVG files stay link only and never open in the zoom view.
+
 
 ## Chat sender avatars
 
@@ -1031,8 +1043,34 @@ Historical senders remain visible even if absent from the current directory.
 Names, timestamps, message anchors, attachments, targeting and compact activity
 retain their existing behaviour in project and standalone chats.
 
+Consecutive messages from the same author within 5 minutes on the same day are grouped: the avatar and name show once, on the first message of the group. A date separator marks the first message of each day.
+
 
 Connected apps support any number of unshared, active owner-only conversations alongside explicitly approved projects. Every subscribed conversation must still pass the owner/privacy checks or project roster approval; archived or unsafe subscriptions pause access. The credential remains bound to its original private conversation, which must still exist. Assistant request dispatch retains its separate single-private-conversation boundary. No additional migration or engine change is required.
+
+## Chat on assistant-ui
+
+Project and standalone chats render their message list with assistant-ui. The old hand-written message list, its switch (`?chatUi`, the `nest:chat-ui` storage key and `VITE_NEST_CHAT_UI`) and the dev-only kit preview page are removed; there is one chat. `ChatFileDrop`, the workspace header, error notices, `DemoArtifact` and the participants panel with its "Agent is thinking" line are unchanged.
+
+1. Runtime. `ChatThread` (`apps/user-ui/src/chat/ChatThread.tsx`) drives assistant-ui through `useExternalStoreRuntime` with `isRunning: false`. Nest's channel events store (`chat/channel-events.ts`) stays the source of truth: the runtime only renders the timeline Nest builds from engine events, and sending stays with Nest's composer and `POST /api/messages`. assistant-ui never sends, edits or regenerates on its own.
+
+2. History. The first page issues 7 engine event queries (`chat/history.ts`, `CHAT_EVENT_QUERIES`: messages, failed turns, turn events, tool events, context telemetry, wrapper turns and process events), each with its own cursor, so a busy query family never hides another. Later pages issue up to 7: `requestedQueries` skips every query family whose cursor is exhausted. Scrolling near the top loads the previous page. A deep link to a message outside the loaded pages fetches that event alone through `GET /api/events/:id` and shows it as detached; detached events never move the paging cursors, and an "Earlier messages not loaded" marker separates them from the loaded history. A deep-linked message is scrolled into view, focused and highlighted by the thread itself.
+
+3. Working row. While an agent's turn is active, a working row with the agent's avatar, name and an animated indicator follows the message that triggered it (or the last item when that message is not loaded). It is a `role="status"` element. It starts with `agent.turn.started` or `wrapper.turn.started`, shows the latest codex or wrapped progress text from `agent.turn.phase` events (only that whitelisted text, never tool arguments or output), and ends when the turn completes or fails, when a newer turn of the same agent supersedes it, or when the agent was stopped after the turn began. There is no time limit. Agents created through `POST /api/agents` without a `desiredState` default to RUNNING (only the agent-copy route and `POST /api/federation/agents/transfer`, the remote leg of a copy, default to STOPPED), and the engine bumps `updatedAt` on every agent update, not only on stop. Stopping an agent sets `desiredState` to STOPPED and `updatedAt` to the time of the stop in milliseconds, so the row ends when `desiredState` is STOPPED and `updatedAt` is later than the turn's first event. `desiredState` alone is not used, because an agent may already be STOPPED before the turn began, and `runtimeState` is not used, because agents without a live runner report STOPPED while their events still arrive. `WorkingRow` renders `AgentAvatar` inside a plain sized `div`, not the `.agent-portrait` wrapper message headers use. The participants panel line is unchanged.
+
+4. Message actions. Each message (never an activity group or a working row) has Copy message (the raw text), Copy link (the existing `?message=` deep link) and Quote. Desktop shows the bar on hover and keyboard focus; touch toggles it with a tap. Selecting text inside one message body offers "Quote selection". Activity groups and the working row carry `data-aui-quote-selectable="false"`; `selectionQuote` (`chat/quote.ts`) rejects a selection that spans two messages or whose anchor or focus end lies in such an element, checking only those two ends. That rule is covered by the unit tests of `selectionQuote`; the browser case for activity cards passes on structure alone, because activity wrappers sit outside `[data-message-id]`.
+
+5. Quote reply. Quoting inserts a Markdown blockquote of the author and text (cut to 2000 characters) into the composer and sets the reply target, shown above the composer as "Replying to" the author with a way to clear it. Sending passes `replyTo`. A message with `payload.inReplyTo` shows "Replying to <author>" above its body only when the target resolves (from the loaded events, else `GET /api/events/:id`) to a `message.created` in the same channel; any other result shows nothing. Clicking it runs the normal deep link.
+
+6. Export. An Export button above the thread downloads the loaded conversation as Markdown: a title, then each message with author, a sortable timestamp, its text and links to its attachments. An activity group becomes one count line ("Agent activity: N events"); event payloads, tool details and progress text are never exported.
+
+7. Slash commands. Typing `/` at the start of the composer opens the same picker that serves mentions, with only the commands the user may run there: `/invite` (people or agents, offered only to users who may invite to this chat) and `/files` (offered only in project chats, opens the project's Files tab). A command runs an existing UI action; it never sends a message.
+
+8. Styling. Tailwind v4 is used in the user UI only (the admin UI stays on Tailwind 3.4) and is scoped to `.nest-chat`, `.nest-chat-composer` and `.nest-chat-portal` (`chat/chat.css`). There is no global preflight: the few base rules the copied components expect are applied inside the scope. Utilities are emitted as important so they win over the older global rules still bound to class names such as `.message` and `.messages-panel`. The `dark` variant follows Nest's `data-theme="dark"` attribute rather than the OS scheme, and the shadcn colour names are aliases of the Nest brand tokens. A reduced-motion layer disables animations and transitions when the reader prefers reduced motion. Radix dialogs and tooltips portal into `.nest-chat-portal`, never `document.body`.
+
+9. Dependencies. The user UI pins `@assistant-ui/react` 0.15.31, `@assistant-ui/react-markdown` 0.14.24 and `@assistant-ui/react-syntax-highlighter` 0.14.7. They bring zod 4 and `assistant-cloud` in transitively; Nest does not use Assistant Cloud. React stays on 18.3.
+
+10. Secrets. No secret, credential, tool argument or process output reaches copied text, copied links, the Markdown export or the working row's progress text: each reads only whitelisted fields.
 
 ## Authenticated published demos
 
@@ -1133,6 +1171,17 @@ During the tour the underlying shell is inert, focus stays in the dialog, Escape
 and Skip dismiss it, and focus returns to the launch control. On phones the
 navigation opens for the spotlight and restores its prior state on dismissal.
 Resize/scroll reposition the highlight. Existing personal-agent setup is unchanged.
+
+### Chat refresh recovery
+
+Chat refresh recovery tracks the newest fetched timestamp independently for each
+of the seven event queries. After reconnecting, it pages backward to those saved
+boundaries before committing the new head, so a gap larger than one page cannot
+hide messages or activity. Concurrent refreshes share one request sequence; failed
+gap fetches retain the previous window for retry, and channel switches discard late
+responses. If the initial load failed, the first successful refresh also initializes
+older-history cursors and availability. The existing same-millisecond engine limit
+still applies; this change does not introduce an engine pagination API.
 
 ### Durable project naming
 

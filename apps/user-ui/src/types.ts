@@ -31,6 +31,7 @@ export type Agent = {
   ownerHumanId?: string | null;
   runtimeState?: string;
   desiredState?: string;
+  updatedAt?: number;
 };
 
 export type EventRow = {

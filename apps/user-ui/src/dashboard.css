@@ -109,9 +109,9 @@
 .dashboard-search input::placeholder {
   color: var(--nest-muted);
 }
+/* The icon's fill is the forest tint at 48%; dark mode turns it white at the same strength, like the topbar icons. */
 :root[data-theme="dark"] .dashboard-search .design-icon {
-  background: #fefefe;
-  border-radius: 50%;
+  filter: brightness(0) invert(1);
 }
 .dashboard-team-shortcut {
   justify-self: end;

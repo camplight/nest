@@ -114,7 +114,7 @@ function WorkspaceControls() {
       role="group"
       aria-label="Workspace controls"
     >
-      {actions.onTour&&<button className="quick-tour-trigger" onClick={actions.onTour} aria-label="Quick tour">{actions.tourNew?"Start here · 3 steps":"Quick tour"}</button>}
+      {actions.onTour&&<button className="quick-tour-trigger" onClick={actions.onTour} aria-label="Quick tour">{actions.tourNew?<>Start here<span className="quick-tour-steps"> · 3 steps</span></>:"Quick tour"}</button>}
       <ThemeToggle iconSrc={asset("theme")} className="workspace-control" />
       <MentionInbox
         icon={<Icon name="notifications" />}

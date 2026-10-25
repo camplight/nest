@@ -190,3 +190,28 @@
 .project-connection-suggestions p { margin:6px 0 0; font-size:12px; }
 
 .mention-delivery-hint .draft-storage-status { display:block; margin-top:6px; }
+/* `.projects-page input` above styles form fields; the topbar search is a pill whose input must stay bare. */
+.projects-page .dashboard-search input { width: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: 15px; }
+.projects-page .dashboard-search input:focus-visible { outline: none; }
+.projects-page .dashboard-search:focus-within { border-color: color-mix(in srgb, var(--nest-text) 28%, var(--nest-border)); }
+
+/* Chat / Files switch at the top of the project panel. */
+.project-about .project-sections { display:grid; grid-template-columns:1fr 1fr; gap:4px; margin:12px 12px 0; padding:4px; border-radius:10px; background:var(--nest-muted-surface); }
+.project-about .project-sections button { min-height:34px; padding:6px 10px; border:0; border-radius:7px; background:transparent; color:var(--nest-muted); font:inherit; font-size:14px; font-weight:500; cursor:pointer; }
+.project-about .project-sections button[aria-current="page"] { background:var(--nest-surface); color:var(--nest-text); font-weight:600; box-shadow:0 1px 2px color-mix(in srgb,var(--nest-text) 10%,transparent); }
+.project-about .project-sections button:focus-visible { outline:2px solid var(--nest-lime); outline-offset:2px; }
+/* The chat page: no title or tab row, so the content starts right under the topbar. */
+.project-chat-page .dashboard-content { gap:12px; padding-top:12px; }
+@media(max-width:760px) {
+  /* One compact row on phones: Project details on the left, the Chat/Files switch on the right; the opened details
+     overlay the page below the row, as on the chat page at tablet width. */
+  .projects-page .project-about { position:relative; display:flex; align-items:center; gap:8px; padding:4px 4px 4px 0; overflow:visible; max-height:none; z-index:5; }
+  .projects-page .project-about .project-sections { order:2; flex:0 0 auto; gap:2px; margin:0; padding:3px; border-radius:9px; }
+  .projects-page .project-about .project-sections button { min-height:28px; padding:2px 12px; border-radius:6px; font-size:13px; }
+  .projects-page .project-context-disclosure { flex:1; min-width:0; }
+  .projects-page .project-context-disclosure>summary { padding:8px 4px 8px 12px; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .projects-page .project-context-disclosure>summary span { margin-left:6px; }
+  .projects-page .project-context-body { position:absolute; top:100%; left:-1px; right:-1px; max-height:min(55dvh,440px); overflow-y:auto; background:var(--nest-surface); border:1px solid var(--nest-border); border-radius:0 0 10px 10px; box-shadow:0 12px 24px #0002; }
+}
+/* Too narrow for the people and agent counts beside the switch; they stay in the opened details. */
+@media(max-width:480px) { .projects-page .project-context-disclosure>summary span { display:none; } }

@@ -1,22 +1,20 @@
 import {QuickTour, tourSeen, rememberTour} from './components/QuickTour';
 import {demoReturnTo, pendingDemoReturnTo, rememberDemoReturnTo, clearDemoReturnTo} from './demo-return';
 
-import {demoArtifacts} from './demo-artifacts';
 import {DemoArtifact} from './components/DemoArtifact';
-import {MessageAttachment as MessageAttachmentView} from "./components/MessageAttachment";
-import {useAttachments,restoreAttachments,type UploadedAttachment} from './attachments';
-import {ChatAttachments} from './components/ChatAttachments';
 import {ChatFileDrop} from './components/ChatFileDrop';
-import {AgentActivity} from './components/AgentActivity';
-import {activeAgentProgress} from './activity';
+import {createChannelEventsCore,type ChannelEventsCore} from './chat/channel-events';
+import {useChannelEvents} from './chat/useChannelEvents';
+import {adaptiveMessageBatchSize} from './chat/history';
+import {ChatThread, type ChatThreadHandle} from './chat/ChatThread';
+import {ChatComposer,useComposerSession,type ChatComposerHandle} from './chat/ChatComposer';
+import type {ChannelEventsSnapshot} from './chat/channel-events';
 import {consumeConnectionReturn,forgetConnectionReturn} from './project-connection-return';
 import {ProjectConnections} from './ProjectConnections';
-import {loadChatDraft,saveChatDraft,clearSentDraft,clearOwnerDrafts,rememberProject,recentProject,type ChatDraft} from './drafts';
+import {loadChatDraft,saveChatDraft,clearOwnerDrafts,rememberProject,recentProject} from './drafts';
 import { readAgentRequestLocation } from "./AgentRequests";
 import {WorkspaceHeaderProvider, WorkspaceTopbar} from './components/WorkspaceTopbar';
-import type {SelectedMention} from '@nest/schemas';
-import { useMentionPicker } from "./components/useMentionPicker";
-import { mentionCandidates, reconcileMentions } from "./mentions";
+import { mentionCandidates } from "./mentions";
 import type { OnboardingSummary } from "@nest/schemas";
 import {apiUrl} from './config';
 import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
@@ -32,8 +30,6 @@ import { useBranding } from "../../nest-brand/BrandingProvider";
 import { PoweredByNest, InstanceBrand, ThemeToggle } from "../../nest-brand/Brand";
 import {
   FormEvent,
-  type ChangeEvent,
-  type ClipboardEvent,
   useEffect,
   useCallback,
   useMemo,
@@ -43,66 +39,11 @@ import {
 import { apiFetch, apiJson, getApiHeaders } from "./api";
 import { wsUrl } from "./config";
 import type { Agent, AuthMe, Channel, ChannelParticipant, ChannelShare, EventRow, Team } from "./types";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-
-const MARKDOWN_HINT_RE =
-  /(^|\n)\s{0,3}(#{1,6}\s|[-*+]\s|\d+\.\s|>\s)|`{1,3}[^`]|(\*\*|__)[^*_]+(\*\*|__)|(\*|_)[^*_]+(\*|_)|\[[^\]]+\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|(^|\n)\|.+\|/m;
-const URL_RE = /(https?:\/\/[^\s<]+)/i;
-
-function formatTime(value?: number) {
-  if (!value) return "";
-  const date = new Date(value);
-  const today = new Date();
-  const isToday =
-    date.getFullYear() === today.getFullYear() &&
-    date.getMonth() === today.getMonth() &&
-    date.getDate() === today.getDate();
-  return new Intl.DateTimeFormat(undefined, {
-    ...(isToday
-      ? {}
-      : {
-          day: "numeric",
-          month: "short",
-          ...(date.getFullYear() === today.getFullYear() ? {} : { year: "numeric" })
-        }),
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  }).format(date);
-}
-
-function messageText(event: EventRow) {
-  const payload = event.payload;
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
-  if (event.type === "agent.turn.failed") {
-    const error = (payload as { error?: unknown }).error;
-    return typeof error === "string" ? `Agent error: ${error}` : "Agent failed to respond.";
-  }
-  const text = (payload as { text?: unknown }).text;
-  return typeof text === "string" ? text : "";
-}
-
-function shouldRenderMarkdown(text: string) {
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-  return MARKDOWN_HINT_RE.test(trimmed) || URL_RE.test(trimmed);
-}
 
 function sourceLabel(source: string) {
   if (source.startsWith("human:")) return source.slice("human:".length) || "Human";
   if (source.startsWith("agent:")) return source.slice("agent:".length) || "Agent";
   return source || "System";
-}
-
-function messageRole(source: string) {
-  if (source.startsWith("human:")) return "human";
-  if (source.startsWith("agent:")) return "agent";
-  return "system";
-}
-
-function messageDisplayTime(event: EventRow) {
-  return event.deliverAt ?? event.createdAt;
 }
 
 const DIRECT_CHANNEL_KINDS = new Set(["HUMAN_AGENT_DM", "AGENT_AGENT_DM", "DIRECT_GROUP"]);
@@ -113,13 +54,6 @@ const CHANNEL_GROUPS = [
 ] as const;
 
 type ChannelGroupId = (typeof CHANNEL_GROUPS)[number]["id"];
-
-type MessageAttachment = {
-  fileId: string;
-  name: string;
-  mime?: string;
-  size?: number;
-};
 
 type WsServerEventMessage = {
   type: "event";
@@ -338,86 +272,54 @@ function consumeShareToken(channelId?: string | null) {
   window.history.replaceState(null, "", url);
 }
 
-function adaptiveMessageBatchSize() {
-  const connection = (
-    navigator as Navigator & {
-      connection?: { downlink?: number; effectiveType?: string; saveData?: boolean };
-    }
-  ).connection;
-  if (connection?.saveData) return 12;
-  const effectiveType = connection?.effectiveType ?? "";
-  if (effectiveType.includes("2g")) return 10;
-  if (effectiveType.includes("3g")) return 20;
-  if (typeof connection?.downlink === "number") {
-    if (connection.downlink >= 10) return 50;
-    if (connection.downlink >= 5) return 40;
-  }
-  return 30;
+function createSessionChannelEvents() {
+  const limit = () =>
+    adaptiveMessageBatchSize(
+      (
+        navigator as Navigator & {
+          connection?: { downlink?: number; effectiveType?: string; saveData?: boolean };
+        }
+      ).connection
+    );
+  return createChannelEventsCore({ fetchJson: apiJson, limit });
 }
 
-function mergeEventsChronologically(current: EventRow[], incoming: EventRow[]) {
-  const byId = new Map<string, EventRow>();
-  for (const event of current) byId.set(event.id, event);
-  for (const event of incoming) byId.set(event.id, event);
-  return [...byId.values()].sort((left, right) => {
-    const leftPrimary = left.deliverAt ?? left.createdAt ?? 0;
-    const rightPrimary = right.deliverAt ?? right.createdAt ?? 0;
-    if (leftPrimary !== rightPrimary) return leftPrimary - rightPrimary;
-    const leftCreated = left.createdAt ?? 0;
-    const rightCreated = right.createdAt ?? 0;
-    if (leftCreated !== rightCreated) return leftCreated - rightCreated;
-    return left.id.localeCompare(right.id);
-  });
-}
-
-function parseMessageAttachments(payload: unknown): MessageAttachment[] {
-  if (!payload || typeof payload !== "object") return [];
-  const payloadRecord = payload as { attachments?: unknown };
-  if (!Array.isArray(payloadRecord.attachments)) return [];
-  const attachments: MessageAttachment[] = [];
-  for (const entry of payloadRecord.attachments) {
-    if (!entry || typeof entry !== "object") continue;
-    const record = entry as Record<string, unknown>;
-    const fileId = typeof record.fileId === "string" ? record.fileId.trim() : "";
-    if (!fileId) continue;
-    const name = typeof record.name === "string" && record.name.trim() ? record.name.trim() : fileId;
-    const mime = typeof record.mime === "string" && record.mime.trim() ? record.mime.trim() : undefined;
-    const size = typeof record.size === "number" && Number.isFinite(record.size) ? Math.max(0, record.size) : undefined;
-    attachments.push({ fileId, name, mime, size });
-  }
-  return attachments;
-}
+const NO_EVENTS: EventRow[] = [];
+const NO_DETACHED: ReadonlySet<string> = new Set();
 
 export default function App() {
   const { branding } = useBranding();
-  const messagesPanelRef = useRef<HTMLElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerRef = useRef<ChatComposerHandle | null>(null);
+  const chatThreadRef = useRef<ChatThreadHandle | null>(null);
   const activeChannelIdRef = useRef<string | null>(null);
   const lastSeenByChannelRef = useRef<Record<string, number>>({});
-  const lastLoadedMessageAtByChannelRef = useRef<Record<string, number>>({});
-  const lastLoadedTimelineAtByChannelRef = useRef<Record<string, number>>({});
   const channelsRef = useRef<Channel[]>([]);
   const usernameRef = useRef("");
   const userIdRef = useRef<string | null>(null);
   const viewerTeamIdsRef = useRef<Set<string>>(new Set());
-  const seenWsEventIdsRef = useRef<Set<string>>(new Set());
   const wsRef = useRef<WebSocket | null>(null);
   const wsSubscribedTopicsRef = useRef<Set<string>>(new Set());
   const wsReconnectTimerRef = useRef<number | null>(null);
   const wsShouldReconnectRef = useRef(true);
   const wsReconnectAttemptRef = useRef(0);
-  const messageFetchSeqRef = useRef(0);
-  const loadingChannelIdRef = useRef<string | null>(null);
-  const forceScrollToBottomOnLoadRef = useRef(false);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [personalSetup, setPersonalSetup] = useState<OnboardingSummary | null>(null);
   const [creatingPersonalAgent, setCreatingPersonalAgent] = useState(() => new URL(window.location.href).searchParams.get("create") === "personal");
   const [humans, setHumans] = useState<Array<{ username: string }>>([]);
-  const [events, setEvents] = useState<EventRow[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
+  const [channelEvents, setChannelEvents] = useState<ChannelEventsCore>(createSessionChannelEvents);
+  const channelEventsRef = useRef(channelEvents);
+  channelEventsRef.current = channelEvents;
+  const channelSnapshot = useChannelEvents(channelEvents);
+  // Until the core has switched to a newly selected channel, render that channel as loading and empty.
+  const channelEventsCurrent = channelSnapshot.channelId === activeChannelId;
+  const events = channelEventsCurrent ? channelSnapshot.events : NO_EVENTS;
+  // The new chat reads the snapshot itself; a channel the core has not switched to yet renders as loading and empty.
+  const threadSnapshot = useMemo<ChannelEventsSnapshot>(() => channelEventsCurrent ? channelSnapshot : {
+    channelId: activeChannelId, events: NO_EVENTS, detachedIds: NO_DETACHED, loading: Boolean(activeChannelId), loadingOlder: false, hasOlder: false, error: null
+  }, [channelEventsCurrent, channelSnapshot, activeChannelId]);
   const [view, setView] = useState<"dashboard" | "workspace" | "agents" | "projects" | "community">(() => readLinkedChannelId() ? "workspace" : new URL(window.location.href).searchParams.get("view") === "onboarding" || window.location.pathname === "/onboarding" ? "agents" : new URL(window.location.href).searchParams.get("view") === "agents" ? "agents" : new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : "dashboard");
   const [selectedCommunitySkill, setSelectedCommunitySkill] = useState<string|null>(()=>new URL(window.location.href).searchParams.get("skill"));
   const [projectIndex, setProjectIndex] = useState<Project[]>([]);
@@ -439,7 +341,6 @@ export default function App() {
     direct: false,
     shared: false
   });
-  const [hasNewMessagesBelow, setHasNewMessagesBelow] = useState(false);
   const [channelQuery, setChannelQuery] = useState("");
   const [conversationName, setConversationName] = useState("");
   const [conversationDescription, setConversationDescription] = useState("");
@@ -450,14 +351,6 @@ export default function App() {
   const [showConversationDialog, setShowConversationDialog] = useState(false);
   const [showParticipantsDialog, setShowParticipantsDialog] = useState(false);
   const [showChannelManageDialog, setShowChannelManageDialog] = useState(false);
-  const [draftState,setDraftState]=useState<{text:string;mentions:SelectedMention[]}>({text:'',mentions:[]});
-  const [draftScope,setDraftScope]=useState<{owner:string;channel:string}|null>(null);
-  const [draftStored,setDraftStored]=useState(true);
-  const draft=draftState.text;
-  function setDraft(text:string){setDraftState(current=>({text,mentions:reconcileMentions(current.text,text,current.mentions)}));}
-  function chooseMention(text:string,mention:SelectedMention){setDraftState(current=>({text,mentions:[...reconcileMentions(current.text,text,current.mentions),mention]}));}
-  const draftRecipients=[...new Map(draftState.mentions.map(m=>[m.kind+':'+m.name,m])).values()];
-  const sendRequestRef=useRef<{fingerprint:string;id:string}|null>(null);
   const [focusedMessage,setFocusedMessage]=useState<string|null>(()=>new URL(window.location.href).searchParams.get('message'));
   const [username, setUsername] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
@@ -470,9 +363,7 @@ export default function App() {
   const [authenticated, setAuthenticated] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
-  const [messagesLoading, setMessagesLoading] = useState(false);
-  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
-  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const messagesLoading = channelEventsCurrent ? channelSnapshot.loading : Boolean(activeChannelId);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [participantKind, setParticipantKind] = useState<"HUMAN" | "AGENT">("AGENT");
@@ -486,7 +377,6 @@ export default function App() {
   const [channelVisibilityDraft, setChannelVisibilityDraft] = useState<"PUBLIC" | "PRIVATE">("PRIVATE");
   const [updatingChannelVisibility, setUpdatingChannelVisibility] = useState(false);
   const [archiveDraft, setArchiveDraft] = useState(false);
-  const {attachments:pendingAttachments,setAttachments:setPendingAttachments,uploadFiles:enqueueFiles,error:attachmentError}=useAttachments(`${userId??''}:${activeChannelId??''}`);
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -517,44 +407,7 @@ export default function App() {
     [events]
   );
 
-  const timelineItems = useMemo(() => {
-    const items: Array<
-      | { kind: "message"; id: string; event: EventRow }
-      | { kind: "trace-group"; id: string; traceEvents: EventRow[]; tone: "agent" | "system" }
-    > = [];
-    let traceBuffer: EventRow[] = [];
-    let groupCounter = 0;
-
-    const flushTraceBuffer = () => {
-      if (traceBuffer.length === 0) return;
-      const tone: "agent" | "system" = traceBuffer.some(
-        (entry) => entry.type === "agent.turn.failed" || entry.type === "tool.failed"
-      )
-        ? "system"
-        : "agent";
-      items.push({
-        kind: "trace-group",
-        id: `trace-group-${traceBuffer[0]?.id ?? groupCounter}`,
-        traceEvents: traceBuffer,
-        tone
-      });
-      traceBuffer = [];
-      groupCounter += 1;
-    };
-
-    for (const event of visibleTimelineEvents) {
-      if (event.type === "message.created") {
-        flushTraceBuffer();
-        items.push({ kind: "message", id: event.id, event });
-      } else {
-        traceBuffer.push(event);
-      }
-    }
-    flushTraceBuffer();
-    return items;
-  }, [visibleTimelineEvents]);
-  const isConversationEmpty = !messagesLoading && timelineItems.length === 0;
-  const activeProgressIds = useMemo(() => activeAgentProgress(events), [events]);
+  const isConversationEmpty = !messagesLoading && visibleTimelineEvents.length === 0;
 
   const agentIsThinking = useMemo(() => {
     let activeTurns = 0;
@@ -662,16 +515,24 @@ export default function App() {
   );
 
   const isSearchingChannels = Boolean(channelQuery.trim());
-  const uploadingAttachmentCount = pendingAttachments.filter((item) => item.status === "uploading").length;
-  const readyAttachments = pendingAttachments
-    .filter((item) => item.status === "ready" && item.uploaded)
-    .map((item) => item.uploaded as UploadedAttachment);
-  const hasAttachmentErrors = pendingAttachments.some((item) => item.status === "error");
   const activeChannelManageable = canManageUserChannel(activeChannel, userId);
   const activeChannelCanPost = activeChannel ? activeChannel.canPost !== false : false;
   const activeConversationName = activeChannel ? projectIndex.find(project => project.channelId === activeChannel.id)?.name ?? channelLabel(activeChannel, username) : "";
   const mentionProject=projectIndex.find(project=>project.channelId===activeChannelId);
   const canInviteMention=activeChannelManageable&&(!mentionProject||mentionProject.ownerId===userId);
+  // Held here, above the project tabs, so leaving Chat for Files keeps a send, upload or invite in flight.
+  const composerSession = useComposerSession({
+    userId,
+    channel: activeChannel,
+    canPost: activeChannelCanPost,
+    onStateChange: state => { setSending(state.sending); if (state.sending) setError(null); },
+    onSent: handleSent,
+    onError: setError,
+    mentionCandidates: mentionOptions,
+    canInvite: canInviteMention,
+    onInvite: inviteMention,
+    onAskAssistant: askAssistant,
+  });
   async function inviteMention(candidate:import('./mentions').MentionCandidate){
     const channelId=activeChannelId,ownerId=userId;
     if(!channelId||!ownerId||!canInviteMention||!activeChannelCanPost||activeChannel?.archivedAt||candidate.inviteBlockedReason)throw Error('Invitation unavailable');
@@ -686,7 +547,7 @@ export default function App() {
     // Refresh the roster without navigating back if the user changed chats.
     setChannels(fresh);
   }
-  const mentions = useMentionPicker({value:draft, onChange:setDraft, onChoose:chooseMention, onAskAssistant:(name,brief)=>{if(userId)void apiJson<{channelId:string}>('/api/collaboration/agents/'+encodeURIComponent(name)+'/chat',{method:'POST',headers:getApiHeaders(),body:'{}'}).then(async r=>{const existing=loadChatDraft(userId,r.channelId);if(!existing.text&&!existing.attachments.length&&!existing.request)saveChatDraft(userId,r.channelId,{text:brief,mentions:[],attachments:[]});await refreshChannels(r.channelId);void loadShell();}).catch(()=>setError('Could not open the agent conversation. Try again.'));}, targeted:true, onInvite:canInviteMention?inviteMention:undefined, textareaRef:composerTextareaRef, candidates:mentionOptions, channelId:activeChannelId, disabled:!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending});
+  function askAssistant(name:string,brief:string){if(userId)void apiJson<{channelId:string}>('/api/collaboration/agents/'+encodeURIComponent(name)+'/chat',{method:'POST',headers:getApiHeaders(),body:'{}'}).then(async r=>{const existing=loadChatDraft(userId,r.channelId);if(!existing.text&&!existing.attachments.length&&!existing.request)saveChatDraft(userId,r.channelId,{text:brief,mentions:[],attachments:[]});await refreshChannels(r.channelId);void loadShell();}).catch(()=>setError('Could not open the agent conversation. Try again.'));}
   const canStartConversation =
     Boolean(conversationName.trim()) || selectedConversationAgents.length === 1;
   const selectedConversationAgentRecords = useMemo(
@@ -765,6 +626,17 @@ export default function App() {
     setView(channelId ? "workspace" : "dashboard");
     setMobileSidebarOpen(false);
     updateChannelDeepLink(channelId, options?.replace, channelId === null);
+  }
+
+  // Deep-link focus inside the open channel (reply links); clearing first makes a repeated id scroll and highlight again.
+  function focusMessage(eventId: string) {
+    setFocusedMessage(null);
+    window.setTimeout(() => {
+      setFocusedMessage(eventId);
+      const url = new URL(window.location.href);
+      url.searchParams.set("message", eventId);
+      window.history.replaceState(null, "", url);
+    });
   }
 
   async function loadSession() {
@@ -888,20 +760,6 @@ export default function App() {
     }
   }
 
-  function scrollMessagesToBottom(behavior: ScrollBehavior = "smooth") {
-    window.requestAnimationFrame(() => {
-      const panel = messagesPanelRef.current;
-      if (!panel) return;
-      panel.scrollTo({ top: panel.scrollHeight, behavior });
-    });
-  }
-
-  function isMessagesPanelNearBottom() {
-    const panel = messagesPanelRef.current;
-    if (!panel) return true;
-    return panel.scrollHeight - panel.scrollTop - panel.clientHeight < 80;
-  }
-
   function newestMessageTime(channelEvents: EventRow[]) {
     return channelEvents.reduce((newest, event) => {
       if (event.type !== "message.created" && event.type !== "agent.turn.failed") return newest;
@@ -909,16 +767,8 @@ export default function App() {
     }, 0);
   }
 
-  function newestTimelineEventTime(channelEvents: EventRow[]) {
-    return channelEvents.reduce((newest, event) => {
-      if (event.type !== "message.created" && !isTraceEvent(event)) return newest;
-      return Math.max(newest, event.createdAt ?? 0);
-    }, 0);
-  }
-
-  function markChannelSeen(channelId: string, channelEvents: EventRow[]) {
+  function markChannelSeen(channelId: string, newestMessageAt: number) {
     if (!chatVisibleRef.current) return;
-    const newestMessageAt = newestMessageTime(channelEvents);
     if (newestMessageAt > 0) {
       lastSeenByChannelRef.current[channelId] = Math.max(
         lastSeenByChannelRef.current[channelId] ?? 0,
@@ -933,179 +783,22 @@ export default function App() {
     });
   }
 
-  function rememberWsEvent(eventId: string) {
-    const seen = seenWsEventIdsRef.current;
-    if (seen.has(eventId)) return false;
-    seen.add(eventId);
-    if (seen.size > 3000) {
-      const first = seen.values().next();
-      if (!first.done) seen.delete(first.value);
-    }
-    return true;
+  async function switchChannelEvents(channelId: string | null) {
+    const core = channelEventsRef.current;
+    await core.switchTo(channelId);
+    const snapshot = core.snapshot();
+    if (!channelId || snapshot.channelId !== channelId || snapshot.loading || snapshot.error) return;
+    if (channelId !== activeChannelIdRef.current) return;
+    markChannelSeen(channelId, newestMessageTime(snapshot.events));
   }
 
-  async function loadMessages(
-    channelId: string,
-    options?: { scrollToBottom?: boolean; showLoading?: boolean; scrollBehavior?: ScrollBehavior }
-  ) {
-    const fetchSeq = messageFetchSeqRef.current + 1;
-    messageFetchSeqRef.current = fetchSeq;
-    const limit = adaptiveMessageBatchSize();
-    if (options?.showLoading) {
-      loadingChannelIdRef.current = channelId;
-      setMessagesLoading(true);
-    }
-    try {
-      const [messageEvents, failureEvents, turnEvents, toolEvents, contextEvents, wrapperEvents, processEvents] =
-        await Promise.all([
-        apiJson<EventRow[]>(
-          `/api/events?channelId=${encodeURIComponent(channelId)}&type=message.created&limit=${limit}&order=desc`
-        ),
-        apiJson<EventRow[]>(
-          `/api/events?channelId=${encodeURIComponent(channelId)}&type=agent.turn.failed&limit=${limit}&order=desc`
-        ),
-        apiJson<EventRow[]>(
-          `/api/events?channelId=${encodeURIComponent(channelId)}&typePrefix=agent.turn.&limit=${limit}&order=desc`
-        ),
-        apiJson<EventRow[]>(
-          `/api/events?channelId=${encodeURIComponent(channelId)}&typePrefix=tool.&limit=${limit}&order=desc`
-        ),
-        apiJson<EventRow[]>(
-          `/api/events?channelId=${encodeURIComponent(channelId)}&type=telemetry.context.window.updated&limit=${limit}&order=desc`
-        ),
-        apiJson<EventRow[]>(
-          `/api/events?channelId=${encodeURIComponent(channelId)}&typePrefix=wrapper.turn.&limit=${limit}&order=desc`
-        ),
-        apiJson<EventRow[]>(
-          `/api/events?channelId=${encodeURIComponent(channelId)}&typePrefix=process.&limit=${limit}&order=desc`
-        )
-      ]);
-      if (fetchSeq !== messageFetchSeqRef.current || channelId !== activeChannelIdRef.current) {
-        return;
-      }
-      const nextEvents = mergeEventsChronologically(
-        mergeEventsChronologically(
-          mergeEventsChronologically(
-            mergeEventsChronologically(mergeEventsChronologically(messageEvents, failureEvents), turnEvents),
-            mergeEventsChronologically(toolEvents, contextEvents)
-          ),
-          wrapperEvents
-        ),
-        processEvents
-      ).reverse();
-      const chronologicalEvents = [...nextEvents].reverse();
-      const previousNewestMessageAt = lastLoadedMessageAtByChannelRef.current[channelId] ?? 0;
-      const nextNewestMessageAt = newestMessageTime(nextEvents);
-      const previousNewestTimelineAt = lastLoadedTimelineAtByChannelRef.current[channelId] ?? 0;
-      const nextNewestTimelineAt = newestTimelineEventTime(nextEvents);
-      const hasNewTimelineEvents =
-        previousNewestTimelineAt > 0 && nextNewestTimelineAt > previousNewestTimelineAt;
-
-      setEvents((current) =>
-        options?.showLoading ? chronologicalEvents : mergeEventsChronologically(current, chronologicalEvents)
-      );
-      if (options?.showLoading) {
-        setHasOlderMessages(messageEvents.length === limit);
-      }
-      markChannelSeen(channelId, nextEvents);
-      lastLoadedMessageAtByChannelRef.current[channelId] = Math.max(
-        previousNewestMessageAt,
-        nextNewestMessageAt
-      );
-      lastLoadedTimelineAtByChannelRef.current[channelId] = Math.max(
-        previousNewestTimelineAt,
-        nextNewestTimelineAt
-      );
-      if (options?.scrollToBottom) {
-        forceScrollToBottomOnLoadRef.current = true;
-        setHasNewMessagesBelow(false);
-        scrollMessagesToBottom(options.scrollBehavior);
-      }
-      if (!options?.scrollToBottom && hasNewTimelineEvents && channelId === activeChannelIdRef.current) {
-        if (isMessagesPanelNearBottom()) {
-          setHasNewMessagesBelow(false);
-          scrollMessagesToBottom();
-        } else {
-          setHasNewMessagesBelow(true);
-        }
-      }
-    } catch (loadError) {
-      if (fetchSeq === messageFetchSeqRef.current) {
-        setError(loadError instanceof Error ? loadError.message : "Unable to load messages");
-      }
-    } finally {
-      if (
-        loadingChannelIdRef.current === channelId &&
-        fetchSeq === messageFetchSeqRef.current
-      ) {
-        loadingChannelIdRef.current = null;
-        setMessagesLoading(false);
-      }
-    }
-  }
-
-  async function handleLoadOlderMessages() {
-    if (!activeChannelId || events.length === 0 || loadingOlderMessages) return;
-    const oldestEventAt = events[0]?.createdAt;
-    if (!oldestEventAt) return;
-    const channelId = activeChannelId;
-    const limit = adaptiveMessageBatchSize();
-    const panel = messagesPanelRef.current;
-    const previousScrollHeight = panel?.scrollHeight ?? 0;
-
-    setLoadingOlderMessages(true);
-    setError(null);
-    try {
-      const [olderMessages, olderTurns, olderTools, olderWrappers, olderProcesses] = await Promise.all([
-        apiJson<EventRow[]>(
-          `/api/events?channelId=${encodeURIComponent(channelId)}&type=message.created&limit=${limit}&order=desc&before=${oldestEventAt}`
-        ),
-        apiJson<EventRow[]>(
-          `/api/events?channelId=${encodeURIComponent(channelId)}&typePrefix=agent.turn.&limit=${limit}&order=desc&before=${oldestEventAt}`
-        ),
-        apiJson<EventRow[]>(
-          `/api/events?channelId=${encodeURIComponent(channelId)}&typePrefix=tool.&limit=${limit}&order=desc&before=${oldestEventAt}`
-        ),
-        apiJson<EventRow[]>(
-          `/api/events?channelId=${encodeURIComponent(channelId)}&typePrefix=wrapper.turn.&limit=${limit}&order=desc&before=${oldestEventAt}`
-        ),
-        apiJson<EventRow[]>(
-          `/api/events?channelId=${encodeURIComponent(channelId)}&typePrefix=process.&limit=${limit}&order=desc&before=${oldestEventAt}`
-        )
-      ]);
-      const olderEvents = mergeEventsChronologically(
-        mergeEventsChronologically(
-          mergeEventsChronologically(olderMessages, olderTurns),
-          mergeEventsChronologically(olderTools, olderWrappers)
-        ),
-        olderProcesses
-      );
-      if (channelId !== activeChannelIdRef.current) return;
-      const chronologicalOlderEvents = [...olderEvents].reverse();
-      setEvents((current) => {
-        const existingIds = new Set(current.map((event) => event.id));
-        return [
-          ...chronologicalOlderEvents.filter((event) => !existingIds.has(event.id)),
-          ...current
-        ];
-      });
-      setHasOlderMessages(
-        olderMessages.length === limit ||
-          olderTurns.length === limit ||
-          olderTools.length === limit ||
-          olderWrappers.length === limit ||
-          olderProcesses.length === limit
-      );
-      window.requestAnimationFrame(() => {
-        const currentPanel = messagesPanelRef.current;
-        if (!currentPanel) return;
-        currentPanel.scrollTop += currentPanel.scrollHeight - previousScrollHeight;
-      });
-    } catch (olderError) {
-      setError(olderError instanceof Error ? olderError.message : "Unable to load previous messages");
-    } finally {
-      setLoadingOlderMessages(false);
-    }
+  async function refreshChannelEvents() {
+    const channelId = activeChannelIdRef.current;
+    const core = channelEventsRef.current;
+    if (!channelId || core.snapshot().channelId !== channelId) return;
+    const result = await core.refresh();
+    if (channelId !== activeChannelIdRef.current || core.snapshot().channelId !== channelId) return;
+    markChannelSeen(channelId, result.newestMessageAt);
   }
 
   async function loadMessageNotifications(options?: { initialize?: boolean }) {
@@ -1142,15 +835,27 @@ export default function App() {
   }
 
   function handleIncomingRealtimeEvent(event: EventRow) {
-    if (!event.id || !rememberWsEvent(event.id)) return;
-    if(event.type==='message.created')window.dispatchEvent(new Event('nest-message'));
+    if (!event.id) return;
+    const core = channelEventsRef.current;
+    // Only a first sighting counts for unread and nest-message; a status republish just updates the store.
+    const sighting = core.seen(event.id, event.status);
+    if (sighting === "duplicate") return;
     const eventChannelId = event.channelId;
+    const currentActiveId = activeChannelIdRef.current;
+    const activeTimelineEvent =
+      chatVisibleRef.current &&
+      Boolean(eventChannelId) &&
+      eventChannelId === currentActiveId &&
+      (event.type === "message.created" || isTraceEvent(event));
+    if (sighting === "update") {
+      if (activeTimelineEvent) core.ingest(event);
+      return;
+    }
+    if(event.type==='message.created')window.dispatchEvent(new Event('nest-message'));
     if (!eventChannelId) return;
 
-    const currentActiveId = activeChannelIdRef.current;
-    if (chatVisibleRef.current && eventChannelId === currentActiveId && (event.type === "message.created" || isTraceEvent(event))) {
-      const shouldAutoScroll = isMessagesPanelNearBottom();
-      setEvents((current) => mergeEventsChronologically(current, [event]));
+    if (activeTimelineEvent) {
+      core.ingest(event);
       if (event.type === "message.created" || event.type === "agent.turn.failed") {
         const eventCreatedAt = event.createdAt ?? 0;
         if (eventCreatedAt > 0) {
@@ -1158,18 +863,7 @@ export default function App() {
             lastSeenByChannelRef.current[eventChannelId] ?? 0,
             eventCreatedAt
           );
-          lastLoadedMessageAtByChannelRef.current[eventChannelId] = Math.max(
-            lastLoadedMessageAtByChannelRef.current[eventChannelId] ?? 0,
-            eventCreatedAt
-          );
         }
-      }
-      const timelineCreatedAt = event.createdAt ?? 0;
-      if (timelineCreatedAt > 0) {
-        lastLoadedTimelineAtByChannelRef.current[eventChannelId] = Math.max(
-          lastLoadedTimelineAtByChannelRef.current[eventChannelId] ?? 0,
-          timelineCreatedAt
-        );
       }
       setUnreadCounts((current) => {
         if (!current[eventChannelId]) return current;
@@ -1177,12 +871,6 @@ export default function App() {
         delete next[eventChannelId];
         return next;
       });
-      if (shouldAutoScroll) {
-        setHasNewMessagesBelow(false);
-        scrollMessagesToBottom();
-      } else {
-        setHasNewMessagesBelow(true);
-      }
       return;
     }
 
@@ -1220,70 +908,36 @@ export default function App() {
   }, [authenticated, mustChangePassword]);
 
   useEffect(() => {
-    messageFetchSeqRef.current += 1;
     activeChannelIdRef.current = activeChannelId;
-    loadingChannelIdRef.current = activeChannelId;
-    forceScrollToBottomOnLoadRef.current = Boolean(activeChannelId);
-    setEvents([]);
-    setMessagesLoading(Boolean(activeChannelId));
-    setLoadingOlderMessages(false);
-    setHasOlderMessages(false);
-    setHasNewMessagesBelow(false);
     setShowParticipantsDialog(false);
     setShowChannelManageDialog(false);
-    const saved=userId&&activeChannelId?loadChatDraft(userId,activeChannelId):null;
-    setPendingAttachments(restoreAttachments(saved?.attachments??[]));
-    setDraftState(saved?{text:saved.text,mentions:saved.mentions}:{text:'',mentions:[]});sendRequestRef.current=saved?.request??null;
-    setDraftScope(userId&&activeChannelId?{owner:userId,channel:activeChannelId}:null);
     setShareValue("");
     setShareLinkCopied(false);
     setShareRemovingKey(null);
     setShareSubmitting(false);
   }, [activeChannelId,userId]);
 
-  useEffect(()=>{
-    if(!authenticated||!userId||!activeChannelId||draftScope?.owner!==userId||draftScope.channel!==activeChannelId)return;
-    setDraftStored(saveChatDraft(userId,activeChannelId,{...draftState,attachments:readyAttachments.map(({fileId,name,mime,size})=>({fileId,name,mime,size})),...(sendRequestRef.current?{request:sendRequestRef.current}:{})}));
-  },[draftState,pendingAttachments,draftScope,userId,activeChannelId,authenticated]);
   useEffect(()=>{if(userId&&view==='projects'&&selectedProject&&projectIndex.some(p=>p.id===selectedProject))rememberProject(userId,selectedProject);},[userId,view,selectedProject,projectIndex]);
 
   useEffect(() => {
     if (!authenticated || mustChangePassword) return;
-    if (!activeChannelId) {
-      setEvents([]);
-      return;
-    }
-    void loadMessages(activeChannelId, {
-      scrollBehavior: "auto",
-      scrollToBottom: true,
-      showLoading: true
-    });
-  }, [activeChannelId, authenticated, mustChangePassword, projectTab]);
+    void switchChannelEvents(activeChannelId);
+  }, [activeChannelId, authenticated, mustChangePassword, projectTab, channelEvents]);
+
+  useEffect(() => {
+    if (channelSnapshot.error) setError(channelSnapshot.error);
+  }, [channelSnapshot.error]);
 
   useEffect(()=>{
     if(!authenticated||!activeChannelId||!focusedMessage||messagesLoading)return;
-    const abort=new AbortController();
-    void apiJson<EventRow>('/api/events/'+encodeURIComponent(focusedMessage),{signal:abort.signal}).then(event=>{
-      if(abort.signal.aborted)return;if(event.channelId!==activeChannelId)throw Error('Mention is in another conversation');
-      setEvents(current=>mergeEventsChronologically(current,[event]));
-      window.requestAnimationFrame(()=>{const node=document.getElementById('message-'+event.id);node?.scrollIntoView({block:'center'});node?.focus({preventScroll:true});});
-    }).catch(()=>{if(!abort.signal.aborted)setError('This mentioned message is no longer available.');});
-    return()=>abort.abort();
-  },[authenticated,activeChannelId,focusedMessage,messagesLoading]);
-
-  useEffect(() => {
-    if (!activeChannelId || messagesLoading) return;
-    if (!forceScrollToBottomOnLoadRef.current) return;
-    forceScrollToBottomOnLoadRef.current = false;
-    if(focusedMessage)return;
-    // Run after paint to handle initial DOM/layout settling on hard reload.
-    window.requestAnimationFrame(() => {
-      scrollMessagesToBottom("auto");
-      window.requestAnimationFrame(() => {
-        scrollMessagesToBottom("auto");
-      });
+    let cancelled=false;
+    void channelEventsRef.current.focus(focusedMessage).then(result=>{
+      if(cancelled)return;
+      // The thread scrolls the loaded message into view and focuses it (spec 8.5).
+      if(result!=='loaded')setError('This mentioned message is no longer available.');
     });
-  }, [activeChannelId, messagesLoading, timelineItems.length, focusedMessage]);
+    return()=>{cancelled=true;};
+  },[authenticated,activeChannelId,focusedMessage,messagesLoading]);
 
   useEffect(() => {
     if (!authenticated || mustChangePassword) return;
@@ -1343,10 +997,7 @@ export default function App() {
         for (const topic of wsSubscribedTopicsRef.current) {
           ws.send(JSON.stringify({ type: "subscribe", topic }));
         }
-        const liveChannelId = activeChannelIdRef.current;
-        if (liveChannelId) {
-          void loadMessages(liveChannelId);
-        }
+        void refreshChannelEvents();
         void loadMessageNotifications();
       };
       ws.onmessage = (raw) => {
@@ -1411,8 +1062,7 @@ export default function App() {
   useEffect(() => {
     if (!authenticated || mustChangePassword || wsConnected) return;
     const interval = window.setInterval(() => {
-      const liveChannelId = activeChannelIdRef.current;
-      if (liveChannelId) void loadMessages(liveChannelId);
+      void refreshChannelEvents();
       void loadMessageNotifications();
     }, 10000);
     return () => window.clearInterval(interval);
@@ -1497,7 +1147,9 @@ export default function App() {
     try {sessionStorage.removeItem("nest-new-project");sessionStorage.removeItem("nest-new-project-chat");} catch {}
     setAgents([]);
     setTeams([]);
-    setEvents([]);
+    const nextChannelEvents = createSessionChannelEvents();
+    channelEventsRef.current = nextChannelEvents;
+    setChannelEvents(nextChannelEvents);
     setActiveChannelId(null);
     updateChannelDeepLink(null, true);
     setChannelQuery("");
@@ -1509,10 +1161,7 @@ export default function App() {
     setShowArchivedChannels(false);
     setShowConversationDialog(false);
     setUnreadCounts({});
-    setHasNewMessagesBelow(false);
     lastSeenByChannelRef.current = {};
-    lastLoadedMessageAtByChannelRef.current = {};
-    lastLoadedTimelineAtByChannelRef.current = {};
   }
 
   async function handlePasswordUpdate(event: FormEvent<HTMLFormElement>) {
@@ -1548,49 +1197,10 @@ export default function App() {
     }
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!activeChannelId || activeChannel?.archivedAt || !activeChannelCanPost) return;
-    if (uploadingAttachmentCount > 0 || hasAttachmentErrors || mentions.inviting || sending) return;
-    const trimmedText = draft.trim();
-    if (!trimmedText && readyAttachments.length === 0) return;
-
-    setSending(true);
-    setError(null);
-    try {
-      const effectiveText =
-        trimmedText ||
-        `Attached ${readyAttachments.length} file${readyAttachments.length === 1 ? "" : "s"} for reference.`;
-      const leading=draft.length-draft.trimStart().length;
-      const selected=draftState.mentions.map(m=>({...m,start:m.start-leading,end:m.end-leading}));
-      const message={channelId:activeChannelId,text:effectiveText,mentions:selected,attachments:readyAttachments.map(({fileId,name,mime,size})=>({fileId,name,mime,size}))};
-      const fingerprint=JSON.stringify(message);
-      if(sendRequestRef.current?.fingerprint!==fingerprint)sendRequestRef.current={fingerprint,id:crypto.randomUUID()};
-      const request=sendRequestRef.current;
-      const saved:ChatDraft={...draftState,attachments:message.attachments,request};
-      if(userId)setDraftStored(saveChatDraft(userId,activeChannelId,saved));
-      await apiFetch('/api/messages',{method:'POST',headers:getApiHeaders(),body:JSON.stringify({id:request.id,...message})});
-      if(userId)clearSentDraft(userId,activeChannelId,saved);
-      if(activeChannelIdRef.current!==activeChannelId)return;
-      if(activeChannelIdRef.current===activeChannelId){
-        if(sendRequestRef.current?.id===request.id)sendRequestRef.current=null;
-        setDraftState({text:'',mentions:[]});setPendingAttachments([]);
-      }
-      setHasNewMessagesBelow(false);
-      if (wsConnected) {
-        scrollMessagesToBottom();
-      } else {
-        await loadMessages(activeChannelId, { scrollToBottom: true });
-      }
-      window.requestAnimationFrame(() => {
-        scrollMessagesToBottom("auto");
-        composerTextareaRef.current?.scrollIntoView({ block: "nearest" });
-      });
-    } catch (sendError) {
-      setError(sendError instanceof Error ? sendError.message : "Unable to send message");
-    } finally {
-      setSending(false);
-    }
+  // After the composer's send: a reload when the WebSocket is down, then the thread scrolls to its end.
+  async function handleSent() {
+    if (!wsConnected) await refreshChannelEvents();
+    window.requestAnimationFrame(() => chatThreadRef.current?.scrollToBottom());
   }
 
   function addConversationAgent(agentName: string) {
@@ -1826,12 +1436,6 @@ export default function App() {
     }
   }
 
-  function handleMessagesScroll() {
-    if (hasNewMessagesBelow && isMessagesPanelNearBottom()) {
-      setHasNewMessagesBelow(false);
-    }
-  }
-
   async function handleCopyShareLink() {
     if (!activeChannelId) return;
     try {
@@ -1854,62 +1458,6 @@ export default function App() {
     }
   }
 
-  function uploadFiles(files: File[]) {
-    if(!activeChannel || activeChannel.archivedAt || !activeChannelCanPost || sending)return;
-    enqueueFiles(files);
-  }
-
-  function handlePickFiles(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
-    if (files.length === 0) return;
-    uploadFiles(files);
-    event.currentTarget.value = "";
-  }
-
-  function resizeComposerTextarea(textarea?: HTMLTextAreaElement | null) {
-    const target = textarea ?? composerTextareaRef.current;
-    if (!target) return;
-    const viewportMax = isConversationEmpty
-      ? Math.max(56, Math.floor(window.innerHeight / 8))
-      : Math.max(120, Math.floor(window.innerHeight / 3));
-    const minHeight = isConversationEmpty ? 34 : 56;
-    target.style.maxHeight = `${viewportMax}px`;
-    target.style.height = "auto";
-    const nextHeight = Math.min(target.scrollHeight, viewportMax);
-    target.style.height = `${Math.max(minHeight, nextHeight)}px`;
-    target.style.overflowY = target.scrollHeight > viewportMax ? "auto" : "hidden";
-  }
-
-  function handleComposerPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
-    const items = Array.from(event.clipboardData.items ?? []);
-    const imageFiles = items
-      .map((item) => {
-        if (!item.type.startsWith("image/")) return null;
-        return item.getAsFile();
-      })
-      .filter((file): file is File => Boolean(file));
-    if (imageFiles.length === 0) return;
-    event.preventDefault();
-    const filesToUpload = imageFiles.map((image) => {
-      const ext = image.type.includes("/") ? image.type.split("/")[1] : "png";
-      const safeExt = ext.replace(/[^a-zA-Z0-9]/g, "") || "png";
-      const filename = `pasted-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.${safeExt}`;
-      return new File([image], filename, { type: image.type || "image/png" });
-    });
-    uploadFiles(filesToUpload);
-  }
-
-  useEffect(() => {
-    resizeComposerTextarea();
-  }, [draft, isConversationEmpty, activeChannelId]);
-
-  useEffect(() => {
-    function handleWindowResize() {
-      resizeComposerTextarea();
-    }
-    window.addEventListener("resize", handleWindowResize);
-    return () => window.removeEventListener("resize", handleWindowResize);
-  }, []);
 
   const demoDestination = demoReturnTo(window.location.search, window.location.hash) ?? pendingDemoReturnTo();
 
@@ -2018,7 +1566,7 @@ export default function App() {
   }
 
   const chatWorkspace = <section className={`workspace${view === "workspace" ? " standalone-workspace" : ""}`}>
-        <ChatFileDrop scope={`${userId??''}:${activeChannelId??''}`} onFiles={uploadFiles} disabledReason={!activeChannel?'Choose a conversation before attaching files.':activeChannel.archivedAt?'Restore this conversation before attaching files.':!activeChannelCanPost?'This conversation is read-only.':sending?'Wait for this message to finish sending.':undefined}/>
+        <ChatFileDrop scope={`${userId??''}:${activeChannelId??''}`} onFiles={files=>composerRef.current?.enqueueFiles(files)} disabledReason={!activeChannel?'Choose a conversation before attaching files.':activeChannel.archivedAt?'Restore this conversation before attaching files.':!activeChannelCanPost?'This conversation is read-only.':sending?'Wait for this message to finish sending.':undefined}/>
         {view === "workspace" && <WorkspaceTopbar
           onMenu={() => setMobileSidebarOpen(true)}
           search={<label className="dashboard-search"><DesignIcon name="search" /><input
@@ -2054,179 +1602,36 @@ export default function App() {
 
         <div className={`artifact-chat-layout${demoPreview?.channel===activeChannelId ? " has-preview" : ""}`}>
         <section className="chat-stack">
-          <section
-            className={`messages-panel${isConversationEmpty ? " messages-panel-empty" : ""}`}
-            ref={messagesPanelRef}
-            onScroll={handleMessagesScroll}
-          >
-            {!messagesLoading && hasOlderMessages ? (
-              <button
-                className="load-older-button"
-                disabled={loadingOlderMessages}
-                onClick={() => void handleLoadOlderMessages()}
-              >
-                {loadingOlderMessages ? "Loading previous messages..." : "Load previous messages"}
-              </button>
-            ) : null}
-            {messagesLoading ? (
-              <div className="empty-state">
-                <strong>Loading messages...</strong>
-                <p>Fetching the latest channel activity.</p>
-              </div>
-            ) : timelineItems.length === 0 ? (
-              <div className="empty-state">
-                <strong>No messages yet</strong>
-                <p>Send a short update or request to start the conversation.</p>
-              </div>
-            ) : (
-              timelineItems.map((item) => {
-                if (item.kind === "message") {
-                  const event = item.event;
-                  const role = messageRole(event.source);
-                  const sender = sourceLabel(event.source);
-                  const attachments = parseMessageAttachments(event.payload);
-                  const text = messageText(event);
-                  const markdown = shouldRenderMarkdown(text);
-                  return (
-                    <article tabIndex={focusedMessage===event.id?-1:undefined} id={`message-${event.id}`} className={`message message-${role}${focusedMessage===event.id?" message-highlight":""}`} key={item.id}>
-                      <div className="message-meta">
-                        <div className="message-sender">
-                          {role === "agent" ? <AgentAvatar name={sender} size={32} /> : role === "human" ? (
-                            <span className="message-human-avatar" aria-hidden="true">{sender.trim().slice(0, 2).toUpperCase()}</span>
-                          ) : null}
-                          <strong>{sender}</strong>
-                        </div>
-                        <span>{formatTime(messageDisplayTime(event))}</span>
-                      </div>
-                      {Boolean(event.payload)&&typeof event.payload==='object'&&event.payload!==null&&'targetAgentName' in event.payload&&<span className="message-target">To @{String(event.payload.targetAgentName)}</span>}
-                      {Boolean(event.payload)&&typeof event.payload==='object'&&event.payload!==null&&'targetAgentNames' in event.payload&&Array.isArray(event.payload.targetAgentNames)&&<span className="message-target">To {event.payload.targetAgentNames.map(String).map(name=>'@'+name).join(', ')}</span>}
-                      {markdown ? (
-                        <div className="message-markdown">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              a: ({ node: _node, ...props }) => (
-                                <a {...props} target="_blank" rel="noreferrer" />
-                              )
-                            }}
-                          >
-                            {text}
-                          </ReactMarkdown>
-                        </div>
-                      ) : (
-                        <p>{text}</p>
-                      )}
-                      {demoArtifacts(text, window.location.origin).map(path=><button className="demo-open" type="button" key={path} onClick={()=>setDemoPreview({channel:activeChannelId!,path})}>Preview {path.slice(6)}</button>)}
-                      {attachments.length > 0 ? (
-                        <div className="message-attachments">
-                          <strong>Attachments</strong>
-                          <ul>
-                            {attachments.map((attachment, index) => <MessageAttachmentView key={`${event.id}-attachment-${index}`} attachment={attachment}/>)}
-                          </ul>
-                        </div>
-                      ) : null}
-                    </article>
-                  );
-                }
-                return <AgentActivity key={item.id} events={item.traceEvents} tone={item.tone} formatTime={formatTime} progressEvents={item.traceEvents.filter(event=>activeProgressIds.has(event.id))}/>;
-              })
-            )}
-          </section>
-
-          {hasNewMessagesBelow ? (
-            <button
-              className="new-messages-button"
-              onClick={() => {
-                setHasNewMessagesBelow(false);
-                scrollMessagesToBottom();
-              }}
-            >
-              New messages below
-            </button>
-          ) : null}
-
-          {view==='projects'&&selectedProject&&activeChannel&&<ProjectConnections key={activeChannel.id} ownerId={userId??''} projectId={selectedProject} text={events.filter(e=>e.channelId===activeChannel.id&&e.type==='message.created').slice(-4).map(e=>String((e.payload as {text?:unknown})?.text??'').slice(0,4000)).join('\n')}/>}
-          <form className={`composer${isConversationEmpty ? " composer-compact" : ""}`} onSubmit={handleSubmit}>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="composer-file-input"
-            onChange={handlePickFiles}
+          <ChatThread
+            key={activeChannelId ?? ""}
+            snapshot={threadSnapshot}
+            core={channelEvents}
+            currentUsername={username}
+            agents={agents}
+            focusedMessageId={focusedMessage}
+            isConversationEmpty={isConversationEmpty}
+            channelLabel={activeConversationName}
+            onPreviewDemo={path => setDemoPreview({channel: activeChannelId!, path})}
+            onQuote={(target, quotedText) => {composerRef.current?.setReplyTarget(target, quotedText);composerRef.current?.focus();}}
+            onFocusMessage={focusMessage}
+            handle={chatThreadRef}
+            footer={view==='projects'&&selectedProject&&activeChannel&&<ProjectConnections key={activeChannel.id} ownerId={userId??''} projectId={selectedProject} text={events.filter(e=>e.channelId===activeChannel.id&&e.type==='message.created').slice(-4).map(e=>String((e.payload as {text?:unknown})?.text??'').slice(0,4000)).join('\n')}/>}
           />
-          <ChatAttachments items={pendingAttachments} error={attachmentError} disabled={sending} onRemove={id=>setPendingAttachments(items=>items.filter(item=>item.localId!==id))}/>
-          <div className="mention-input">
-          {mentions.popup}
-          <textarea
-            {...mentions.textareaProps}
-            aria-label="Message"
-            ref={composerTextareaRef}
-            value={draft}
-            onChange={(event) => {
-              setDraft(event.target.value);
-              mentions.sync(event.currentTarget);
-              resizeComposerTextarea(event.currentTarget);
-            }}
-            onPaste={handleComposerPaste}
-            onKeyDown={(event) => {
-              if (mentions.onKeyDown(event)) return;
-              if (event.keyCode === 229) return;
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-            placeholder={
-              activeChannel?.archivedAt
-                ? "Restore this channel to send messages"
-                : activeChannel && !activeChannelCanPost
-                  ? "This channel is shared with you as read-only"
-                : activeChannel
-                  ? isConversationEmpty
-                    ? `Message ${activeConversationName}`
-                    : `Message ${activeConversationName} (Enter to send, Shift+Enter for newline)`
-                  : "Select a channel first"
-            }
-            disabled={!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending}
-            rows={isConversationEmpty ? 1 : 3}
+          <ChatComposer
+            ref={composerRef}
+            session={composerSession}
+            conversationName={activeConversationName}
+            isConversationEmpty={isConversationEmpty}
+            inProject={Boolean(mentionProject)}
+            mentionCandidates={mentionOptions}
+            canInvite={canInviteMention}
+            onInvite={inviteMention}
+            onAskAssistant={askAssistant}
+            openInvite={() => setShowParticipantsDialog(true)}
+            openFiles={() => { if (mentionProject) selectProject(mentionProject.id, null, "files"); }}
           />
-          </div>
-          {draftRecipients.length>0&&<div className="mention-delivery" aria-label="Message recipients">{draftRecipients.map(m=><span key={m.kind+':'+m.name}>{m.kind==='AGENT'?'Ask':'Notify'} @{m.name}<button type="button" aria-label={'Remove mention @'+m.name} onClick={()=>{const spans=draftState.mentions.filter(x=>x.kind===m.kind&&x.name===m.name).sort((a,b)=>b.start-a.start);let next=draft;for(const span of spans)next=next.slice(0,span.start)+next.slice(span.end);setDraft(next);}}>×</button></span>)}</div>}
-          <p className="mention-delivery-hint"><span>{draftRecipients.some(m=>m.kind==='AGENT')?'The selected agents receive this request.':'Select an @mention to direct a request or notify a person.'}</span>{draft.trim()&&<span className="draft-storage-status" role="status">{draftStored?'Draft saved on this device':'Draft storage is unavailable. Keep this tab open until you send.'}</span>}</p>
-          <div className="composer-actions">
-            <button
-              type="button"
-              className="composer-secondary"
-              disabled={!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              Attach files
-            </button>
-            <button
-              disabled={
-                !activeChannel ||
-                Boolean(activeChannel.archivedAt) ||
-                !activeChannelCanPost ||
-                sending || Boolean(mentions.inviting) || hasAttachmentErrors ||
-                uploadingAttachmentCount > 0 ||
-                (!draft.trim() && readyAttachments.length === 0)
-              }
-            >
-              {uploadingAttachmentCount > 0
-                ? `Uploading ${uploadingAttachmentCount}...`
-                : sending
-                  ? "Sending..."
-                  : "Send"}
-            </button>
-          </div>
-          {hasAttachmentErrors ? (
-            <p className="composer-attachment-error">
-              Remove failed uploads before sending. You can attach them again to retry.
-            </p>
-          ) : null}
-          </form>
         </section>
-        {demoPreview?.channel===activeChannelId && <DemoArtifact key={demoPreview.path} path={demoPreview.path} onClose={()=>setDemoPreview(null)} editable={!!activeChannel && !activeChannel.archivedAt && activeChannelCanPost && !sending} onEdit={()=>{setDraft(draft+(draft?'\n\n':'')+'Please update '+new URL(demoPreview.path,window.location.origin).href+': ');composerTextareaRef.current?.focus();}}/>}
+        {demoPreview?.channel===activeChannelId && <DemoArtifact key={demoPreview.path} path={demoPreview.path} onClose={()=>setDemoPreview(null)} editable={!!activeChannel && !activeChannel.archivedAt && activeChannelCanPost && !sending} onEdit={()=>{composerRef.current?.insertText('Please update '+new URL(demoPreview.path,window.location.origin).href+': ');composerRef.current?.focus();}}/>}
         </div>
       </section>;
   const chatMembers = <aside className="activity-panel">

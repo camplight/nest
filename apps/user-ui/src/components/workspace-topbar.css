@@ -174,10 +174,14 @@
 }
 @media (max-width: 1100px) and (min-width: 761px) {
   .dashboard-topbar.workspace-topbar {
-    grid-template-columns: minmax(0, 1fr) minmax(140px, 240px) 191px;
+    /* The controls column takes its content's width: the tour pill and four icons overflowed a fixed 191 px onto the search. */
+    grid-template-columns: minmax(0, 1fr) minmax(120px, 1fr) auto;
     gap: 12px;
     padding-inline: 24px;
   }
+  /* A flexible search column capped by max-width, so the project name shares the room instead of losing it all. */
+  .workspace-topbar-search { max-width: 240px; }
+  .workspace-controls .quick-tour-steps { display: none; }
   .workspace-topbar-leading .dashboard-action {
     font-size: 12px;
     padding-inline: 8px;
@@ -229,4 +233,23 @@
   .standalone-workspace > .workspace-topbar {
     margin: -12px -12px 0;
   }
+}
+/* The open project's name sits where "All projects" used to be, so the page needs no separate title row. */
+.workspace-topbar-title { margin: 0; min-width: 0; overflow: hidden; color: var(--nest-text); font-size: 18px; font-weight: 650; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 760px) {
+  /* Narrow screens: the project name gets its own full-width line under the menu and controls. */
+  .dashboard-topbar.workspace-topbar:has(.workspace-topbar-title) { grid-template-areas: "leading controls" "title title" "search search"; row-gap: 8px; }
+  .workspace-topbar:has(.workspace-topbar-title) .workspace-topbar-leading { display: contents; }
+  .workspace-topbar:has(.workspace-topbar-title) .sidebar-mobile-toggle { grid-area: leading; justify-self: start; }
+  .workspace-topbar-title { grid-area: title; font-size: 17px; }
+}
+@media (max-width: 760px) {
+  /* The menu button keeps its width; the controls take the rest and pack to the right instead of sliding under it. */
+  .dashboard-topbar.workspace-topbar { grid-template-columns: auto minmax(0, 1fr); }
+  .workspace-controls { min-width: 0; justify-content: flex-end; gap: 2px; }
+  .workspace-controls .quick-tour-trigger { padding: 4px 8px; font-size: 11px; white-space: nowrap; }
+  /* Short label below desktop width; the step count stays in the text, so the button keeps one name. */
+  .workspace-controls .quick-tour-steps { display: none; }
+  /* The menu button lines up with the controls instead of keeping the sidebar layout's top alignment and gap. */
+  .workspace-topbar .sidebar-mobile-toggle { align-self: center; margin-bottom: 0; }
 }

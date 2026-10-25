@@ -293,6 +293,8 @@ try {
     assert.deepEqual(multiEvents.find((event:any)=>event.payload.targetAgentNames)?.payload.targetAgentNames,["Puff","Moss"]);
     await input.fill("@pu");await input.press("Enter");
     await input.fill("Edited @Puf");
+    // Chip removal follows the draft update asynchronously; count only once the chip has gone.
+    await page.getByLabel("Message recipients").waitFor({ state: "detached" });
     assert.equal(await page.getByLabel("Message recipients").count(), 0);
     // Upload metadata must not leak browser-local attachment fields into the strict send API.
     await input.fill("Attached notes");
@@ -362,6 +364,10 @@ try {
     await receiver
       .locator("#message-" + events[0].id + ".message-highlight")
       .waitFor();
+    // The product reveals the target in an animation frame (scroll, then focus); let that layout settle first.
+    await receiver.waitForFunction((id)=>new Promise<boolean>((resolve)=>{const node=document.getElementById('message-'+id);if(!node||document.activeElement!==node)return resolve(false);const a=node.getBoundingClientRect();requestAnimationFrame(()=>requestAnimationFrame(()=>{const b=node.getBoundingClientRect();resolve(a.top===b.top&&a.bottom===b.bottom);}));}),events[0].id);
+    // The wait above returns a Promise, which Playwright accepts at once; this synchronous predicate is re-polled every frame: true once the target is focused and its box held for two frames.
+    await receiver.waitForFunction((id)=>{const w=window as any;const node=document.getElementById('message-'+id);if(!node||document.activeElement!==node){w.__settle=undefined;return false;}const r=node.getBoundingClientRect();const p=w.__settle;w.__settle={top:r.top,bottom:r.bottom,frames:p&&p.top===r.top&&p.bottom===r.bottom?p.frames+1:0};return w.__settle.frames>=2;},events[0].id);
     await receiver.waitForFunction((id)=>{const node=document.getElementById('message-'+id);if(!node)return false;const r=node.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;},events[0].id);
     // Notifications stay directly available in the mobile chat header.
     await receiver

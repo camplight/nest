@@ -1,10 +1,14 @@
 import {useEffect,useId,useRef,useState,type KeyboardEvent,type RefObject} from 'react';
 import {motion,useReducedMotion} from 'motion/react';
 import {AgentAvatar} from './AgentAvatar';
-import {findMention,insertMention,rankMentions,type MentionCandidate} from '../mentions';
+import {insertMention,rankMentions,type MentionCandidate} from '../mentions';
+import {findTrigger} from '../chat/triggers';
+import {matchCommands,type CommandContext,type SlashCommand} from '../chat/commands';
 import './mentions.css';
 
-export function useMentionPicker({value,onChange,onChoose,onAskAssistant,onInvite,textareaRef,candidates,channelId,disabled,targeted=false,projectDraft=false}:{value:string;onChange:(value:string)=>void;onChoose?:(value:string,mention:import('@nest/schemas').SelectedMention)=>void;onAskAssistant?:(name:string,brief:string)=>void;onInvite?:(candidate:MentionCandidate)=>Promise<void>;targeted?:boolean;projectDraft?:boolean;textareaRef:RefObject<HTMLTextAreaElement>;candidates:MentionCandidate[];channelId:string|null;disabled:boolean}) {
+// One picker for `@` mentions and, when `commands` is given, `/` commands at the start of a line. `variant` 'chat' adds the
+// chat composer's popover look (.mention-popup-chat in styles.css); 'default' is ProjectStart's look.
+export function useMentionPicker({value,onChange,onChoose,onAskAssistant,onInvite,textareaRef,candidates,channelId,disabled,targeted=false,projectDraft=false,variant='default',commands}:{variant?:'chat'|'default';commands?:CommandContext;value:string;onChange:(value:string)=>void;onChoose?:(value:string,mention:import('@nest/schemas').SelectedMention)=>void;onAskAssistant?:(name:string,brief:string)=>void;onInvite?:(candidate:MentionCandidate)=>Promise<void>;targeted?:boolean;projectDraft?:boolean;textareaRef:RefObject<HTMLTextAreaElement>;candidates:MentionCandidate[];channelId:string|null;disabled:boolean}) {
   const id=useId();
   const reduced=useReducedMotion();
   const [selection,setSelection]=useState({start:0,end:0});
@@ -18,12 +22,17 @@ export function useMentionPicker({value,onChange,onChoose,onAskAssistant,onInvit
   useEffect(()=>{setInviting(null);setInviteError(null);return()=>{pending.current=null;};},[channelId]);
   const listRef=useRef<HTMLDivElement>(null);
   const stamp=`${channelId}:${value}:${selection.start}:${selection.end}`;
-  const query=focused && !disabled && !composing && dismissed!==stamp ? findMention(value,selection.start,selection.end) : null;
-  const results=query ? rankMentions(candidates,query.query) : [];
+  const trigger=focused && !disabled && !composing && dismissed!==stamp ? findTrigger(value,selection.start,selection.end) : null;
+  const commandResults:readonly SlashCommand[]=trigger?.trigger==='/'&&commands ? matchCommands(commands,trigger.query) : [];
+  // A typed `/word` that names no command closes the list, so Enter sends (a path such as /usr/bin/env).
+  const query=trigger?.trigger==='@'||(trigger?.trigger==='/'&&commands&&(commandResults.length||!trigger.query)) ? trigger : null;
+  const commandMode=query?.trigger==='/';
+  const results=query&&!commandMode ? rankMentions(candidates,query.query) : [];
   const shown=results.slice(0,8);
-  const index=Math.min(highlight,Math.max(0,shown.length-1));
+  const count=commandMode?commandResults.length:shown.length;
+  const index=Math.min(highlight,Math.max(0,count-1));
   const open=Boolean(query);
-  useEffect(()=>{setHighlight(0);},[query?.query,query?.start,channelId]);
+  useEffect(()=>{setHighlight(0);},[query?.trigger,query?.query,query?.start,channelId]);
   useEffect(()=>{listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({block:'nearest'});},[index,query?.query]);
   useEffect(()=>{
     const node=textareaRef.current;
@@ -53,15 +62,31 @@ export function useMentionPicker({value,onChange,onChoose,onAskAssistant,onInvit
       node.focus();node.setSelectionRange(inserted.caret,inserted.caret);sync(node);
     });
   }
+  function runCommand(command:SlashCommand) {
+    if(!query||!commands||pending.current||disabled)return;
+    const next=value.slice(0,query.start)+value.slice(query.end),caret=query.start;
+    onChange(next);
+    setDismissed(`${channelId}:${next}:${caret}:${caret}`);
+    window.requestAnimationFrame(()=>{
+      const node=textareaRef.current;if(!node||node.value!==next)return;
+      node.setSelectionRange(caret,caret);sync(node);
+    });
+    command.run(commands);
+  }
+  function chooseAt(i:number) {
+    if(commandMode){const command=commandResults[i];if(command)runCommand(command);return Boolean(command);}
+    if(shown[i]){void choose(shown[i]);return true;}
+    return false;
+  }
   function onKeyDown(event:KeyboardEvent<HTMLTextAreaElement>) {
     if(!open || event.nativeEvent.isComposing || event.keyCode===229 || event.ctrlKey || event.metaKey || event.altKey)return false;
     if(event.key==='Escape'){event.preventDefault();event.stopPropagation();if(pending.current)pending.current.cancelled=true;setDismissed(stamp);return true;}
     if(inviting&&(event.key==='Enter'||event.key==='Tab')){event.preventDefault();return true;}
     if(event.key==='ArrowDown'||event.key==='ArrowUp'){
-      event.preventDefault();setHighlight(shown.length ? (index+(event.key==='ArrowDown'?1:-1)+shown.length)%shown.length : 0);return true;
+      event.preventDefault();setHighlight(count ? (index+(event.key==='ArrowDown'?1:-1)+count)%count : 0);return true;
     }
     if((event.key==='Enter'||event.key==='Tab')&&!event.shiftKey){
-      if(shown[index]){event.preventDefault();void choose(shown[index]);return true;}
+      if(index<count){event.preventDefault();chooseAt(index);return true;}
       if(event.key==='Enter'){event.preventDefault();return true;}
     }
     return false;
@@ -71,7 +96,7 @@ export function useMentionPicker({value,onChange,onChoose,onAskAssistant,onInvit
     'aria-busy':Boolean(inviting),
     'aria-autocomplete':'list' as const,
     'aria-controls':open ? id : undefined,
-    'aria-activedescendant':open && shown[index] ? `${id}-${index}` : undefined,
+    'aria-activedescendant':open && index<count ? `${id}-${index}` : undefined,
     'aria-describedby':open ? `${id}-help` : undefined,
     onFocus:(event:React.FocusEvent<HTMLTextAreaElement>)=>{setFocused(true);sync(event.currentTarget);},
     onBlur:()=>setFocused(false),
@@ -79,7 +104,20 @@ export function useMentionPicker({value,onChange,onChoose,onAskAssistant,onInvit
     onCompositionStart:()=>setComposing(true),
     onCompositionEnd:(event:React.CompositionEvent<HTMLTextAreaElement>)=>{setComposing(false);sync(event.currentTarget);},
   };
-  const popup=open ? <motion.div className="mention-popup" initial={reduced ? false : {opacity:0,y:4}} animate={{opacity:1,y:0}} transition={{duration:reduced?0:0.12}}>
+  const motionProps={initial:reduced ? false as const : {opacity:0,y:4},animate:{opacity:1,y:0},transition:{duration:reduced?0:0.12}};
+  const popupClass=`mention-popup${variant==='chat'?' mention-popup-chat':''}`;
+  const popup=commandMode ? <motion.div className={popupClass} {...motionProps}>
+    <div className="mention-heading">Commands <span>{commandResults.length} {commandResults.length===1?'command':'commands'}</span></div>
+    <div ref={listRef} id={id} role="listbox" aria-label="Commands" className="mention-options">
+      {commandResults.map((command,i)=><div key={command.name} id={`${id}-${i}`} role="option" aria-selected={i===index} className="mention-option mention-command"
+        onPointerDown={event=>event.preventDefault()} onPointerMove={()=>setHighlight(i)} onClick={()=>runCommand(command)}>
+        <span className="mention-command-icon" aria-hidden="true">/</span>
+        <span className="mention-identity"><strong>/{command.name}</strong><small>{command.label}</small></span>
+      </div>)}
+    </div>
+    {!commandResults.length && <p className="mention-empty" role="status">No commands available</p>}
+    <div id={`${id}-help`} className="mention-help">↑↓ to browse · Enter or Tab to run · Esc to close</div>
+  </motion.div> : open ? <motion.div className={popupClass} initial={reduced ? false : {opacity:0,y:4}} animate={{opacity:1,y:0}} transition={{duration:reduced?0:0.12}}>
     <div className="mention-heading">Mention someone <span>{results.length} {results.length===1?'match':'matches'}</span></div>
     <div ref={listRef} id={id} role="listbox" aria-label="Mention people and agents" className="mention-options">
       {shown.map((candidate,i)=><div key={candidate.id} id={`${id}-${i}`} role="option" aria-disabled={Boolean(inviting)||(targeted&&!candidate.inConversation&&!candidate.assistantOwner&&(!onInvite||Boolean(candidate.inviteBlockedReason)))} aria-selected={i===index} className="mention-option"

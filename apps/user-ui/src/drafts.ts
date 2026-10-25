@@ -5,6 +5,7 @@ const schema=z.object({
   text:z.string().max(32000),mentions:SelectedMentionSchema.array().max(30),
   attachments:MessageAttachmentSchema.array().max(20),
   request:z.object({id:z.string().uuid(),fingerprint:z.string().max(100000)}).optional(),
+  replyTo:z.object({eventId:z.string().min(1).max(200),author:z.string().max(200),excerpt:z.string().max(500)}).optional(),
 });
 export type ChatDraft=z.infer<typeof schema>;
 const prefix=(owner:string)=>`nest:draft:${encodeURIComponent(owner)}:`;

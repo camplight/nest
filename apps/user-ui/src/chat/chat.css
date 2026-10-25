@@ -1,0 +1,88 @@
+/* Tailwind v4 entry for the chat only (spec 8.6). Imported where the chat mounts, never globally. */
+
+/* nest-chat-motion comes first: its important reduced-motion rule beats the important utilities. */
+@layer nest-chat-motion, theme, base, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) important source(none);
+@source "./";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* shadcn colour names as aliases of the Nest brand tokens; brand.css switches them for dark mode. */
+@theme inline {
+  --color-background: var(--nest-bg);
+  --color-foreground: var(--nest-text);
+  --color-primary: var(--nest-forest);
+  --color-primary-foreground: var(--nest-white);
+  --color-muted: var(--nest-muted-surface);
+  --color-muted-foreground: var(--nest-muted);
+  --color-accent: var(--nest-muted-surface);
+  --color-accent-foreground: var(--nest-text);
+  --color-card: var(--nest-surface);
+  --color-card-foreground: var(--nest-text);
+  --color-popover: var(--nest-surface);
+  --color-popover-foreground: var(--nest-text);
+  --color-border: var(--nest-border);
+  --color-input: var(--nest-border);
+  --color-ring: var(--nest-lime);
+  /* Human message bubbles: a forest tint that stands apart from the page in light and dark. */
+  --color-bubble: color-mix(in srgb, var(--nest-forest) 11%, var(--nest-surface));
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+}
+
+/* What the copied components expect from Tailwind's preflight, inside the chat scope only. */
+@layer base {
+  :where(.nest-chat, .nest-chat-composer, .nest-chat-portal),
+  :where(.nest-chat, .nest-chat-composer, .nest-chat-portal) *,
+  :where(.nest-chat, .nest-chat-composer, .nest-chat-portal) ::before,
+  :where(.nest-chat, .nest-chat-composer, .nest-chat-portal) ::after {
+    box-sizing: border-box;
+    border: 0 solid;
+  }
+  :where(.nest-chat, .nest-chat-composer, .nest-chat-portal) :where(p, h1, h2, h3, h4, h5, h6, blockquote, figure, pre, ol, ul, dl, dd, hr) {
+    margin: 0;
+  }
+  :where(.nest-chat, .nest-chat-composer, .nest-chat-portal) :where(ol, ul) {
+    padding: 0;
+    list-style: none;
+  }
+  :where(.nest-chat, .nest-chat-composer, .nest-chat-portal) :where(h1, h2, h3, h4, h5, h6) {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+  :where(.nest-chat, .nest-chat-composer, .nest-chat-portal) :where(a) {
+    color: inherit;
+    text-decoration: inherit;
+  }
+  :where(.nest-chat, .nest-chat-composer, .nest-chat-portal) :where(button, input, select, textarea) {
+    font: inherit;
+    color: inherit;
+    background-color: transparent;
+  }
+  :where(.nest-chat, .nest-chat-composer, .nest-chat-portal) :where(img, svg, video, canvas) {
+    display: block;
+    vertical-align: middle;
+  }
+  :where(.nest-chat, .nest-chat-composer, .nest-chat-portal) :where(img, video) {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+@layer nest-chat-motion {
+  @media (prefers-reduced-motion: reduce) {
+    :where(.nest-chat, .nest-chat-composer, .nest-chat-portal),
+    :where(.nest-chat, .nest-chat-composer, .nest-chat-portal) *,
+    :where(.nest-chat, .nest-chat-composer, .nest-chat-portal) ::before,
+    :where(.nest-chat, .nest-chat-composer, .nest-chat-portal) ::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+}

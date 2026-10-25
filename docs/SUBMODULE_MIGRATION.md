@@ -471,6 +471,16 @@ message drafts. Nest demo responses now include a file revision ETag for lightwe
 HEAD polling; no engine change, new grant, DB migration or
 publisher replacement is required.
 
+## Chat on assistant-ui
+
+No engine pin change and no engine source change. Quote replies use the engine's existing `message.created` field `payload.inReplyTo` (the message.created shape in `vendor/orgops/packages/schemas/src/event-shapes.ts`); Nest writes it from the optional `replyTo` of `POST /api/messages` and never sets `parentEventId`. Reply targets and detached deep-link events are read through the existing `GET /api/events/:id` access check. The working row reads agent `desiredState` and `updatedAt` from the existing agents API.
+
+The chat change adds no product DB migration. The combined release includes migration010 from durable project naming. Browser drafts gain an optional `replyTo`, and drafts saved before it still load.
+
+New user UI dependencies: the assistant-ui packages (with zod 4 and `assistant-cloud` pulled in transitively) and Tailwind v4 in the user UI only, while the admin UI stays on Tailwind 3.4. The Tailwind oxide and lightningcss native bindings are pinned per platform. Rebuild the image from a recursive checkout. No operator action, credential or runner change is required.
+
+Upstream OrgOps improvement: `/api/events` pages by a strict `before` timestamp with no tie-breaker (for example a `beforeId`), so events that share the oldest millisecond of a page could be skipped. `chat/history.ts` therefore makes an extra boundary request for that millisecond (up to `BOUNDARY_LIMIT`, 500 rows) to page gap-free by `createdAt`. That still loses rows when more than 500 events of one query family share one millisecond (a synthetic check with 600 rows at one millisecond and a page size of 30 lost 95). A tie-breaker in the engine API would remove both the extra request and that limit.
+
 ## First-visit visual tour
 
 UI-only orientation; no engine changes, API routes, credentials or database

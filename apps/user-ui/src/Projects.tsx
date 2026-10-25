@@ -48,10 +48,10 @@ export function Projects(props: Props) {
   const selected=detail?.tasks.find(t=>t.id===taskId);
   const filteredProjects=projects.filter(project=>`${project.name} ${project.description}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return <section className={`dashboard projects-page${projectId && tab === 'chat' ? ' project-chat-page' : ''}${!projectId && createRequested ? ' project-start-page' : ''}`} aria-label="Projects">
-    <WorkspaceTopbar onMenu={onMenu} leading={<button className="dashboard-action" onClick={()=>onSelect(null)}>All projects</button>} search={<label className="dashboard-search"><DesignIcon name="search"/><input aria-label="Search projects" placeholder="Search…" value={query} onChange={event=>{setQuery(event.target.value);if(projectId||creating)onSelect(null);}}/></label>}/>
+    <WorkspaceTopbar onMenu={onMenu} leading={projectId?<h1 className="workspace-topbar-title" title={detail?.name}>{detail?.name ?? 'Project'}</h1>:undefined} search={<label className="dashboard-search"><DesignIcon name="search"/><input aria-label="Search projects" placeholder="Search…" value={query} onChange={event=>{setQuery(event.target.value);if(projectId||creating)onSelect(null);}}/></label>}/>
 
     <div className="dashboard-content">
-      <div className="dashboard-title"><h1>{detail?.name ?? (projectId ? 'Project' : creating ? 'New project' : 'Projects')}</h1>{(!projectId || tab === "tasks") && (!creating || !!projectId) && <button ref={createTrigger} className="dashboard-action project-create" onClick={()=>projectId?setCreating(!creating):onSelect(null,null,'new')}>{creating ? 'Cancel' : projectId ? 'New task +' : 'New project +'}</button>}</div>
+      {(!projectId || tab === 'tasks') && <div className="dashboard-title"><h1>{detail?.name ?? (projectId ? 'Project' : creating ? 'New project' : 'Projects')}</h1>{(!projectId || tab === "tasks") && (!creating || !!projectId) && <button ref={createTrigger} className="dashboard-action project-create" onClick={()=>projectId?setCreating(!creating):onSelect(null,null,'new')}>{creating ? 'Cancel' : projectId ? 'New task +' : 'New project +'}</button>}</div>}
       {error && <div className="notice error" role="alert">{error} <button onClick={()=>setRefresh(n=>n+1)}>Refresh</button></div>}
       {loading && <p role="status">Loading projects…</p>}
       {!projectId && <>
@@ -62,7 +62,6 @@ export function Projects(props: Props) {
         {!creating && props.existingChats.length > 0 && <details className="project-existing-chats"><summary>Existing conversations ({props.existingChats.length})</summary><p>These conversations are not linked to a project you own. Your history and shared access are preserved.</p><div className="dashboard-list">{props.existingChats.map(channel=><button className="dashboard-card project-summary" key={channel.id} onClick={()=>props.onChat(channel.id)}>{channel.name}{channel.archived ? ' · Archived' : ''} →</button>)}</div></details>}
       </>}
       {detail && <>
-      <nav className="project-tabs" aria-label="Project sections">{['chat','files'].map(section => <button key={section} aria-current={tab === section ? 'page' : undefined} onClick={() => {setCreating(false);onSelect(detail.id,null,section);}}>{section[0].toUpperCase()+section.slice(1)}</button>)}</nav>
       <div className="project-workspace"><div className="project-main">
         {tab === 'chat' && <div className="project-chat">{chat}</div>}
         {tab === 'files' && <><PublishedArtifacts/><ProjectFiles key={detail.channelId} channelId={detail.channelId} /></>}
@@ -74,7 +73,7 @@ export function Projects(props: Props) {
         {taskId && !selected && <p role="alert">Task not found in this project.</p>}
         {selected && <TaskPanel key={`${selected.id}:${selected.version}`} task={selected} detail={detail} onChanged={task=>setDetail(current=>current ? {...current,tasks:current.tasks.map(t=>t.id===task.id ? task : t)} : current)} onRefresh={()=>setRefresh(n=>n+1)} />}
       </>}
-      </div><ProjectContext key={detail.id} project={detail} participants={props.participants} agents={agents} owner={detail.ownerId===props.userId} onSaved={updated=>setDetail(current=>current?{...current,...updated}:current)} onMembersChanged={props.onMembersChanged} onManage={props.onManage}/></div></>}
+      </div><ProjectContext key={detail.id} project={detail} participants={props.participants} agents={agents} owner={detail.ownerId===props.userId} onSaved={updated=>setDetail(current=>current?{...current,...updated}:current)} onMembersChanged={props.onMembersChanged} onManage={props.onManage} section={tab} onSection={section=>{setCreating(false);onSelect(detail.id,null,section);}}/></div></>}
     </div>
   </section>;
 }

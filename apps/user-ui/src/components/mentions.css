@@ -20,7 +20,6 @@
 .mention-delivery-hint,.mention-delivery-error { margin: 6px 0; font-size: 12px; color: var(--nest-muted); }
 .mention-delivery-error { color: var(--nest-text); }
 .message-target { display: block; font-size: 11px; color: var(--nest-muted); margin-bottom: 4px; }
-.message-highlight { outline: 2px solid var(--instance-accent); outline-offset: 3px; }
 .mention-inbox { margin: 8px 16px; position: relative; }
 .mention-inbox-toggle { width: 100%; display:flex; align-items:center; gap:8px; text-align:left; }
 .mention-unread-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--instance-accent); }

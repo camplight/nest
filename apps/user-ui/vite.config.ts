@@ -1,12 +1,13 @@
 import { demoProxy } from '../demo-proxy';
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 const basePath = process.env.VITE_UI_BASE_PATH ?? "/";
 
 export default defineConfig({
   base: basePath,
-  plugins: [demoProxy(), react()],
+  plugins: [demoProxy(), react(), tailwindcss()],
   server: {
     port: 5190,
     proxy: {
