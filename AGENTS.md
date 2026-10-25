@@ -64,9 +64,13 @@ maintain CHANGELOG.md by hand. Never expose credentials in logs or commits.
 
 ## Pull request screenshots
 
-Always include screenshots in pull request descriptions. For UI changes, capture
-the implemented screens on desktop and mobile; include before/after views when
-useful. For changes without a visible UI, include a screenshot of relevant
-validation results. Use images accessible to GitHub reviewers, not local file
-paths. Label test data and design references accurately, and exclude credentials
-and private tenant content. Capture the final implementation after checks pass.
+Include screenshots only when a PR changes visible UI. Capture the implemented
+screens on desktop and mobile; include before/after views when useful. Use images
+accessible to GitHub reviewers, not local file paths. Label test data and design
+references accurately, exclude credentials and private tenant content, and capture
+the final implementation after checks pass.
+
+For API, worker, infrastructure, tests, documentation and other changes without a
+visible UI change, report verification as text with relevant CI/check links. Do not
+create or commit screenshots of terminal output, test results or validation cards.
+Do not add unchanged UI screenshots merely to satisfy a PR checklist.
