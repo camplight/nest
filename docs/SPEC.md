@@ -86,6 +86,27 @@ Persistent volumes are `.nest-data` (engine), `.nest-product` (product) and
 `files` (uploads). Credentials and existing Codex installations remain in engine
 runtime storage. Public branding assets remain Nest-owned.
 
+### Production resource protection
+
+The Compose deployment defaults to 1536 MiB container RAM, 2048 MiB combined
+RAM/swap, 0.80 CPU and 384 processes/threads, with explicit operator overrides.
+Host swap is separately configured; production has approximately 2 GiB total.
+Nest logs rotate through Docker's local driver. These are deployment budgets,
+not per-agent sandboxes, and do not change the OrgOps source or runner assignment.
+API and agents still share a container: an excessive workload can fail or cause a
+container restart, but it is bounded before consuming all host RAM/process capacity.
+Heavy validation belongs in CI or a separate runner.
+
+An optional operator-installed root-owned systemd watchdog restarts a running
+container after three consecutive unhealthy observations. It skips the existing
+host deployment lock and limits restart attempts to one per hour, persisted
+across container/host restarts. Healthy/starting/stopped/unknown/recreated state
+resets the failure streak; unavailable Docker never triggers a restart. It cannot
+reboot the host, deploy source, read application databases or print credentials.
+Source updates do not install host units or apply Compose limits. See
+[resource protection and rollout](../deploy/devops/README.md#host-resource-budgets-and-health-recovery)
+and the [2026-10-25 incident](../deploy/devops/INCIDENT-2026-10-25.md).
+
 ## User workspace home
 
 The user UI opens on a Nest-owned dashboard when no `?channel=` link is present.

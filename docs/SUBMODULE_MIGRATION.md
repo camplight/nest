@@ -487,3 +487,15 @@ does not need to be online. Older browser `suggest-details` calls remain accepte
 but no longer execute inference. Existing manual/AI naming audit entries suppress
 renaming. No historical job backfill is run. Preserve the product volume so pending
 jobs survive restarts; multiple processes must share the same SQLite database.
+
+## Production resource guardrails
+
+The resource-budget/watchdog change has no engine pin, source or schema change.
+Keep all volumes, runner IDs, workspaces, Codex logins and private credentials.
+Limits apply only when the operator updates host Compose and recreates Nest;
+watchdog source requires separate root-owned systemd installation. Schedule that
+recreation because active work and human sessions may be interrupted. Follow the
+normal two-database/runtime snapshot procedure and preserve the previous host
+Compose files. The watchdog shares the existing deployment lock and does not
+change the controller's image/database rollback behavior. See the operator
+instructions in `deploy/devops/README.md` before enabling it.
