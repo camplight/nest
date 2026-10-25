@@ -38,7 +38,7 @@ try{
  assert.ok(events.includes('oom'),'Docker must record an actual cgroup OOM event');
  console.log('PASS: actual cgroup OOM stayed within 64 MiB; Docker restart and durable data survived');
 }finally{
- try{docker(['rm','--force',container]);}catch{}
+ try{docker(['rm','--force','--volumes',container]);}catch{}
  try{docker(['volume','rm',volume]);}catch{}
 }
 
@@ -61,6 +61,6 @@ with tempfile.TemporaryDirectory() as root:
  assert.equal(docker(['exec',healthContainer,'cat','/data/sentinel']),'durable-fixture');
  console.log('PASS: real Docker unhealthy fixture recovered through the host watchdog; synthetic volume preserved');
 }finally{
- try{docker(['rm','--force',healthContainer]);}catch{}
+ try{docker(['rm','--force','--volumes',healthContainer]);}catch{}
  try{docker(['volume','rm',healthVolume]);}catch{}
 }
