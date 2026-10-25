@@ -2,10 +2,20 @@
 import {execFileSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import assert from 'node:assert/strict';
+import {mkdtempSync, readFileSync, writeFileSync, rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 
 const docker=(args,options={})=>execFileSync('docker',args,{encoding:'utf8',timeout:30_000,...options}).trim();
 const defaults={...process.env,NEST_MEMORY_LIMIT:'1536m',NEST_MEMORY_SWAP_LIMIT:'2048m',NEST_CPU_LIMIT:'0.80',NEST_PIDS_LIMIT:'384'};
-const config=env=>JSON.parse(docker(['compose','--env-file','/dev/null','-f','deploy/compose.yaml','config','--no-env-resolution','--format','json'],{env})).services.nest;
+const config=env=>{
+ const root=mkdtempSync(join(tmpdir(),'nest-compose-check-'));
+ try{
+  writeFileSync(join(root,'compose.yaml'),readFileSync('deploy/compose.yaml'));
+  writeFileSync(join(root,'.env'),'');
+  return JSON.parse(docker(['compose','--env-file','/dev/null','-f',join(root,'compose.yaml'),'config','--format','json'],{env})).services.nest;
+ }finally{rmSync(root,{recursive:true,force:true});}
+};
 const service=config(defaults);
 assert.equal(Number(service.mem_limit),1536*1024**2);
 assert.equal(Number(service.memswap_limit),2048*1024**2);
