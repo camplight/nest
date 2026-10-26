@@ -44,7 +44,9 @@ stable symlink. Source/dependencies are root-owned. Persistent engine/product/fi
 live in `/var/lib/nest`, linked into each release. API/engine/runner run as `node`,
 Caddy as `caddy`. Memory/CPU/task budgets live in the units, not manual host tweaks:
 320 MiB product API, 512 MiB engine, 768 MiB runner within 1536 MiB RAM, 512 MiB
-swap, 80% CPU and 384 tasks. Caddy has a separate 128 MiB cap. These are process
+swap, 80% CPU and 384 tasks. Caddy has a separate 128 MiB cap. The installer preserves existing swap and adds
+a persistent 2 GiB swap file when the host has less than about 2 GiB available
+swap capacity; container rehearsals leave the outer host swap untouched. These are process
 budgets, not per-agent sandboxes. Builds belong off the production VPS.
 
 ## Operator inputs

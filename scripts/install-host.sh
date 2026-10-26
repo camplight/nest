@@ -44,6 +44,19 @@ trap 'rm -rf "$work"' EXIT
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends ca-certificates curl xz-utils python3 rsync git gh openssh-client >/dev/null
+# Keep the small-host swap reserve reproducible. Never change the laptop/VM host
+# kernel from a container rehearsal, or truncate/format an existing swap file.
+if ! systemd-detect-virt --container --quiet && [[ $(awk '/SwapTotal:/ {print $2}' /proc/meminfo) -lt 2048000 ]]; then
+  if [[ ! -e /swap-nest-native ]]; then
+    fallocate -l 2G /swap-nest-native
+    chmod 600 /swap-nest-native
+    mkswap /swap-nest-native >/dev/null
+  fi
+  [[ $(blkid -p -s TYPE -o value /swap-nest-native) == swap ]] || { echo 'Existing swap file needs operator review.' >&2; exit 1; }
+  chmod 600 /swap-nest-native
+  if ! swapon --show=NAME --noheadings | awk '$1 == "/swap-nest-native" {found=1} END {exit !found}'; then swapon /swap-nest-native; fi
+  if ! awk '$1 == "/swap-nest-native" {found=1} END {exit !found}' /etc/fstab; then printf '/swap-nest-native none swap sw 0 0\n' >> /etc/fstab; fi
+fi
 install -d -m 755 /opt/nest/releases /opt/nest/tools /etc/nest
 python3 - "$artifact" "$work/release" <<'PY'
 import pathlib,sys,tarfile
