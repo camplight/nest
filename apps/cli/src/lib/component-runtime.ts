@@ -83,7 +83,7 @@ function resolveInstallDir(inputDir?: string) {
   return resolve(inputDir ?? loadState().installDir ?? "nest");
 }
 
-function checkHttpUp(url: string): Promise<boolean> {
+function checkHttpUp(url: string, healthyOnly = false): Promise<boolean> {
   return new Promise((resolveReady) => {
     let settled = false;
     const target = new URL(url);
@@ -97,7 +97,7 @@ function checkHttpUp(url: string): Promise<boolean> {
       (res) => {
         if (settled) return;
         settled = true;
-        resolveReady((res.statusCode ?? 500) >= 200 && (res.statusCode ?? 500) < 300);
+        resolveReady(!healthyOnly || ((res.statusCode ?? 500) >= 200 && (res.statusCode ?? 500) < 300));
         res.resume();
       }
     );
@@ -123,7 +123,7 @@ async function waitForComponentReady(component: InstallComponent, timeoutMs: num
   if (!url) return;
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    if (await checkHttpUp(url)) return;
+    if (await checkHttpUp(url, true)) return;
     await delay(500);
   }
   throw new Error(`${component} did not become ready at ${url} within ${timeoutMs}ms.`);

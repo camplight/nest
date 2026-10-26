@@ -131,7 +131,11 @@ async function executeUpgrade(rawOptions: UpgradeOptions, actions: typeof defaul
   } catch (error) {
     if (!installationStarted) {
       // Source is untouched: recover any services stopped before a backup/preflight error.
-      try { if (runningBefore.length) await actions.start({installDir, components: runningBefore, openBrowser: false}); }
+      try {
+        const current = await actions.status({installDir, components: allComponents});
+        const stoppedBefore = runningBefore.filter(component => current.statuses.some(s => s.component === component && !s.running && !s.reachable));
+        if (stoppedBefore.length) await actions.start({installDir, components: stoppedBefore, openBrowser: false});
+      }
       catch { throw new Error(`Upgrade stopped before source changes; previous services could not restart. Inspect ${installDir} locally.`); }
       throw error;
     }
