@@ -199,6 +199,9 @@ try {
     await page.getByRole('button',{name:'Continue your project Website launch',exact:false}).click();
     await page.locator('.project-context-disclosure').evaluate((node:HTMLDetailsElement)=>{node.open=true;});
     await page.locator('.project-about').getByText('owner',{exact:true}).waitFor();
+    for(const username of ['avery.long-name@example.com','jordan@example.com']){
+      assert.equal((await product.app.request('/api/humans/invite',{method:'POST',headers,body:JSON.stringify({username,tempPassword:'test-password'})})).status,201);
+    }
     await page.getByRole('button',{name:'Add people or agents',exact:true}).click();
     const invitations=page.getByRole('dialog',{name:'Add people or agents',exact:true});
     const inviteSearch=invitations.getByRole('combobox',{name:'Add people or agents'});
