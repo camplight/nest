@@ -43,7 +43,7 @@ work=$(mktemp -d /opt/nest/host-stage.XXXXXX)
 trap 'rm -rf "$work"' EXIT
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq --no-install-recommends ca-certificates curl xz-utils python3 rsync git openssh-client >/dev/null
+apt-get install -y -qq --no-install-recommends ca-certificates curl xz-utils python3 rsync git gh openssh-client >/dev/null
 install -d -m 755 /opt/nest/releases /opt/nest/tools /etc/nest
 python3 - "$artifact" "$work/release" <<'PY'
 import pathlib,sys,tarfile

@@ -41,23 +41,35 @@ opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.coo
 base = 'http://127.0.0.1:8787'
 
 
-def call(path, body=None):
+def call(path, body=None, method=None):
     req = urllib.request.Request(base + path, data=json.dumps(body).encode() if body is not None else None,
-                                 headers={'Content-Type': 'application/json'})
+                                 headers={'Content-Type': 'application/json'}, method=method)
     with opener.open(req, timeout=15) as response:
         return json.load(response)
 
 
+name = None
 try:
     call('/api/auth/login', {'username': 'synthetic-admin', 'password': 'synthetic-rehearsal-password'})
+    record = Path('/tmp/nest-native-smoke-record.json')
+    if record.exists():
+        previous = json.loads(record.read_text())
+        assert call('/api/branding')['displayName'] == 'Synthetic Native Smoke'
+        assert any(e['source'] == 'agent:' + previous['agent'] for e in call('/api/events?channelId=' + previous['channel'] + '&limit=100')), 'Engine messages did not survive reinstall/rollback'
+    call('/api/branding', {'displayName': 'Synthetic Native Smoke', 'logoUrl': '/brand/camplight-logo-white.svg',
+                          'primaryColor': '#350956', 'accentColor': '#ff7557', 'backgroundColor': '#f8f4ff'}, method='PUT')
+    # Use the engine's secret API so the actual provider isolation contract is tested.
+    for key, value in {'OPENROUTER_API_KEY': 'synthetic-not-real', 'OPENROUTER_BASE_URL': 'http://127.0.0.1:19991/v1'}.items():
+        call('/api/secrets', {'name': key, 'value': value, 'scopeType': 'public'})
     runner = Path('/app/.nest-data/runner-id').read_text().strip()
     assert any(r['id'] == runner and r['online'] for r in call('/api/runners'))
     name = 'NativeSmoke' + str(time.time_ns())
-    call('/api/models', {'id': name, 'provider': 'openrouter', 'modelName': 'native-smoke', 'enabled': True})
-    call('/api/agents', {'name': name, 'modelId': name, 'workspacePath': '/app/.nest-data/workspaces/' + name,
+    model_ref = 'openrouter:' + name
+    call('/api/models', {'id': model_ref, 'provider': 'openrouter', 'modelName': name, 'enabled': True})
+    call('/api/agents', {'name': name, 'modelId': model_ref, 'workspacePath': '/app/.nest-data/workspaces/' + name,
                          'assignedRunnerId': runner, 'soulContents': 'Reply with a message.created event.',
                          'mode': 'CLASSIC', 'memoryContextMode': 'OFF', 'enabledSkills': []})
-    channel = call('/api/channels', {'name': 'Synthetic native smoke', 'visibility': 'PRIVATE'})['id']
+    channel = call('/api/channels', {'name': 'Synthetic ' + name, 'visibility': 'PRIVATE'})['id']
     call('/api/channels/' + channel + '/subscribe', {'subscriberType': 'AGENT', 'subscriberId': name})
     call('/api/events', {'type': 'message.created', 'source': 'human:synthetic-admin',
                          'channelId': channel, 'payload': {'text': 'Verify this native installation.'}})
@@ -68,8 +80,13 @@ try:
             replied = True
             break
         time.sleep(1)
-    call('/api/agents/' + name + '/stop', {})
     assert replied and Provider.calls > 0, 'Expected a completed real agent/provider/event turn'
+    record.write_text(json.dumps({'agent': name, 'channel': channel}))
     print('PASS: authenticated login, stable registered runner and one native agent turn through the real engine')
 finally:
+    if name:
+        try:
+            call('/api/agents/' + name + '/stop', {})
+        except Exception:
+            pass
     server.shutdown()
