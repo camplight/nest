@@ -1,0 +1,22 @@
+# Set NEST_DOMAIN in Caddy's systemd environment (e.g. nest.example.com).
+# /app is the stable installation path; only built UI directories are public.
+{$NEST_DOMAIN} {
+    encode zstd gzip
+    @backend path /health /api /api/* /v1 /v1/* /ws /ws/* /demo /demo/*
+    handle @backend {
+        reverse_proxy 127.0.0.1:8787
+    }
+    handle /admin {
+        redir /admin/ 308
+    }
+    handle_path /admin/* {
+        root * /app/apps/admin-ui/dist
+        try_files {path} /index.html
+        file_server
+    }
+    handle {
+        root * /app/apps/user-ui/dist
+        try_files {path} /index.html
+        file_server
+    }
+}

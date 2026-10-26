@@ -92,5 +92,41 @@ class DeploymentTests(unittest.TestCase):
                 run.assert_not_called()
 
 
+
+class NativeDeploymentTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        for name, value in {'STATE': root, 'SOURCE': root / 'source', 'NATIVE_CONFIG': root / 'native.json'}.items():
+            p = patch.object(ops, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        ops.SOURCE.mkdir()
+        ops.NATIVE_CONFIG.write_text('{"domain":"nest.example.com"}')
+        self.job = 'c' * 32
+
+    def test_native_restart_uses_host_services_without_docker_or_database_reads(self):
+        with patch.object(ops, 'run') as command:
+            ops.execute(self.job, 'restart')
+        args = [call.args for call in command.call_args_list]
+        self.assertEqual(args[0], ('systemctl', 'stop', 'nest-runner', 'nest-api', 'nest-engine'))
+        self.assertFalse(any('docker' in row for row in args))
+        self.assertEqual(json.loads((ops.STATE / (self.job + '.json')).read_text())['state'], 'succeeded')
+
+    def test_native_deploy_rejects_non_main_before_installer_or_download(self):
+        with patch.object(ops, 'run', return_value='a' * 40) as command:
+            with self.assertRaisesRegex(RuntimeError, 'Only the current'):
+                ops.execute(self.job, 'deploy', 'b' * 40)
+        self.assertFalse(any('curl' in c.args or 'bash' in c.args for c in command.call_args_list))
+
+    def test_native_restart_respects_same_mutation_lock_as_docker_and_installer(self):
+        import fcntl
+        with (ops.STATE / 'deployment.lock').open('w') as lock, patch.object(ops, 'run') as command:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            ops.execute(self.job, 'restart')
+        command.assert_not_called()
+        self.assertEqual(json.loads((ops.STATE / (self.job + '.json')).read_text())['state'], 'failed')
+
 if __name__ == '__main__':
     unittest.main()

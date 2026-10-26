@@ -21,6 +21,7 @@ DATA = Path('/var/lib/docker/volumes/nest_nest-data/_data')
 PRODUCT_DATA = Path('/var/lib/docker/volumes/nest_nest-product/_data')
 COMPOSE = ['docker', 'compose', '--project-directory', str(ROOT)]
 REPO = 'https://github.com/camplight/nest.git'
+NATIVE_CONFIG = Path('/etc/nest/native.json')
 
 
 def run(*args, capture=False):
@@ -85,7 +86,65 @@ def health():
 
 
 
+def execute_native(job, action, sha=None):
+    with (STATE / 'deployment.lock').open('w') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            save(job, state='failed', error='Another operation is running')
+            return
+        return native_operation(job, action, sha, lock.fileno())
+
+
+def native_operation(job, action, sha, lock_fd):
+    """Native builds come from CI; retain the same restricted agent interface."""
+    save(job, state='running', action=action, commit=sha)
+    try:
+        if action == 'deploy':
+            if not SOURCE.exists():
+                run('git', 'clone', '--no-checkout', REPO, str(SOURCE))
+            run('git', '-C', str(SOURCE), 'fetch', 'origin', 'main')
+            head = run('git', '-C', str(SOURCE), 'rev-parse', 'FETCH_HEAD', capture=True).strip()
+            if head != sha:
+                raise RuntimeError('Only the current camplight/nest main commit may be deployed')
+            run('git', '-C', str(SOURCE), 'checkout', '--detach', sha)
+            # No compiler/npm build runs on this production host.
+            arch = {'x86_64': 'x64', 'aarch64': 'arm64'}.get(os.uname().machine)
+            if not arch:
+                raise RuntimeError('Unsupported release architecture')
+            import tempfile
+            with tempfile.TemporaryDirectory(prefix='native-', dir=STATE) as tmp:
+                artifact = Path(tmp) / ('nest-host-linux-' + arch + '.tar.gz')
+                url = 'https://github.com/camplight/nest/releases/download/native-' + sha + '/' + artifact.name
+                for suffix in ('', '.sha256'):
+                    run('curl', '--fail', '--silent', '--show-error', '--location',
+                        '--proto', '=https', '--max-time', '300', '--output', str(artifact) + suffix, url + suffix)
+                checksum = Path(str(artifact) + '.sha256').read_text().split()[0]
+                if not re.fullmatch(r'[a-f0-9]{64}', checksum):
+                    raise RuntimeError('Invalid release checksum')
+                domain = json.loads(NATIVE_CONFIG.read_text())['domain']
+                save(job, phase='activating')
+                # Installer acquires deployment.lock and snapshots both offline DBs.
+                subprocess.run(['bash', str(SOURCE / 'scripts/install-host.sh'), '--release', str(artifact),
+                                '--sha256', checksum, '--domain', domain], check=True,
+                               pass_fds=(lock_fd,), env={**os.environ, 'NEST_HOST_LOCK_FD': str(lock_fd)})
+        elif action == 'restart':
+            run('systemctl', 'stop', 'nest-runner', 'nest-api', 'nest-engine')
+            run('systemctl', 'start', 'nest-engine', 'nest-api', 'nest-runner')
+            run('curl', '--fail', '--silent', '--show-error', '--max-time', '5',
+                '--retry', '30', '--retry-all-errors', '--retry-delay', '2',
+                '--output', '/dev/null', 'http://127.0.0.1:8787/health')
+        else:
+            raise ValueError('Unsupported native operation')
+        save(job, state='succeeded', phase='healthy')
+    except Exception as error:
+        save(job, state='failed', error=str(error))
+        raise
+
+
 def execute(job, action, sha=None):
+    if NATIVE_CONFIG.exists():
+        return execute_native(job, action, sha)
     with (STATE / 'deployment.lock').open('w') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

@@ -1,11 +1,20 @@
-import { cpSync, existsSync, mkdirSync, symlinkSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readlinkSync, renameSync, rmSync, symlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 export const repoRoot = fileURLToPath(new URL('../', import.meta.url));
 function ensureLink(target: string, path: string) {
   try { symlinkSync(target, path, 'junction'); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    // These are Nest-owned compatibility links. Repoint them atomically when a
+    // native release moves; never delete a real user directory or its contents.
+    if (!lstatSync(path).isSymbolicLink() || readlinkSync(path) === target) return;
+    const temporary = `${path}.${randomUUID()}`;
+    try { symlinkSync(target, temporary, 'junction'); renameSync(temporary, path); }
+    finally { rmSync(temporary, {force: true}); }
+  }
 }
 
 export function configureOrgOpsEnv(component: 'api' | 'runner' = 'api') {
@@ -25,7 +34,7 @@ export function configureOrgOpsEnv(component: 'api' | 'runner' = 'api') {
   if (!existsSync(skills)) cpSync(resolve(repoRoot, 'vendor/orgops/skills'), skills, {recursive: true});
   const connectionSkill=resolve(skills,'nest-connections');
   if(!existsSync(connectionSkill))cpSync(resolve(repoRoot,'skills/nest-connections'),connectionSkill,{recursive:true});
-  const files = resolve(repoRoot, 'files'); mkdirSync(files, {recursive: true});
+  const files = resolve(repoRoot, process.env.NEST_FILES_DIR ?? 'files'); mkdirSync(files, {recursive: true});
   ensureLink(files, resolve(projectRoot, 'files'));
   process.env.ORGOPS_PROJECT_ROOT = projectRoot;
   process.env.ORGOPS_RUNNER_ID_FILE = resolve(repoRoot, process.env.NEST_RUNNER_ID_FILE ?? process.env.ORGOPS_RUNNER_ID_FILE ?? '.agent-runner-id');

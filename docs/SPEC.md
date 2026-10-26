@@ -107,6 +107,34 @@ Source updates do not install host units or apply Compose limits. See
 [resource protection and rollout](../deploy/devops/README.md#host-resource-budgets-and-health-recovery)
 and the [2026-10-25 incident](../deploy/devops/INCIDENT-2026-10-25.md).
 
+### Native host installation
+
+`scripts/install-host.sh` is Nest's idempotent production entrypoint on Ubuntu
+24.04. It installs checksum-pinned Node/Caddy and pinned agent CLIs from a prebuilt
+Linux release, then activates repo-owned systemd units for Nest API, OrgOps API,
+runner and Caddy. Caddy serves built UIs and authenticated API/WS/demo routes;
+APIs bind loopback through `NEST_BIND_HOST`/`ORGOPS_BIND_HOST`. Source/dependencies
+are root-owned; state lives in `/var/lib/nest` and private config in `/etc/nest`.
+Saved `/app`, `/home/node`, runner identity, Codex homes and runtime skill paths
+remain stable. Native units set absolute `NEST_ENGINE_DATA_DIR` and `NEST_FILES_DIR`;
+Nest-owned compatibility links are repointed atomically so retiring an old
+release cannot break skills/uploads. Real user directories are never replaced. No upstream code is edited or patched.
+
+Whole process trees have separate 320/512/768 MiB API/engine/runner limits within
+a 1536 MiB RAM / 512 MiB swap / 80% CPU slice. These are not agent sandboxes.
+Re-running the script stages another prebuilt release and snapshots both stopped
+DBs; pre-open failures restore the previous pair/config/release. Explicit
+same-version Docker import retains source volumes and restart-policy records.
+Native restricted host operations reuse this installer; builds remain in CI.
+Fresh-VM CI checks install/reinstall, paired-DB recovery, runner identity/heartbeat,
+crash recovery, protected demos and a real agent turn with a synthetic provider.
+
+Local CLI upgrades stop all writers before private backups, use registered Linux
+supervisors and preserve credentials. Post-mutation local failures remain stopped
+for explicit schema-compatible recovery. Native installations refuse in-place
+CLI builds. Existing Docker production stays unchanged until an operator runs the
+reviewed installer. See [native operations](../deploy/native/README.md).
+
 ## User workspace home
 
 The user UI opens on a Nest-owned dashboard when no `?channel=` link is present.

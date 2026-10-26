@@ -769,7 +769,7 @@ async function main() {
     try {
       const components = resolveTargetComponents(parsed.options.components);
       writeRoleMessage("nest", `Stopping components: ${formatComponents(components)}.`);
-      const result = stopComponents({ installDir: parsed.options.installDir, components });
+      const result = await stopComponents({ installDir: parsed.options.installDir, components });
       for (const item of result.stopped) {
         writeRoleMessage(
           "nest",
@@ -829,7 +829,7 @@ async function main() {
   if (parsed.name === "admin-stop") {
     try {
       writeRoleMessage("nest", "Stopping component: admin-ui.");
-      const result = stopComponents({
+      const result = await stopComponents({
         installDir: parsed.options.installDir,
         components: ["admin-ui"],
       });

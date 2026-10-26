@@ -16,6 +16,7 @@ import { npmCommandForHost } from "./exec";
 import { openUrlInBrowser } from "./browser";
 import type { InstallComponent } from "./components";
 import { loadState } from "./runtime-state";
+import { controlLinuxService, isManagedLinuxService, linuxServiceStatus } from "./service";
 
 type ComponentStatus = {
   component: InstallComponent;
@@ -33,7 +34,7 @@ const COMPONENT_START_COMMAND: Record<InstallComponent, string> = {
 };
 
 const COMPONENT_URL: Partial<Record<InstallComponent, string>> = {
-  api: "http://localhost:8787",
+  api: "http://localhost:8787/health",
   "admin-ui": "http://localhost:4173",
   "user-ui": "http://localhost:4190",
 };
@@ -82,7 +83,7 @@ function resolveInstallDir(inputDir?: string) {
   return resolve(inputDir ?? loadState().installDir ?? "nest");
 }
 
-function checkHttpUp(url: string): Promise<boolean> {
+function checkHttpUp(url: string, healthyOnly = false): Promise<boolean> {
   return new Promise((resolveReady) => {
     let settled = false;
     const target = new URL(url);
@@ -96,7 +97,7 @@ function checkHttpUp(url: string): Promise<boolean> {
       (res) => {
         if (settled) return;
         settled = true;
-        resolveReady((res.statusCode ?? 500) < 500);
+        resolveReady(!healthyOnly || ((res.statusCode ?? 500) >= 200 && (res.statusCode ?? 500) < 300));
         res.resume();
       }
     );
@@ -122,7 +123,7 @@ async function waitForComponentReady(component: InstallComponent, timeoutMs: num
   if (!url) return;
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    if (await checkHttpUp(url)) return;
+    if (await checkHttpUp(url, true)) return;
     await delay(500);
   }
   throw new Error(`${component} did not become ready at ${url} within ${timeoutMs}ms.`);
@@ -136,6 +137,13 @@ export async function startComponents(options: {
   const installDir = resolveInstallDir(options.installDir);
   const started: Array<{ component: InstallComponent; alreadyRunning: boolean; pid: number | null }> = [];
   for (const component of options.components) {
+    if (isManagedLinuxService(installDir, component)) {
+      const before = linuxServiceStatus(component);
+      controlLinuxService("start", component);
+      await waitForComponentReady(component, 30_000);
+      started.push({component, alreadyRunning: before.running, pid: linuxServiceStatus(component).pid});
+      continue;
+    }
     const existingPid = loadPid(installDir, component);
     if (!existingPid) {
       const runtimeDir = resolve(installDir, ".nest-runtime");
@@ -172,27 +180,46 @@ export async function startComponents(options: {
   return { installDir, started };
 }
 
-export function stopComponents(options: { installDir?: string; components: InstallComponent[] }) {
+export async function stopComponents(options: { installDir?: string; components: InstallComponent[] }) {
   const installDir = resolveInstallDir(options.installDir);
   const stopped: Array<{ component: InstallComponent; stopped: boolean; pid: number | null }> = [];
   for (const component of options.components) {
+    if (isManagedLinuxService(installDir, component)) {
+      const before = linuxServiceStatus(component);
+      controlLinuxService("stop", component);
+      if (linuxServiceStatus(component).running) throw new Error(`systemd did not stop ${component}.`);
+      stopped.push({component, stopped: before.running, pid: before.pid});
+      continue;
+    }
     const pid = loadPid(installDir, component);
     if (!pid) {
+      if (COMPONENT_URL[component] && await checkHttpUp(COMPONENT_URL[component]!)) {
+        throw new Error(`${component} is reachable but is not managed by this CLI. Stop its supervisor before proceeding.`);
+      }
       stopped.push({ component, stopped: false, pid: null });
       continue;
     }
     if (process.platform === "win32") {
-      spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
-        shell: true,
-        stdio: "ignore",
-        windowsHide: true,
+      const result = spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+        stdio: "ignore", windowsHide: true,
       });
+      if (result.status !== 0 && processIsAlive(pid)) throw new Error(`Could not stop ${component}.`);
     } else {
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch {
-        // Ignore already-dead process.
+      // startComponents detaches a new process group. Kill npm AND its descendants.
+      const groupAlive = () => processIsAlive(-pid);
+      const signalGroup = (signal: NodeJS.Signals) => {
+        try { process.kill(-pid, signal); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+      };
+      signalGroup("SIGTERM");
+      const deadline = Date.now() + 10_000;
+      while (groupAlive() && Date.now() < deadline) await delay(50);
+      if (groupAlive()) {
+        signalGroup("SIGKILL");
+        const killDeadline = Date.now() + 5_000;
+        while (groupAlive() && Date.now() < killDeadline) await delay(50);
       }
+      if (groupAlive()) throw new Error(`${component} process group did not stop. No backup is safe yet.`);
     }
     clearPid(installDir, component);
     stopped.push({ component, stopped: true, pid });
@@ -207,12 +234,13 @@ export async function getComponentsStatus(options: {
   const installDir = resolveInstallDir(options.installDir);
   const statuses: ComponentStatus[] = [];
   for (const component of options.components) {
-    const pid = loadPid(installDir, component);
+    const managed = isManagedLinuxService(installDir, component) ? linuxServiceStatus(component) : null;
+    const pid = managed ? managed.pid : loadPid(installDir, component);
     const url = COMPONENT_URL[component];
     const reachable = url ? await checkHttpUp(url) : undefined;
     statuses.push({
       component,
-      running: Boolean(pid) || Boolean(reachable),
+      running: managed ? managed.running : Boolean(pid) || Boolean(reachable),
       pid,
       url,
       reachable,

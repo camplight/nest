@@ -147,6 +147,12 @@ try {
   writeFileSync(resolve(installDir, ".nest-data", "seed.txt"), "seed\n", "utf-8");
   writeFileSync(resolve(installDir, "files", "seed.txt"), "seed\n", "utf-8");
 
+  // Upgrade must record a real rollback revision; the mock installer creates
+  // only an empty .git directory, so initialize this synthetic fixture explicitly.
+  run("git", ["-C", installDir, "init"]);
+  run("git", ["-C", installDir, "add", "package.json"]);
+  run("git", ["-C", installDir, "-c", "user.name=NestSmoke", "-c", "user.email=smoke@example.invalid", "commit", "-m", "Synthetic installer fixture"]);
+
   run(binaryPath, ["upgrade", "--dir", installDir, "--no-restart"], smokeEnv);
 
   const backupsDir = resolve(installDir, ".nest-backups");

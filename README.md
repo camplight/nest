@@ -289,6 +289,13 @@ in Nest's own database and do not modify the OrgOps submodule.
 
 ## Deploy and operate
 
+For native Ubuntu hosts, [`scripts/install-host.sh`](scripts/install-host.sh) is
+one repeatable provisioning and upgrade entrypoint. It uses pinned, prebuilt Linux
+releases and repo-owned systemd units for Nest API, OrgOps API, runner and Caddy;
+Caddy serves both built UIs. Builds stay off the live server. The
+[native host guide](deploy/native/README.md) covers secrets, agent logins, DNS,
+both-database/full-runtime backups, explicit Docker import and rollback.
+
 The [Dockerfile](Dockerfile) packages Nest and OrgOps as separately supervised
 processes behind one origin. [The Compose example](deploy/compose.yaml) includes
 persistent product, engine, and upload volumes plus a Caddy HTTPS proxy.

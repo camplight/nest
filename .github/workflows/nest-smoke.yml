@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "apps/cli/**"
+      - "deploy/native/**"
       - "vendor/orgops"
       - "package*.json"
       - ".gitmodules"
