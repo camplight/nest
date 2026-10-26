@@ -11,7 +11,7 @@ import type { ModelProvider } from "./types";
 import { writeRoleMessage } from "./ui";
 
 export function parseSimpleEnv(raw: string): Record<string, string> {
-  return parseEnv(raw);
+  return Object.fromEntries(Object.entries(parseEnv(raw)).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 }
 
 export function loadDotEnvIntoProcess(envPath: string) {
