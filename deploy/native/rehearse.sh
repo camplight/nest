@@ -17,6 +17,15 @@ ENV
 chmod 600 "$work/runtime.env"
 install_host() { bash scripts/install-host.sh --release "$artifact" --sha256 "$digest" --domain http://127.0.0.1:8080 "$@"; }
 install_host --env-file "$work/runtime.env"
+# Saved wrapped bridges deliberately give Codex this restricted PATH. Its Node
+# shebang and agent-invoked npm/npx must work without the service's extended PATH.
+runuser -u node -- env -i HOME=/home/node PATH=/usr/local/bin:/usr/bin:/bin sh -ec '
+  test "$(node --version)" = v22.23.2
+  npm --version >/dev/null
+  npx --version >/dev/null
+  codex --version
+  claude --version
+'
 python3 deploy/native/smoke.py
 cp /app/.nest-data/runner-id "$work/runner-id"
 # Re-running the exact installer is the upgrade path; it must preserve state.

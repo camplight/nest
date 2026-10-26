@@ -28,8 +28,17 @@ jobs:
       - run: npm run test:ui:auth
       - run: npm run test:ui:onboarding
       - run: python3 -m unittest discover -s deploy/devops -p 'test_*.py'
-      - run: docker build -t nest:check .
+      - run: docker build --label org.opencontainers.image.revision=${{ github.sha }} -t nest:check .
       - name: Verify bounded resource failure and recovery
         run: node deploy/devops/check-resources.mjs
       - name: Assert engine is untouched
         run: test -z "$(git -C vendor/orgops status --porcelain)"
+      - name: Export verified image for off-host production deployment
+        if: github.event_name != 'pull_request'
+        run: docker save nest:check | gzip -1 > /tmp/nest-docker-linux-x64.tar.gz
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: nest-docker-linux-x64
+          path: /tmp/nest-docker-linux-x64.tar.gz
+          retention-days: 3
