@@ -141,6 +141,7 @@ if [[ -L /app ]]; then old_release=$(readlink -f /app); fi
 for link in node caddy; do readlink "/opt/nest/$link" > "$backup/$link.link" || true; done
 cp -a /etc/nest "$backup/config"
 [[ ! -f /usr/local/lib/nest-ops.py ]] || cp -a /usr/local/lib/nest-ops.py "$backup/controller"
+[[ ! -f /usr/local/lib/nest-watchdog.py ]] || cp -a /usr/local/lib/nest-watchdog.py "$backup/watchdog"
 install -d "$backup/units"
 for unit in nest-api.service nest-engine.service nest-runner.service nest-caddy.service nest-native-watchdog.service nest-native-watchdog.timer nest.slice; do
   [[ ! -f /etc/systemd/system/$unit ]] || cp -a "/etc/systemd/system/$unit" "$backup/units/"
@@ -166,6 +167,7 @@ PY
     for area in engine product; do [[ ! -f /var/lib/nest/$area/nest.sqlite ]] || chown node:node "/var/lib/nest/$area/nest.sqlite"; done
     rsync -a --delete "$backup/config/" /etc/nest/
     [[ ! -f $backup/controller ]] || install -m 755 "$backup/controller" /usr/local/lib/nest-ops.py
+    [[ ! -f $backup/watchdog ]] || install -m 755 "$backup/watchdog" /usr/local/lib/nest-watchdog.py
     for link in node caddy; do
       if [[ -s $backup/$link.link ]]; then ln -sfn "$(cat "$backup/$link.link")" "/opt/nest/$link"; fi
     done
@@ -192,6 +194,10 @@ for row in json.load(open(sys.argv[1])):
     subprocess.run(['docker','update','--restart='+value,row['Id']],check=True,stdout=subprocess.DEVNULL)
     subprocess.run(['docker','start',row['Id']],check=True,stdout=subprocess.DEVNULL)
 PYCODE
+      failed_state="/var/lib/nest-failed-import-$$"
+      mv /var/lib/nest "$failed_state"
+      printf '%s\n' "$failed_state" > "$backup/failed-native-state"
+      install -d -m 700 -o node -g node /var/lib/nest/engine /var/lib/nest/product /var/lib/nest/files
       if [[ -f $backup/watchdog-enabled ]]; then systemctl enable --now nest-watchdog.timer || true; fi
     fi
     echo "Activation failed; previous release/database pair restored. Backup: $backup" >&2
@@ -303,8 +309,8 @@ systemctl enable nest-engine nest-api nest-runner nest-caddy >/dev/null
 install -m 755 "$release/deploy/devops/nest-ops.py" /usr/local/lib/nest-ops.py
 install -m 755 "$release/deploy/devops/nest-watchdog.py" /usr/local/lib/nest-watchdog.py
 printf '{"commit":"%s","domain":"%s"}\n' "$sha" "$domain" > /etc/nest/native.json
-systemctl start nest-caddy
 systemctl enable --now nest-native-watchdog.timer >/dev/null
+systemctl start nest-caddy
 committed=1
 trap - ERR
 printf 'Native Nest active: %s. Offline database/config backup: %s\n' "$sha" "$backup"

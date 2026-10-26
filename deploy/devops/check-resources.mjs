@@ -44,7 +44,9 @@ try{
  const [info]=JSON.parse(docker(['inspect',container]));
  assert.equal(info.HostConfig.Memory,64*1024**2);assert.equal(info.HostConfig.MemorySwap,64*1024**2);assert.equal(info.HostConfig.PidsLimit,32);assert.equal(info.HostConfig.NanoCpus,250_000_000);
  assert.equal(docker(['exec',container,'cat','/data/sentinel']),'durable-fixture');
- const events=docker(['events','--since',since,'--until',String(Math.floor(Date.now()/1000)),'--filter',`container=${container}`,'--filter','event=oom','--format','{{.Action}}']);
+ // Preserve milliseconds: truncating --until to seconds omits a fast OOM/restart
+ // that happened in the same current second, despite a real cgroup OOM.
+ const events=docker(['events','--since',since,'--until',new Date().toISOString(),'--filter',`container=${container}`,'--filter','event=oom','--format','{{.Action}}']);
  assert.ok(events.includes('oom'),'Docker must record an actual cgroup OOM event');
  console.log('PASS: actual cgroup OOM stayed within 64 MiB; Docker restart and durable data survived');
 }finally{
