@@ -43,7 +43,7 @@ work=$(mktemp -d /opt/nest/host-stage.XXXXXX)
 trap 'rm -rf "$work"' EXIT
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq --no-install-recommends ca-certificates curl xz-utils python3 rsync git gh openssh-client >/dev/null
+apt-get install -y -qq --no-install-recommends ca-certificates curl xz-utils python3 python3-venv rsync git gh openssh-client >/dev/null
 # Keep the small-host swap reserve reproducible. Never change the laptop/VM host
 # kernel from a container rehearsal, or truncate/format an existing swap file.
 if ! systemd-detect-virt --container --quiet && [[ $(awk '/SwapTotal:/ {print $2}' /proc/meminfo) -lt 2048000 ]]; then

@@ -1,8 +1,9 @@
-import {afterEach, describe, expect, it} from 'vitest';
+import {afterEach, describe, expect, it, test, vi} from 'vitest';
 import {execFileSync} from 'node:child_process';
 import {mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
+import {configureOrgOpsEnv} from './orgops-env';
 
 const roots: string[] = [];
 afterEach(() => {for (const root of roots.splice(0)) rmSync(root, {recursive: true, force: true});});
@@ -42,3 +43,38 @@ describe('persistent native runtime links', () => {
     expect(readFileSync(join(existing, 'kept'), 'utf8')).toBe('user data');
   });
 });
+
+for (const component of ["api", "runner"] as const)
+  test(`launcher excludes provider service keys from ${component} and seeds Nest skill`, () => {
+    const previous = { ...process.env },
+      dir = mkdtempSync(join(tmpdir(), "nest-skill-launch-"));
+    try {
+      vi.stubEnv("NEST_ENGINE_DATA_DIR", dir);
+      vi.stubEnv("NEST_COMPOSIO_API_KEY", "test-private");
+      vi.stubEnv("ORGOPS_COMPOSIO_API_KEY", "test-private");
+      vi.stubEnv("NEST_CONNECTION_METADATA_TOKEN", "test-private");
+      vi.stubEnv("NEST_MANAGEMENT_AGENT_NAME", "NestSystem");
+      vi.stubEnv("NEST_MANAGEMENT_AGENT_ID", "operator-pinned-id");
+      vi.stubEnv("ORGOPS_CONNECTION_METADATA_TOKEN", "test-private");
+      const result = configureOrgOpsEnv(component);
+      for (const key of [
+        "NEST_COMPOSIO_API_KEY",
+        "ORGOPS_COMPOSIO_API_KEY",
+        "NEST_CONNECTION_METADATA_TOKEN",
+        "NEST_MANAGEMENT_AGENT_NAME",
+        "NEST_MANAGEMENT_AGENT_ID",
+        "ORGOPS_CONNECTION_METADATA_TOKEN",
+      ])
+        expect(process.env[key]).toBeUndefined();
+      expect(
+        readFileSync(
+          join(result.projectRoot, "skills/nest-connections/SKILL.md"),
+          "utf8",
+        ),
+      ).toContain("name: nest-connections");
+    } finally {
+      process.env = previous;
+      vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
