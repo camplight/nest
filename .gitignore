@@ -23,3 +23,9 @@ __pycache__/
 # Local assistant handoff notes may contain private deployment context.
 SESSION_RESUME.md
 CLAUDE_BRIEF.md
+
+# Local installer upgrade mutex
+.nest-upgrade.lock/
+
+nest-release.json
+nest-host.json

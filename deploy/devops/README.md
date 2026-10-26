@@ -124,3 +124,14 @@ unhealthy state and synthetic volume persistence.
 Run this **locally or in CI**, never as a stress test of production.
 
 See [the incident record](INCIDENT-2026-10-25.md) for evidence and remaining limits.
+
+
+### Native hosts
+
+Hosts provisioned/migrated by [`scripts/install-host.sh`](../../scripts/install-host.sh)
+record `/etc/nest/native.json`. The same forced-command interface dispatches to
+systemd for restart or downloads the current main SHA's `native-<SHA>` CI release
+and invokes that installer for deployment. The shared deployment lock remains
+held through activation. No build runs on the production server, no SSH privileges
+are expanded, and both DB snapshots/recovery remain explicit operator code.
+Docker hosts keep their existing behavior until native migration is run.

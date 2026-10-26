@@ -509,3 +509,15 @@ normal two-database/runtime snapshot procedure and preserve the previous host
 Compose files. The watchdog shares the existing deployment lock and does not
 change the controller's image/database rollback behavior. See the operator
 instructions in `deploy/devops/README.md` before enabling it.
+
+
+## Native hosting preparation
+
+Native setup reuses Nest's CLI and existing `scripts/start-stack.ts` /
+`scripts/start-orgops.ts` entrypoints, without changing the submodule. Pinned runtime versions, Linux
+server units, Caddy configuration and `scripts/install-host.sh` live in Nest. See
+[the native runbook](../deploy/native/README.md) for preservation of both SQLite
+stores, runner identity, Codex auth/workspaces, private deployment credentials,
+TLS state and the explicit same-version Docker import/recovery procedure.
+The installer updates the reviewed restricted controller; source checkout alone
+does not change an existing host.

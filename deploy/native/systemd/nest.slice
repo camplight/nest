@@ -1,0 +1,7 @@
+[Unit]
+Description=Nest aggregate runtime budget
+[Slice]
+MemoryMax=1536M
+MemorySwapMax=512M
+CPUQuota=80%
+TasksMax=384

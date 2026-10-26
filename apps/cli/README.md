@@ -16,7 +16,7 @@
 - `nest start [--dir <path>] [--components <csv>] [--no-open]`
 - `nest stop [--dir <path>] [--components <csv>]`
 - `nest status [--dir <path>] [--components <csv>]`
-- `nest service register [--dir <path>] [--components <csv>]`
+- `nest service register [--dir <path>] [--components <csv>] [--server] [--no-start]`
 - `nest service unregister [--dir <path>] [--components <csv>]`
 - `nest shortcut create [--target user-ui|admin-ui] [--url <url>]`
 - `nest admin open [--dir <path>]`
@@ -37,7 +37,19 @@ When `runner` is installed/upgraded, Nest CLI can bootstrap config from either:
 - `--runner-invite-url <url>` (recommended secure flow from Admin UI runner invite)
 - explicit `--runner-api-url` + `--runner-token` (+ optional `--runner-name`)
 
-During `upgrade`, Nest CLI creates a safety backup of `.nest-data`/`files`/`.env` (if present), updates selected components, and optionally restarts only components that were running before upgrade.
+During `upgrade`, Nest CLI stops all local writers before creating a private safety
+archive of both databases, runtime state, uploads, environment and runner identity.
+Linux systemd services are controlled through their supervisor. `--no-restart`
+leaves them stopped. Backup failure recovers the old running set; failure after
+source changes leaves services stopped with the previous revision and backup path
+for explicit recovery. Saved runner credentials are preserved. Custom/linked data
+roots and registered launchd/Windows supervisors require an operator-managed
+offline upgrade. See [native setup and recovery](../../deploy/native/README.md).
+
+Production uses the repeatable [`scripts/install-host.sh`](../../scripts/install-host.sh)
+entrypoint with pinned prebuilt releases and repo-owned systemd units. It keeps
+builds off the live server. Native releases reject in-place CLI upgrades and
+redirect operators to that script.
 
 `service register` / `service unregister` operate per component and can target any subset of `api`, `runner`, `user-ui`, `admin-ui`. Without `--components`, Nest CLI defaults to saved service components, then installed components, then the default component set.
 

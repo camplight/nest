@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import { loadState } from "./runtime-state";
 import type { InstallComponent } from "./components";
 import { runChecked } from "./exec";
 
@@ -38,8 +40,27 @@ function windowsTaskNameFor(component: InstallComponent) {
   return "NestApi";
 }
 
-function systemdServiceNameFor(component: InstallComponent) {
+export function systemdServiceNameFor(component: InstallComponent) {
   return `nest-${componentSlug(component)}`;
+}
+
+export function isManagedLinuxService(installDir: string, component: InstallComponent) {
+  const state = loadState();
+  return process.platform === "linux" && Boolean(state.serviceRegistered) &&
+    resolve(state.installDir ?? "") === resolve(installDir) && Boolean(state.serviceComponents?.includes(component));
+}
+
+export function linuxServiceStatus(component: InstallComponent) {
+  const result = spawnSync("systemctl", ["--user", "show", systemdServiceNameFor(component), "--property=ActiveState,MainPID", "--no-pager"], {encoding: "utf-8"});
+  if (result.status !== 0) throw new Error("Cannot contact the user systemd manager. Check the service user's login session/linger configuration.");
+  const values = Object.fromEntries(result.stdout.trim().split("\n").map(line => line.split("=")));
+  const pid = Number(values.MainPID) || null;
+  return {running: ["active", "activating", "reloading", "deactivating"].includes(values.ActiveState), pid};
+}
+
+export function controlLinuxService(action: "start" | "stop", component: InstallComponent) {
+  // `stop` waits for the entire cgroup and suppresses Restart=on-failure.
+  runChecked("systemctl", ["--user", action, systemdServiceNameFor(component)]);
 }
 
 export function registerAutostartServices(installDir: string, components: InstallComponent[]) {
@@ -137,6 +158,8 @@ export function registerAutostartServices(installDir: string, components: Instal
       `ExecStart=/usr/bin/env npm run ${COMPONENT_START_COMMAND[component]}`,
       "Restart=always",
       "RestartSec=3",
+      "KillMode=control-group",
+      "TimeoutStopSec=30",
       "",
       "[Install]",
       "WantedBy=default.target",

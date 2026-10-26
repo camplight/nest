@@ -1,0 +1,69 @@
+name: Native host installation
+on:
+  pull_request:
+    paths:
+      - 'scripts/install-host.sh'
+      - 'scripts/build-host-release.sh'
+      - 'deploy/native/**'
+      - 'deploy/devops/**'
+      - 'apps/cli/**'
+      - 'package*.json'
+      - 'vendor/orgops'
+      - '.github/workflows/native-host.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+          cache: npm
+      - name: Check installer and build pinned Linux release
+        run: |
+          bash -n scripts/install-host.sh scripts/build-host-release.sh deploy/native/rehearse.sh
+          scripts/build-host-release.sh /tmp/nest-host-linux-x64.tar.gz
+          npm run --workspace @nest/cli test
+          python3 -m unittest discover -s deploy/devops -p 'test_*.py'
+      - name: Install on the fresh VM and test repeat install, rollback and agent turn
+        run: sudo bash deploy/native/rehearse.sh /tmp/nest-host-linux-x64.tar.gz
+      - name: Assert upstream stayed untouched
+        run: test -z "$(git -C vendor/orgops status --porcelain)"
+      - name: Service diagnostics
+        if: failure()
+        run: sudo journalctl --no-pager -u nest-api -u nest-engine -u nest-runner -u nest-caddy -n 150
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nest-host-linux-x64
+          path: |
+            /tmp/nest-host-linux-x64.tar.gz
+            /tmp/nest-host-linux-x64.tar.gz.sha256
+          retention-days: 7
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: native
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: nest-host-linux-x64
+          path: /tmp/native-release
+      - name: Publish verified native release for restricted host deployments
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          gh release create "native-$RELEASE_SHA" /tmp/native-release/* \
+            --target "$RELEASE_SHA" --title "Native host $RELEASE_SHA" \
+            --notes 'Linux x64 prebuilt Nest runtime. Passed fresh-host install, repeat install, database rollback, runner recovery and one synthetic-provider agent turn.'

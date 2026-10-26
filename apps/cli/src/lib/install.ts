@@ -13,6 +13,7 @@ import {
 } from "./components";
 import {
   resolveRunnerBootstrap,
+  readRunnerEnvConfig,
   writeRunnerEnvConfig,
   type RunnerBootstrapOptions,
 } from "./runner-bootstrap";
@@ -21,6 +22,8 @@ export const USER_UI_URL = "http://localhost:4190";
 
 export type InstallOptions = {
   installDir?: string;
+  /** Internal upgrade orchestration has already stopped all writers. */
+  offlineUpgrade?: boolean;
   repoUrl?: string;
   repoRef?: string;
   components?: string;
@@ -103,6 +106,9 @@ export async function runInstall(rawOptions: InstallOptions) {
   }
 
   const installDir = resolve(rawOptions.installDir ?? "nest");
+  if (!rawOptions.offlineUpgrade && [".nest-data", ".nest-product", ".orgops-data"].some(name => existsSync(resolve(installDir, name)))) {
+    throw new Error("Existing runtime data found. Use nest upgrade or the offline production procedure instead of reinstalling over it.");
+  }
   const repoUrl = rawOptions.repoUrl ?? process.env.NEST_REPO_URL ?? DEFAULT_REPO_URL;
   const repoRef = rawOptions.repoRef ?? DEFAULT_REPO_REF;
   const components = parseComponentsArg(rawOptions.components);
@@ -120,7 +126,7 @@ export async function runInstall(rawOptions: InstallOptions) {
 
   let runnerConfigApplied = false;
   if (includesComponent(components, "runner")) {
-    const runnerConfig = await resolveRunnerBootstrap(rawOptions);
+    const runnerConfig = await resolveRunnerBootstrap(rawOptions, readRunnerEnvConfig(installDir));
     writeRunnerEnvConfig(installDir, runnerConfig);
     runnerConfigApplied = true;
   }
@@ -137,7 +143,8 @@ export async function runInstall(rawOptions: InstallOptions) {
     shortcutPath = smokeMockEnabled ? createMockShortcut(installDir) : createUserUiShortcut(USER_UI_URL);
   }
 
-  const prior = loadState();
+  const saved = loadState();
+  const prior = saved.installDir && resolve(saved.installDir) === installDir ? saved : {};
   const serviceRegistered = rawOptions.registerService
     ? true
     : Boolean(prior.serviceRegistered);
@@ -151,7 +158,7 @@ export async function runInstall(rawOptions: InstallOptions) {
     repoUrl,
     serviceRegistered,
     serviceComponents,
-    installedComponents: components,
+    installedComponents: Array.from(new Set([...(prior.installedComponents ?? []), ...components])),
   });
 
   if (rawOptions.registerService && !smokeMockEnabled) {

@@ -1,0 +1,9 @@
+{
+  "name": "nest-host-agent-clis",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "@openai/codex": "0.155.1",
+    "@anthropic-ai/claude-code": "2.1.310"
+  }
+}
