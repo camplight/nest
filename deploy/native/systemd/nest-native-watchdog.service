@@ -1,0 +1,19 @@
+[Unit]
+Description=Check native Nest health and recover sustained failures
+After=nest-api.service nest-engine.service nest-runner.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /usr/local/lib/nest-watchdog.py
+TimeoutStartSec=240
+UMask=0077
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nest-watchdog /opt/nest/operations
+StateDirectory=nest-watchdog
+StateDirectoryMode=0700
+MemoryMax=64M
+CPUQuota=10%
+TasksMax=32

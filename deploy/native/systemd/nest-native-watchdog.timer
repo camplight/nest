@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically check native Nest health
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=1min
+AccuracySec=10s
+Unit=nest-native-watchdog.service
+
+[Install]
+WantedBy=timers.target

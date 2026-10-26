@@ -107,5 +107,35 @@ class WatchdogTests(unittest.TestCase):
                 self.assertEqual(run.call_count, 1)
 
 
+
+class NativeWatchdogTests(unittest.TestCase):
+    def test_healthy_native_services_use_http_and_systemd_metadata_only(self):
+        from contextlib import nullcontext
+        from types import SimpleNamespace
+        with patch.object(watchdog, 'run', return_value='ActiveState=active\nActiveEnterTimestampMonotonic=123\n') as command, patch.object(watchdog.urllib.request, 'urlopen', side_effect=lambda *a, **k: nullcontext(SimpleNamespace(status=200))):
+            result = watchdog.inspect_native()
+        self.assertEqual(result['health'], 'healthy')
+        self.assertTrue(all(c.args[0] == 'systemctl' for c in command.call_args_list))
+
+    def test_manual_stop_does_not_trigger_health_restart(self):
+        with patch.object(watchdog, 'run', return_value='ActiveState=inactive\nActiveEnterTimestampMonotonic=123\n'):
+            result = watchdog.inspect_native()
+        state, action = watchdog.evaluate({'failures': 2}, result, 10000)
+        self.assertEqual(action, 'observe')
+        self.assertEqual(state['failures'], 0)
+
+    def test_native_failure_recovers_host_units_without_docker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = root / 'state.json'
+            state.write_text(json.dumps({'startedAt': 'boot-1', 'failures': 2}))
+            marker = root / 'native.json'
+            marker.write_text('{}')
+            with patch.object(watchdog, 'STATE', state), patch.object(watchdog, 'DEPLOY_LOCK', root / 'lock'), patch.object(watchdog, 'NATIVE_CONFIG', marker), patch.object(watchdog, 'inspect', return_value=observed()), patch.object(watchdog, 'run') as command:
+                watchdog.recover()
+            self.assertEqual(command.call_args_list[0].args[:2], ('systemctl', 'stop'))
+            self.assertTrue(all('docker' not in c.args for c in command.call_args_list))
+            self.assertIn('lastRestartAt', json.loads(state.read_text()))
+
 if __name__ == '__main__':
     unittest.main()

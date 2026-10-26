@@ -142,7 +142,7 @@ for link in node caddy; do readlink "/opt/nest/$link" > "$backup/$link.link" || 
 cp -a /etc/nest "$backup/config"
 [[ ! -f /usr/local/lib/nest-ops.py ]] || cp -a /usr/local/lib/nest-ops.py "$backup/controller"
 install -d "$backup/units"
-for unit in nest-api.service nest-engine.service nest-runner.service nest-caddy.service nest.slice; do
+for unit in nest-api.service nest-engine.service nest-runner.service nest-caddy.service nest-native-watchdog.service nest-native-watchdog.timer nest.slice; do
   [[ ! -f /etc/systemd/system/$unit ]] || cp -a "/etc/systemd/system/$unit" "$backup/units/"
 done
 printf '%s\n' "$old_release" > "$backup/release"
@@ -152,7 +152,7 @@ recover() {
   result=$?
   trap - ERR
   if [[ $committed == 0 ]]; then
-    systemctl stop nest-caddy nest-runner nest-api nest-engine 2>/dev/null || true
+    systemctl stop nest-native-watchdog.timer nest-native-watchdog.service nest-caddy nest-runner nest-api nest-engine 2>/dev/null || true
     if [[ $databases_snapshotted == 1 ]]; then
     python3 - "$backup" <<'PY'
 import pathlib,shutil,sys
@@ -169,15 +169,18 @@ PY
     for link in node caddy; do
       if [[ -s $backup/$link.link ]]; then ln -sfn "$(cat "$backup/$link.link")" "/opt/nest/$link"; fi
     done
-    rm -f /etc/systemd/system/nest-{api,engine,runner,caddy}.service /etc/systemd/system/nest.slice
+    rm -f /etc/systemd/system/nest-{api,engine,runner,caddy,native-watchdog}.service /etc/systemd/system/nest-native-watchdog.timer /etc/systemd/system/nest.slice
     cp -a "$backup/units/." /etc/systemd/system/
     systemctl daemon-reload
     if [[ -n $old_release && -d $old_release ]]; then
       ln -sfn "$old_release" /app
       for tool in codex claude; do ln -sfn "$old_release/deploy/native/agent-clis/node_modules/.bin/$tool" "/usr/local/bin/$tool"; done
-      systemctl start nest-engine nest-api nest-runner nest-caddy || true
+      systemctl reset-failed nest-engine nest-api nest-runner nest-caddy 2>/dev/null || true
+      systemctl start nest-engine nest-api nest-runner nest-caddy
+      curl --fail --silent --show-error --max-time 5 --retry 30 --retry-all-errors --retry-delay 1 --output /dev/null http://127.0.0.1:8787/health
+      if [[ -f $backup/units/nest-native-watchdog.timer ]]; then systemctl start nest-native-watchdog.timer; fi
     else
-      systemctl disable nest-engine nest-api nest-runner nest-caddy 2>/dev/null || true
+      systemctl disable nest-engine nest-api nest-runner nest-caddy nest-native-watchdog.timer 2>/dev/null || true
       rm -f /app
     fi
     if [[ -f $backup/docker.json ]]; then
@@ -298,8 +301,10 @@ JS
 [[ $(curl --silent --max-time 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/demo/kibrit-software-factory) == 401 ]]
 systemctl enable nest-engine nest-api nest-runner nest-caddy >/dev/null
 install -m 755 "$release/deploy/devops/nest-ops.py" /usr/local/lib/nest-ops.py
+install -m 755 "$release/deploy/devops/nest-watchdog.py" /usr/local/lib/nest-watchdog.py
 printf '{"commit":"%s","domain":"%s"}\n' "$sha" "$domain" > /etc/nest/native.json
 systemctl start nest-caddy
+systemctl enable --now nest-native-watchdog.timer >/dev/null
 committed=1
 trap - ERR
 printf 'Native Nest active: %s. Offline database/config backup: %s\n' "$sha" "$backup"

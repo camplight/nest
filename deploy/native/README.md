@@ -83,7 +83,9 @@ an explicit migration review. No live engine database is silently rewritten.
 The installer replaces the reviewed root-owned deployment controller while
 preserving its restricted SSH key/interface. Native `deploy <main SHA>` downloads
 the matching CI release and invokes this same script; `restart` uses systemd.
-No agent root shell or on-host build is added. Installing source does not update
+The existing health watchdog also handles native service failures with the same
+three-observation threshold, one-hour cooldown and deployment lock. It leaves
+intentionally stopped services alone. No agent root shell or on-host build is added. Installing source does not update
 other existing hosts; each host must run the installer.
 
 Before inviting users back, verify Google login/return, a wrapped Codex turn,

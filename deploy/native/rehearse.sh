@@ -46,7 +46,7 @@ for path in /demo/kibrit-software-factory /demo/not-real /api/agents; do
 done
 # Actual bounded units, not just rendered fixture strings.
 systemctl show nest.slice -p MemoryMax -p MemorySwapMax -p CPUQuotaPerSecUSec -p TasksMax
-systemctl is-enabled nest-api nest-engine nest-runner nest-caddy
+systemctl is-enabled nest-api nest-engine nest-runner nest-caddy nest-native-watchdog.timer
 python3 - <<'PY'
 import pathlib,sqlite3
 for area in ('engine','product'):
