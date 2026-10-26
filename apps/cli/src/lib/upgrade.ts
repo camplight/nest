@@ -23,7 +23,7 @@ export function assertLocalRuntimePaths(installDir: string) {
   const envFile = resolve(installDir, ".env");
   const env = {...(existsSync(envFile) ? parseEnv(readFileSync(envFile, "utf-8")) : {}), ...process.env};
   const defaults = {
-    NEST_ENGINE_DATA_DIR: ".nest-data", NEST_ENGINE_DB_FILE: "nest.sqlite",
+    NEST_ENGINE_DATA_DIR: ".nest-data", NEST_ENGINE_DB_FILE: "nest.sqlite", NEST_FILES_DIR: "files",
     NEST_PRODUCT_DB_PATH: ".nest-product/nest.sqlite", NEST_RUNNER_ID_FILE: ".agent-runner-id",
   };
   for (const [key, fallback] of Object.entries(defaults)) {

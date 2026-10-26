@@ -521,3 +521,7 @@ stores, runner identity, Codex auth/workspaces, private deployment credentials,
 TLS state and the explicit same-version Docker import/recovery procedure.
 The installer updates the reviewed restricted controller; source checkout alone
 does not change an existing host.
+
+Native units pin engine and file roots to persistent absolute paths. Nest repairs
+its generated compatibility symlinks atomically when releases move; existing real
+directories and upstream source are retained.

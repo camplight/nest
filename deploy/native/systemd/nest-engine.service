@@ -12,6 +12,8 @@ Group=node
 WorkingDirectory=/app
 Environment=NODE_ENV=production
 Environment=HOME=/home/node
+Environment=NEST_ENGINE_DATA_DIR=/var/lib/nest/engine
+Environment=NEST_FILES_DIR=/var/lib/nest/files
 Environment=NEST_RUNNER_ID_FILE=/app/.nest-data/runner-id
 Environment=CODEX_HOME=/app/.nest-data/codex-home
 Environment=PATH=/opt/nest/node/bin:/usr/local/bin:/usr/bin:/bin

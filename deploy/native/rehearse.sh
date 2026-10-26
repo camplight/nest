@@ -31,15 +31,18 @@ fi
 curl --fail --silent http://127.0.0.1:8787/health >/dev/null
 cmp /app/.nest-data/runner-id "$work/runner-id"
 python3 deploy/native/smoke.py
-# Crash the whole runner cgroup: systemd must recover it with the SAME identity.
-systemctl kill --signal=SIGKILL nest-runner
+# Crash the main process; KillMode=control-group cleans up its descendants.
+before=$(systemctl show nest-runner --property=MainPID --value)
+systemctl kill --kill-whom=main --signal=SIGKILL nest-runner
 for attempt in $(seq 1 30); do
-  if systemctl is-active --quiet nest-runner; then break; fi
+  after=$(systemctl show nest-runner --property=MainPID --value)
+  if [[ $after != 0 && $after != "$before" ]] && systemctl is-active --quiet nest-runner; then break; fi
   sleep 1
 done
-sleep 4
+[[ $after != 0 && $after != "$before" ]]
 systemctl is-active --quiet nest-runner
 cmp /app/.nest-data/runner-id "$work/runner-id"
+python3 deploy/native/smoke.py
 for path in / /admin/ /api/branding /health; do curl --fail --silent "http://127.0.0.1:8080$path" >/dev/null; done
 for path in /demo/kibrit-software-factory /demo/not-real /api/agents; do
   [[ $(curl --silent -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$path") == 401 ]]

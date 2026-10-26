@@ -41,7 +41,9 @@ is published by CI; the installer also understands arm64 for local rehearsal.
 
 Application releases live under `/opt/nest/releases/<SHA>`, with `/app` as their
 stable symlink. Source/dependencies are root-owned. Persistent engine/product/files
-live in `/var/lib/nest`, linked into each release. API/engine/runner run as `node`,
+live in `/var/lib/nest`, linked into each release. Generated engine/file aliases point at persistent
+storage and are repaired atomically; removing an old release does not break them.
+API/engine/runner run as `node`,
 Caddy as `caddy`. Memory/CPU/task budgets live in the units, not manual host tweaks:
 320 MiB product API, 512 MiB engine, 768 MiB runner within 1536 MiB RAM, 512 MiB
 swap, 80% CPU and 384 tasks. Caddy has a separate 128 MiB cap. The installer preserves existing swap and adds

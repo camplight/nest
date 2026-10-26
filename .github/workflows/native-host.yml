@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'scripts/install-host.sh'
+      - 'scripts/orgops-env*'
       - 'scripts/build-host-release.sh'
       - 'deploy/native/**'
       - 'deploy/devops/**'

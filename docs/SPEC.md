@@ -116,7 +116,9 @@ runner and Caddy. Caddy serves built UIs and authenticated API/WS/demo routes;
 APIs bind loopback through `NEST_BIND_HOST`/`ORGOPS_BIND_HOST`. Source/dependencies
 are root-owned; state lives in `/var/lib/nest` and private config in `/etc/nest`.
 Saved `/app`, `/home/node`, runner identity, Codex homes and runtime skill paths
-remain stable. No upstream code is edited or patched.
+remain stable. Native units set absolute `NEST_ENGINE_DATA_DIR` and `NEST_FILES_DIR`;
+Nest-owned compatibility links are repointed atomically so retiring an old
+release cannot break skills/uploads. Real user directories are never replaced. No upstream code is edited or patched.
 
 Whole process trees have separate 320/512/768 MiB API/engine/runner limits within
 a 1536 MiB RAM / 512 MiB swap / 80% CPU slice. These are not agent sandboxes.
