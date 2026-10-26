@@ -61,7 +61,10 @@ budgets, not per-agent sandboxes. Builds belong off the production VPS.
 - **Agent logins:** log into Codex as `node`, with `HOME=/home/node` and
   `CODEX_HOME=/app/.nest-data/codex-home`. Configure Claude with its normal
   interactive/setup-token flow under that account. Tokens stay private. The
-  installer installs pinned CLIs; it cannot authorize subscriptions/accounts.
+installer installs pinned CLIs; it cannot authorize subscriptions/accounts.
+  Node/npm/npx are linked into `/usr/local/bin` so existing wrapped bridges with
+  a restricted PATH can launch those CLIs. Activation rollback restores any
+  previous commands at those paths.
 - **DNS/firewall:** point the domain at the host and permit 80/443 and operator
   SSH. APIs remain loopback. Caddy obtains/renews TLS. A localhost HTTP domain
   such as `http://127.0.0.1:8080` is supported for isolated rehearsal.

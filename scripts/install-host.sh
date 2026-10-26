@@ -156,6 +156,10 @@ cp -a /etc/nest "$backup/config"
 [[ ! -f /usr/local/lib/nest-ops.py ]] || cp -a /usr/local/lib/nest-ops.py "$backup/controller"
 [[ ! -f /usr/local/lib/nest-watchdog.py ]] || cp -a /usr/local/lib/nest-watchdog.py "$backup/watchdog"
 install -d "$backup/units"
+install -d "$backup/commands"
+for tool in node npm npx; do
+  if [[ -e /usr/local/bin/$tool || -L /usr/local/bin/$tool ]]; then cp -a "/usr/local/bin/$tool" "$backup/commands/$tool"; fi
+done
 for unit in nest-api.service nest-engine.service nest-runner.service nest-caddy.service nest-native-watchdog.service nest-native-watchdog.timer nest.slice; do
   [[ ! -f /etc/systemd/system/$unit ]] || cp -a "/etc/systemd/system/$unit" "$backup/units/"
 done
@@ -183,6 +187,10 @@ PY
     [[ ! -f $backup/watchdog ]] || install -m 755 "$backup/watchdog" /usr/local/lib/nest-watchdog.py
     for link in node caddy; do
       if [[ -s $backup/$link.link ]]; then ln -sfn "$(cat "$backup/$link.link")" "/opt/nest/$link"; fi
+    done
+    for tool in node npm npx; do
+      rm -f "/usr/local/bin/$tool"
+      if [[ -e $backup/commands/$tool || -L $backup/commands/$tool ]]; then cp -a "$backup/commands/$tool" "/usr/local/bin/$tool"; fi
     done
     rm -f /etc/systemd/system/nest-{api,engine,runner,caddy,native-watchdog}.service /etc/systemd/system/nest-native-watchdog.timer /etc/systemd/system/nest.slice
     cp -a "$backup/units/." /etc/systemd/system/
@@ -283,6 +291,7 @@ for(const [k,v] of Object.entries({NEST_ENGINE_DATA_DIR:'.nest-data',NEST_ENGINE
 JS
 ln -sfn "$node_dir" /opt/nest/node
 ln -sfn "$caddy_dir" /opt/nest/caddy
+for tool in node npm npx; do ln -sfn "/opt/nest/node/bin/$tool" "/usr/local/bin/$tool"; done
 ln -sfn "$release" /app
 # Restore durable home/tool access used by existing saved wrapped-agent commands.
 if [[ -f /var/lib/nest/engine/codex-home/gitconfig ]]; then ln -sfn /app/.nest-data/codex-home/gitconfig /home/node/.gitconfig; fi
