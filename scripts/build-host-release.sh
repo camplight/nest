@@ -25,6 +25,8 @@ JS
 list=$(mktemp)
 trap 'rm -f "$list" nest-release.json' EXIT
 git ls-files --recurse-submodules -z > "$list"
+# npm may keep conflicting dependency versions inside selected workspaces.
+find apps packages vendor -type d -name node_modules -prune -print0 >> "$list"
 printf '%s\0' node_modules apps/admin-ui/dist apps/user-ui/dist deploy/native/agent-clis/node_modules nest-release.json >> "$list"
 tar --null --files-from="$list" -czf "$output"
 (cd "$(dirname "$output")" && sha256sum "$(basename "$output")") > "$output.sha256"
