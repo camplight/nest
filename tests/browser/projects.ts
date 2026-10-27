@@ -26,7 +26,7 @@ const orgops=createOrgOpsClient('http://engine',(async(url,init)=>engine.app.fet
 let startNaming!:()=>void,releaseNaming!:()=>void;
 const namingStarted=new Promise<void>(resolve=>{startNaming=resolve;});
 const namingGate=new Promise<void>(resolve=>{releaseNaming=resolve;});
-const aiBrief='AI brief: deliver an accessible website launch, ready for owner review. Confirm the launch date. '+ 'Preserve the supplied business context and accessibility requirements. '.repeat(12);
+const aiBrief='AI brief: deliver an accessible website launch, ready for owner review. Confirm the launch date. '+ 'Preserve the supplied business context and accessibility requirements. '.repeat(12).trim();
 let linkOwner='',linked=false;
 const connections:ConnectionProvider={id:'synthetic',subject:owner=>owner,
   apps:async search=>({items:search==='trello'?[{slug:'trello',name:'Trello',description:'Synthetic catalog fixture',connectable:true}]:[],nextCursor:null}),
