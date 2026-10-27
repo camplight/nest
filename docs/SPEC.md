@@ -1247,3 +1247,8 @@ and preserving supplied constraints without inventing scope. JSON/schema validat
 bounds output; semantic quality still depends on the configured model. Original
 chat text remains unchanged. Existing project refresh/polling reveals new metadata.
 Attachments are not read by this routine; file-only openings use their message text.
+
+Project cards limit descriptions to three visible lines; the full stored brief remains
+available in project details. Automatic naming prefers the enabled
+`openrouter:google/gemini-2.5-flash` catalog entry unless a naming model is explicitly
+configured. Without that entry it uses the default agent model.

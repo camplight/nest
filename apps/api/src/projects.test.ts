@@ -317,6 +317,7 @@ describe('project workflow against the unchanged engine',()=>{
   it('generates AI metadata only from a confirmed owner message and applies it once',async()=>{
     const namer=vi.fn(async()=>({name:'Autumn website launch',description:'Goal: launch the updated website. Outcome: owner-reviewed release. Open question: target date.'}));
     const body=await namingSetup(namer);
+    await request('/api/models',{id:'fast-model',provider:'openrouter',modelName:'google/gemini-2.5-flash',enabled:true});
     const path=`/api/projects/${projectId}/suggest-details`;
     expect((await request(path,{...body,messageRequestId:randomUUID()})).status).toBe(400);
     expect(await (await request(path,body)).json()).toEqual({status:'pending'});
@@ -328,6 +329,15 @@ describe('project workflow against the unchanged engine',()=>{
     expect(product.store.projects.project(projectId)?.name).toBe('Autumn website launch');
     expect(await (await request(path,body)).json()).toEqual({status:'kept'});expect(namer).toHaveBeenCalledTimes(1);
     expect((await request(path,body,{'content-type':'application/json','x-nest-runner-token':'runner-secret'})).status).toBe(401);
+  });
+  it.each([true,false])('uses a fast enabled model, falling back to the agent default when absent (%s)',async(fastEnabled)=>{
+    const namer=vi.fn(async()=>({name:'Website Launch',description:'Launch the updated website.'}));
+    await namingSetup(namer);
+    await request('/api/models',{id:'fast-model',provider:'openrouter',modelName:'google/gemini-2.5-flash',enabled:fastEnabled});
+    product.store.close();
+    product=createApp({orgops:client,dbPath:join(dir,'product.sqlite'),defaultAgentModelId:'naming-model',projectNamer:namer});
+    await product.projectNaming.tick();
+    expect(namer).toHaveBeenCalledWith(expect.objectContaining({model:fastEnabled?'openrouter:google/gemini-2.5-flash':'openrouter:fixture'}));
   });
   it('keeps manual settings ahead of an in-flight AI result, including a same-value manual save',async()=>{
     let started!:()=>void,release!:(value:{name:string;description:string})=>void;

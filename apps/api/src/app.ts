@@ -95,7 +95,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     if(!project)return null;
     const receipt=store.db.prepare('SELECT event_id,sender_name FROM product_message_requests WHERE id=? AND channel_id=? AND sender_id=? AND delivered_at IS NOT NULL').get(requestId,project.channelId,project.ownerId) as {event_id:string;sender_name:string}|undefined;
     if(!receipt)return null;
-    const input=await orgops.projectNamingContext({token:managementKey,modelId:config.projectNamingModelId??process.env.NEST_PROJECT_NAMING_MODEL_ID??defaultAgentModelId,eventId:receipt.event_id,channelId:project.channelId,ownerId:project.ownerId,senderName:receipt.sender_name});
+    const input=await orgops.projectNamingContext({token:managementKey,modelId:config.projectNamingModelId??process.env.NEST_PROJECT_NAMING_MODEL_ID??defaultAgentModelId,preferFastModel:!config.projectNamingModelId&&!process.env.NEST_PROJECT_NAMING_MODEL_ID,eventId:receipt.event_id,channelId:project.channelId,ownerId:project.ownerId,senderName:receipt.sender_name});
     if(!input)return null;
     const env=config.projectNamer?undefined:await orgops.projectNamingEnv({model:input.model,token:managementKey,agentName:namingSource,agentId:namingSource===managementName?managementId:undefined});
     return {...input,env};
