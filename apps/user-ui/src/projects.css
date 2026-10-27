@@ -78,8 +78,8 @@
 .project-team-heading h3 { font-size:15px; margin:0; }
 .project-team-heading p { color:var(--nest-muted); margin:4px 0 0; }
 .project-member-options { max-height:230px; overflow-y:auto; overscroll-behavior:contain; }
-.project-create-form .project-member-option { display:flex; align-items:center; gap:12px; padding:10px 8px; border-radius:7px; cursor:pointer; font-weight:400; border:0; background:transparent; color:var(--nest-text); width:100%; text-align:left; }
-.project-member-option:hover, .project-member-option[aria-selected="true"] { background:var(--nest-bg); }
+.project-member-control .project-member-option { display:flex; align-items:center; gap:12px; padding:10px 8px; border-radius:7px; cursor:pointer; font:inherit; font-weight:400; border:0; background:transparent; color:var(--nest-text); width:100%; box-sizing:border-box; text-align:left; }
+.project-member-control .project-member-option:hover, .project-member-control .project-member-option[aria-selected="true"] { background:var(--nest-bg); }
 .project-member-name { display:flex; flex-direction:column; flex:1; min-width:0; gap:3px; }
 .project-member-name strong { font-weight:500; font-size:14px; overflow-wrap:anywhere; }
 .project-member-name small { color:var(--nest-muted); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }

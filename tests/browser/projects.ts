@@ -199,9 +199,30 @@ try {
     await page.getByRole('button',{name:'Continue your project Website launch',exact:false}).click();
     await page.locator('.project-context-disclosure').evaluate((node:HTMLDetailsElement)=>{node.open=true;});
     await page.locator('.project-about').getByText('owner',{exact:true}).waitFor();
+    for(const username of ['avery.long-name@example.com','jordan@example.com']){
+      assert.equal((await product.app.request('/api/humans/invite',{method:'POST',headers,body:JSON.stringify({username,tempPassword:'test-password'})})).status,201);
+    }
     await page.getByRole('button',{name:'Add people or agents',exact:true}).click();
     const invitations=page.getByRole('dialog',{name:'Add people or agents',exact:true});
-    await invitations.getByRole('combobox',{name:'Add people or agents'}).fill('@Bldr');
+    const inviteSearch=invitations.getByRole('combobox',{name:'Add people or agents'});
+    await inviteSearch.click();
+    await invitations.getByRole('option').first().waitFor();
+    for(const viewport of [{width:1280,height:900},{width:390,height:844}]){
+      await page.setViewportSize(viewport);
+      const layout=await invitations.getByRole('option').evaluateAll(nodes=>nodes.map(node=>{
+        const rect=node.getBoundingClientRect(), parent=node.parentElement!.getBoundingClientRect();
+        return {display:getComputedStyle(node).display,width:rect.width,parentWidth:parent.width,left:rect.left,top:rect.top,bottom:rect.bottom};
+      }));
+      assert.ok(layout.length>1,'Invite fixture includes multiple candidates');
+      for(const [index,row] of layout.entries()){
+        assert.equal(row.display,'flex','Invite candidates are horizontal rows');
+        assert.ok(Math.abs(row.width-row.parentWidth)<20,'Invite candidates fill the list width');
+        if(index)assert.ok(row.top>=layout[index-1].bottom-1,'Invite candidates never wrap side by side');
+      }
+      await page.screenshot({path:join(screenshots,viewport.width<600?'invite-mobile.png':'invite-desktop.png'),fullPage:true});
+    }
+    await page.setViewportSize({width:1280,height:900});
+    await inviteSearch.fill('@Bldr');
     await invitations.getByRole('option').filter({hasText:'Builder'}).click();
     await invitations.getByRole('button',{name:'Add to project',exact:true}).click();
     await invitations.waitFor({state:'hidden'});
