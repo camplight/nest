@@ -26,7 +26,7 @@ const orgops=createOrgOpsClient('http://engine',(async(url,init)=>engine.app.fet
 let startNaming!:()=>void,releaseNaming!:()=>void;
 const namingStarted=new Promise<void>(resolve=>{startNaming=resolve;});
 const namingGate=new Promise<void>(resolve=>{releaseNaming=resolve;});
-const aiBrief='AI brief: deliver an accessible website launch, ready for owner review. Confirm the launch date.';
+const aiBrief='AI brief: deliver an accessible website launch, ready for owner review. Confirm the launch date. '+ 'Preserve the supplied business context and accessibility requirements. '.repeat(12).trim();
 let linkOwner='',linked=false;
 const connections:ConnectionProvider={id:'synthetic',subject:owner=>owner,
   apps:async search=>({items:search==='trello'?[{slug:'trello',name:'Trello',description:'Synthetic catalog fixture',connectable:true}]:[],nextCursor:null}),
@@ -273,6 +273,17 @@ try {
     await page.goBack();await page.getByText('Approved by a human. This task is complete.',{exact:true}).waitFor();
 
     await browseProjects(page);await page.getByRole('heading',{name:'Projects',exact:true}).waitFor();
+    for(const viewport of [{width:1440,height:1100},{width:390,height:844}]){
+      await page.setViewportSize(viewport);
+      const summary=page.locator('.project-summary').filter({has:page.getByRole('heading',{name:'Website launch',exact:true})}).locator('p');
+      await summary.waitFor();
+      const size=await summary.evaluate(node=>({height:node.getBoundingClientRect().height,lineHeight:parseFloat(getComputedStyle(node).lineHeight),fullHeight:node.scrollHeight,text:node.textContent}));
+      assert.ok(size.height<=size.lineHeight*3+1,'Project summary is limited to three lines');
+      assert.ok(size.fullHeight>size.height,'Long description is visually clipped');
+      assert.equal(size.text,aiBrief,'Full description remains available in project data');
+      await page.screenshot({path:join(screenshots,viewport.width<600?'project-summary-mobile.png':'project-summary-desktop.png'),fullPage:true});
+    }
+    await page.setViewportSize({width:1440,height:1100});
     await page.goBack();await page.getByText('Approved by a human. This task is complete.',{exact:true}).waitFor();
     await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'New task +',exact:true}).waitFor({state:'visible'});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     await page.screenshot({path:join(screenshots,'project-mobile.png'),fullPage:true});

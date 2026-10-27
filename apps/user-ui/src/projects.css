@@ -1,8 +1,8 @@
 .project-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(290px,100%),1fr)); gap: 20px; }
-.project-summary { padding: 24px; text-align: left; }
+.project-summary { padding: 24px; text-align: left; min-width:0; display:flex; flex-direction:column; align-items:stretch; }
 .project-summary h2 { font-size: 18px; margin: 0 0 12px; }
-.project-summary p { color: var(--nest-muted); line-height: 1.6; }
-.project-summary span { font-weight: 600; }
+.project-summary p { color: var(--nest-muted); line-height: 1.6; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; overflow-wrap:anywhere; }
+.project-summary span { font-weight: 600; margin-top:auto; }
 .project-workspace { display: grid; grid-template-columns: minmax(0,1fr) 280px; gap: 24px; align-items: start; }
 .project-main { min-width: 0; display: grid; gap: 24px; }
 .project-about { padding: 24px; }

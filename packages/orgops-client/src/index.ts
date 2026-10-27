@@ -135,7 +135,7 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     const resolved=await response.json() as Record<string,string>;
     return Object.fromEntries(keys.map(key=>[key,resolved[key]]));
   }
-  async function projectNamingContext(input:{token?:string;modelId?:string;eventId:string;channelId:string;ownerId:string;senderName:string}) {
+  async function projectNamingContext(input:{token?:string;modelId?:string;preferFastModel?:boolean;eventId:string;channelId:string;ownerId:string;senderName:string}) {
     if(!input.token||!input.modelId)throw Error('Project naming is not configured');
     const headers={'x-orgops-runner-token':input.token};
     async function read<T>(path:string):Promise<T|null>{
@@ -149,7 +149,9 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     const event=await read<{id:string;channelId:string;source:string;type:string;payload:{text?:unknown}}>('/api/events/'+encodeURIComponent(input.eventId));
     if(!event||event.id!==input.eventId||event.channelId!==input.channelId||event.source!=='human:'+input.senderName||event.type!=='message.created'||typeof event.payload.text!=='string')return null;
     const models=await read<{id:string;provider:string;modelName:string;enabled:boolean}[]>('/api/models');
-    const model=nativeModels(models??[]).find(m=>m.id===input.modelId||m.reference===input.modelId);
+    const available=nativeModels(models??[]);
+    const fast=input.preferFastModel?available.find(m=>m.reference==='openrouter:google/gemini-2.5-flash'):undefined;
+    const model=fast??available.find(m=>m.id===input.modelId||m.reference===input.modelId);
     if(!model)throw Error('Project naming model unavailable');
     return {text:event.payload.text,model:model.reference};
   }
