@@ -27,6 +27,11 @@ instance branding, and deployment layer around a pinned, untouched agent engine.
 [Get started](#get-started) · [Core concepts](#core-concepts) ·
 [Architecture](#architecture) · [Documentation](#documentation)
 
+## Watch Nest
+
+- [Nest: The nest of work (60 seconds)](https://github.com/user-attachments/assets/b263c447-904a-455f-a28c-4bf6fe557bf9)
+- [Work with your agents in Nest (69 seconds)](https://github.com/user-attachments/assets/6f5041dd-da34-4a0e-a090-7dca812ce36c) — an illustrative walkthrough using sample data. Music: [“Clear Skies” by Scott Buckley](https://www.scottbuckley.com.au/library/clear-skies/), used under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
 ![Nest dashboard design showing an overview of work, agent activity, and items needing attention](docs/images/nest-dashboard-figma.png)
 
 *Figma design preview. The screenshots in this README illustrate the intended
