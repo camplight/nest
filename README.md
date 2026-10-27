@@ -2,12 +2,23 @@
 
 **A shared workspace for people and AI agents to get work done.**
 
-**Source available · free permitted noncommercial use · paid commercial license
-for new Camplight-owned Nest code.** Read [licensing and historical Apache rights](LICENSING.md).
+## The problem
 
-Nest is a self-hosted control plane for running agent teams across your own
-machines. Bring people, conversations, tools, and agent execution into one place:
-assign work, follow what happens, inspect results, and decide what comes next.
+Teams can start an AI conversation quickly, but useful work also needs a shared
+goal, relevant context, authorized tools, an execution environment, visible
+progress, and human review. When those pieces are spread across chat apps,
+terminals, integrations, and project trackers, handoffs become hard to follow
+and results are difficult to verify.
+
+## The solution
+
+Nest brings people, agents, conversations, files, and execution into one
+persistent, self-hosted workspace. Projects keep the request and discussion
+together. Agents run on assigned machines with the tools and instructions
+configured for them. Teammates can follow activity, inspect results, and decide
+what to accept. OrgOps supplies the execution engine; Nest provides the product
+and operating layer around it. Your tests, permissions, and release process
+remain in control of what ships.
 
 Built by [Camplight](https://camplight.net/) on
 [OrgOps](https://github.com/camplight/orgops), Nest adds the product experience,
@@ -16,27 +27,25 @@ instance branding, and deployment layer around a pinned, untouched agent engine.
 [Get started](#get-started) · [Core concepts](#core-concepts) ·
 [Architecture](#architecture) · [Documentation](#documentation)
 
+## Watch Nest
+
+- [Nest: The nest of work (60 seconds)](https://github.com/user-attachments/assets/b263c447-904a-455f-a28c-4bf6fe557bf9)
+- [Work with your agents in Nest (69 seconds)](https://github.com/user-attachments/assets/6f5041dd-da34-4a0e-a090-7dca812ce36c) — an illustrative walkthrough using sample data. Music: [“Clear Skies” by Scott Buckley](https://www.scottbuckley.com.au/library/clear-skies/), used under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
 ![Nest dashboard design showing an overview of work, agent activity, and items needing attention](docs/images/nest-dashboard-figma.png)
 
 *Figma design preview. The screenshots in this README illustrate the intended
 experience, with sample data. They are not screenshots of a production deployment.
 See [what works today](#what-works-today) for the implementation boundary.*
 
-## Why Nest exists
-
-Useful agent work needs a place to happen: a defined outcome, relevant context,
-access to the right tools, and a way for people to inspect and accept the result.
-Nest brings those pieces into a persistent workspace that you operate.
-
-Start with one agent and a bounded task. Add specialized agents when the work
-benefits from them. Keep the conversation and execution history available to the
-people responsible for the outcome.
+## The software-factory connection
 
 Camplight's [AI software factory article](https://camplight.net/ai/ai-software-factory/)
-explains the broader thinking: connect intent, execution, verification, and human
-judgment into a repeatable delivery process. Nest is the public product and
-operating model around that work. Your tests, repository permissions, review
-rules, and release controls still determine what is accepted and shipped.
+describes the broader idea: connect intent, execution, verification, and human
+judgment into a repeatable delivery process. Nest provides the shared workspace
+and product layer for that work. It does not arrive as an automatic pipeline
+that approves or deploys changes; your tests, repository permissions, and review
+rules determine what is ready to ship.
 
 ## From a request to a result
 
@@ -358,11 +367,11 @@ update the submodule pin. Include relevant checks with a pull request and update
 - [Figma case study](https://www.figma.com/design/Rqfq3v9a8nZfQKbM3Q0NZk/Portfolio---Case-Studies?node-id=766-99) — product design and visual direction.
 - [Screenshot sources](docs/images/README.md) — original Figma nodes and image provenance.
 
-New Camplight-owned Nest changes use the [PolyForm Noncommercial License 1.0.0](LICENSE).
-Use outside its permissions requires a separate paid commercial license from
-[Camplight](https://camplight.net/contact-us/). Nest is source available; the commercial
-restriction means it is not OSI-approved open-source software.
+## Licensing
 
-Previously released Apache 2.0 code retains its existing rights. OrgOps and
-third-party components keep their own licenses. See [LICENSING.md](LICENSING.md)
-for the exact transition boundary and component scope.
+New Camplight-owned Nest changes use the [PolyForm Noncommercial License 1.0.0](LICENSE).
+Uses outside its permissions require a separate paid commercial agreement with
+[Camplight](https://camplight.net/contact-us/). Nest is source-available, not
+OSI-approved open-source software. Previously released Apache 2.0 rights remain;
+OrgOps and third-party components keep their own licenses. See
+[LICENSING.md](LICENSING.md) for the transition boundary and component scope.
