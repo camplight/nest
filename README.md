@@ -29,6 +29,10 @@ instance branding, and deployment layer around a pinned, untouched agent engine.
 
 ## Watch Nest
 
+At [Camplight](https://camplight.net/), we use Nest internally for our team's work
+with AI agents. The videos below use our Camplight branding and example workflows.
+You can [brand your own instance](#make-it-your-workspace) for your team.
+
 ### Nest: The nest of work (60 seconds)
 
 https://github.com/user-attachments/assets/b263c447-904a-455f-a28c-4bf6fe557bf9
