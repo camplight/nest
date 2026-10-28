@@ -13,7 +13,7 @@ export function AgentNavigation({agents, chats, activeAgent, activeChannelId, in
   const [closed,setClosed]=useState<Record<string,boolean>>({});
   const names=[...new Set([...agents.map(a=>a.name),...chats.keys()])];
   return <div className="agent-navigation">
-    <button data-tour="agents" aria-current={inAgents?'page':undefined} aria-expanded={expanded} aria-controls="agent-shortcuts" onClick={()=>setExpanded(v=>!v)}><DesignIcon name="agents"/>Agents <span className="agent-chevron">{expanded?'−':'+'}</span></button>
+    <button data-tour="agents" aria-current={inAgents?'page':undefined} aria-expanded={expanded} aria-controls="agent-shortcuts" onClick={()=>setExpanded(v=>!v)}><DesignIcon name="agents"/>Agents <span className="agent-chevron" aria-hidden="true">{expanded?'−':'+'}</span></button>
     {expanded && <div id="agent-shortcuts">
       <button className="agent-browse" onClick={onBrowse}>All agents</button>
       {names.map(name=><div className="agent-shortcut" key={name}>

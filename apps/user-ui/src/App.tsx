@@ -1303,7 +1303,7 @@ export default function App() {
           })
         });
         try {
-        await Promise.all([
+        const subscriptions=await Promise.allSettled([
           username
             ? apiFetch(`/api/channels/${encodeURIComponent(created.id)}/subscribe`, {
                 method: "POST",
@@ -1319,6 +1319,7 @@ export default function App() {
             })
           )
         ]);
+        if(subscriptions.some(result=>result.status==='rejected'))throw Error('Participant setup failed');
         } catch {
           // This empty channel was created by this action. Do not leave a successful-looking
           // conversation without its requested participants, or duplicate it on retry.
