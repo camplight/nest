@@ -1,3 +1,5 @@
+import {AgentNavigation, AgentWorkspaceTabs, type AgentTab} from './components/AgentNavigation';
+import {conversationAgent, recentAgentChat, rememberAgentChat} from './agent-conversations';
 import {QuickTour, tourSeen, rememberTour} from './components/QuickTour';
 import {demoReturnTo, pendingDemoReturnTo, rememberDemoReturnTo, clearDemoReturnTo} from './demo-return';
 
@@ -431,17 +433,27 @@ export default function App() {
       ),
     [channels, userId, username, viewerTeamIds]
   );
+  const [agentOpening,setAgentOpening]=useState(false);
+  const [agentNavigationError,setAgentNavigationError]=useState('');
+  const [agentTab,setAgentTab]=useState<AgentTab>(()=>new URL(window.location.href).searchParams.get('tab')==='connections'?'connections':'settings');
   const standaloneChannels = useMemo(() => visibleChannels.filter(channel => !projectIndex.some(project => project.channelId === channel.id)), [visibleChannels, projectIndex]);
+  const agentChats = useMemo(()=>{
+    const result=new Map<string,Channel[]>();
+    for(const channel of standaloneChannels){const name=conversationAgent(channel,username,userId);if(name)result.set(name,[...(result.get(name)??[]),channel]);}
+    return result;
+  },[standaloneChannels,username,userId]);
+  const activeChatAgent = view==='workspace' && activeChannel && standaloneChannels.some(c=>c.id===activeChannel.id) ? conversationAgent(activeChannel,username,userId) : null;
+  useEffect(()=>{if(activeChatAgent&&activeChannelId)rememberAgentChat(userId,activeChatAgent,activeChannelId);},[activeChatAgent,activeChannelId,userId]);
   useEffect(() => {
     if (view === "projects") setActiveChannelId(projectIndex.find(project => project.id === selectedProject)?.channelId ?? null);
   }, [view, selectedProject, projectIndex]);
   const activeChannels = useMemo(
-    () => standaloneChannels.filter((channel) => !channel.archivedAt),
-    [standaloneChannels]
+    () => standaloneChannels.filter((channel) => !channel.archivedAt && !conversationAgent(channel,username,userId)),
+    [standaloneChannels,username,userId]
   );
   const archivedChannels = useMemo(
-    () => standaloneChannels.filter((channel) => Boolean(channel.archivedAt)),
-    [standaloneChannels]
+    () => standaloneChannels.filter((channel) => Boolean(channel.archivedAt) && !conversationAgent(channel,username,userId)),
+    [standaloneChannels,username,userId]
   );
   const visibleChannelAgentNames = useMemo(() => {
     const names = new Set<string>();
@@ -598,7 +610,7 @@ export default function App() {
     setActiveChannelId(projectIndex.find(p => p.id === project)?.channelId ?? null); setView("projects"); setSelectedProject(project); setSelectedTask(task); setMobileSidebarOpen(false);
   }
 
-  function selectAgent(name: string | null, options: {replace?:boolean; create?:boolean; requests?:boolean; request?:string; assistant?:string} = {}) {
+  function selectAgent(name: string | null, options: {tab?:AgentTab; replace?:boolean; create?:boolean; requests?:boolean; request?:string; assistant?:string} = {}) {
     setFocusedMessage(null);
     const url = new URL(window.location.href);
     url.searchParams.delete('message');
@@ -613,6 +625,8 @@ export default function App() {
     setRequestLocation({active:Boolean(options.requests),requestId:options.request??null,assistant:options.assistant??null});
     if(options.create) url.searchParams.set("create","personal");
     setCreatingPersonalAgent(Boolean(options.create));
+    setAgentTab(options.tab??'settings');
+    if(name)url.searchParams.set("tab",options.tab??"settings");
     if (name) url.searchParams.set("agent", name); else url.searchParams.delete("agent"); url.searchParams.delete("skill");
     window.history[options.replace ? "replaceState" : "pushState"](null, "", url);
     setActiveChannelId(null); setView("agents"); setSelectedAgent(name); setMobileSidebarOpen(false);
@@ -626,6 +640,28 @@ export default function App() {
     setView(channelId ? "workspace" : "dashboard");
     setMobileSidebarOpen(false);
     updateChannelDeepLink(channelId, options?.replace, channelId === null);
+  }
+
+  async function openAgentChat(name:string) {
+    if(agentOpening)return;
+    const chats=(agentChats.get(name)??[]).filter(c=>!c.archivedAt);
+    const previous=recentAgentChat(userId,name);
+    const chat=chats.find(c=>c.id===previous)??chats[0];
+    if(chat){selectChannel(chat.id);return;}
+    setAgentOpening(true);setAgentNavigationError('');
+    try {
+      const agent=agents.find(a=>a.name===name);
+      const shared=!agent||(agent.visibility==='PRIVATE'&&agent.ownerHumanId!==userId);
+      const result=await apiJson<{id?:string;channelId?:string}>(shared?`/api/collaboration/agents/${encodeURIComponent(name)}/chat`:'/api/channels/direct/human-agent',{method:'POST',headers:getApiHeaders(),body:JSON.stringify({agentName:name})});
+      const id=result.channelId??result.id;
+      if(!id)throw Error('No conversation returned');
+      await refreshChannels(id);
+    }catch{setAgentNavigationError('Could not open this chat. Try again.');}
+    finally{setAgentOpening(false);}
+  }
+  function newAgentChat(name:string) {
+    setConversationName(`Chat with ${name} ${(agentChats.get(name)?.length??0)+1}`);
+    setConversationDescription('');setConversationVisibility('PRIVATE');setSelectedConversationAgents([name]);setAgentSearchQuery('');setShowConversationDialog(true);setMobileSidebarOpen(false);
   }
 
   // Deep-link focus inside the open channel (reply links); clearing first makes a repeated id scroll and highlight again.
@@ -1098,6 +1134,7 @@ export default function App() {
       setFocusedMessage(url.searchParams.get("message"));
       setView(linkedChannel ? "workspace" : url.searchParams.get("view") === "onboarding" ? "agents" : url.searchParams.get("view") === "agents" ? "agents" : url.searchParams.get("view") === "projects" ? "projects" : url.searchParams.get("view") === "community" ? "community" : "dashboard");
       setSelectedAgent(url.searchParams.get("agent"));
+      setAgentTab(url.searchParams.get("tab")==='connections'?'connections':'settings');
       setRequestLocation(readAgentRequestLocation());
       setCreatingPersonalAgent(url.searchParams.get("create") === "personal");
       setSelectedCommunitySkill(url.searchParams.get("skill"));
@@ -1265,13 +1302,14 @@ export default function App() {
             visibility: conversationVisibility
           })
         });
+        try {
         await Promise.all([
           username
             ? apiFetch(`/api/channels/${encodeURIComponent(created.id)}/subscribe`, {
                 method: "POST",
                 headers: getApiHeaders(),
                 body: JSON.stringify({ subscriberType: "HUMAN", subscriberId: username })
-              }).catch(() => undefined)
+              })
             : Promise.resolve(),
           ...selectedAgents.map((agentName) =>
             apiFetch(`/api/channels/${encodeURIComponent(created.id)}/subscribe`, {
@@ -1281,6 +1319,13 @@ export default function App() {
             })
           )
         ]);
+        } catch {
+          // This empty channel was created by this action. Do not leave a successful-looking
+          // conversation without its requested participants, or duplicate it on retry.
+          try { await apiFetch(`/api/channels/${encodeURIComponent(created.id)}`,{method:'DELETE'}); }
+          catch { await refreshChannels(created.id);throw Error('The chat was created, but participants could not be added. Use Manage channel to finish setup.'); }
+          throw Error('Could not add the participants. No new chat was kept; try again.');
+        }
         setCollapsedChannelGroups((current) => ({ ...current, channels: false }));
         await refreshChannels(created.id);
       }
@@ -1574,6 +1619,7 @@ export default function App() {
             onChange={event => setChannelQuery(event.target.value)}
           /></label>}
         />}
+        {activeChatAgent&&<AgentWorkspaceTabs name={activeChatAgent} tab="chat" onChat={()=>{}} onTab={tab=>selectAgent(activeChatAgent,{tab})}/>}
         <header className="workspace-header">
           <div>
             <span>Workspace</span>
@@ -1702,7 +1748,7 @@ export default function App() {
         <nav className="product-nav" aria-label="Main navigation">
           <button aria-current={view === "dashboard" ? "page" : undefined} onClick={() => selectChannel(null)}><DesignIcon name="dashboard" />Dashboard</button>
           <ProjectNavigation projects={projectIndex} currentProjectId={view === "projects" ? selectedProject : null} inProjects={view === "projects" || view === "workspace"} creating={view === "projects" && !selectedProject && projectTab === "new"} unreadCounts={unreadCounts} onBrowse={() => selectProject(null)} onSelect={id => selectProject(id)} onCreate={() => selectProject(null, null, "new")} />
-          <button data-tour="agents" aria-current={view === "agents" ? "page" : undefined} onClick={() => selectAgent(null)}><DesignIcon name="agents" />Agents</button>
+          <AgentNavigation agents={visibleAgents} chats={agentChats} activeAgent={activeChatAgent??(view==='agents'?selectedAgent:null)} activeChannelId={activeChannelId} inAgents={view==='agents'||!!activeChatAgent} busy={agentOpening} error={agentNavigationError} unread={unreadCounts} label={c=>isHumanAgentDirectChannel(c)?'First conversation':channelLabel(c,username)} onBrowse={()=>selectAgent(null)} onOpen={name=>void openAgentChat(name)} onChat={selectChannel} onNew={newAgentChat}/>
           <button data-tour="community" aria-current={view === "community" ? "page" : undefined} onClick={()=>selectCommunity(null)}><DesignIcon name="community" />Community</button>
         </nav>
 
@@ -1795,7 +1841,7 @@ export default function App() {
         />
       ) : null}
 
-      {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} onManage={activeChannelManageable?()=>setShowChannelManageDialog(true):undefined} /> : view === "agents" ? <Agents requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
+      {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} onManage={activeChannelManageable?()=>setShowChannelManageDialog(true):undefined} /> : view === "agents" ? <Agents tab={agentTab} onTab={tab=>selectAgent(selectedAgent,{tab})} onOpenChat={name=>void openAgentChat(name)} requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
         resumeProject={userId?projectIndex.find(p=>p.id===recentProject(userId)):undefined} channels={visibleChannels} projects={projectIndex} onProject={selectProject} unreadCounts={unreadCounts} onCommunity={selectCommunity}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}
         onSelect={selectChannel} onCreate={() => selectProject(null, null, "new")}

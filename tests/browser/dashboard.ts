@@ -364,7 +364,7 @@ try {
           document.querySelectorAll(".project-grid .project-summary").length ===
           1,
       );
-      await nav.getByRole("button", { name: "Agents", exact: true }).click();
+      await nav.getByRole("button", { name: "All agents", exact: true }).click();
       assert.equal(
         await page
           .getByRole("group", { name: "Workspace controls" })

@@ -1275,3 +1275,14 @@ Passing selects the model in the form; the existing engine-authorized settings
 PATCH saves it. Tests never mutate the model or enable a global registry entry.
 Wrapped agents retain external model management. Colon variants are rejected
 because the pinned LLM parser does not preserve those suffixes.
+
+## Agent conversation navigation
+
+The user sidebar groups private, unshared one-human/one-agent conversations under
+each agent, excluding project channels. Agent clicks resume the last visited
+non-archived conversation (stored per human/browser) or open the engine's direct
+chat. New chat uses a named private channel and existing membership APIs, allowing
+separate conversations without changing direct-chat deduplication. Existing
+channel links remain valid. The agent workspace separates Chat, Settings and
+Connected apps; model selection and instructions live inside Advanced settings.
+No ownership or tool-grant rules change.

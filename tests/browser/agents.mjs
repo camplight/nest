@@ -31,6 +31,7 @@ let connectionRequests=0;
 let failConnections=true;
 let releaseConnections;
 const connectionGate=new Promise(resolve=>{releaseConnections=resolve;});
+const channels=[{id:'chat',name:'general',visibility:'PUBLIC',participants:[]}];
 let malformedDirectory=false;
 let malformedCatalog=false;let failModels=false;let failSave=false;const writes=[];
 await page.route('**/api/**',async route=>{
@@ -64,13 +65,20 @@ await page.route('**/api/**',async route=>{
  const changes=route.request().postDataJSON();writes.push(changes);Object.assign(agent,changes);data={ok:true};
  }else data=agent;
  } else if(path==='/api/humans')data=[{username:'admin'}];
- else if(path==='/api/channels')data=[{id:'chat',name:'general',visibility:'PUBLIC',participants:[]}];
+ else if(path==='/api/channels/direct/human-agent'){
+ const name=route.request().postDataJSON().agentName;
+ const chat={id:'agent-first',name:'direct-first',kind:'HUMAN_AGENT_DM',visibility:'PRIVATE',ownerHumanId:'me',canPost:true,participants:[{subscriberType:'HUMAN',subscriberId:'admin'},{subscriberType:'AGENT',subscriberId:name}]};channels.push(chat);data=chat;
+ } else if(path==='/api/channels'&&route.request().method()==='POST'){
+ const chat={id:'agent-second',...route.request().postDataJSON(),ownerHumanId:'me',canPost:true,participants:[]};channels.push(chat);data=chat;
+ } else if(path.endsWith('/subscribe')){channels.find(c=>path.includes(c.id)).participants.push(route.request().postDataJSON());data={ok:true};}
+ else if(path==='/api/channels')data=channels;
+ else if(path.match(/^\/api\/channels\/[^/]+$/))data=channels.find(c=>path.endsWith('/'+c.id))??{};
  await route.fulfill({json:data});
 });
 await page.routeWebSocket('**/ws',()=>{});
 await page.goto(`${base}/`);
 await page.getByRole('heading',{name:'Dashboard',exact:true}).waitFor();
-await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Agents',exact:true}).click();
+await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'All agents',exact:true}).click();
 await page.getByRole('button',{name:'Manage NestSystem'}).waitFor();
 assert.equal(await page.getByText('Loading agents…',{exact:true}).count(),0);
 releaseNotifications();
@@ -87,13 +95,14 @@ await page.reload();await page.getByLabel('About this agent',{exact:true}).waitF
 assert.equal(fullHealthRequests,0);
 assert.equal(await page.getByLabel('Additional instructions').isVisible(),false);
 assert.equal(await page.getByText('Runtime details',{exact:true}).isVisible(),false);
-// A stalled optional capability must not block editing or page navigation.
+// Connected apps load only when that workspace tab is selected.
+assert.equal(connectionRequests,0);
+await page.getByRole('navigation',{name:'Research & Design workspace'}).getByRole('button',{name:'Connected apps',exact:true}).click();
 await page.getByRole('status').filter({hasText:'Loading connection settings'}).waitFor();
-await page.getByLabel('About this agent',{exact:true}).fill('Editable while connections load');
 releaseConnections();await page.getByRole('button',{name:'Retry connections'}).waitFor();
-assert.equal(await page.getByLabel('About this agent',{exact:true}).inputValue(),'Editable while connections load');
 failConnections=false;await page.getByRole('button',{name:'Retry connections'}).click();
 await page.getByRole('heading',{name:'App connections are being prepared'}).waitFor();
+await page.getByRole('navigation',{name:'Research & Design workspace'}).getByRole('button',{name:'Settings',exact:true}).click();
 await page.locator('.agent-advanced > summary').focus();await page.keyboard.press('Enter');
 await page.getByLabel('Additional instructions',{exact:true}).waitFor();
 await page.getByLabel('Language model',{exact:true}).selectOption('openrouter:moonshotai/kimi-k3');
@@ -105,7 +114,7 @@ await page.reload();assert.equal(await page.getByLabel('About this agent',{exact
 assert.equal(await page.getByLabel('Language model').inputValue(),'openrouter:moonshotai/kimi-k3');
 failSave=true;await page.getByLabel('About this agent',{exact:true}).fill('Retain on error');await page.getByRole('button',{name:'Save settings'}).click();await page.getByRole('alert').filter({hasText:'Forbidden'}).waitFor();assert.equal(await page.getByLabel('About this agent',{exact:true}).inputValue(),'Retain on error');
 await page.getByLabel('About this agent',{exact:true}).fill('Updated research description');failSave=false;
-await page.reload();await page.getByLabel('Language model').waitFor();
+await page.reload();await page.locator('.agent-advanced > summary').click();await page.getByLabel('Language model').waitFor();
 assert.equal(await page.getByLabel('Search OpenRouter models').isVisible(),false);
 assert.equal(await page.locator('.model-picker').getAttribute('open'),null);
 if(process.env.CI)console.log('MODEL_PICKER_COLLAPSED_JPEG:'+(await page.locator('.model-picker').screenshot({type:'jpeg',quality:65})).toString('base64'));
@@ -134,12 +143,12 @@ await page.getByRole('button',{name:'Connect',exact:true}).click();await page.ge
 if(process.env.CI){await page.setViewportSize({width:390,height:1700});console.log('MODEL_PICKER_MOBILE_JPEG:'+(await page.locator('.model-picker').screenshot({type:'jpeg',quality:65})).toString('base64'));}
 await page.setViewportSize({width:1440,height:1100});
 await page.locator('.model-picker-toggle').click();assert.equal(await page.getByLabel('Exact OpenRouter model ID').isVisible(),false);
-malformedCatalog=true;await page.reload();await page.locator('.model-picker-toggle').click();await page.getByRole('button',{name:'Retry catalog'}).waitFor();
+malformedCatalog=true;await page.reload();await page.locator('.agent-advanced > summary').click();await page.locator('.model-picker-toggle').click();await page.getByRole('button',{name:'Retry catalog'}).waitFor();
 assert(await page.getByLabel('About this agent',{exact:true}).isEnabled());
 malformedCatalog=false;await page.getByRole('button',{name:'Retry catalog'}).click();await page.getByRole('button',{name:/Gemini fixture/}).waitFor();
-failModels=true;await page.reload();await page.getByRole('button',{name:'Retry models'}).waitFor();assert(await page.getByLabel('Language model').isDisabled());
+failModels=true;await page.reload();await page.locator('.agent-advanced > summary').click();await page.getByRole('button',{name:'Retry models'}).waitFor();assert(await page.getByLabel('Language model').isDisabled());
 failModels=false;await page.getByRole('button',{name:'Retry models'}).click();await page.getByLabel('Language model').selectOption('openrouter:moonshotai/kimi-k3');
-await page.getByRole('button',{name:'All agents'}).click();await page.getByRole('button',{name:'Manage NestSystem'}).click();
+await page.locator('.agents-page').getByRole('button',{name:'All agents'}).click();await page.getByRole('button',{name:'Manage NestSystem'}).click();
 await page.locator('.agent-advanced > summary').click();await page.getByText('This wrapped agent manages',{exact:false}).waitFor();assert.equal(await page.getByLabel('Additional instructions').count(),0);
 await page.getByLabel('About this agent',{exact:true}).fill('Wrapped description');
 await page.getByRole('button',{name:'Save settings'}).click();await page.getByText('Settings saved.',{exact:true}).waitFor();
@@ -148,11 +157,45 @@ await page.goBack();await page.getByRole('heading',{name:'Agents',exact:true}).w
 await page.goForward();await page.getByRole('heading',{name:'Agent details'}).waitFor();
 await page.goto(`${base}/?view=agents&agent=PrivateAgent`);await page.getByLabel('About this agent',{exact:true}).waitFor();assert(await page.getByLabel('About this agent',{exact:true}).isDisabled());assert(await page.getByRole('button',{name:'Save settings'}).isDisabled());
 await page.goto(`${base}/?view=agents&agent=missing`);await page.getByRole('alert').filter({hasText:'Not found'}).waitFor();
-await page.goto(`${base}/?channel=chat`);await page.getByRole('navigation').getByRole('button',{name:'Agents',exact:true}).click();assert(!new URL(page.url()).searchParams.has('channel'));
+await page.goto(`${base}/?channel=chat`);await page.getByRole('navigation').getByRole('button',{name:'All agents',exact:true}).click();assert(!new URL(page.url()).searchParams.has('channel'));
 await page.getByRole('navigation').getByRole('button',{name:'Dashboard',exact:true}).click();await page.getByRole('button',{name:'Account',exact:true}).click();await page.getByRole('menuitem',{name:'Your agents',exact:true}).click();await page.getByRole('button',{name:'Manage NestSystem',exact:true}).click();await page.getByRole('heading',{name:'Agent details'}).waitFor();
 await page.setViewportSize({width:390,height:844});await page.screenshot({path:join(screenshotDir, 'nest-agent-mobile.png'),fullPage:true});
 assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
 await page.getByRole('button',{name:'Menu',exact:true}).click();assert.equal(await page.getByRole('navigation').getByRole('button',{name:'Agents',exact:true}).getAttribute('aria-current'),'page');
+// Sidebar is an expandable agent/conversation tree on every page.
+await page.goto(`${base}/?view=agents`);
+await page.setViewportSize({width:1440,height:1000});
+const mainNav=page.getByRole('navigation',{name:'Main navigation'});
+await mainNav.getByRole('button',{name:'Agents',exact:true}).click();
+assert.equal(await mainNav.getByRole('button',{name:'All agents',exact:true}).count(),0);
+await mainNav.getByRole('button',{name:'Agents',exact:true}).click();
+await mainNav.getByRole('button',{name:'NestSystem',exact:true}).click();
+await page.getByRole('navigation',{name:'NestSystem workspace'}).waitFor();
+assert.equal(new URL(page.url()).searchParams.get('channel'),'agent-first');
+await mainNav.getByRole('button',{name:'New chat with NestSystem',exact:true}).click();
+await page.getByLabel('Channel name',{exact:true}).fill('Release planning');
+await page.getByRole('dialog').getByRole('button',{name:'Start',exact:true}).click();
+await page.waitForURL('**channel=agent-second');
+await mainNav.getByRole('button',{name:'First conversation',exact:true}).waitFor();
+await mainNav.getByRole('button',{name:'# Release planning',exact:true}).waitFor();
+await page.getByRole('navigation',{name:'NestSystem workspace'}).getByRole('button',{name:'Settings',exact:true}).click();
+await page.getByLabel('About this agent',{exact:true}).waitFor();
+assert.equal(await page.getByLabel('Additional instructions').count(),0);
+await page.getByRole('navigation',{name:'NestSystem workspace'}).getByRole('button',{name:'Chat',exact:true}).click();
+await page.waitForURL('**channel=agent-second');
+await page.reload();await page.getByRole('navigation',{name:'NestSystem workspace'}).waitFor();
+await mainNav.getByRole('button',{name:'Dashboard',exact:true}).click();
+await mainNav.getByRole('button',{name:'NestSystem',exact:true}).click();
+await page.waitForURL('**channel=agent-second');
+if(process.env.CI)console.log('AGENT_WORKSPACE_DESKTOP_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
+await page.setViewportSize({width:375,height:812});
+await page.getByRole('button',{name:'Menu',exact:true}).click();
+await mainNav.getByRole('button',{name:'First conversation',exact:true}).click();
+await page.waitForURL('**channel=agent-first');
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+if(process.env.CI)console.log('AGENT_WORKSPACE_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
+await page.getByRole('button',{name:'Menu',exact:true}).click();
+if(process.env.CI)console.log('AGENT_SIDEBAR_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
 malformedDirectory=true;await page.goto(`${base}/?view=agents`);await page.getByRole('alert').filter({hasText:'Shared agents are unavailable'}).waitFor();await page.getByRole('button',{name:'Manage NestSystem',exact:true}).waitFor();
 assert.equal(fullHealthRequests,0);assert(connectionRequests>0);assert.deepEqual(errors,[]);console.log('PASS: directory, selected navigation, encoded direct links, reload, history, settings persistence, failed saves, private read-only, wrapped settings, missing agents, chat links, dashboard links, mobile and avatar assets.');
 console.log(`Screenshots: ${screenshotDir}`);

@@ -664,7 +664,7 @@ try {
     await page
       .getByRole("heading", { name: "Dashboard", exact: true })
       .waitFor();
-    await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Agents',exact:true}).click();
+    await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'All agents',exact:true}).click();
     await page.getByText('Your personal agent',{exact:true}).waitFor();
     await page.screenshot({path:join(screenshots,'team-desktop.png'),fullPage:true});
     await page.setViewportSize({width:390,height:844});

@@ -534,3 +534,14 @@ probe needs `NEST_RUNNER_TOKEN` (or injected connection engine token) and an
 OpenRouter key resolved for the target agent; missing credentials fail explicitly.
 Catalog outage does not block existing configured-model changes. Deploy UI/API
 together. No real agent models or registry defaults are changed by installation.
+
+## Agent conversation navigation
+
+The user sidebar groups private, unshared one-human/one-agent conversations under
+each agent, excluding project channels. Agent clicks resume the last visited
+non-archived conversation (stored per human/browser) or open the engine's direct
+chat. New chat uses a named private channel and existing membership APIs, allowing
+separate conversations without changing direct-chat deduplication. Existing
+channel links remain valid. The agent workspace separates Chat, Settings and
+Connected apps; model selection and instructions live inside Advanced settings.
+No ownership or tool-grant rules change.
