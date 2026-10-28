@@ -15,3 +15,12 @@
 @media (prefers-reduced-motion: reduce) {
   .smooth-card-stack-card { transform: none !important; }
 }
+
+@media (max-width: 760px) {
+  /* A flat, in-flow active card avoids transformed hit-testing layers on touch screens. */
+  .smooth-card-stack-viewport { height:auto !important; perspective:none !important; isolation:isolate; }
+  .smooth-card-stack .smooth-card-stack-card[data-active="true"] { position:relative; top:0; transform:none !important; min-height:0 !important; }
+  .smooth-card-stack-card:not([data-active="true"]) { display:none; }
+  .smooth-card-stack .smooth-card-stack-controls { gap:4px; margin-top:8px; }
+  .smooth-card-stack-controls button { min-width:44px; min-height:44px; touch-action:manipulation; }
+}

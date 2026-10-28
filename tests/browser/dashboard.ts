@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { chromium, webkit } from "playwright";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { execFileSync } from "node:child_process";
@@ -78,11 +78,12 @@ const server = await createServer({
 });
 try {
   await server.listen();
-  const browser = await chromium.launch({ headless: true });
+  const browser = await (process.argv.includes("--webkit")?webkit:chromium).launch({ headless: true });
   try {
     const page = await browser.newPage({
       viewport: { width: 1440, height: 1290 },
       reducedMotion: "no-preference",
+      hasTouch: true,
     });
     page.setDefaultTimeout(15000);
     async function capture(name: string) {
@@ -652,6 +653,33 @@ try {
       await capture("dashboard-dark-desktop.png");
       await page.getByRole("button", { name: "Switch to light theme" }).click();
       await page.setViewportSize({ width: 390, height: 844 });
+      await page.setViewportSize({width:375,height:812});
+      await page.evaluate(()=>{document.documentElement.style.fontSize='20px';});
+      const menu=page.getByRole('button',{name:'Menu',exact:true});
+      await menu.scrollIntoViewIfNeeded();
+      assert(await menu.evaluate(node=>{
+        const r=node.getBoundingClientRect();
+        return [[r.left+2,(r.top+r.bottom)/2],[r.right-2,(r.top+r.bottom)/2],[(r.left+r.right)/2,r.top+2],[(r.left+r.right)/2,r.bottom-2],[(r.left+r.right)/2,(r.top+r.bottom)/2]]
+          .every(([x,y])=>node.contains(document.elementFromPoint(x,y)));
+      }),'Every part of Menu remains tappable with larger text');
+      await page.getByRole('button',{name:'Menu',exact:true}).tap();
+      await page.locator('.sidebar-mobile-open').waitFor({state:'visible'});
+      await nav.getByRole('button',{name:'Agents',exact:true}).tap();
+      await page.waitForURL(url=>url.searchParams.get('view')==='agents');
+      await page.getByRole('button',{name:'Menu',exact:true}).tap();
+      await nav.getByRole('button',{name:'Dashboard',exact:true}).tap();
+      await page.getByRole('heading',{name:'Dashboard',exact:true}).waitFor();
+      const mobileProjects=page.getByRole('region',{name:'Active projects',exact:true});
+      const nextProject=mobileProjects.getByRole('button',{name:'Next active projects card',exact:true});
+      const nextBox=await nextProject.boundingBox();assert(nextBox&&nextBox.width>=44&&nextBox.height>=44);
+      await nextProject.tap();
+      await mobileProjects.getByRole('status').filter({hasText:'Card 2 of'}).waitFor();
+      await mobileProjects.locator('.dashboard-project-card').tap();
+      await page.waitForURL(url=>Boolean(url.searchParams.get('project')));
+      await page.getByRole('button',{name:'Menu',exact:true}).tap();
+      await nav.getByRole('button',{name:'Dashboard',exact:true}).tap();
+      await page.getByRole('heading',{name:'Dashboard',exact:true}).waitFor();
+      await page.evaluate(()=>{document.documentElement.style.fontSize='';});
       await capture("dashboard-mobile-top.png");
       await projects.scrollIntoViewIfNeeded();
       await capture("dashboard-mobile-work.png");

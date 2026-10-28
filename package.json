@@ -38,7 +38,7 @@
     "migrate:product": "node --import tsx scripts/migrate-product-data.ts",
     "test:ui:agents": "node --import tsx tests/browser/agents.mjs && node --import tsx tests/browser/agent-models.ts && node --import tsx tests/browser/agent-runtime-status.ts && npm run test:ui:trusted",
     "test:ui:projects": "node --import tsx tests/browser/projects.ts && npm run test:ui:dashboard && npm run test:ui:chat",
-    "test:ui:dashboard": "node --import tsx tests/browser/dashboard.ts",
+    "test:ui:dashboard": "node --import tsx tests/browser/dashboard.ts && npm run test:ui:dashboard:webkit",
     "test:ui:community": "node --import tsx tests/browser/community.ts",
     "test:ui:auth": "node --import tsx tests/browser/google-auth.ts",
     "test:ui:onboarding": "node --import tsx tests/browser/onboarding.ts && npm run test:ui:tour",
@@ -48,7 +48,8 @@
     "test:ui:trusted": "node tests/browser/connection-projects.mjs",
     "test:ui:demo-artifacts": "node tests/browser/demo-artifacts.mjs",
     "test:ui:tour": "node tests/browser/quick-tour.mjs",
-    "test:ui:chat-next": "node --import tsx tests/browser/support/chat-next-run.ts"
+    "test:ui:chat-next": "node --import tsx tests/browser/support/chat-next-run.ts",
+    "test:ui:dashboard:webkit": "playwright install --with-deps webkit && node --import tsx tests/browser/dashboard.ts --webkit"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",
