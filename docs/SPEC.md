@@ -1252,3 +1252,24 @@ Project cards limit descriptions to three visible lines; the full stored brief r
 available in project details. Automatic naming prefers the enabled
 `openrouter:google/gemini-2.5-flash` catalog entry unless a naming model is explicitly
 configured. Without that entry it uses the default agent model.
+
+## OpenRouter model picker
+
+Agent settings enrich the configured-model list with a live OpenRouter catalog
+(`/api/openrouter-models`, signed-in humans only). Five tool-capable text models
+are shown in OpenRouter weekly token-usage order, with search, image-input filter,
+provider marks, advertised capabilities, context and USD/million-token prices.
+This is popularity, not a benchmark or a reliability guarantee. Catalog data is
+cached 15 minutes, with explicitly stale fallback for at most 24 hours.
+
+`POST /api/agents/:name/model-check` accepts `{model: "provider/model"}`. A live
+human must be allowed to edit that agent (public agent or private owner). The
+adapter resolves that agent's provider env using the configured engine token,
+returns only OpenRouter keys server-side, and uses the same OrgOps LLM library
+for a bounded synthetic tool check. No chat, instructions or real tools are sent.
+Checks have a 20s deadline, 256-token output limit, one step and 30s per-human
+cooldown per API process. Provider errors and credentials are not returned.
+Passing selects the model in the form; the existing engine-authorized settings
+PATCH saves it. Tests never mutate the model or enable a global registry entry.
+Wrapped agents retain external model management. Colon variants are rejected
+because the pinned LLM parser does not preserve those suffixes.

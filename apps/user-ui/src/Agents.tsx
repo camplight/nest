@@ -1,3 +1,4 @@
+import {ModelPicker} from './ModelPicker';
 import {SharedPersonalAgents} from './SharedPersonalAgents';
 import { type AgentRequestLocation } from "./AgentRequests";
 import {WorkspaceTopbar} from "./components/WorkspaceTopbar";
@@ -126,11 +127,12 @@ function AgentDetails({ name, userId, onSaved, setup, onChat, onResume }: { name
             {!catalog?.models.some(m => m.reference === model) && <option value={model}>{model ? `${model} (current)` : 'Not configured'}</option>}
             {catalog?.models.map(m => <option key={m.id} value={m.reference}>{modelLabel(m.name)}{m.reference === catalog.defaultModel ? ' · Default for new agents' : ''}</option>)}
           </select>
-          <small id="agent-model-help">Changes apply on the next agent turn. Models are enabled by your administrator.</small>
+          <small id="agent-model-help">Configured models are listed here. Explore OpenRouter below, or keep your current selection. Changes apply on the next agent turn.</small>
           {!catalog && !modelError && <small role="status">Loading models…</small>}
           {modelError && <small role="alert">Could not load models. <button type="button" onClick={() => setModelAttempt(n => n + 1)}>Retry models</button></small>}
           {catalog && catalog.models.length === 0 && <small>No enabled models. Your current setting is preserved.</small>}
         </div>}
+        {!wrapped && <ModelPicker agentName={name} value={model} disabled={!editable || busy} onChange={value=>{setModel(value);setSaved(false);}}/>}
         <details className="agent-advanced">
           <summary>Advanced <span>Instructions and runtime details</span></summary>
           <div className="agent-advanced-content">
