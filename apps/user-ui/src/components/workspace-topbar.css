@@ -253,3 +253,10 @@
   /* The menu button lines up with the controls instead of keeping the sidebar layout's top alignment and gap. */
   .workspace-topbar .sidebar-mobile-toggle { align-self: center; margin-bottom: 0; }
 }
+
+@media (max-width: 760px) {
+  /* Never let a crowded control row paint over the Menu tap target. */
+  .workspace-controls { width:100%; max-width:100%; flex-wrap:wrap; }
+  .workspace-topbar .sidebar-mobile-toggle { min-width:44px; min-height:44px; flex-shrink:0; touch-action:manipulation; }
+  .workspace-controls .quick-tour-trigger { min-height:44px; }
+}
