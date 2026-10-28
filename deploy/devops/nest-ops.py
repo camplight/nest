@@ -22,6 +22,7 @@ PRODUCT_DATA = Path('/var/lib/docker/volumes/nest_nest-product/_data')
 COMPOSE = ['docker', 'compose', '--project-directory', str(ROOT)]
 REPO = 'https://github.com/camplight/nest.git'
 NATIVE_CONFIG = Path('/etc/nest/native.json')
+RUNNER_PAUSE = Path('/etc/nest/runner-paused')
 
 
 def run(*args, capture=False):
@@ -130,7 +131,9 @@ def native_operation(job, action, sha, lock_fd):
                                pass_fds=(lock_fd,), env={**os.environ, 'NEST_HOST_LOCK_FD': str(lock_fd)})
         elif action == 'restart':
             run('systemctl', 'stop', 'nest-runner', 'nest-api', 'nest-engine')
-            run('systemctl', 'start', 'nest-engine', 'nest-api', 'nest-runner')
+            run('systemctl', 'start', 'nest-engine', 'nest-api')
+            if not RUNNER_PAUSE.exists():
+                run('systemctl', 'start', 'nest-runner')
             run('curl', '--fail', '--silent', '--show-error', '--max-time', '5',
                 '--retry', '30', '--retry-all-errors', '--retry-delay', '2',
                 '--output', '/dev/null', 'http://127.0.0.1:8787/health')

@@ -135,6 +135,12 @@ Retry without resetting password fields or navigating away. Native activation
 checks that a previously enabled provider retains its enabled state and domain;
 it does not perform an OAuth login or claim Google itself is available.
 
+Native activation preserves the operator's `/etc/nest/runner-paused` marker.
+`--pause-runner` and `--resume-runner` change it within the backed-up activation;
+the runner unit and restricted restart controller respect it. A paused rollout
+checks API/provider/demo availability without requiring or claiming a runner
+heartbeat. This permits product updates while an upstream execution fix is pending.
+
 Whole process trees have separate 320/512/768 MiB API/engine/runner limits within
 a 1536 MiB RAM / 512 MiB swap / 80% CPU slice. These are not agent sandboxes.
 Re-running the script stages another prebuilt release and snapshots both stopped

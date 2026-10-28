@@ -70,6 +70,19 @@ fi
 curl --fail --silent http://127.0.0.1:8787/health >/dev/null
 cmp /app/.nest-data/runner-id "$work/runner-id"
 python3 deploy/native/smoke.py
+# Pausing execution must survive upgrades and explicit start requests. Resume
+# must reuse the same identity and still complete a real synthetic agent turn.
+install_host --pause-runner
+test -f /etc/nest/runner-paused
+! systemctl is-active --quiet nest-runner
+install_host
+systemctl start nest-runner
+! systemctl is-active --quiet nest-runner
+curl --fail --silent http://127.0.0.1:8787/health >/dev/null
+install_host --resume-runner
+test ! -e /etc/nest/runner-paused
+cmp /app/.nest-data/runner-id "$work/runner-id"
+python3 deploy/native/smoke.py
 # Crash the main process; KillMode=control-group cleans up its descendants.
 before=$(systemctl show nest-runner --property=MainPID --value)
 systemctl kill --kill-whom=main --signal=SIGKILL nest-runner

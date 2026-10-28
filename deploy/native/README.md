@@ -16,6 +16,14 @@ Re-run the same script with the next reviewed release to upgrade. Omit
 `--env-file` to preserve the installed environment. No build runs on the live
 host. There is no Ansible/Terraform or agent-written server configuration.
 
+For a known runner/engine incident, `--pause-runner` deploys the API/UIs while
+retaining an explicit execution pause at `/etc/nest/runner-paused`. Upgrades,
+controller restarts and reboot preserve that pause. The runner's systemd
+condition also blocks an accidental start. After reviewing the core fix, use
+`--resume-runner` to remove the pause and require registration/heartbeat again.
+Paused activation checks API/Google/demo availability and does not claim agent
+execution is healthy. The marker is included in configuration backup/rollback.
+
 ## Topology and reproducibility
 
 Caddy serves the built user/admin UIs and proxies HTTP/WebSocket/demo requests to

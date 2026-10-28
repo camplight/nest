@@ -98,7 +98,7 @@ class NativeDeploymentTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
-        for name, value in {'STATE': root, 'SOURCE': root / 'source', 'NATIVE_CONFIG': root / 'native.json'}.items():
+        for name, value in {'STATE': root, 'SOURCE': root / 'source', 'NATIVE_CONFIG': root / 'native.json', 'RUNNER_PAUSE': root / 'runner-paused'}.items():
             p = patch.object(ops, name, value)
             p.start()
             self.addCleanup(p.stop)
@@ -112,7 +112,17 @@ class NativeDeploymentTests(unittest.TestCase):
         args = [call.args for call in command.call_args_list]
         self.assertEqual(args[0], ('systemctl', 'stop', 'nest-runner', 'nest-api', 'nest-engine'))
         self.assertFalse(any('docker' in row for row in args))
+        self.assertIn(('systemctl', 'start', 'nest-runner'), args)
         self.assertEqual(json.loads((ops.STATE / (self.job + '.json')).read_text())['state'], 'succeeded')
+
+    def test_native_restart_preserves_an_operator_execution_pause(self):
+        ops.RUNNER_PAUSE.touch()
+        with patch.object(ops, 'run') as command:
+            ops.execute(self.job, 'restart')
+        args = [call.args for call in command.call_args_list]
+        self.assertIn(('systemctl', 'start', 'nest-engine', 'nest-api'), args)
+        self.assertNotIn(('systemctl', 'start', 'nest-runner'), args)
+        self.assertTrue(ops.RUNNER_PAUSE.exists())
 
     def test_native_deploy_rejects_non_main_before_installer_or_download(self):
         with patch.object(ops, 'run', return_value='a' * 40) as command:
