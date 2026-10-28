@@ -4,7 +4,7 @@ import {apiJson} from './api';
 import {AgentAvatar} from './components/AgentAvatar';
 import './dashboard-activity.css';
 
-export function DashboardActivity({onSelect,query}:{onSelect:(id:string)=>void;query:string}){
+export function DashboardActivity({onSelect,query,refreshKey}:{onSelect:(id:string)=>void;query:string;refreshKey:number}){
   const [activity,setActivity]=useState<Activity|null>(null);
   const [error,setError]=useState(false);
   const [attempt,setAttempt]=useState(0);
@@ -26,7 +26,7 @@ export function DashboardActivity({onSelect,query}:{onSelect:(id:string)=>void;q
     const visible=()=>{void refresh();};
     window.addEventListener('focus',visible);document.addEventListener('visibilitychange',visible);
     return ()=>{stopped=true;controller.abort();clearInterval(timer);window.removeEventListener('focus',visible);document.removeEventListener('visibilitychange',visible);};
-  },[attempt]);
+  },[attempt,refreshKey]);
   const runs=activity?.runs.filter(run=>`${run.agent} ${run.channelName}`.toLowerCase().includes(query.toLowerCase()))??[];
   return <section className="dashboard-live" aria-label="Active runs">
     <div className="dashboard-section-title"><h2>Active runs {activity&&<span className="dashboard-pill">{activity.runs.length}{activity.limited?'+':''}</span>}</h2><button className="dashboard-action" onClick={()=>setAttempt(n=>n+1)}>Refresh runs</button></div>

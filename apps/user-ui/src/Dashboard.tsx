@@ -443,7 +443,7 @@ export function Dashboard({
             reason="Operational issue tracking is not connected."
           />
         </div>
-        <DashboardActivity onSelect={onSelect} query={query}/>
+        <DashboardActivity onSelect={onSelect} query={query} refreshKey={refresh}/>
         <div className="dashboard-columns">
           <section aria-label="Active projects">
             <SectionTitle
