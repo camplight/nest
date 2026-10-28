@@ -9,6 +9,7 @@
   width: 100%;
   cursor: pointer;
   align-items: center;
+  gap: 10px;
   justify-content: center;
   min-height: 44px;
   padding: 10px 18px;
@@ -20,6 +21,9 @@
     500 14px/20px Arial,
     sans-serif;
   text-decoration: none;
+}
+.google-sign-in-mark {
+  flex: none;
 }
 .google-sign-in-button:hover,
 .login-card .google-sign-in .google-sign-in-button:hover {
