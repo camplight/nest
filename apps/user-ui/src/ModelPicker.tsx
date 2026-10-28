@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useState,useRef} from 'react';
 import type {OpenRouterCatalog,OpenRouterModel} from '@nest/schemas';
 import {apiJson,getApiHeaders} from './api';
 import './model-picker.css';
@@ -18,7 +18,8 @@ export function ModelPicker({agentName,value,disabled,onChange}:{agentName:strin
   const [selected,setSelected]=useState(value.replace(/^openrouter:/,''));
   const [busy,setBusy]=useState(false);
   const [result,setResult]=useState('');
-  useEffect(()=>{setSelected(value.replace(/^openrouter:/,''));},[value]);
+  const checkedReference=useRef('');
+  useEffect(()=>{setSelected(value.replace(/^openrouter:/,''));if(checkedReference.current!==value)setResult('');},[value]);
   useEffect(()=>{
     const controller=new AbortController();setError('');
     void apiJson<OpenRouterCatalog>('/api/openrouter-models',{signal:controller.signal}).then(value=>{if(!value||!Array.isArray(value.models))throw Error('OpenRouter catalog unavailable. Use a configured model or an exact model ID.');setCatalog(value);}).catch(e=>{if(!controller.signal.aborted)setError(message(e));});
@@ -34,6 +35,7 @@ export function ModelPicker({agentName,value,disabled,onChange}:{agentName:strin
     setBusy(true);setResult('');
     try {
       const checked=await apiJson<{reference:string;latencyMs:number}>(`/api/agents/${encodeURIComponent(agentName)}/model-check`,{method:'POST',headers:getApiHeaders(),body:JSON.stringify({model:selected})});
+      checkedReference.current=checked.reference;
       onChange(checked.reference);
       setResult(`Tool-call check passed in ${(checked.latencyMs/1000).toFixed(1)}s. Save settings to use this model on the next turn.`);
     }catch(e){setResult(message(e));}finally{setBusy(false);}

@@ -126,7 +126,8 @@ if(process.env.CI)console.log('MODEL_PICKER_DESKTOP_JPEG:'+ (await page.locator(
 
 await page.setViewportSize({width:390,height:844});await page.screenshot({path:join(screenshotDir,'nest-agent-model-mobile.png'),fullPage:true});
 assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
-if(process.env.CI)console.log('MODEL_PICKER_MOBILE_JPEG:'+(await page.locator('.model-picker').screenshot({type:'jpeg',quality:65})).toString('base64'));
+await page.getByRole('button',{name:'Connect',exact:true}).click();await page.getByRole('status').filter({hasText:'Tool-call check passed'}).waitFor();
+if(process.env.CI){await page.setViewportSize({width:390,height:1700});console.log('MODEL_PICKER_MOBILE_JPEG:'+(await page.locator('.model-picker').screenshot({type:'jpeg',quality:65})).toString('base64'));}
 await page.setViewportSize({width:1440,height:1100});
 malformedCatalog=true;await page.reload();await page.getByRole('button',{name:'Retry catalog'}).waitFor();
 assert(await page.getByLabel('About this agent',{exact:true}).isEnabled());
