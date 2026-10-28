@@ -1253,6 +1253,24 @@ available in project details. Automatic naming prefers the enabled
 `openrouter:google/gemini-2.5-flash` catalog entry unless a naming model is explicitly
 configured. Without that entry it uses the default agent model.
 
+## Dashboard live activity
+
+The dashboard's Active runs section reads `/api/dashboard/activity` on mount,
+every 15 seconds while visible, and on focus/visibility return. It uses human-scoped
+engine HTTP reads for lifecycle events, agents and accessible channels; it never
+uses runner credentials or reads engine storage. Project task summaries and agent
+online state are not used as evidence of an active turn. Project and standalone
+conversations are included; archived/inaccessible conversations are excluded.
+
+The adapter pairs agent.turn.started with completed/failed by agent, channel and
+trigger; newer turns supersede older unterminated turns within that chat. Stopped
+or crashed agents suppress prior runs. Starts without recent start/agent-heartbeat
+evidence (120s) are shown as Status unconfirmed. The latest 1000 lifecycle events
+(excluding phase payloads) bound each request; a full window is labelled limited
+and its ambiguous timestamp boundary is omitted. Missing start telemetry cannot
+be reconstructed. Failures render unavailable rather than a misleading zero.
+Only names, channel links, timestamps and state are returned, never event bodies,
+commands or process output. Open chat uses normal conversation navigation.
 ## OpenRouter model picker
 
 Agent settings offer a collapsed-by-default model explorer, showing the selected

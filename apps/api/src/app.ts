@@ -1,3 +1,4 @@
+import {registerDashboardActivityRoutes} from './dashboard-activity';
 import {registerModelPickerRoutes} from './model-picker';
 import {createProjectNamingWorker} from './project-naming-worker';
 import {registerCollaborationRoutes} from './collaboration';
@@ -56,6 +57,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   registerIntegrationRoutes(app,{store,orgops,provider,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
   const defaultAgentModelId = config.defaultAgentModelId ?? process.env.NEST_DEFAULT_AGENT_MODEL_ID ?? config.personalAgent?.modelId ?? process.env.NEST_PERSONAL_AGENT_MODEL_ID;
   registerAgentModelRoutes(app, orgops, defaultAgentModelId);
+  registerDashboardActivityRoutes(app,orgops);
   registerModelPickerRoutes(app, orgops, {engineToken:config.connectionEngineToken??process.env.NEST_RUNNER_TOKEN});
   const managementName = process.env.NEST_MANAGEMENT_AGENT_NAME;
   const managementId = process.env.NEST_MANAGEMENT_AGENT_ID;

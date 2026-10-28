@@ -278,6 +278,29 @@ try {
         `PASS: before reference with synthetic data. Screenshots: ${screenshots}`,
       );
     } else {
+      const runChat=await request('/api/channels/direct/human-agent',{agentName:'Puff'});
+      const triggerEventId=randomUUID();
+      const emitTurn=async(type:string)=>request('/api/events',{type,source:'agent:Puff',channelId:runChat.id,payload:{triggerEventId}},'POST',{'content-type':'application/json','x-nest-runner-token':'test-runner'} as typeof headers);
+      await page.getByRole('region',{name:'Active runs'}).getByText('No active runs reported.',{exact:true}).waitFor();
+      await emitTurn('agent.turn.started');
+      // No WebSocket is available: the regular timer must pick up the run.
+      await page.getByRole('button',{name:'Open Puff run',exact:true}).waitFor({timeout:25000});
+      if(process.env.CI)console.log('DASHBOARD_RUNS_DESKTOP_JPEG:'+(await page.locator('.dashboard-live').screenshot({type:'jpeg',quality:65})).toString('base64'));
+      await page.setViewportSize({width:375,height:812});
+      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      if(process.env.CI)console.log('DASHBOARD_RUNS_MOBILE_JPEG:'+(await page.locator('.dashboard-live').screenshot({type:'jpeg',quality:65})).toString('base64'));
+      await page.getByRole('button',{name:'Open Puff run',exact:true}).click();
+      await page.waitForURL(url=>url.searchParams.get('channel')===runChat.id);
+      await page.goto('http://127.0.0.1:5312/?view=dashboard');
+      await emitTurn('agent.turn.completed');
+      await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+      await page.getByRole('region',{name:'Active runs'}).getByText('No active runs reported.',{exact:true}).waitFor({timeout:25000});
+      await page.route('**/api/dashboard/activity',route=>route.fulfill({status:503,json:{error:'Unavailable'}}));
+      await page.getByRole('button',{name:'Refresh runs',exact:true}).click();await page.getByRole('button',{name:'Retry activity'}).waitFor();
+      assert.equal(await page.getByText('No active runs reported.',{exact:true}).count(),0);
+      await page.unroute('**/api/dashboard/activity');await page.getByRole('button',{name:'Retry activity'}).click();
+      await page.getByRole('region',{name:'Active runs'}).getByText('No active runs reported.',{exact:true}).waitFor();
+      await page.setViewportSize({width:1440,height:1100});
       const controls = page.getByRole("group", { name: "Workspace controls" });
       assert.equal(await controls.getByRole("button").count(), 5);
       assert(await controls.getByRole("button", {name:"Quick tour",exact:true}).isVisible());

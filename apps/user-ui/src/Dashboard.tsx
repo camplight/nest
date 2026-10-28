@@ -1,3 +1,4 @@
+import {DashboardActivity} from './DashboardActivity';
 import type {
   CommunityCatalog,
   CommunitySkill,
@@ -442,6 +443,7 @@ export function Dashboard({
             reason="Operational issue tracking is not connected."
           />
         </div>
+        <DashboardActivity onSelect={onSelect} query={query} refreshKey={refresh} channelNames={Object.fromEntries(channels.map(channel=>[channel.id,label(channel)]))}/>
         <div className="dashboard-columns">
           <section aria-label="Active projects">
             <SectionTitle
