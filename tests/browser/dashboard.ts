@@ -387,7 +387,7 @@ try {
           document.querySelectorAll(".project-grid .project-summary").length ===
           1,
       );
-      await nav.getByRole("button", { name: "Agents", exact: true }).click();
+      await nav.getByRole("button", { name: "All agents", exact: true }).click();
       assert.equal(
         await page
           .getByRole("group", { name: "Workspace controls" })
@@ -688,6 +688,9 @@ try {
       await page.getByRole('button',{name:'Menu',exact:true}).tap();
       await page.locator('.sidebar-mobile-open').waitFor({state:'visible'});
       await nav.getByRole('button',{name:'Agents',exact:true}).tap();
+      assert.equal(await nav.getByRole('button',{name:'Agents',exact:true}).getAttribute('aria-expanded'),'false');
+      await nav.getByRole('button',{name:'Agents',exact:true}).tap();
+      await nav.getByRole('button',{name:'All agents',exact:true}).tap();
       await page.waitForURL(url=>url.searchParams.get('view')==='agents');
       await page.getByRole('button',{name:'Menu',exact:true}).tap();
       await nav.getByRole('button',{name:'Dashboard',exact:true}).tap();

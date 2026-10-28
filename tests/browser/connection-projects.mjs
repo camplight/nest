@@ -36,7 +36,7 @@ try {
   await route.fulfill({json:data});
  });
  await page.routeWebSocket('**/ws',()=>{});
- await page.goto(base+'/?view=agents&agent=DemoAssistant');
+ await page.goto(base+'/?view=agents&agent=DemoAssistant&tab=connections');
  await page.getByRole('heading',{name:'Connected apps',exact:true}).waitFor();
  assert.equal(await page.getByRole('heading',{name:'Project access',exact:true}).count(),0);
  await page.getByText('How access works',{exact:true}).click();
