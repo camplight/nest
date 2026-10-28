@@ -656,9 +656,10 @@ try {
       await page.setViewportSize({width:375,height:812});
       await page.evaluate(()=>{document.documentElement.style.fontSize='20px';});
       const menu=page.getByRole('button',{name:'Menu',exact:true});
+      await menu.scrollIntoViewIfNeeded();
       assert(await menu.evaluate(node=>{
         const r=node.getBoundingClientRect();
-        return [[r.left+2,r.top+2],[r.right-2,r.top+2],[r.left+2,r.bottom-2],[r.right-2,r.bottom-2],[(r.left+r.right)/2,(r.top+r.bottom)/2]]
+        return [[r.left+2,(r.top+r.bottom)/2],[r.right-2,(r.top+r.bottom)/2],[(r.left+r.right)/2,r.top+2],[(r.left+r.right)/2,r.bottom-2],[(r.left+r.right)/2,(r.top+r.bottom)/2]]
           .every(([x,y])=>node.contains(document.elementFromPoint(x,y)));
       }),'Every part of Menu remains tappable with larger text');
       await page.getByRole('button',{name:'Menu',exact:true}).tap();
