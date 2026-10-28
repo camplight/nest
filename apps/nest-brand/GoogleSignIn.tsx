@@ -22,6 +22,8 @@ export function GoogleSignIn({
     enabled: boolean;
     allowedDomain: string;
   } | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [error] = useState(
     () =>
       messages[
@@ -30,17 +32,27 @@ export function GoogleSignIn({
   );
   useEffect(() => {
     const controller = new AbortController();
+    setUnavailable(false);
     void fetch(apiUrl("/api/auth/google/config"), {
       credentials: "include",
-      signal: controller.signal,
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]),
     })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        if (!r.ok) throw new Error("Sign-in availability check failed");
+        return r.json();
+      })
       .then((value) => {
+        if (typeof value?.enabled !== "boolean" ||
+            (value.enabled && typeof value.allowedDomain !== "string")) {
+          throw new Error("Invalid sign-in configuration");
+        }
         if (!controller.signal.aborted) setConfig(value);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!controller.signal.aborted) setUnavailable(true);
+      });
     return () => controller.abort();
-  }, [apiUrl]);
+  }, [apiUrl, attempt]);
   return (
     <>
       {error && (
@@ -48,7 +60,15 @@ export function GoogleSignIn({
           {error}
         </p>
       )}
-      {config?.enabled && (
+      {unavailable && (
+        <div className="google-sign-in" role="status">
+          <p>Google sign-in is temporarily unavailable.</p>
+          <button type="button" className="google-sign-in-button" onClick={() => setAttempt(value => value + 1)}>
+            Retry Google sign-in
+          </button>
+        </div>
+      )}
+      {!unavailable && config?.enabled && (
         <div className="google-sign-in">
           <a
             className="google-sign-in-button"

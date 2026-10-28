@@ -63,29 +63,28 @@ unchanged, and conflicting agents are never overwritten or renamed automatically
 2. Retrieve NestSystem's existing ID through the authenticated agent API. Set
    `NEST_MANAGEMENT_AGENT_NAME=NestSystem` and `NEST_MANAGEMENT_AGENT_ID=<existing ID>`
    in the private host environment. Keep the existing runner key/default model.
-3. Back up the current persistent `nestsystem-bridge.mjs` outside the webroot.
-   Also retrieve and back up NestSystem's `wrappedConfig` through the authenticated
-   agent API. Some existing installations embed an encoded bridge in
-   `wrappedConfig.setup.command`; OrgOps reruns that setup after runner restarts.
-   Update that embedded copy to the reviewed bridge through
-   `PATCH /api/agents/NestSystem`, preserving all other configuration fields.
-   Replacing only the persistent file lets the old setup overwrite it on restart.
-   Install `/app/deploy/nestsystem-bridge.mjs` at
-   `/app/.nest-data/codex-runtime/nestsystem-bridge.mjs`. This is a targeted operator
-   action; Nest's launcher does not install runtime bridges, but the agent's saved
-   setup can regenerate them. Preserve the workspace,
-   `nestsystem-sessions` directory, Codex home/login and all other bridges.
+3. On runner startup, Nest's launcher retrieves the explicitly pinned NestSystem
+   record through authenticated HTTP. It migrates the recognized legacy command
+   to run `/app/deploy/nestsystem-bridge.mjs` directly and removes the generated
+   embedded old-file write from setup. Other setup/config fields are preserved.
+   The previous configuration is saved with mode 600 under
+   `.nest-data/codex-runtime/bridge-config-backups`. Existing bridge files,
+   workspaces, `nestsystem-sessions`, Codex home/login and other agents are retained.
+   Custom recipes produce `nest.bridge.reconcile needs-review` and are not
+   modified. For those, review and update the runtime command explicitly through
+   the agent API; do not replace arbitrary setup commands. The release-owned
+   executable is the single source for subsequent updates, so a stored old setup
+   cannot restore the executable used by NestSystem.
 4. Recreate/restart through the host controller so the API reads the allowlist.
    Check authenticated `context` from NestSystem's bridge environment before creation.
    The bridge adds management instructions on resumed turns as well as new sessions.
-   After startup setup finishes, compare the persistent bridge with the reviewed
-   image copy and run the helper as UID 1000. Verify the saved setup contains the
-   reviewed bridge too; a context check alone does not prove that future Codex turns
-   receive the management capability.
+   Verify the saved runtime command points at the release-owned bridge and run
+   the helper as UID 1000. A context check alone does not prove which executable
+   future Codex turns use. Restoring an old release may require restoring the
+   backed-up configuration if it predates the release-owned path.
    For progress updates, verify the image's adapter is readable as the runtime
    user, then check a synthetic long turn shows an update before its final reply.
-   Install both the UI and adapter before refreshing the persistent bridge and
-   saved setup. Progress delivery is bounded and best-effort; an engine outage
+   Deploy the UI, adapter and bridge together. Progress delivery is bounded and best-effort; an engine outage
    reports a generic diagnostic and does not discard the final reply.
 
 Disable management by removing the two `NEST_MANAGEMENT_AGENT_*` settings and
@@ -127,8 +126,8 @@ new account, role change or connected-tool access. Native agents’ existing eng
 membership tools retain their original permissions; this signed delegation path
 is for the configured trusted wrapped manager.
 
-Deploy the updated API, helper, skill and bridge instructions together. Refresh
-both the persistent bridge and its embedded saved setup using operator step 3;
+Deploy the updated API, helper, skill and bridge instructions together. Verify
+the release-owned runtime command using operator step 3;
 a source update alone does not install them. Request-bound signing and credentials
 remain compatible. Back up both databases
 as usual; this extension adds no migration beyond the project collaboration policy

@@ -2,9 +2,12 @@
   width: 100%;
   margin: 16px 0;
 }
-.google-sign-in-button {
+.google-sign-in .google-sign-in-button,
+.login-card .google-sign-in .google-sign-in-button {
   box-sizing: border-box;
   display: flex;
+  width: 100%;
+  cursor: pointer;
   align-items: center;
   justify-content: center;
   min-height: 44px;
@@ -18,7 +21,8 @@
     sans-serif;
   text-decoration: none;
 }
-.google-sign-in-button:hover {
+.google-sign-in-button:hover,
+.login-card .google-sign-in .google-sign-in-button:hover {
   background: #f2f2f2;
 }
 .google-sign-in-button:focus-visible {

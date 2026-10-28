@@ -1,7 +1,10 @@
 import { serve } from '@hono/node-server';
 import { resolve } from 'node:path';
 import { configureOrgOpsEnv } from './orgops-env';
+import { reconcileNestSystemBridge } from './reconcile-nestsystem-bridge.mjs';
 
+// The engine must not receive product management allowlist settings.
+const managedAgent = {agentName: process.env.NEST_MANAGEMENT_AGENT_NAME, agentId: process.env.NEST_MANAGEMENT_AGENT_ID};
 const {dataDir} = configureOrgOpsEnv(process.argv[2] === 'runner' ? 'runner' : 'api');
 if (process.argv[2] === 'runner') {
   process.env.ORGOPS_API_URL = process.env.NEST_RUNNER_API_URL ?? process.env.NEST_API_URL ?? process.env.ORGOPS_URL ?? 'http://127.0.0.1:8788';
@@ -11,6 +14,8 @@ if (process.argv[2] === 'runner') {
     if (Date.now() > deadline) throw new Error('OrgOps API did not become ready');
     await new Promise(resolve => setTimeout(resolve, 500));
   }
+  const bridge = await reconcileNestSystemBridge({...managedAgent, apiUrl: process.env.ORGOPS_API_URL, token: process.env.ORGOPS_RUNNER_TOKEN, dataDir});
+  if (bridge !== 'not-configured') console.log('nest.bridge.reconcile', bridge);
   const {loop} = await import('../vendor/orgops/apps/agent-runner/src/runner');
   await loop();
 } else {

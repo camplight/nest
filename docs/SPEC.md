@@ -120,6 +120,21 @@ remain stable. Native units set absolute `NEST_ENGINE_DATA_DIR` and `NEST_FILES_
 Nest-owned compatibility links are repointed atomically so retiring an old
 release cannot break skills/uploads. Real user directories are never replaced. No upstream code is edited or patched.
 
+On runner startup, Nest's launcher reconciles only the explicitly allowlisted
+NestSystem ID through the engine HTTP API. A recognized legacy Codex recipe is
+backed up privately under the persistent `codex-runtime/bridge-config-backups`
+directory and switched to `/app/deploy/nestsystem-bridge.mjs`. The generated
+embedded old-file installer is removed while other setup fields, session scope,
+workspace, timeout and credentials remain unchanged. Custom recipes require
+operator review; other agents are not rewritten. There is no engine DB access.
+Subsequent releases supply the executable without copying code into runtime data.
+
+The shared Google sign-in control distinguishes an explicitly disabled provider
+from a failed, malformed or timed-out availability check. Unavailable checks offer
+Retry without resetting password fields or navigating away. Native activation
+checks that a previously enabled provider retains its enabled state and domain;
+it does not perform an OAuth login or claim Google itself is available.
+
 Whole process trees have separate 320/512/768 MiB API/engine/runner limits within
 a 1536 MiB RAM / 512 MiB swap / 80% CPU slice. These are not agent sandboxes.
 Re-running the script stages another prebuilt release and snapshots both stopped

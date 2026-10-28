@@ -164,6 +164,19 @@ for unit in nest-api.service nest-engine.service nest-runner.service nest-caddy.
   [[ ! -f /etc/systemd/system/$unit ]] || cp -a "/etc/systemd/system/$unit" "$backup/units/"
 done
 printf '%s\n' "$old_release" > "$backup/release"
+# Public provider availability is a deployment invariant, not a credential dump.
+# An already unavailable engine does not prevent an explicitly requested recovery.
+python3 - "$backup/google-sign-in.json" <<'PY'
+import json,pathlib,sys,urllib.request
+state={'available':False}
+try:
+    with urllib.request.urlopen('http://127.0.0.1:8787/api/auth/google/config',timeout=5) as response:
+        data=json.load(response)
+    if isinstance(data.get('enabled'),bool):
+        state={'available':True,'enabled':data['enabled'],'allowedDomain':data.get('allowedDomain')}
+except Exception: pass
+pathlib.Path(sys.argv[1]).write_text(json.dumps(state))
+PY
 committed=0
 databases_snapshotted=0
 recover() {
@@ -313,6 +326,15 @@ for attempt in $(seq 1 60); do
 done
 curl --fail --silent --max-time 5 http://127.0.0.1:8787/health >/dev/null
 systemctl is-active --quiet nest-engine nest-api nest-runner
+python3 - "$backup/google-sign-in.json" <<'PY'
+import json,pathlib,sys,urllib.request
+previous=json.loads(pathlib.Path(sys.argv[1]).read_text())
+if previous.get('enabled'):
+    with urllib.request.urlopen('http://127.0.0.1:8787/api/auth/google/config',timeout=5) as response:
+        current=json.load(response)
+    if not current.get('enabled') or current.get('allowedDomain')!=previous.get('allowedDomain'):
+        raise SystemExit('Google sign-in regressed during activation; restoring the previous release/configuration.')
+PY
 "$node_dir/bin/node" --env-file=/etc/nest/runtime.env --input-type=module <<'JS'
 import {readFileSync} from 'node:fs';
 let expected; for(let i=0;i<30;i++){try{expected=readFileSync('/app/.nest-data/runner-id','utf8').trim();break;}catch{await new Promise(r=>setTimeout(r,1000));}}
