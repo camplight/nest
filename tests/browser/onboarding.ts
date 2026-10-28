@@ -308,6 +308,7 @@ try {
       1,
     );
     {
+      await page.getByRole('navigation',{name:'PuffVitaliy workspace'}).getByRole('button',{name:'Connected apps',exact:true}).click();
       await page
         .getByRole("button", { name: "Connect account", exact: true })
         .waitFor();
@@ -618,6 +619,7 @@ try {
       ).json();
       assert.deepEqual(revoked, []);
     }
+    await page.getByRole('navigation',{name:'PuffVitaliy workspace'}).getByRole('button',{name:'Settings',exact:true}).click();
     await page.getByRole('heading',{name:'Agent details',exact:true}).scrollIntoViewIfNeeded();
     await page.screenshot({path:join(screenshots,'agent-settings-desktop.png'),fullPage:true});
     await page.setViewportSize({width:390,height:844});

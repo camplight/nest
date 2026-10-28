@@ -113,7 +113,7 @@ function AgentDetails({ tab,name, userId, onSaved, setup, onChat, onResume }: { 
     }catch(reason){setError(errorMessage(reason));}finally{setBusy(false);}
   }
   return <>
-    <div className="dashboard-title"><h1>{tab==='connections'?'Connected apps':'Agent details'}</h1>{setup?.setup?.name === name && setup.setup.channelId && <button className="dashboard-action" disabled={busy} onClick={()=>void openConversation()}>Open private chat</button>}</div>
+    <div className="dashboard-title"><h1>{tab==='connections'?'Agent connections':'Agent details'}</h1>{setup?.setup?.name === name && setup.setup.channelId && <button className="dashboard-action" disabled={busy} onClick={()=>void openConversation()}>Open private chat</button>}</div>
     {setup?.setup?.name === name && !setup.setup.channelId && <p role="status">Your agent was created, but its private chat still needs setup. <button className="dashboard-action" onClick={onResume}>Resume agent setup</button></p>}
     {error && <div className="notice error" role="alert">{error}{!agent && <button onClick={() => setAttempt(a => a + 1)}>Try again</button>}</div>}
     {!agent && !error && <p role="status">Loading agent settings…</p>}
