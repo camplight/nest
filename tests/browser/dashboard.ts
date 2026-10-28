@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { chromium, webkit } from "playwright";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { execFileSync } from "node:child_process";
@@ -78,11 +78,12 @@ const server = await createServer({
 });
 try {
   await server.listen();
-  const browser = await chromium.launch({ headless: true });
+  const browser = await (process.argv.includes("--webkit")?webkit:chromium).launch({ headless: true });
   try {
     const page = await browser.newPage({
       viewport: { width: 1440, height: 1290 },
       reducedMotion: "no-preference",
+      hasTouch: true,
     });
     page.setDefaultTimeout(15000);
     async function capture(name: string) {
@@ -652,6 +653,22 @@ try {
       await capture("dashboard-dark-desktop.png");
       await page.getByRole("button", { name: "Switch to light theme" }).click();
       await page.setViewportSize({ width: 390, height: 844 });
+      await page.setViewportSize({width:375,height:812});
+      await page.getByRole('button',{name:'Menu',exact:true}).tap();
+      await page.locator('.sidebar-mobile-open').waitFor({state:'visible'});
+      await nav.getByRole('button',{name:'Agents',exact:true}).tap();
+      await page.waitForURL(url=>url.searchParams.get('view')==='agents');
+      await page.getByRole('button',{name:'Menu',exact:true}).tap();
+      await nav.getByRole('button',{name:'Dashboard',exact:true}).tap();
+      await page.getByRole('heading',{name:'Dashboard',exact:true}).waitFor();
+      const mobileProjects=page.getByRole('region',{name:'Active projects',exact:true});
+      await mobileProjects.getByRole('button',{name:'Next active projects card',exact:true}).tap();
+      await mobileProjects.getByRole('status').filter({hasText:'Card 2 of'}).waitFor();
+      await mobileProjects.locator('.dashboard-project-card').tap();
+      await page.waitForURL(url=>Boolean(url.searchParams.get('project')));
+      await page.getByRole('button',{name:'Menu',exact:true}).tap();
+      await nav.getByRole('button',{name:'Dashboard',exact:true}).tap();
+      await page.getByRole('heading',{name:'Dashboard',exact:true}).waitFor();
       await capture("dashboard-mobile-top.png");
       await projects.scrollIntoViewIfNeeded();
       await capture("dashboard-mobile-work.png");
