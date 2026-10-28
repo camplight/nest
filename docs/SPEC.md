@@ -140,6 +140,9 @@ Native activation preserves the operator's `/etc/nest/runner-paused` marker.
 the runner unit and restricted restart controller respect it. A paused rollout
 checks API/provider/demo availability without requiring or claiming a runner
 heartbeat. This permits product updates while an upstream execution fix is pending.
+The watchdog continues inspecting the two APIs during that execution pause and
+excludes only the runner. API recovery respects the same pause marker, deployment
+lock and cooldown; intentionally stopping an API still suppresses recovery.
 
 Whole process trees have separate 320/512/768 MiB API/engine/runner limits within
 a 1536 MiB RAM / 512 MiB swap / 80% CPU slice. These are not agent sandboxes.

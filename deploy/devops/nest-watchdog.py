@@ -12,6 +12,7 @@ CONTAINER = 'nest-nest-1'
 STATE = Path('/var/lib/nest-watchdog/state.json')
 DEPLOY_LOCK = Path('/opt/nest/operations/deployment.lock')
 NATIVE_CONFIG = Path('/etc/nest/native.json')
+RUNNER_PAUSE = Path('/etc/nest/runner-paused')
 FAILURES_REQUIRED = 3
 COOLDOWN_SECONDS = 3600
 
@@ -23,7 +24,8 @@ def run(*args, timeout=15):
 
 def inspect_native():
     units = []
-    for unit in ('nest-api', 'nest-engine', 'nest-runner'):
+    watched = ('nest-api', 'nest-engine') if RUNNER_PAUSE.exists() else ('nest-api', 'nest-engine', 'nest-runner')
+    for unit in watched:
         values = dict(line.split('=', 1) for line in run('systemctl', 'show', unit, '--property=ActiveState,ActiveEnterTimestampMonotonic').splitlines() if '=' in line)
         units.append(values)
     if any(u.get('ActiveState') not in ('active', 'failed') for u in units):
@@ -115,7 +117,9 @@ def recover():
         if action == 'restart' and NATIVE_CONFIG.exists():
             run('systemctl', 'stop', 'nest-runner', 'nest-api', 'nest-engine', timeout=100)
             run('systemctl', 'reset-failed', 'nest-runner', 'nest-api', 'nest-engine')
-            run('systemctl', 'start', 'nest-engine', 'nest-api', 'nest-runner', timeout=100)
+            run('systemctl', 'start', 'nest-engine', 'nest-api', timeout=100)
+            if not RUNNER_PAUSE.exists():
+                run('systemctl', 'start', 'nest-runner', timeout=100)
             print('Nest watchdog: native service restart requested')
         elif action == 'restart':
             # Safe fields only; do not collect commands, application logs or env.

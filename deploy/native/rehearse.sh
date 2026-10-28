@@ -75,6 +75,12 @@ python3 deploy/native/smoke.py
 install_host --pause-runner
 test -f /etc/nest/runner-paused
 ! systemctl is-active --quiet nest-runner
+python3 - <<'PY'
+import importlib.util
+spec=importlib.util.spec_from_file_location('watchdog','/usr/local/lib/nest-watchdog.py')
+watchdog=importlib.util.module_from_spec(spec);spec.loader.exec_module(watchdog)
+assert watchdog.inspect_native()['health']=='healthy','Paused execution disabled API monitoring'
+PY
 install_host
 systemctl start nest-runner
 ! systemctl is-active --quiet nest-runner
