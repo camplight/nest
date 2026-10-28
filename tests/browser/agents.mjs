@@ -187,15 +187,15 @@ await page.reload();await page.getByRole('navigation',{name:'NestSystem workspac
 await mainNav.getByRole('button',{name:'Dashboard',exact:true}).click();
 await mainNav.getByRole('button',{name:'NestSystem',exact:true}).click();
 await page.waitForURL('**channel=agent-second');
-if(process.env.CI)console.log('AGENT_WORKSPACE_DESKTOP_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
+if(process.env.CI)console.log('AGENT_WORKSPACE_DESKTOP_JPEG:'+(await page.screenshot({type:'jpeg',quality:65,animations:'disabled'})).toString('base64'));
 await page.setViewportSize({width:375,height:812});
 await page.getByRole('button',{name:'Menu',exact:true}).click();
 await mainNav.getByRole('button',{name:'First conversation',exact:true}).click();
 await page.waitForURL('**channel=agent-first');
 assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
-if(process.env.CI)console.log('AGENT_WORKSPACE_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
+if(process.env.CI)console.log('AGENT_WORKSPACE_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65,animations:'disabled'})).toString('base64'));
 await page.getByRole('button',{name:'Menu',exact:true}).click();
-if(process.env.CI)console.log('AGENT_SIDEBAR_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
+if(process.env.CI)console.log('AGENT_SIDEBAR_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65,animations:'disabled'})).toString('base64'));
 malformedDirectory=true;await page.goto(`${base}/?view=agents`);await page.getByRole('alert').filter({hasText:'Shared agents are unavailable'}).waitFor();await page.getByRole('button',{name:'Manage NestSystem',exact:true}).waitFor();
 assert.equal(fullHealthRequests,0);assert(connectionRequests>0);assert.deepEqual(errors,[]);console.log('PASS: directory, selected navigation, encoded direct links, reload, history, settings persistence, failed saves, private read-only, wrapped settings, missing agents, chat links, dashboard links, mobile and avatar assets.');
 console.log(`Screenshots: ${screenshotDir}`);
