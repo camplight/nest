@@ -186,8 +186,26 @@ try {
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.screenshot({path: join(screenshots, "google-admin-login-mobile.png"), fullPage: true});
     await page.setViewportSize({ width: 1440, height: 1100 });
+    // An engine outage must be distinguishable from an explicitly disabled
+    // provider, and recovery must not require reloading the login page.
+    let configUnavailable = true;
+    await page.route('**/api/auth/google/config', async route => {
+      if (configUnavailable) await route.fulfill({status:502,contentType:'application/json',body:JSON.stringify({error:'Synthetic engine outage'})});
+      else await route.continue();
+    });
     await page.goto("http://127.0.0.1:5300/");
+    await page.getByText('Google sign-in is temporarily unavailable.',{exact:true}).waitFor();
+    assert.equal(await page.getByRole('link',{name:'Continue with Google'}).count(),0);
+    await page.screenshot({path:join(screenshots,'google-unavailable-desktop.png'),fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await page.screenshot({path:join(screenshots,'google-unavailable-mobile.png'),fullPage:true});
+    configUnavailable = false;
+    await page.getByRole('button',{name:'Retry Google sign-in'}).click();
     await page.getByRole("link", { name: "Continue with Google" }).waitFor();
+    assert.equal(await page.getByText('Google sign-in is temporarily unavailable.',{exact:true}).count(),0);
+    await page.unroute('**/api/auth/google/config');
+    await page.setViewportSize({width:1440,height:1100});
     await page.screenshot({
       path: join(screenshots, "google-login-desktop.png"),
       fullPage: true,
@@ -257,7 +275,7 @@ try {
       .waitFor();
     assert.deepEqual(errors, []);
     console.log(
-      `PASS: demo login redirects, password error/retry and Google return with query/fragment, disabled/enabled login, owner settings, desktop/mobile layouts, admin return URL, simulated Google redirect through real engine/gateway, JIT account and nonowner denial. Screenshots: ${screenshots}`,
+      `PASS: Google availability outage/retry without reload, demo login redirects, password error/retry and Google return with query/fragment, disabled/enabled login, owner settings, desktop/mobile layouts, admin return URL, simulated Google redirect through real engine/gateway, JIT account and nonowner denial. Screenshots: ${screenshots}`,
     );
   } finally {
     await browser.close();

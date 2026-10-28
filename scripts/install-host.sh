@@ -3,9 +3,10 @@
 set -euo pipefail
 umask 077
 root=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
-usage() { echo 'Usage: sudo scripts/install-host.sh --release FILE --sha256 HEX --domain HOST [--env-file PRIVATE_FILE] [--import-docker]'; }
+usage() { echo 'Usage: sudo scripts/install-host.sh --release FILE --sha256 HEX --domain HOST [--env-file PRIVATE_FILE] [--import-docker] [--pause-runner|--resume-runner]'; }
 artifact= digest= domain= env_file=
 import_docker=0
+runner_mode=preserve
 while (($#)); do
   case "$1" in
     --release|--sha256|--domain|--env-file)
@@ -13,6 +14,9 @@ while (($#)); do
       case "$1" in --release) artifact=$2;; --sha256) digest=$2;; --domain) domain=$2;; --env-file) env_file=$2;; esac
       shift 2;;
     --import-docker) import_docker=1; shift;;
+    --pause-runner|--resume-runner)
+      [[ $runner_mode == preserve ]] || { echo 'Choose one runner mode.' >&2; exit 2; }
+      runner_mode=${1#--}; shift;;
     --help|-h) usage; exit 0;;
     *) usage >&2; exit 2;;
   esac
@@ -164,6 +168,19 @@ for unit in nest-api.service nest-engine.service nest-runner.service nest-caddy.
   [[ ! -f /etc/systemd/system/$unit ]] || cp -a "/etc/systemd/system/$unit" "$backup/units/"
 done
 printf '%s\n' "$old_release" > "$backup/release"
+# Public provider availability is a deployment invariant, not a credential dump.
+# An already unavailable engine does not prevent an explicitly requested recovery.
+python3 - "$backup/google-sign-in.json" <<'PY'
+import json,pathlib,sys,urllib.request
+state={'available':False}
+try:
+    with urllib.request.urlopen('http://127.0.0.1:8787/api/auth/google/config',timeout=5) as response:
+        data=json.load(response)
+    if isinstance(data.get('enabled'),bool):
+        state={'available':True,'enabled':data['enabled'],'allowedDomain':data.get('allowedDomain')}
+except Exception: pass
+pathlib.Path(sys.argv[1]).write_text(json.dumps(state))
+PY
 committed=0
 databases_snapshotted=0
 recover() {
@@ -199,7 +216,9 @@ PY
       ln -sfn "$old_release" /app
       for tool in codex claude; do ln -sfn "$old_release/deploy/native/agent-clis/node_modules/.bin/$tool" "/usr/local/bin/$tool"; done
       systemctl reset-failed nest-engine nest-api nest-runner nest-caddy 2>/dev/null || true
-      systemctl start nest-engine nest-api nest-runner nest-caddy
+      systemctl start nest-engine nest-api
+      if [[ ! -f /etc/nest/runner-paused ]]; then systemctl start nest-runner; fi
+      systemctl start nest-caddy
       curl --fail --silent --show-error --max-time 5 --retry 30 --retry-all-errors --retry-delay 1 --output /dev/null http://127.0.0.1:8787/health
       if [[ -f $backup/units/nest-native-watchdog.timer ]]; then systemctl start nest-native-watchdog.timer; fi
     else
@@ -281,6 +300,10 @@ for area in ('engine','product'):
 PY
 databases_snapshotted=1
 [[ -z $env_file ]] || install -m 600 -o node -g node "$env_file" /etc/nest/runtime.env
+case $runner_mode in
+  pause-runner) install -m 600 /dev/null /etc/nest/runner-paused;;
+  resume-runner) rm -f /etc/nest/runner-paused;;
+esac
 # Parse without logging any values. Keys that change state roots require explicit migration.
 "$node_dir/bin/node" --env-file=/etc/nest/runtime.env --input-type=module <<'JS'
 import {parseEnv} from 'node:util'; import {readFileSync} from 'node:fs';
@@ -306,13 +329,25 @@ NEST_DOMAIN="$domain" "$caddy_dir/caddy" validate --config /etc/nest/Caddyfile -
 systemd-analyze verify "$release"/deploy/native/systemd/*.service
 systemctl daemon-reload
 systemctl reset-failed nest-engine nest-api nest-runner nest-caddy 2>/dev/null || true
-systemctl start nest-engine nest-api nest-runner
+systemctl start nest-engine nest-api
+if [[ ! -f /etc/nest/runner-paused ]]; then systemctl start nest-runner; fi
 for attempt in $(seq 1 60); do
   if curl --fail --silent --max-time 2 http://127.0.0.1:8787/health >/dev/null; then break; fi
   sleep 1
 done
 curl --fail --silent --max-time 5 http://127.0.0.1:8787/health >/dev/null
-systemctl is-active --quiet nest-engine nest-api nest-runner
+systemctl is-active --quiet nest-engine nest-api
+if [[ ! -f /etc/nest/runner-paused ]]; then systemctl is-active --quiet nest-runner; fi
+python3 - "$backup/google-sign-in.json" <<'PY'
+import json,pathlib,sys,urllib.request
+previous=json.loads(pathlib.Path(sys.argv[1]).read_text())
+if previous.get('enabled'):
+    with urllib.request.urlopen('http://127.0.0.1:8787/api/auth/google/config',timeout=5) as response:
+        current=json.load(response)
+    if not current.get('enabled') or current.get('allowedDomain')!=previous.get('allowedDomain'):
+        raise SystemExit('Google sign-in regressed during activation; restoring the previous release/configuration.')
+PY
+if [[ ! -f /etc/nest/runner-paused ]]; then
 "$node_dir/bin/node" --env-file=/etc/nest/runtime.env --input-type=module <<'JS'
 import {readFileSync} from 'node:fs';
 let expected; for(let i=0;i<30;i++){try{expected=readFileSync('/app/.nest-data/runner-id','utf8').trim();break;}catch{await new Promise(r=>setTimeout(r,1000));}}
@@ -325,6 +360,10 @@ for(let i=0;i<60;i++) {
 }
 if(!ready) throw Error('Runner registration/heartbeat failed');
 JS
+else
+  ! systemctl is-active --quiet nest-runner
+  echo 'Runner remains intentionally paused; agent execution/heartbeat is not claimed.'
+fi
 # Pre-open checks: public demos must still require a human session.
 [[ $(curl --silent --max-time 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/demo/kibrit-software-factory) == 401 ]]
 systemctl enable nest-engine nest-api nest-runner nest-caddy >/dev/null

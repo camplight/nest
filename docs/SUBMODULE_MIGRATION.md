@@ -350,22 +350,34 @@ controls can adapt OrgOps's existing targeted scheduled triggers through HTTP.
 
 ## NestSystem agent creation
 
+Nest's launcher now migrates a recognized legacy NestSystem bridge recipe to the
+release-owned `/app/deploy/nestsystem-bridge.mjs` path through authenticated engine
+HTTP. This requires the existing explicit management name/ID allowlist. It backs
+up the old configuration privately and preserves sessions, credentials, runtime
+directories and other agents. No engine schema/source/pin change is needed.
+Custom recipes are reported for operator review. Google availability recovery and
+the native provider-preservation activation check are also Nest-owned changes.
+The upstream event-search amplification fix is a separate dependency tracked in
+ROADMAP.md, not included in this change.
+Native paused-runner activation can ship the product changes while that dependency
+is pending; the configuration marker survives upgrades and explicit restarts.
+
 The NestSystem progress fix uses the pinned engine's existing `agent.turn.phase`
 HTTP/WS event and runner credential. No engine source, pin, database migration,
 new permission or Codex authentication change is needed. Deploy the product UI and
-`packages/orgops-client/src/wrapped-progress.mjs` together, then refresh both the
-persistent NestSystem bridge and its embedded saved setup following
-[AGENT_MANAGEMENT.md](AGENT_MANAGEMENT.md). Back up both copies first. A repository
-deploy alone does not update a bridge already on the persistent volume. Preserve
+`packages/orgops-client/src/wrapped-progress.mjs` together, then verify the
+release-owned NestSystem runtime command following
+[AGENT_MANAGEMENT.md](AGENT_MANAGEMENT.md). The launcher backs up and migrates recognized pinned recipes; custom recipes
+require operator review. Preserve
 session mappings, login, workspaces and other agent bridges. Verify a long turn
 shows a progress line before completion and produces one final reply; transport
 failure must still permit the existing final-response path.
 
 The permanent Nest management adapter uses existing agent/event/channel/model/runner
 HTTP APIs at the unchanged engine pin. No database migration is required. Deployment
-alone does not install the persistent wrapped bridge or grant management permission.
-The operator must pin the existing manager ID in the private environment and install
-the reviewed NestSystem bridge, preserving Codex sessions/login and other bridges.
+alone does not grant management permission. The operator must pin the existing
+manager ID in the private environment; recognized recipes then migrate to the
+release-owned bridge, preserving Codex sessions/login and other agents.
 Back up the environment and previous bridge as well as both databases. Follow
 [AGENT_MANAGEMENT.md](AGENT_MANAGEMENT.md) for installation and revocation.
 The owner-scoped exact-name lookup for later retries uses the same existing agent
@@ -394,9 +406,8 @@ The management adapter adds minimal roster lookup and channel subscription throu
 existing OrgOps HTTP endpoints. No submodule pin/source, database migration or new
 runtime credential is needed beyond PR35's existing product migration008. Deploy
 the updated Nest API, management helper/skill and bridge instructions together.
-Refresh the persistent NestSystem bridge and its embedded saved setup following
-[operator installation](AGENT_MANAGEMENT.md#operator-installation); updating source
-alone does not install either copy. Signed request-bound credentials stay compatible. The management
+Verify the release-owned NestSystem runtime command following
+[operator installation](AGENT_MANAGEMENT.md#operator-installation). Signed request-bound credentials stay compatible. The management
 skill adds `project-members` and `invite`; invitations require the current project's
 human owner and preserve existing private-project history and account grants.
 

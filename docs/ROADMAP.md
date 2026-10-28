@@ -4,6 +4,33 @@ Source of truth for scope and acceptance, paired with [SPEC.md](SPEC.md) for
 implemented behavior. Figma describes the target experience, not capabilities
 that already exist. Keep this document updated in the same PR as each milestone.
 
+## Immediate priority: runtime reliability (2026-10-28)
+
+Stabilize execution before further product expansion. Production logs confirmed
+OrgOps JavaScript heap exhaustion around 256 MiB, followed by runner failures
+while reporting errors to the unavailable engine. Google credentials were still
+configured; recovering the engine restored the enabled Google sign-in endpoint.
+This is separate from NestSystem's old bridge hiding progress during active work.
+
+| Work | Owner and status | Acceptance |
+|---|---|---|
+| Recursive event-search output and oversized event reads | OrgOps; outbounder is preparing the upstream fix. Do not duplicate it in Nest. | Repeated search cannot recursively retain full prior tool output; payloads and reads are bounded by bytes as well as rows; existing history remains recoverable. |
+| Runner failure reporting during an API outage | OrgOps; coordinate with upstream rather than patch the submodule. | Losing the API while a turn fails does not produce an unhandled rejection or lose the eventual failure outcome. |
+| Bridge installation drift | Nest; implementation in review. | Explicitly pinned NestSystem configuration runs `/app/deploy/nestsystem-bridge.mjs`; migrate the recognized legacy recipe through HTTP, preserve session/workspace state, back up configuration privately, and leave custom agents untouched. |
+| Google sign-in outage/recovery | Nest; implementation in review. | An unavailable or malformed config response shows Retry instead of silently removing signup; recovery works without reload; activation rejects loss of previously enabled Google sign-in. |
+| Preserve execution maintenance during rollout | Nest; implementation in review. | A paused runner stays paused across upgrades/restarts/reboot; explicit resume verifies heartbeat; API/UI updates can ship independently of the pending upstream crash fix. |
+| Interrupted turns and stale activity | Nest UI plus generic OrgOps lifecycle support; pending. | Distinguish queued, running, interrupted and unavailable states; do not infer successful completion from elapsed time or a runner heartbeat. Reconcile missing terminal events after restart through engine APIs. |
+| Codex adapter completion and recovery | Nest or a separate adapter package; pending. | Require explicit completion; recover later progress after temporary outages; checkpoint new session identity before interruption; bound buffers and tolerate supported CLI output versions. |
+| Self-deployment completion | Nest host controller; pending. | A deployment result remains observable even if restarting the runner kills the agent that requested it. |
+| Reviewed upstream adoption | Nest; pending upstream fix. | Review and test the fixed OrgOps revision, update the submodule/lockfile deliberately, run upgrade and outage regressions, then verify both Google login and a real agent turn after deployment. |
+
+At review, upstream `c6dc1bb` was ten commits ahead of our `cc8faa0` pin; those
+commits did not contain the reported event-amplification fix. Do not describe a
+routine submodule bump as resolving this incident. The event-amplification root
+cause was reported by the upstream maintainer; the heap/runner failures and
+Google endpoint recovery were observed directly on Nest production. These fixes
+are not marked deployed by local or CI results.
+
 ## Design references
 
 File: [Nest case study](https://www.figma.com/design/Rqfq3v9a8nZfQKbM3Q0NZk/Portfolio---Case-Studies?node-id=766-99).

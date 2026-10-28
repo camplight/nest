@@ -13,6 +13,9 @@ NEST_RUNNER_TOKEN=synthetic-runner-token
 NEST_MASTER_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
 OPENROUTER_API_KEY=synthetic-not-real
 OPENROUTER_BASE_URL=http://127.0.0.1:19991/v1
+NEST_GOOGLE_CLIENT_ID=synthetic.apps.googleusercontent.com
+NEST_GOOGLE_CLIENT_SECRET=synthetic-not-real
+NEST_GOOGLE_REDIRECT_URI=http://127.0.0.1:8080/api/auth/google/callback
 ENV
 chmod 600 "$work/runtime.env"
 install_host() { bash scripts/install-host.sh --release "$artifact" --sha256 "$digest" --domain http://127.0.0.1:8080 "$@"; }
@@ -27,17 +30,57 @@ runuser -u node -- env -i HOME=/home/node PATH=/usr/local/bin:/usr/bin:/bin sh -
   claude --version
 '
 python3 deploy/native/smoke.py
+python3 - <<'PY'
+import http.cookiejar,json,urllib.request
+opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+def request(path,body,method='POST'):
+    req=urllib.request.Request('http://127.0.0.1:8787'+path,data=json.dumps(body).encode(),method=method,headers={'Content-Type':'application/json'})
+    with opener.open(req,timeout=5) as response: return json.load(response)
+request('/api/auth/login',{'username':'synthetic-admin','password':'synthetic-rehearsal-password'})
+request('/api/auth/google/settings',{'enabled':True,'allowedDomain':'example.com','teamName':'Synthetic team'},'PUT')
+PY
 cp /app/.nest-data/runner-id "$work/runner-id"
 # Re-running the exact installer is the upgrade path; it must preserve state.
 install_host
 cmp /app/.nest-data/runner-id "$work/runner-id"
 python3 deploy/native/smoke.py
+python3 - <<'PY'
+import json,urllib.request
+with urllib.request.urlopen('http://127.0.0.1:8787/api/auth/google/config',timeout=5) as response:
+    config=json.load(response)
+assert config.get('enabled') and config.get('allowedDomain')=='example.com','Google sign-in did not survive reinstall'
+PY
+# Accidental OAuth credential removal must fail activation and restore the saved
+# provider settings/configuration rather than silently shipping password-only UI.
+sed '/^NEST_GOOGLE_/d' "$work/runtime.env" > "$work/missing-google.env"
+if install_host --env-file "$work/missing-google.env"; then
+  echo 'FAIL: removal of enabled Google credentials was accepted'; exit 1
+fi
+python3 - <<'PY'
+import json,urllib.request
+with urllib.request.urlopen('http://127.0.0.1:8787/api/auth/google/config',timeout=5) as response:
+    config=json.load(response)
+assert config.get('enabled') and config.get('allowedDomain')=='example.com','Google sign-in rollback failed'
+PY
 # Configuration failure after the snapshot must restore the previous DB pair/config.
 printf 'NEST_RUNNER_TOKEN=synthetic\n' > "$work/invalid.env"
 if install_host --env-file "$work/invalid.env"; then
   echo 'FAIL: invalid configuration was accepted'; exit 1
 fi
 curl --fail --silent http://127.0.0.1:8787/health >/dev/null
+cmp /app/.nest-data/runner-id "$work/runner-id"
+python3 deploy/native/smoke.py
+# Pausing execution must survive upgrades and explicit start requests. Resume
+# must reuse the same identity and still complete a real synthetic agent turn.
+install_host --pause-runner
+test -f /etc/nest/runner-paused
+! systemctl is-active --quiet nest-runner
+install_host
+systemctl start nest-runner
+! systemctl is-active --quiet nest-runner
+curl --fail --silent http://127.0.0.1:8787/health >/dev/null
+install_host --resume-runner
+test ! -e /etc/nest/runner-paused
 cmp /app/.nest-data/runner-id "$work/runner-id"
 python3 deploy/native/smoke.py
 # Crash the main process; KillMode=control-group cleans up its descendants.
