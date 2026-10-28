@@ -675,6 +675,22 @@ try {
     await page.getByRole('heading',{name:'Agent details',exact:true}).waitFor();
     assert.equal(new URL(page.url()).searchParams.get('agent'),'PuffVitaliy');
     await page.goBack();await page.getByRole('heading',{name:'Agents',exact:true}).waitFor();
+    // Multiple conversations use real engine creation/membership APIs, not a UI mock.
+    await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'PuffVitaliy',exact:true}).click();
+    await page.getByRole('navigation',{name:'PuffVitaliy workspace'}).waitFor();
+    const firstChat=new URL(page.url()).searchParams.get('channel');
+    assert(firstChat);
+    await page.getByRole('button',{name:'New chat with PuffVitaliy',exact:true}).click();
+    await page.getByLabel('Channel name',{exact:true}).fill('Separate planning conversation');
+    await page.getByRole('dialog').getByRole('button',{name:'Start',exact:true}).click();
+    await page.getByRole('heading',{name:'# Separate planning conversation',exact:true}).waitFor();
+    const secondChat=new URL(page.url()).searchParams.get('channel');
+    assert(secondChat && secondChat!==firstChat);
+    await page.getByRole('navigation',{name:'PuffVitaliy workspace'}).getByRole('button',{name:'Settings',exact:true}).click();
+    await page.getByLabel('About this agent',{exact:true}).waitFor();
+    await page.getByRole('navigation',{name:'PuffVitaliy workspace'}).getByRole('button',{name:'Chat',exact:true}).click();
+    await page.getByRole('heading',{name:'# Separate planning conversation',exact:true}).waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('channel'),secondChat);
     for(const path of ['/onboarding','/?view=onboarding']){
       await page.goto('http://127.0.0.1:5301'+path);
       await page.getByRole('heading',{name:'Agent details',exact:true}).waitFor();
