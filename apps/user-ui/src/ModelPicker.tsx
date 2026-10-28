@@ -3,6 +3,7 @@ import type {OpenRouterCatalog,OpenRouterModel} from '@nest/schemas';
 import {apiJson,getApiHeaders} from './api';
 import './model-picker.css';
 
+const logos:Record<string,string>={openai:'openai',anthropic:'anthropic',google:'google',moonshotai:'moonshot',qwen:'qwen',deepseek:'deepseek',minimax:'minimax','z-ai':'zai',tencent:'tencent'};
 const money=(value:number|null)=>value === null ? 'Unknown' : `$${value.toLocaleString(undefined,{maximumFractionDigits:3})}`;
 function message(error:unknown) {
   const raw=error instanceof Error?error.message:'Request failed';
@@ -40,7 +41,7 @@ export function ModelPicker({agentName,value,disabled,onChange}:{agentName:strin
   function card(model:OpenRouterModel,index:number){
     const provider=model.id.split('/')[0];
     return <button type="button" className="model-option" key={model.id} aria-pressed={selected===model.id} disabled={disabled||busy} onClick={()=>choose(model.id)}>
-      <span className="model-option-heading"><span className="model-provider-mark" aria-hidden="true">{provider.slice(0,2).toUpperCase()}</span><span><strong>{model.name}</strong><small>{provider} · {query?'Search result':`Popular pick ${index+1}`}</small></span><span className="model-selection" aria-hidden="true">{selected===model.id?'✓':'○'}</span></span>
+      <span className="model-option-heading"><span className="model-provider-mark" aria-hidden="true">{logos[provider]?<img src={`/model-logos/${logos[provider]}.svg`} alt=""/>:provider.slice(0,2).toUpperCase()}</span><span><strong>{model.name}</strong><small>{provider} · {query?'Search result':`Popular pick ${index+1}`}</small></span><span className="model-selection" aria-hidden="true">{selected===model.id?'✓':'○'}</span></span>
       <span className="model-capabilities"><span>Tools</span><span>{model.vision?'Image input':'Text input only'}</span>{model.reasoning&&<span>Reasoning</span>}</span>
       <span className="model-price">{money(model.inputPrice)} in / {money(model.outputPrice)} out <small>per 1M tokens</small></span>
       <span className="model-context">{model.context?`${(model.context/1000).toLocaleString()}K context`:'Context not reported'}</span>
@@ -57,7 +58,7 @@ export function ModelPicker({agentName,value,disabled,onChange}:{agentName:strin
       {!shown.length&&<p>No matching tool-capable models. Try another search or enter an exact ID below.</p>}
       <p className="model-source">Ordered by OpenRouter’s weekly token usage, not a quality benchmark. {catalog.stale?'Cached data; refresh temporarily unavailable. ':''}Updated {new Date(catalog.fetchedAt).toLocaleString()}. <a href="https://openrouter.ai/models" target="_blank" rel="noreferrer">Compare on OpenRouter ↗</a></p>
     </>}
-    {selectedModel&&<div className="model-summary"><strong>{selectedModel.name}</strong><p>{selectedModel.description}</p><p><b>Useful for:</b> tool-based agents{selectedModel.vision?', image analysis':''}{selectedModel.reasoning?', reasoning tasks':''}. <b>Trade-offs:</b> {selectedModel.vision?'Image capability is advertised, not tested here.':'Cannot read images according to the catalog.'} Token prices vary by route and context; popularity does not guarantee reliable multi-step work.</p></div>}
+    {selectedModel&&<div className="model-summary"><strong>{selectedModel.name}</strong><p>{selectedModel.description}</p><p><b>Useful for:</b> {selectedModel.tools?'tool-based agents':'text conversations (tools not advertised)'}{selectedModel.vision?', image analysis':''}{selectedModel.reasoning?', reasoning tasks':''}. <b>Trade-offs:</b> {selectedModel.vision?'Image capability is advertised, not tested here.':'Cannot read images according to the catalog.'} Token prices vary by route and context; popularity does not guarantee reliable multi-step work.</p></div>}
     <div className="model-connect"><label htmlFor="custom-model-id">Exact OpenRouter model ID</label><div><input id="custom-model-id" placeholder="provider/model-name" value={selected} disabled={disabled||busy} onChange={e=>choose(e.target.value)}/><button className="dashboard-action" type="button" disabled={disabled||busy||!selected.trim()} onClick={()=>void connect()}>{busy?'Testing…':'Connect'}</button></div><small>Runs one small, billable tool-call test using this agent’s key. No chat history is sent. Passing checks connectivity, not overall model quality. Your saved model changes only after Save settings.</small></div>
     {result&&<p role="status" className="model-result">{result}</p>}
   </section>;
