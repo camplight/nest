@@ -16,13 +16,31 @@ This is separate from NestSystem's old bridge hiding progress during active work
 |---|---|---|
 | Recursive event-search output and oversized event reads | OrgOps; outbounder is preparing the upstream fix. Do not duplicate it in Nest. | Repeated search cannot recursively retain full prior tool output; payloads and reads are bounded by bytes as well as rows; existing history remains recoverable. |
 | Runner failure reporting during an API outage | OrgOps; coordinate with upstream rather than patch the submodule. | Losing the API while a turn fails does not produce an unhandled rejection or lose the eventual failure outcome. |
-| Bridge installation drift | Nest; implementation in review. | Explicitly pinned NestSystem configuration runs `/app/deploy/nestsystem-bridge.mjs`; migrate the recognized legacy recipe through HTTP, preserve session/workspace state, back up configuration privately, and leave custom agents untouched. |
-| Google sign-in outage/recovery | Nest; implementation in review. | An unavailable or malformed config response shows Retry instead of silently removing signup; recovery works without reload; activation rejects loss of previously enabled Google sign-in. |
-| Preserve execution maintenance during rollout | Nest; implementation in review. | A paused runner stays paused across upgrades/restarts/reboot; explicit resume verifies heartbeat; API/UI updates can ship independently of the pending upstream crash fix. |
+| Bridge installation drift | Nest; deployed in #71. | Explicitly pinned NestSystem configuration runs `/app/deploy/nestsystem-bridge.mjs`; migrate the recognized legacy recipe through HTTP, preserve session/workspace state, back up configuration privately, and leave custom agents untouched. |
+| Google sign-in outage/recovery | Nest; deployed in #71. | An unavailable or malformed config response shows Retry instead of silently removing signup; recovery works without reload; activation rejects loss of previously enabled Google sign-in. |
+| Preserve execution maintenance during rollout | Nest; deployed in #71. | A paused runner stays paused across upgrades/restarts/reboot; explicit resume verifies heartbeat; API/UI updates can ship independently of the pending upstream crash fix. |
 | Interrupted turns and stale activity | Nest UI plus generic OrgOps lifecycle support; pending. | Distinguish queued, running, interrupted and unavailable states; do not infer successful completion from elapsed time or a runner heartbeat. Reconcile missing terminal events after restart through engine APIs. |
 | Codex adapter completion and recovery | Nest or a separate adapter package; pending. | Require explicit completion; recover later progress after temporary outages; checkpoint new session identity before interruption; bound buffers and tolerate supported CLI output versions. |
 | Self-deployment completion | Nest host controller; pending. | A deployment result remains observable even if restarting the runner kills the agent that requested it. |
 | Reviewed upstream adoption | Nest; pending upstream fix. | Review and test the fixed OrgOps revision, update the submodule/lockfile deliberately, run upgrade and outage regressions, then verify both Google login and a real agent turn after deployment. |
+| API recovery during an execution pause | Nest; audit follow-up in review. | Keep checking both APIs while excluding the intentionally paused runner; recovery must preserve the pause and the existing lock/cooldown. |
+| Proactive incident visibility | Nest; pending. | Record bounded request IDs, route templates, status/duration and reason categories without secrets or tenant content. Deduplicate outage bursts and show owner-visible recovery; distinguish expected maintenance from failure. |
+| Chat output and adapter diagnostics | Nest adapter plus upstream response handling; pending. | Classify empty final replies separately from exit/transport/parser failures. Review OrgOps #77 for format fallbacks/retry duplication; preserve evidence without logging reasoning or raw tool outputs. |
+
+PRs #70 and #71 were merged, and main `a9b38cb` was deployed on 2026-10-28.
+API/login availability, Google initiation/logo, protected demos and the canonical
+NestSystem bridge recipe were verified. Execution remains explicitly paused
+pending the separate upstream event-history fix. Local/CI success is not a claim
+that a live agent turn or external connected-tool call passed.
+
+The follow-up audit checked service journals and bounded engine turn/reply APIs.
+It found missing terminal outcomes after crashes, generic request errors that
+obscure the affected route, response-format fallbacks and a wrapped CLI completion
+with no final text. Detailed tenant logs stay private. New monitoring must read
+bounded metadata, never recursively republish historical tool results, and must
+not automatically replay unknown outcomes. Temporary diagnostic startup errors
+introduced during investigation were removed; they are distinct from the engine
+heap failures.
 
 At review, upstream `c6dc1bb` was ten commits ahead of our `cc8faa0` pin; those
 commits did not contain the reported event-amplification fix. Do not describe a

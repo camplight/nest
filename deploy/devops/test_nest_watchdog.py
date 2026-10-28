@@ -109,6 +109,14 @@ class WatchdogTests(unittest.TestCase):
 
 
 class NativeWatchdogTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.pause = Path(self.tmp.name) / 'runner-paused'
+        patcher = patch.object(watchdog, 'RUNNER_PAUSE', self.pause)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_healthy_native_services_use_http_and_systemd_metadata_only(self):
         from contextlib import nullcontext
         from types import SimpleNamespace
@@ -123,6 +131,40 @@ class NativeWatchdogTests(unittest.TestCase):
         state, action = watchdog.evaluate({'failures': 2}, result, 10000)
         self.assertEqual(action, 'observe')
         self.assertEqual(state['failures'], 0)
+
+    def test_paused_runner_keeps_healthy_apis_under_observation(self):
+        from contextlib import nullcontext
+        from types import SimpleNamespace
+        self.pause.touch()
+        with patch.object(watchdog, 'run', return_value='ActiveState=active\nActiveEnterTimestampMonotonic=123\n') as command, patch.object(watchdog.urllib.request, 'urlopen', side_effect=lambda *a, **k: nullcontext(SimpleNamespace(status=200))):
+            result = watchdog.inspect_native()
+        self.assertEqual(result['health'], 'healthy')
+        self.assertEqual([call.args[2] for call in command.call_args_list], ['nest-api', 'nest-engine'])
+
+    def test_failed_api_is_unhealthy_during_an_execution_pause(self):
+        from contextlib import nullcontext
+        from types import SimpleNamespace
+        self.pause.touch()
+        def inspect_unit(*args):
+            return 'ActiveState=' + ('failed' if args[2] == 'nest-engine' else 'active') + '\nActiveEnterTimestampMonotonic=123\n'
+        with patch.object(watchdog, 'run', side_effect=inspect_unit), patch.object(watchdog.urllib.request, 'urlopen', side_effect=lambda *a, **k: nullcontext(SimpleNamespace(status=200))):
+            result = watchdog.inspect_native()
+        self.assertEqual(result['health'], 'unhealthy')
+        _, action = watchdog.evaluate({'startedAt': result['startedAt'], 'failures': 2}, result, 10000)
+        self.assertEqual(action, 'restart')
+
+    def test_api_recovery_never_resumes_a_paused_runner(self):
+        self.pause.touch()
+        root = Path(self.tmp.name)
+        state = root / 'state.json'
+        state.write_text(json.dumps({'startedAt': 'boot-1', 'failures': 2}))
+        native = root / 'native.json'
+        native.write_text('{}')
+        with patch.object(watchdog, 'STATE', state), patch.object(watchdog, 'DEPLOY_LOCK', root / 'lock'), patch.object(watchdog, 'NATIVE_CONFIG', native), patch.object(watchdog, 'inspect', return_value=observed()), patch.object(watchdog, 'run') as command:
+            watchdog.recover()
+        starts = [call.args for call in command.call_args_list if call.args[:2] == ('systemctl', 'start')]
+        self.assertEqual(starts, [('systemctl', 'start', 'nest-engine', 'nest-api')])
+        self.assertTrue(self.pause.exists())
 
     def test_native_failure_recovers_host_units_without_docker(self):
         with tempfile.TemporaryDirectory() as tmp:

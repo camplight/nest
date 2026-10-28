@@ -361,6 +361,8 @@ The upstream event-search amplification fix is a separate dependency tracked in
 ROADMAP.md, not included in this change.
 Native paused-runner activation can ship the product changes while that dependency
 is pending; the configuration marker survives upgrades and explicit restarts.
+The watchdog also respects the marker while continuing API observation/recovery;
+installing the reviewed host watchdog is necessary to apply that follow-up.
 
 The NestSystem progress fix uses the pinned engine's existing `agent.turn.phase`
 HTTP/WS event and runner credential. No engine source, pin, database migration,
