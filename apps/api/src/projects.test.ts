@@ -306,6 +306,25 @@ describe('project workflow against the unchanged engine',()=>{
     expect((await request('/api/projects',{...body,name:'Edited title'})).status).toBe(409);
   });
 
+  it('loads live dashboard turns via human-scoped engine HTTP independently of tasks',async()=>{
+    expect((await request('/api/dashboard/activity',undefined,{})).status).toBe(401);
+    expect((await request('/api/dashboard/activity',undefined,{'x-nest-runner-token':'runner-secret'})).status).toBe(401);
+    const triggerEventId=randomUUID();
+    const emit=(type:string)=>request('/api/events',{type,source:'agent:Builder',channelId,payload:{triggerEventId,text:'must not appear in dashboard'}},{'content-type':'application/json','x-nest-runner-token':'runner-secret'});
+    expect((await emit('agent.turn.started')).status).toBe(201);
+    const response=await request('/api/dashboard/activity');
+    expect(response.status).toBe(200);const body=await response.json();
+    expect(body.runs).toEqual([expect.objectContaining({agent:'Builder',channelId,state:'working'})]);
+    expect(JSON.stringify(body)).not.toContain('must not appear');
+    const owner=engine.db.prepare('SELECT * FROM humans LIMIT 1').get() as any;
+    engine.db.prepare('INSERT INTO humans (id,username,password_hash,must_change_password,created_at,updated_at) VALUES (?,?,?,0,?,?)').run('activity-viewer','activity-viewer',owner.password_hash,owner.created_at+1,owner.created_at+1);
+    const login=await request('/api/auth/login',{username:'activity-viewer',password:'password'},{'content-type':'application/json'});
+    const viewer={cookie:login.headers.get('set-cookie')!.split(';')[0]};
+    expect(await(await request('/api/dashboard/activity',undefined,viewer)).json()).toMatchObject({runs:[]});
+
+    expect((await emit('agent.turn.completed')).status).toBe(201);
+    expect(await(await request('/api/dashboard/activity')).json()).toMatchObject({runs:[]});
+  });
   async function namingSetup(namer:import('./project-naming').ProjectNamer) {
     vi.stubEnv('NEST_RUNNER_TOKEN','runner-secret');
     await request('/api/models',{id:'naming-model',provider:'openrouter',modelName:'fixture',enabled:true});

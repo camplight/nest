@@ -525,3 +525,9 @@ does not change an existing host.
 Native units pin engine and file roots to persistent absolute paths. Nest repairs
 its generated compatibility symlinks atomically when releases move; existing real
 directories and upstream source are retained.
+
+## Dashboard live activity
+
+No engine pin/source or DB migration. The product adapter reads existing scoped
+agent.turn lifecycle events, agents and channels through human HTTP credentials.
+Deploy UI/API together. No active agents, tasks or processes are modified.

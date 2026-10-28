@@ -9,3 +9,5 @@ export * from './messages';
 
 export * from './agent-requests';
 export * from './agent-management';
+
+export type DashboardActivity={runs:{id:string;agent:string;channelId:string;channelName:string;startedAt:number;state:'working'|'unconfirmed'}[];limited:boolean;checkedAt:number};
