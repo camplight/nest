@@ -21,7 +21,7 @@ export function ModelPicker({agentName,value,disabled,onChange}:{agentName:strin
   useEffect(()=>{setSelected(value.replace(/^openrouter:/,''));},[value]);
   useEffect(()=>{
     const controller=new AbortController();setError('');
-    void apiJson<OpenRouterCatalog>('/api/openrouter-models',{signal:controller.signal}).then(setCatalog).catch(e=>{if(!controller.signal.aborted)setError(message(e));});
+    void apiJson<OpenRouterCatalog>('/api/openrouter-models',{signal:controller.signal}).then(value=>{if(!value||!Array.isArray(value.models))throw Error('OpenRouter catalog unavailable. Use a configured model or an exact model ID.');setCatalog(value);}).catch(e=>{if(!controller.signal.aborted)setError(message(e));});
     return ()=>controller.abort();
   },[attempt]);
   const models=(catalog?.models??[]).filter(m=>m.tools&&(!vision||m.vision)&&`${m.id} ${m.name}`.toLowerCase().includes(query.toLowerCase()));
