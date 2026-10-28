@@ -106,6 +106,10 @@ assert.equal(await page.getByLabel('Language model').inputValue(),'openrouter:mo
 failSave=true;await page.getByLabel('About this agent',{exact:true}).fill('Retain on error');await page.getByRole('button',{name:'Save settings'}).click();await page.getByRole('alert').filter({hasText:'Forbidden'}).waitFor();assert.equal(await page.getByLabel('About this agent',{exact:true}).inputValue(),'Retain on error');
 await page.getByLabel('About this agent',{exact:true}).fill('Updated research description');failSave=false;
 await page.reload();await page.getByLabel('Language model').waitFor();
+assert.equal(await page.getByLabel('Search OpenRouter models').isVisible(),false);
+assert.equal(await page.locator('.model-picker').getAttribute('open'),null);
+if(process.env.CI)console.log('MODEL_PICKER_COLLAPSED_JPEG:'+(await page.locator('.model-picker').screenshot({type:'jpeg',quality:65})).toString('base64'));
+await page.locator('.model-picker-toggle').focus();await page.keyboard.press('Enter');
 await page.getByRole('button',{name:/Gemini fixture/}).click();
 await page.getByRole('button',{name:'Connect',exact:true}).click();
 await page.getByRole('status').filter({hasText:'Tool-call check passed'}).waitFor();
@@ -129,7 +133,8 @@ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)
 await page.getByRole('button',{name:'Connect',exact:true}).click();await page.getByRole('status').filter({hasText:'Tool-call check passed'}).waitFor();
 if(process.env.CI){await page.setViewportSize({width:390,height:1700});console.log('MODEL_PICKER_MOBILE_JPEG:'+(await page.locator('.model-picker').screenshot({type:'jpeg',quality:65})).toString('base64'));}
 await page.setViewportSize({width:1440,height:1100});
-malformedCatalog=true;await page.reload();await page.getByRole('button',{name:'Retry catalog'}).waitFor();
+await page.locator('.model-picker-toggle').click();assert.equal(await page.getByLabel('Exact OpenRouter model ID').isVisible(),false);
+malformedCatalog=true;await page.reload();await page.locator('.model-picker-toggle').click();await page.getByRole('button',{name:'Retry catalog'}).waitFor();
 assert(await page.getByLabel('About this agent',{exact:true}).isEnabled());
 malformedCatalog=false;await page.getByRole('button',{name:'Retry catalog'}).click();await page.getByRole('button',{name:/Gemini fixture/}).waitFor();
 failModels=true;await page.reload();await page.getByRole('button',{name:'Retry models'}).waitFor();assert(await page.getByLabel('Language model').isDisabled());

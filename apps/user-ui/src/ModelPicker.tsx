@@ -10,6 +10,7 @@ function message(error:unknown) {
   try {return JSON.parse(raw).error || 'Request failed';}catch{return raw;}
 }
 export function ModelPicker({agentName,value,disabled,onChange}:{agentName:string;value:string;disabled:boolean;onChange:(value:string)=>void}) {
+  const [open,setOpen]=useState(false);
   const [catalog,setCatalog]=useState<OpenRouterCatalog|null>(null);
   const [error,setError]=useState('');
   const [attempt,setAttempt]=useState(0);
@@ -21,10 +22,11 @@ export function ModelPicker({agentName,value,disabled,onChange}:{agentName:strin
   const checkedReference=useRef('');
   useEffect(()=>{setSelected(value.replace(/^openrouter:/,''));if(checkedReference.current!==value)setResult('');},[value]);
   useEffect(()=>{
+    if(!open)return;
     const controller=new AbortController();setError('');
     void apiJson<OpenRouterCatalog>('/api/openrouter-models',{signal:controller.signal}).then(value=>{if(!value||!Array.isArray(value.models))throw Error('OpenRouter catalog unavailable. Use a configured model or an exact model ID.');setCatalog(value);}).catch(e=>{if(!controller.signal.aborted)setError(message(e));});
     return ()=>controller.abort();
-  },[attempt]);
+  },[attempt,open]);
   const models=(catalog?.models??[]).filter(m=>m.tools&&(!vision||m.vision)&&`${m.id} ${m.name}`.toLowerCase().includes(query.toLowerCase()));
   const shown=models.slice(0,query?20:5);
   const current=catalog?.models.find(m=>`openrouter:${m.id}`===value);
@@ -49,19 +51,20 @@ export function ModelPicker({agentName,value,disabled,onChange}:{agentName:strin
       <span className="model-context">{model.context?`${(model.context/1000).toLocaleString()}K context`:'Context not reported'}</span>
     </button>;
   }
-  return <section className="model-picker" aria-label="OpenRouter model picker">
-    <div className="model-picker-heading"><div><h3>Find your agent’s next model</h3><p>Five popular choices with tool support. Compare what matters to your work.</p></div><span className="model-router-badge">↗ OpenRouter</span></div>
-    {current&&<p className="model-current">Selected: <strong>{current.name}</strong> · {current.tools?'Tools advertised':'Tool support not advertised'} · {current.vision?'Accepts images':'No image input advertised'}</p>}
+  return <details className="model-picker" open={open} onToggle={e=>setOpen(e.currentTarget.open)}>
+    <summary className="model-picker-toggle"><span><strong>Explore OpenRouter models</strong><small>{current?.name || value || 'Choose a model'}</small></span><span className="model-picker-chevron" aria-hidden="true">⌄</span></summary>
+    <div className="model-picker-content" aria-label="OpenRouter model picker">
     <div className="model-filters"><input aria-label="Search OpenRouter models" placeholder="Search models or providers…" value={query} onChange={e=>setQuery(e.target.value)}/><label><input type="checkbox" checked={vision} onChange={e=>setVision(e.target.checked)}/> Image input</label></div>
     {!catalog&&!error&&<p role="status">Loading live OpenRouter catalog…</p>}
     {error&&<p role="alert">{error} <button type="button" onClick={()=>setAttempt(n=>n+1)}>Retry catalog</button></p>}
     {catalog&&<>
       <div className="model-options">{shown.map(card)}</div>
       {!shown.length&&<p>No matching tool-capable models. Try another search or enter an exact ID below.</p>}
-      <p className="model-source">Ordered by OpenRouter’s weekly token usage, not a quality benchmark. {catalog.stale?'Cached data; refresh temporarily unavailable. ':''}Updated {new Date(catalog.fetchedAt).toLocaleString()}. <a href="https://openrouter.ai/models" target="_blank" rel="noreferrer">Compare on OpenRouter ↗</a></p>
+      <p className="model-source">{catalog.stale?'Showing cached models. ':''}<a href="https://openrouter.ai/models" target="_blank" rel="noreferrer">Compare on OpenRouter ↗</a></p>
     </>}
-    {selectedModel&&<div className="model-summary"><strong>{selectedModel.name}</strong><p>{selectedModel.description}</p><p><b>Useful for:</b> {selectedModel.tools?'tool-based agents':'text conversations (tools not advertised)'}{selectedModel.vision?', image analysis':''}{selectedModel.reasoning?', reasoning tasks':''}. <b>Trade-offs:</b> {selectedModel.vision?'Image capability is advertised, not tested here.':'Cannot read images according to the catalog.'} Token prices vary by route and context; popularity does not guarantee reliable multi-step work.</p></div>}
-    <div className="model-connect"><label htmlFor="custom-model-id">Exact OpenRouter model ID</label><div><input id="custom-model-id" placeholder="provider/model-name" value={selected} disabled={disabled||busy} onChange={e=>choose(e.target.value)}/><button className="dashboard-action" type="button" disabled={disabled||busy||!selected.trim()} onClick={()=>void connect()}>{busy?'Testing…':'Connect'}</button></div><small>Runs one small, billable tool-call test using this agent’s key. No chat history is sent. Passing checks connectivity, not overall model quality. Your saved model changes only after Save settings.</small></div>
+    {selectedModel&&<details className="model-summary"><summary>About {selectedModel.name}</summary><p>{selectedModel.description}</p><p><b>Useful for:</b> {selectedModel.tools?'tool-based agents':'text conversations (tools not advertised)'}{selectedModel.vision?', image analysis':''}{selectedModel.reasoning?', reasoning tasks':''}. <b>Trade-offs:</b> {selectedModel.vision?'Image capability is advertised, not tested here.':'Cannot read images according to the catalog.'} Prices vary by route and context.</p></details>}
+    <div className="model-connect"><label htmlFor="custom-model-id">Exact OpenRouter model ID</label><div><input id="custom-model-id" placeholder="provider/model-name" value={selected} disabled={disabled||busy} onChange={e=>choose(e.target.value)}/><button className="dashboard-action" type="button" disabled={disabled||busy||!selected.trim()} onClick={()=>void connect()}>{busy?'Testing…':'Connect'}</button></div><small>Tests a tool call using this agent’s key (small usage charge). Save settings to apply.</small></div>
     {result&&<p role="status" className="model-result">{result}</p>}
-  </section>;
+    </div>
+  </details>;
 }

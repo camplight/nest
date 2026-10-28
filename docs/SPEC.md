@@ -1255,11 +1255,13 @@ configured. Without that entry it uses the default agent model.
 
 ## OpenRouter model picker
 
-Agent settings enrich the configured-model list with a live OpenRouter catalog
+Agent settings offer a collapsed-by-default model explorer, showing the selected
+model in its summary. Opening it loads a live OpenRouter catalog
 (`/api/openrouter-models`, signed-in humans only). Five tool-capable text models
 are shown in OpenRouter weekly token-usage order, with search, image-input filter,
 provider marks, advertised capabilities, context and USD/million-token prices.
-This is popularity, not a benchmark or a reliability guarantee. Catalog data is
+The shortlist uses popularity, not benchmark scores. Model descriptions are
+collapsed behind About; the UI omits the ranking explanation. Catalog data is
 cached 15 minutes, with explicitly stale fallback for at most 24 hours.
 
 `POST /api/agents/:name/model-check` accepts `{model: "provider/model"}`. A live
