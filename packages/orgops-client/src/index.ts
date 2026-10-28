@@ -92,6 +92,13 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     // Agent modelId is a provider:model reference, not the model registry row ID.
     return model.reference;
   }
+  async function agentModelEnv(agentName: string, serviceToken: string) {
+    if (!serviceToken) throw Error('Model checks are not configured');
+    const response = await request('/api/secrets/env', {headers:{'x-orgops-runner-token':serviceToken,'x-orgops-agent-name':agentName}});
+    if (!response.ok) throw Error('Agent provider credentials are unavailable');
+    const env = await response.json() as Record<string,string>;
+    return Object.fromEntries(['OPENROUTER_API_KEY','OPENROUTER_BASE_URL','OPENROUTER_HTTP_REFERER','OPENROUTER_APP_TITLE'].map(key => [key,env[key]]));
+  }
   async function connectionContext(agentName:string, serviceToken:string) {
     if(!serviceToken)throw Error('Integration engine metadata access is not configured');
     const headers={'x-orgops-runner-token':serviceToken};
@@ -183,7 +190,7 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
       create: (body:Record<string,unknown>) => request('/api/agents',{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(body)}),
     };
   }
-  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, connectionContext, assistantDirectory, agentManagement, projectNamingEnv, projectNamingContext, baseUrl: base.origin };
+  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, agentModelEnv, connectionContext, assistantDirectory, agentManagement, projectNamingEnv, projectNamingContext, baseUrl: base.origin };
 }
 export type OrgOpsClient = ReturnType<typeof createOrgOpsClient>;
 

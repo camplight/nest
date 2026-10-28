@@ -32,7 +32,7 @@ let failConnections=true;
 let releaseConnections;
 const connectionGate=new Promise(resolve=>{releaseConnections=resolve;});
 let malformedDirectory=false;
-let failModels=false;let failSave=false;const writes=[];
+let malformedCatalog=false;let failModels=false;let failSave=false;const writes=[];
 await page.route('**/api/**',async route=>{
  const path=new URL(route.request().url()).pathname; let data=[];
  if(path==='/api/branding')data={displayName:'Camplight',logoUrl:'/brand/camplight-logo-white.svg',primaryColor:'#350956',accentColor:'#ff7557',backgroundColor:'#f8f4ff'};
@@ -41,6 +41,9 @@ await page.route('**/api/**',async route=>{
  if(failModels)return route.fulfill({status:503,json:{error:'Unavailable'}});
  data={models:[{id:'kimi',name:'moonshotai/kimi-k3',provider:'openrouter',reference:'openrouter:moonshotai/kimi-k3'},{id:'gemini',name:'google/gemini-2.5-flash',provider:'openrouter',reference:'openrouter:google/gemini-2.5-flash'}],defaultModel:'openrouter:moonshotai/kimi-k3'};
  }
+ else if(path==='/api/openrouter-models'&&malformedCatalog)data=[];
+ else if(path==='/api/openrouter-models')data={models:[{id:'moonshotai/kimi-k3',name:'Kimi fixture',description:'Synthetic test catalog. Text tools.',tools:true,vision:false,reasoning:true,context:128000,inputPrice:1,outputPrice:2},{id:'google/gemini-2.5-flash',name:'Gemini fixture',description:'Synthetic test catalog. Images and tools.',tools:true,vision:true,reasoning:true,context:1000000,inputPrice:0.3,outputPrice:2.5}],fetchedAt:1793200000000,stale:false};
+ else if(path.endsWith('/model-check')){const model=route.request().postDataJSON().model;return route.fulfill(model==='google/gemini-2.5-flash'?{json:{reference:'openrouter:'+model,latencyMs:250,tools:true}}:{status:422,json:{error:'Synthetic check failed; saved model unchanged'}});}
  else if(path==='/api/events'){await notificationGate;data=[];}
  else if(path==='/api/mentions')data={items:[]};
  else if(path==='/api/projects/dashboard')data={projects:[],tasks:{total:0,finished:0,needsReview:0,changesRequested:0},reviews:[],changes:[]};
@@ -103,9 +106,37 @@ assert.equal(await page.getByLabel('Language model').inputValue(),'openrouter:mo
 failSave=true;await page.getByLabel('About this agent',{exact:true}).fill('Retain on error');await page.getByRole('button',{name:'Save settings'}).click();await page.getByRole('alert').filter({hasText:'Forbidden'}).waitFor();assert.equal(await page.getByLabel('About this agent',{exact:true}).inputValue(),'Retain on error');
 await page.getByLabel('About this agent',{exact:true}).fill('Updated research description');failSave=false;
 await page.reload();await page.getByLabel('Language model').waitFor();
+assert.equal(await page.getByLabel('Search OpenRouter models').isVisible(),false);
+assert.equal(await page.locator('.model-picker').getAttribute('open'),null);
+if(process.env.CI)console.log('MODEL_PICKER_COLLAPSED_JPEG:'+(await page.locator('.model-picker').screenshot({type:'jpeg',quality:65})).toString('base64'));
+await page.locator('.model-picker-toggle').focus();await page.keyboard.press('Enter');
+await page.getByRole('button',{name:/Gemini fixture/}).click();
+await page.getByRole('button',{name:'Connect',exact:true}).click();
+await page.getByRole('status').filter({hasText:'Tool-call check passed'}).waitFor();
+assert.equal(await page.getByLabel('Language model').inputValue(),'openrouter:google/gemini-2.5-flash');
+await page.getByLabel('Exact OpenRouter model ID').fill('vendor/missing');
+await page.getByRole('button',{name:'Connect',exact:true}).click();
+await page.getByRole('status').filter({hasText:'Synthetic check failed'}).waitFor();
+assert.equal(await page.getByLabel('Language model').inputValue(),'openrouter:google/gemini-2.5-flash');
+await page.getByLabel('Image input',{exact:true}).check();
+assert.equal(await page.getByRole('button',{name:/Kimi fixture/}).count(),0);
+await page.getByLabel('Image input',{exact:true}).uncheck();
+await page.getByRole('button',{name:/Gemini fixture/}).click();
+await page.getByLabel('Search OpenRouter models').fill('nothing matches');
+await page.getByText('No matching tool-capable models.',{exact:false}).waitFor();
+await page.getByLabel('Search OpenRouter models').fill('');
 await page.screenshot({path:join(screenshotDir, 'nest-agent-details.png'),fullPage:true});
+if(process.env.CI)console.log('MODEL_PICKER_DESKTOP_JPEG:'+ (await page.locator('.model-picker').screenshot({type:'jpeg',quality:65})).toString('base64'));
+
 await page.setViewportSize({width:390,height:844});await page.screenshot({path:join(screenshotDir,'nest-agent-model-mobile.png'),fullPage:true});
-assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.setViewportSize({width:1440,height:1100});
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+await page.getByRole('button',{name:'Connect',exact:true}).click();await page.getByRole('status').filter({hasText:'Tool-call check passed'}).waitFor();
+if(process.env.CI){await page.setViewportSize({width:390,height:1700});console.log('MODEL_PICKER_MOBILE_JPEG:'+(await page.locator('.model-picker').screenshot({type:'jpeg',quality:65})).toString('base64'));}
+await page.setViewportSize({width:1440,height:1100});
+await page.locator('.model-picker-toggle').click();assert.equal(await page.getByLabel('Exact OpenRouter model ID').isVisible(),false);
+malformedCatalog=true;await page.reload();await page.locator('.model-picker-toggle').click();await page.getByRole('button',{name:'Retry catalog'}).waitFor();
+assert(await page.getByLabel('About this agent',{exact:true}).isEnabled());
+malformedCatalog=false;await page.getByRole('button',{name:'Retry catalog'}).click();await page.getByRole('button',{name:/Gemini fixture/}).waitFor();
 failModels=true;await page.reload();await page.getByRole('button',{name:'Retry models'}).waitFor();assert(await page.getByLabel('Language model').isDisabled());
 failModels=false;await page.getByRole('button',{name:'Retry models'}).click();await page.getByLabel('Language model').selectOption('openrouter:moonshotai/kimi-k3');
 await page.getByRole('button',{name:'All agents'}).click();await page.getByRole('button',{name:'Manage NestSystem'}).click();

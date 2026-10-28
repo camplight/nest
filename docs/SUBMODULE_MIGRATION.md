@@ -525,3 +525,12 @@ does not change an existing host.
 Native units pin engine and file roots to persistent absolute paths. Nest repairs
 its generated compatibility symlinks atomically when releases move; existing real
 directories and upstream source are retained.
+
+## Live model picker
+
+No engine pin/source or database migration change. Uses the existing agent read,
+settings PATCH and runner-authenticated `/api/secrets/env` boundary. The model
+probe needs `NEST_RUNNER_TOKEN` (or injected connection engine token) and an
+OpenRouter key resolved for the target agent; missing credentials fail explicitly.
+Catalog outage does not block existing configured-model changes. Deploy UI/API
+together. No real agent models or registry defaults are changed by installation.
