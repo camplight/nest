@@ -531,3 +531,11 @@ directories and upstream source are retained.
 No engine pin/source or DB migration. The product adapter reads existing scoped
 agent.turn lifecycle events, agents and channels through human HTTP credentials.
 Deploy UI/API together. No active agents, tasks or processes are modified.
+## Live model picker
+
+No engine pin/source or database migration change. Uses the existing agent read,
+settings PATCH and runner-authenticated `/api/secrets/env` boundary. The model
+probe needs `NEST_RUNNER_TOKEN` (or injected connection engine token) and an
+OpenRouter key resolved for the target agent; missing credentials fail explicitly.
+Catalog outage does not block existing configured-model changes. Deploy UI/API
+together. No real agent models or registry defaults are changed by installation.

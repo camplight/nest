@@ -1,0 +1,1 @@
+Provider logos from https://github.com/lobehub/lobe-icons (MIT; see LICENSE). Logos identify the model author, not the hosting provider or a partnership. Unknown authors use initials. These are UI source assets, not verification screenshots.

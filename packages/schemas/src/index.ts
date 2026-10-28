@@ -11,3 +11,5 @@ export * from './agent-requests';
 export * from './agent-management';
 
 export type DashboardActivity={runs:{id:string;agent:string;channelId:string;channelName:string;startedAt:number;state:'working'|'unconfirmed'}[];limited:boolean;checkedAt:number};
+export type OpenRouterModel = {id:string;name:string;description:string;context:number|null;inputPrice:number|null;outputPrice:number|null;tools:boolean;vision:boolean;reasoning:boolean};
+export type OpenRouterCatalog = {models:OpenRouterModel[];fetchedAt:number;stale:boolean};
