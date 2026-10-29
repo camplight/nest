@@ -49,6 +49,7 @@ it('rejects another human before resolving the private agent credentials',async(
  engine.db.prepare('INSERT INTO humans (id,username,password_hash,must_change_password,created_at,updated_at) VALUES (?,?,?,0,?,?)').run('other','other',owner.password_hash,owner.created_at+1,owner.created_at+1);
  const login=await engine.app.request('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'other',password:'password'})});
  expect([403,404]).toContain((await check('vendor/model',{cookie:login.headers.getSetCookie()[0].split(';')[0]})).status);
+ expect([403,404]).toContain((await app.request('/api/agents/Private/model-benchmarks',{headers:{cookie:login.headers.getSetCookie()[0].split(';')[0]}})).status);
  expect(secretReads).toBe(0);
 });
 it.each(['https://attacker.test/model','vendor/model:free','', 'vendor/model/extra'])('rejects unsupported ID %s',async model=>{expect((await check(model)).status).toBe(400);expect(secretReads).toBe(0);});
