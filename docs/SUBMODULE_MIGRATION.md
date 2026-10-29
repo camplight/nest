@@ -580,6 +580,25 @@ Native units pin engine and file roots to persistent absolute paths. Nest repair
 its generated compatibility symlinks atomically when releases move; existing real
 directories and upstream source are retained.
 
+### Voice/realtime engine upgrade
+
+The candidate update from deployed `eb2e19d` to `4fb3644` includes upstream
+voice/realtime main `a6c3c8f` and the byte-budget compatibility fix in OrgOps #80.
+Deployment is gated on upstream review; the vendor tree remains untouched.
+Migrations `046`–`048` add publications and file-backed event payload metadata.
+Preserve the entire engine data directory, not just its SQLite file, for recovery.
+The existing upgrade fixture checks identities, instructions, private membership,
+secrets and wrapped configuration across all migrations. The release gate also
+checks large file-backed inputs and bounded reads at the production heap budget.
+
+Nest provisions the optional local LiveKit SFU through its native installer and
+systemd units. `--enable-livekit` (or private `NEST_ENABLE_LIVEKIT=1`) generates
+credentials once, stores them in `/etc/nest/runtime.env` and reuses them on
+upgrades. Configuration/units/release pointers and both stopped databases are
+restored on activation failure. No provider credentials, agent settings or Nest
+product schemas change. See [native voice operations](../deploy/native/README.md#voice-service).
+Nest voice controls are deferred; this upgrade exposes the engine capability.
+
 ## Dashboard live activity
 
 No engine pin/source or DB migration. The product adapter reads existing scoped

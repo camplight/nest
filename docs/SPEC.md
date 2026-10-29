@@ -3,13 +3,14 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The current pin is `eb2e19d`, the OrgOps #78 memory-only release backport over
-`cc8faa0` (OrgOps PRs #55, #56, #58 and #59 over `f7c95b7`).
+The current candidate pin is `4fb3644`, OrgOps #80 over main `a6c3c8f`
+(including OrgOps #76 voice/realtime support). Production adoption requires
+upstream review of #80; the previously deployed pin is `eb2e19d` from OrgOps #78.
 It retains multi-agent message routing and native workspace-file uploads and adds
 human invitations into channels, engine LLM usage reporting, agent copy/move and
 federation APIs. External engines must use this revision for the current adapter.
 
-This backport adds no migrations or dependency changes. It caps persisted tool
+This revision preserves the deployed memory protections. It caps persisted tool
 results, compacts default event searches and bounds normal event-listing reads
 before historical blobs enter JS: at most 64 KiB per history payload and 1 MiB
 of UTF-8 payloads per page. Runner polls return complete inputs up to 1 MiB, acknowledge
@@ -20,7 +21,25 @@ an explicit retained-content notice for omitted chat messages. Explicit SQLite
 exports retain their upstream full-dump behavior. Native release builds run the
 real-engine 280 MiB-history/256 MiB-heap and void-result regressions in CI before
 packaging; production installs prebuilt artifacts without running stress tests.
-Voice features and PR #77 response changes are not part of this pin.
+PR #77 response changes are not part of this pin. Engine migrations `046`–`048`
+add workspace publications and file-backed event payload metadata. Large new
+payloads live under the persistent engine data directory; backups must include
+those files along with both databases. A pre-open rollback restores the old DB
+pair; do not run an old engine against the upgraded schema after accepting writes.
+
+Realtime model capabilities and voice HTTP/WS APIs remain owned by OrgOps and
+are available through Nest's existing authenticated gateway. Nest chat voice
+controls are a separate milestone. No existing agents/models are reconfigured.
+For native installations, opt in with `--enable-livekit` or private
+`NEST_ENABLE_LIVEKIT=1`. The installer provisions checksum-pinned LiveKit as
+`nest-livekit.service`, with generated private credentials and a Caddy TLS endpoint
+on the existing domain's port 8443. Signaling stays loopback on 7880; media uses
+7881/TCP and 7882/UDP. External SFU configuration is preserved and requires an
+explicit operator migration before enabling the managed service. Reinstall and
+rollback preserve the credentials, config and activation marker. LiveKit has a
+256 MiB systemd cap and restarts independently of the APIs/runner. Fresh-host CI
+checks real synthetic audio between two clients as well as credential reuse,
+activation rollback and independent SFU crash recovery; no model calls are needed.
 
 Engine migration `039` consolidates stored `system_instructions` and
 `soul_contents` into `soul_contents`, in that order with a blank line between

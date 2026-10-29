@@ -19,7 +19,13 @@ NEST_GOOGLE_REDIRECT_URI=http://127.0.0.1:8080/api/auth/google/callback
 ENV
 chmod 600 "$work/runtime.env"
 install_host() { bash scripts/install-host.sh --release "$artifact" --sha256 "$digest" --domain http://127.0.0.1:8080 "$@"; }
-install_host --env-file "$work/runtime.env"
+install_host --env-file "$work/runtime.env" --enable-livekit
+voice_smoke() {
+  systemctl is-active --quiet nest-livekit
+  runuser -u node -- /opt/nest/node/bin/node --env-file=/etc/nest/runtime.env /app/deploy/native/livekit-smoke.mjs
+}
+voice_smoke
+cp /etc/nest/livekit.yaml "$work/livekit.yaml"
 # Saved wrapped bridges deliberately give Codex this restricted PATH. Its Node
 # shebang and agent-invoked npm/npx must work without the service's extended PATH.
 runuser -u node -- env -i HOME=/home/node PATH=/usr/local/bin:/usr/bin:/bin sh -ec '
@@ -43,6 +49,8 @@ cp /app/.nest-data/runner-id "$work/runner-id"
 # Re-running the exact installer is the upgrade path; it must preserve state.
 install_host
 cmp /app/.nest-data/runner-id "$work/runner-id"
+cmp /etc/nest/livekit.yaml "$work/livekit.yaml"
+voice_smoke
 python3 deploy/native/smoke.py
 python3 - <<'PY'
 import json,urllib.request
@@ -62,6 +70,8 @@ with urllib.request.urlopen('http://127.0.0.1:8787/api/auth/google/config',timeo
     config=json.load(response)
 assert config.get('enabled') and config.get('allowedDomain')=='example.com','Google sign-in rollback failed'
 PY
+cmp /etc/nest/livekit.yaml "$work/livekit.yaml"
+voice_smoke
 # Configuration failure after the snapshot must restore the previous DB pair/config.
 printf 'NEST_RUNNER_TOKEN=synthetic\n' > "$work/invalid.env"
 if install_host --env-file "$work/invalid.env"; then
@@ -70,6 +80,19 @@ fi
 curl --fail --silent http://127.0.0.1:8787/health >/dev/null
 cmp /app/.nest-data/runner-id "$work/runner-id"
 python3 deploy/native/smoke.py
+# SFU failure is recovered independently, without restarting APIs or the runner.
+engine_pid=$(systemctl show nest-engine --property=MainPID --value)
+before=$(systemctl show nest-livekit --property=MainPID --value)
+systemctl kill --kill-whom=main --signal=SIGKILL nest-livekit
+for attempt in $(seq 1 30); do
+  after=$(systemctl show nest-livekit --property=MainPID --value)
+  if [[ $after != 0 && $after != "$before" ]] && systemctl is-active --quiet nest-livekit; then break; fi
+  sleep 1
+done
+[[ $after != 0 && $after != "$before" ]]
+[[ $(systemctl show nest-engine --property=MainPID --value) == "$engine_pid" ]]
+curl --fail --silent --max-time 3 --retry 10 --retry-all-errors --retry-delay 1 http://127.0.0.1:7880/ >/dev/null
+voice_smoke
 # Pausing execution must survive upgrades and explicit start requests. Resume
 # must reuse the same identity and still complete a real synthetic agent turn.
 install_host --pause-runner
@@ -107,7 +130,7 @@ for path in /demo/kibrit-software-factory /demo/not-real /api/agents; do
 done
 # Actual bounded units, not just rendered fixture strings.
 systemctl show nest.slice -p MemoryMax -p MemorySwapMax -p CPUQuotaPerSecUSec -p TasksMax
-systemctl is-enabled nest-api nest-engine nest-runner nest-caddy nest-native-watchdog.timer
+systemctl is-enabled nest-api nest-engine nest-runner nest-caddy nest-livekit nest-native-watchdog.timer
 python3 - <<'PY'
 import pathlib,sqlite3
 for area in ('engine','product'):

@@ -1,5 +1,6 @@
 # Set NEST_DOMAIN in Caddy's systemd environment (e.g. nest.example.com).
 # /app is the stable installation path; only built UI directories are public.
+import /etc/nest/caddy.d/*.caddy
 {$NEST_DOMAIN} {
     encode zstd gzip
     @backend path /health /api /api/* /v1 /v1/* /ws /ws/* /demo /demo/*

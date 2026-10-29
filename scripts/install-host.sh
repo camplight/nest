@@ -3,10 +3,11 @@
 set -euo pipefail
 umask 077
 root=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
-usage() { echo 'Usage: sudo scripts/install-host.sh --release FILE --sha256 HEX --domain HOST [--env-file PRIVATE_FILE] [--import-docker] [--pause-runner|--resume-runner]'; }
+usage() { echo 'Usage: sudo scripts/install-host.sh --release FILE --sha256 HEX --domain HOST [--env-file PRIVATE_FILE] [--import-docker] [--pause-runner|--resume-runner] [--enable-livekit]'; }
 artifact= digest= domain= env_file=
 import_docker=0
 runner_mode=preserve
+enable_livekit=0
 while (($#)); do
   case "$1" in
     --release|--sha256|--domain|--env-file)
@@ -14,6 +15,7 @@ while (($#)); do
       case "$1" in --release) artifact=$2;; --sha256) digest=$2;; --domain) domain=$2;; --env-file) env_file=$2;; esac
       shift 2;;
     --import-docker) import_docker=1; shift;;
+    --enable-livekit) enable_livekit=1; shift;;
     --pause-runner|--resume-runner)
       [[ $runner_mode == preserve ]] || { echo 'Choose one runner mode.' >&2; exit 2; }
       runner_mode=${1#--}; shift;;
@@ -108,6 +110,19 @@ if [[ ! -x "$caddy_dir/caddy" ]]; then
   mv "$work/caddy" "$caddy_dir"
 fi
 [[ $("$caddy_dir/caddy" version) == "v$CADDY_VERSION "* ]]
+livekit_dir="/opt/nest/tools/livekit-$LIVEKIT_VERSION-$arch"
+if [[ ! -x "$livekit_dir/livekit-server" ]]; then
+  fetch "https://github.com/livekit/livekit/releases/download/v$LIVEKIT_VERSION/livekit_${LIVEKIT_VERSION}_linux_$arch.tar.gz" "$work/livekit.tar.gz"
+  livekit_key="LIVEKIT_SHA256_$arch"
+  printf '%s  %s\n' "${!livekit_key}" "$work/livekit.tar.gz" | sha256sum --check --status
+  mkdir "$work/livekit"
+  tar -xzf "$work/livekit.tar.gz" -C "$work/livekit" livekit-server
+  chmod -R a+rX "$work/livekit"
+  mv "$work/livekit" "$livekit_dir"
+fi
+[[ $("$livekit_dir/livekit-server" --version) == *"$LIVEKIT_VERSION"* ]]
+id nest-livekit >/dev/null 2>&1 || useradd --system --user-group --no-create-home --shell /usr/sbin/nologin nest-livekit
+
 if ! id node >/dev/null 2>&1; then
   # Existing migrations must pre-create the original UID/GID (1000). Fresh hosts
   # can use the distro's next free UID; units reference the account by name.
@@ -155,7 +170,7 @@ PYCODE
 fi
 old_release=
 if [[ -L /app ]]; then old_release=$(readlink -f /app); fi
-for link in node caddy; do readlink "/opt/nest/$link" > "$backup/$link.link" || true; done
+for link in node caddy livekit; do readlink "/opt/nest/$link" > "$backup/$link.link" || true; done
 cp -a /etc/nest "$backup/config"
 [[ ! -f /usr/local/lib/nest-ops.py ]] || cp -a /usr/local/lib/nest-ops.py "$backup/controller"
 [[ ! -f /usr/local/lib/nest-watchdog.py ]] || cp -a /usr/local/lib/nest-watchdog.py "$backup/watchdog"
@@ -164,7 +179,7 @@ install -d "$backup/commands"
 for tool in node npm npx; do
   if [[ -e /usr/local/bin/$tool || -L /usr/local/bin/$tool ]]; then cp -a "/usr/local/bin/$tool" "$backup/commands/$tool"; fi
 done
-for unit in nest-api.service nest-engine.service nest-runner.service nest-caddy.service nest-native-watchdog.service nest-native-watchdog.timer nest.slice; do
+for unit in nest-api.service nest-engine.service nest-runner.service nest-caddy.service nest-livekit.service nest-native-watchdog.service nest-native-watchdog.timer nest.slice; do
   [[ ! -f /etc/systemd/system/$unit ]] || cp -a "/etc/systemd/system/$unit" "$backup/units/"
 done
 printf '%s\n' "$old_release" > "$backup/release"
@@ -187,7 +202,7 @@ recover() {
   result=$?
   trap - ERR
   if [[ $committed == 0 ]]; then
-    systemctl stop nest-native-watchdog.timer nest-native-watchdog.service nest-caddy nest-runner nest-api nest-engine 2>/dev/null || true
+    systemctl stop nest-native-watchdog.timer nest-native-watchdog.service nest-caddy nest-livekit nest-runner nest-api nest-engine 2>/dev/null || true
     if [[ $databases_snapshotted == 1 ]]; then
     python3 - "$backup" <<'PY'
 import pathlib,shutil,sys
@@ -202,27 +217,32 @@ PY
     rsync -a --delete "$backup/config/" /etc/nest/
     [[ ! -f $backup/controller ]] || install -m 755 "$backup/controller" /usr/local/lib/nest-ops.py
     [[ ! -f $backup/watchdog ]] || install -m 755 "$backup/watchdog" /usr/local/lib/nest-watchdog.py
-    for link in node caddy; do
-      if [[ -s $backup/$link.link ]]; then ln -sfn "$(cat "$backup/$link.link")" "/opt/nest/$link"; fi
+    for link in node caddy livekit; do
+      if [[ -s $backup/$link.link ]]; then
+        ln -sfn "$(cat "$backup/$link.link")" "/opt/nest/$link"
+      else
+        rm -f "/opt/nest/$link"
+      fi
     done
     for tool in node npm npx; do
       rm -f "/usr/local/bin/$tool"
       if [[ -e $backup/commands/$tool || -L $backup/commands/$tool ]]; then cp -a "$backup/commands/$tool" "/usr/local/bin/$tool"; fi
     done
-    rm -f /etc/systemd/system/nest-{api,engine,runner,caddy,native-watchdog}.service /etc/systemd/system/nest-native-watchdog.timer /etc/systemd/system/nest.slice
+    rm -f /etc/systemd/system/nest-{api,engine,runner,caddy,livekit,native-watchdog}.service /etc/systemd/system/nest-native-watchdog.timer /etc/systemd/system/nest.slice
     cp -a "$backup/units/." /etc/systemd/system/
     systemctl daemon-reload
     if [[ -n $old_release && -d $old_release ]]; then
       ln -sfn "$old_release" /app
       for tool in codex claude; do ln -sfn "$old_release/deploy/native/agent-clis/node_modules/.bin/$tool" "/usr/local/bin/$tool"; done
       systemctl reset-failed nest-engine nest-api nest-runner nest-caddy 2>/dev/null || true
+      if [[ -f /etc/nest/livekit-enabled ]]; then systemctl start nest-livekit; else systemctl disable nest-livekit 2>/dev/null || true; fi
       systemctl start nest-engine nest-api
       if [[ ! -f /etc/nest/runner-paused ]]; then systemctl start nest-runner; fi
       systemctl start nest-caddy
       curl --fail --silent --show-error --max-time 5 --retry 30 --retry-all-errors --retry-delay 1 --output /dev/null http://127.0.0.1:8787/health
       if [[ -f $backup/units/nest-native-watchdog.timer ]]; then systemctl start nest-native-watchdog.timer; fi
     else
-      systemctl disable nest-engine nest-api nest-runner nest-caddy nest-native-watchdog.timer 2>/dev/null || true
+      systemctl disable nest-engine nest-api nest-runner nest-caddy nest-livekit nest-native-watchdog.timer 2>/dev/null || true
       rm -f /app
     fi
     if [[ -f $backup/docker.json ]]; then
@@ -246,8 +266,8 @@ PYCODE
 }
 trap recover ERR
 # Hold the public proxy closed throughout snapshot, schema migration and checks.
-systemctl stop nest-caddy.service nest-runner.service nest-api.service nest-engine.service 2>/dev/null || true
-for unit in nest-caddy nest-runner nest-api nest-engine; do
+systemctl stop nest-caddy.service nest-livekit.service nest-runner.service nest-api.service nest-engine.service 2>/dev/null || true
+for unit in nest-caddy nest-livekit nest-runner nest-api nest-engine; do
   if systemctl is-active --quiet "$unit"; then echo 'A service did not stop; refusing backup.' >&2; false; fi
 done
 if [[ $import_docker == 1 ]]; then
@@ -300,6 +320,20 @@ for area in ('engine','product'):
 PY
 databases_snapshotted=1
 [[ -z $env_file ]] || install -m 600 -o node -g node "$env_file" /etc/nest/runtime.env
+# Persisted opt-in lets the restricted controller use the same installer path.
+livekit_opt_in=$("$node_dir/bin/node" --input-type=module -e 'import {parseEnv} from "node:util"; import {readFileSync} from "node:fs"; console.log(parseEnv(readFileSync("/etc/nest/runtime.env","utf8")).NEST_ENABLE_LIVEKIT === "1" ? "1" : "0")')
+if [[ $livekit_opt_in == 1 ]]; then enable_livekit=1; fi
+if [[ $enable_livekit == 1 || -f /etc/nest/livekit-enabled ]]; then
+  "$node_dir/bin/node" "$release/deploy/native/configure-livekit.mjs" /etc/nest "$domain"
+  chown root:nest-livekit /etc/nest/livekit.yaml
+  chmod 640 /etc/nest/livekit.yaml
+  chmod 600 /etc/nest/runtime.env
+  if [[ $domain != http://127.0.0.1:* ]] && command -v ufw >/dev/null && ufw status | head -1 | grep -q '^Status: active'; then
+    ufw allow 8443/tcp >/dev/null
+    ufw allow 7881/tcp >/dev/null
+    ufw allow 7882/udp >/dev/null
+  fi
+fi
 case $runner_mode in
   pause-runner) install -m 600 /dev/null /etc/nest/runner-paused;;
   resume-runner) rm -f /etc/nest/runner-paused;;
@@ -314,6 +348,7 @@ for(const [k,v] of Object.entries({NEST_ENGINE_DATA_DIR:'.nest-data',NEST_ENGINE
 JS
 ln -sfn "$node_dir" /opt/nest/node
 ln -sfn "$caddy_dir" /opt/nest/caddy
+ln -sfn "$livekit_dir" /opt/nest/livekit
 for tool in node npm npx; do ln -sfn "/opt/nest/node/bin/$tool" "/usr/local/bin/$tool"; done
 ln -sfn "$release" /app
 # Exercise the actual stable entrypoint. With no request it must reject input;
@@ -335,6 +370,11 @@ NEST_DOMAIN="$domain" "$caddy_dir/caddy" validate --config /etc/nest/Caddyfile -
 systemd-analyze verify "$release"/deploy/native/systemd/*.service
 systemctl daemon-reload
 systemctl reset-failed nest-engine nest-api nest-runner nest-caddy 2>/dev/null || true
+if [[ -f /etc/nest/livekit-enabled ]]; then
+  systemctl enable nest-livekit >/dev/null
+  systemctl start nest-livekit
+  curl --fail --silent --show-error --max-time 3 --retry 20 --retry-all-errors --retry-delay 1 --output /dev/null http://127.0.0.1:7880/
+fi
 systemctl start nest-engine nest-api
 if [[ ! -f /etc/nest/runner-paused ]]; then systemctl start nest-runner; fi
 for attempt in $(seq 1 60); do
