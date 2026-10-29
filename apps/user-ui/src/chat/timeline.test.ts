@@ -11,6 +11,12 @@ const t2=tr('t2','tool.started',1200);
 const e2=msg('e2','agent:Pip',{text:'Done'},1300);
 
 describe('buildTimeline',()=>{
+ it('explains omitted engine message payloads while retaining their identity',()=>{
+  const event=msg('large','human:alek',{truncated:true,originalBytes:100000},1000,{payloadTruncated:true});
+  const [item]=buildTimeline([event],opts);
+  expect(item).toMatchObject({id:'large',kind:'message',text:'[Message too large to display. The original content is retained.]'});
+  expect(item?.kind==='message'&&item.event).toBe(event);
+ });
  it('human message becomes user role',()=>{
   const items=buildTimeline([e1],opts);
   expect(items).toMatchObject([{kind:'message',id:'e1',meta:{eventId:'e1',authorKind:'human',authorName:'alek',isMine:true,displayAt:1000,targetAgents:[]}}]);

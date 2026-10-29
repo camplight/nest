@@ -20,6 +20,29 @@ Do not edit `vendor/orgops`. Change Nest UI/API/client/launcher code for product
 features. Contribute engine changes to OrgOps separately, then update the gitlink.
 The parent npm lockfile locks the combined workspace dependency graph.
 
+## Memory-only release backport: `cc8faa0` → `eb2e19d`
+
+OrgOps #78 is based on the current production engine revision, on upstream's
+`hotfix/cc8faa0` release branch. It backports the memory protections from #76 and
+bounds historical listing reads before loading payloads into JS. There are no
+new migrations, dependency changes, voice features or #77 response semantics.
+The submodule remains an untouched upstream commit, with no Nest patch queue.
+
+Normal listings preserve event metadata and receipt delivery, but omit payloads
+above 64 KiB or the page's 1 MiB UTF-8 budget. Runner receipt
+polls allow complete inputs up to 1 MiB, return only a prefix fitting the budget
+and acknowledge only that prefix. Omitted individual inputs are not actionable. Consumers must respect the explicit
+`payloadTruncated` flag. The original database payloads are retained. Native CI
+runs a synthetic 280 MiB retained-history fixture at a 256 MiB V8 heap budget;
+the original cherry-picked read path OOMs and the backport passes. The full dump
+endpoint is outside that listing budget.
+
+The deployment controller still snapshots both databases and private config.
+Install the release while the execution-pause marker remains present, verify API,
+Google sign-in and protected demos, then explicitly resume and verify fresh runner
+heartbeat, turn outcomes and API stability. Runner identity, workspaces, sessions,
+Codex login and runtime skills are retained. No production DB cleanup is required.
+
 ## Upstream upgrade: `f7c95b7` → `cc8faa0`
 
 The untouched engine advances through OrgOps PRs #55, #56, #58 and #59. The parent

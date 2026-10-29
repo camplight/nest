@@ -11,6 +11,8 @@ source deploy/native/versions.env
 output=${1:?Usage: scripts/build-host-release.sh /absolute/output.tar.gz}
 [[ "$output" == /* ]] || { echo 'Output must be absolute.' >&2; exit 1; }
 npm ci
+# Gate the release on the real-engine regression at the production heap budget.
+npm run test:engine -- apps/api/src/event-history-memory.test.ts apps/agent-runner/src/tools/types.test.ts
 npm ci --prefix deploy/native/agent-clis
 VITE_UI_BASE_PATH=/admin/ npm run admin-ui:build
 VITE_UI_BASE_PATH=/ npm run user-ui:build

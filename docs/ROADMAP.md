@@ -14,7 +14,7 @@ This is separate from NestSystem's old bridge hiding progress during active work
 
 | Work | Owner and status | Acceptance |
 |---|---|---|
-| Recursive event-search output and oversized event reads | OrgOps; outbounder is preparing the upstream fix. Do not duplicate it in Nest. | Repeated search cannot recursively retain full prior tool output; payloads and reads are bounded by bytes as well as rows; existing history remains recoverable. |
+| Recursive event-search output and oversized event reads | OrgOps #78 release backport, Nest adoption in review. | Repeated search cannot recursively retain full prior tool output; payloads and reads are bounded by bytes as well as rows; existing history remains recoverable. |
 | Runner failure reporting during an API outage | OrgOps; coordinate with upstream rather than patch the submodule. | Losing the API while a turn fails does not produce an unhandled rejection or lose the eventual failure outcome. |
 | Bridge installation drift | Nest; deployed in #71. | Explicitly pinned NestSystem configuration runs `/app/deploy/nestsystem-bridge.mjs`; migrate the recognized legacy recipe through HTTP, preserve session/workspace state, back up configuration privately, and leave custom agents untouched. |
 | Google sign-in outage/recovery | Nest; deployed in #71. | An unavailable or malformed config response shows Retry instead of silently removing signup; recovery works without reload; activation rejects loss of previously enabled Google sign-in. |
@@ -23,7 +23,7 @@ This is separate from NestSystem's old bridge hiding progress during active work
 | Codex adapter completion and recovery | Nest or a separate adapter package; pending. | Require explicit completion; recover later progress after temporary outages; checkpoint new session identity before interruption; bound buffers and tolerate supported CLI output versions. |
 | Self-deployment completion | Nest host controller; pending. | A deployment result remains observable even if restarting the runner kills the agent that requested it. |
 | Reviewed upstream adoption | Nest; pending upstream fix. | Review and test the fixed OrgOps revision, update the submodule/lockfile deliberately, run upgrade and outage regressions, then verify both Google login and a real agent turn after deployment. |
-| API recovery during an execution pause | Nest; audit follow-up in review. | Keep checking both APIs while excluding the intentionally paused runner; recovery must preserve the pause and the existing lock/cooldown. |
+| API recovery during an execution pause | Nest; deployed in #72. | Keep checking both APIs while excluding the intentionally paused runner; recovery must preserve the pause and the existing lock/cooldown. |
 | Proactive incident visibility | Nest; pending. | Record bounded request IDs, route templates, status/duration and reason categories without secrets or tenant content. Deduplicate outage bursts and show owner-visible recovery; distinguish expected maintenance from failure. |
 | Chat output and adapter diagnostics | Nest adapter plus upstream response handling; pending. | Classify empty final replies separately from exit/transport/parser failures. Review OrgOps #77 for format fallbacks/retry duplication; preserve evidence without logging reasoning or raw tool outputs. |
 
@@ -48,6 +48,15 @@ routine submodule bump as resolving this incident. The event-amplification root
 cause was reported by the upstream maintainer; the heap/runner failures and
 Google endpoint recovery were observed directly on Nest production. These fixes
 are not marked deployed by local or CI results.
+
+On 2026-10-29, resuming the unchanged production runner immediately reproduced
+heap crashes and API connection failures. Execution was paused again and APIs
+recovered. OrgOps #78 now supplies a memory-only backport over `cc8faa0`, including
+metadata-first, byte-bounded listing reads. Its synthetic 280 MiB history test
+fails with heap exhaustion on the original cherry-picked read path and passes on
+the backport with the same 256 MiB V8 budget. Nest's adoption remains under review;
+passing this fixture is not yet a claim that production execution has recovered.
+PR #77 remains standalone against upstream main and is outside this backport.
 
 ## Design references
 
