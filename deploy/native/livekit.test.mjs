@@ -1,10 +1,21 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,readFileSync,writeFileSync,rmSync,statSync} from 'node:fs';
+import {mkdtempSync,readFileSync,writeFileSync,rmSync,statSync,symlinkSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {parseEnv} from 'node:util';
 import {configureLiveKit} from './configure-livekit.mjs';
+test('configuration entrypoint executes through a release symlink',()=>{
+ const root=mkdtempSync(join(tmpdir(),'nest-livekit-entry-'));
+ try{
+  writeFileSync(join(root,'runtime.env'),'');
+  const entry=join(root,'configure.mjs');symlinkSync(new URL('./configure-livekit.mjs',import.meta.url),entry);
+  const result=spawnSync(process.execPath,[entry,root,'http://127.0.0.1:8080'],{encoding:'utf8',timeout:5000});
+  assert.equal(result.status,0,result.stderr);
+  assert.equal(parseEnv(readFileSync(join(root,'runtime.env'),'utf8')).NEST_ENABLE_LIVEKIT,'1');
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
 test('managed SFU provisioning preserves private environment and reuses credentials',()=>{
  const root=mkdtempSync(join(tmpdir(),'nest-livekit-'));
  try{
