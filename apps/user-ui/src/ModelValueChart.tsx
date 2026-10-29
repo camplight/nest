@@ -10,6 +10,9 @@ export function ModelValueChart({models,benchmarks,selected,searching,disabled,o
   const x=(cost:number)=>65+Math.log1p(cost)/Math.log1p(maxCost)*450,y=(score:number)=>250-score/maxScore*210;
   const frontier=points.filter(p=>p.frontier).sort((a,b)=>a.cost-b.cost||a.score-b.score);
   const focus=points.find(p=>p.model.id===hover)||points.find(p=>p.model.id===selected);
+  const leaders=new Map<string,typeof points[number]>();
+  for(const point of points){const family=point.model.id.split('/')[0];if(!leaders.has(family)||leaders.get(family)!.score<point.score)leaders.set(family,point);}
+  const familyNames:Record<string,string>={'z-ai':'Z.ai',moonshotai:'Kimi',qwen:'Qwen',openai:'OpenAI',anthropic:'Claude',google:'Google',deepseek:'DeepSeek'};
   const choose=(id:string)=>{if(!disabled)onChoose(id);};
   return <figure className="model-value-chart">
     <figcaption><strong>More intelligence, less cost</strong><span>Look toward the upper left. Green rings mark best-value trade-offs.</span></figcaption>
@@ -27,6 +30,7 @@ export function ModelValueChart({models,benchmarks,selected,searching,disabled,o
         {selected===point.model.id&&<circle cx={x(point.cost)} cy={y(point.score)} r="11" fill="none" stroke="currentColor" strokeWidth="2"/>}
       </g>)}
     </svg>
+    <div className="model-chart-families" aria-label="Provider highlights">{[...leaders].map(([family,point])=><button type="button" key={family} disabled={disabled} title={point.model.name} aria-label={`Compare ${point.model.name}`} onClick={()=>choose(point.model.id)}><i aria-hidden="true" style={{backgroundColor:color(family)}}/>{familyNames[family]??family}</button>)}</div>
     <p className="model-chart-focus" aria-live="polite">{focus?`${focus.model.name} · Intelligence ${focus.score} · $${focus.cost.toFixed(2)} / 1M tokens`:'Click a dot to compare a model, then Connect to test it.'}</p>
     <details className="model-chart-method"><summary>How this comparison works</summary><p>Price assumes equal input and output tokens. This is a token-price comparison, not an estimate of cost per task; reasoning can use more tokens. Scores describe benchmark performance, not a guarantee for your work. The green frontier compares models with scores in the current search. The default view includes each provider’s leading model and all frontier models.</p><p>Intelligence: <a href="https://artificialanalysis.ai/" target="_blank" rel="noreferrer">Artificial Analysis</a>, via <a href="https://openrouter.ai/benchmarks" target="_blank" rel="noreferrer">OpenRouter</a>. {benchmarks.asOf?`Source updated ${new Date(benchmarks.asOf).toLocaleDateString()}.`:''} Retrieved {new Date(benchmarks.fetchedAt).toLocaleDateString()}.{benchmarks.stale?' Cached scores; refresh is temporarily unavailable.':''}</p></details>
     <p className="model-source">Intelligence: <a href="https://artificialanalysis.ai/" target="_blank" rel="noreferrer">Artificial Analysis</a> · Prices: OpenRouter</p>

@@ -32,6 +32,12 @@ let failConnections=true;
 let releaseConnections;
 const connectionGate=new Promise(resolve=>{releaseConnections=resolve;});
 const channels=[{id:'chat',name:'general',visibility:'PUBLIC',participants:[]}];
+const chartFixtures=[
+ {id:'openai/reasoner-fixture',name:'OpenAI fixture',score:68,input:3,output:9},
+ {id:'anthropic/claude-fixture',name:'Claude fixture',score:70,input:4,output:20},
+ {id:'z-ai/glm-5.3',name:'GLM fixture',score:60,input:1,output:2},
+ {id:'deepseek/value-fixture',name:'DeepSeek fixture',score:40,input:0.2,output:0.4},
+];
 let malformedDirectory=false;
 let malformedCatalog=false;let failModels=false;let failBenchmarks=false;let failSave=false;const writes=[];
 await page.route('**/api/**',async route=>{
@@ -43,8 +49,8 @@ await page.route('**/api/**',async route=>{
  data={models:[{id:'kimi',name:'moonshotai/kimi-k3',provider:'openrouter',reference:'openrouter:moonshotai/kimi-k3'},{id:'gemini',name:'google/gemini-2.5-flash',provider:'openrouter',reference:'openrouter:google/gemini-2.5-flash'}],defaultModel:'openrouter:moonshotai/kimi-k3'};
  }
  else if(path==='/api/openrouter-models'&&malformedCatalog)data=[];
- else if(path==='/api/openrouter-models')data={models:[{id:'moonshotai/kimi-k3',name:'Kimi fixture',description:'Synthetic test catalog. Text tools.',tools:true,vision:false,reasoning:true,context:128000,inputPrice:1,outputPrice:2},{id:'google/gemini-2.5-flash',name:'Gemini fixture',description:'Synthetic test catalog. Images and tools.',tools:true,vision:true,reasoning:true,context:1000000,inputPrice:0.3,outputPrice:2.5}],fetchedAt:1793200000000,stale:false};
- else if(path.endsWith('/model-benchmarks')){return route.fulfill(failBenchmarks?{status:503,json:{error:'Unavailable'}}:{json:{models:[{id:'moonshotai/kimi-k3',intelligence:35},{id:'google/gemini-2.5-flash',intelligence:45}],fetchedAt:1793300000000,asOf:'2026-10-29T00:00:00Z',stale:false}});}
+ else if(path==='/api/openrouter-models')data={models:[{id:'moonshotai/kimi-k3',name:'Kimi fixture',description:'Synthetic test catalog. Text tools.',tools:true,vision:false,reasoning:true,context:128000,inputPrice:1,outputPrice:2},{id:'google/gemini-2.5-flash',name:'Gemini fixture',description:'Synthetic test catalog. Images and tools.',tools:true,vision:true,reasoning:true,context:1000000,inputPrice:0.3,outputPrice:2.5},...chartFixtures.map(m=>({id:m.id,name:m.name,description:'Synthetic benchmark fixture',tools:true,vision:false,reasoning:true,context:128000,inputPrice:m.input,outputPrice:m.output}))],fetchedAt:1793200000000,stale:false};
+ else if(path.endsWith('/model-benchmarks')){return route.fulfill(failBenchmarks?{status:503,json:{error:'Unavailable'}}:{json:{models:[{id:'moonshotai/kimi-k3',intelligence:35},{id:'google/gemini-2.5-flash',intelligence:45},...chartFixtures.map(m=>({id:m.id,intelligence:m.score}))],fetchedAt:1793300000000,asOf:'2026-10-29T00:00:00Z',stale:false}});}
  else if(path.endsWith('/model-check')){const model=route.request().postDataJSON().model;return route.fulfill(model==='google/gemini-2.5-flash'?{json:{reference:'openrouter:'+model,latencyMs:250,tools:true}}:{status:422,json:{error:'Synthetic check failed; saved model unchanged'}});}
  else if(path==='/api/events'){await notificationGate;data=[];}
  else if(path==='/api/mentions')data={items:[]};
