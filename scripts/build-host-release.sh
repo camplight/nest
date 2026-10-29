@@ -13,7 +13,7 @@ output=${1:?Usage: scripts/build-host-release.sh /absolute/output.tar.gz}
 npm ci
 # Gate the release on the real-engine regression at the production heap budget.
 npm run test:engine -- apps/api/src/event-history-memory.test.ts apps/agent-runner/src/tools/types.test.ts
-node --test deploy/native/livekit.test.mjs
+node --test deploy/native/livekit.check.mjs
 npm ci --prefix deploy/native/agent-clis
 VITE_UI_BASE_PATH=/admin/ npm run admin-ui:build
 VITE_UI_BASE_PATH=/ npm run user-ui:build
