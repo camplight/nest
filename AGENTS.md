@@ -68,6 +68,27 @@ controller source does not install it on the host.
 Use functional factories and dependency injection. Conventional commits. Do not
 maintain CHANGELOG.md by hand. Never expose credentials in logs or commits.
 
+## Pull request descriptions
+
+Apply this guidance to new PRs; do not rewrite existing PR descriptions solely to
+retrofit it.
+
+- Lead with the intent: the concrete problem and the resulting behavior. Explain
+  what changed and why, so a reviewer can compare the implementation with that
+  intent without reading the conversation.
+- Check the existing API, event contracts and repository boundaries before
+  proposing a change. Describe the final implementation, not abandoned plans.
+- Keep descriptions proportional to the change. A small PR can use a few
+  sentences and validation; larger PRs can use What, Why and Validation sections.
+  Avoid repeating the same explanation under multiple headings.
+- Report actual validation commands and results, including relevant failures and
+  checks not run. Distinguish required dependencies from optional follow-ups;
+  state deployment status when relevant. Do not claim checks or deployment that
+  have not happened.
+- Use [OrgOps #51](https://github.com/camplight/orgops/pull/51) as a small-PR
+  example and [OrgOps #76](https://github.com/camplight/orgops/pull/76) as a
+  larger-PR example. Follow their level of useful detail, not a mandatory template.
+
 ## Pull request screenshots
 
 Include screenshots only when a PR changes visible UI. Capture the implemented
