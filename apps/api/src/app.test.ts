@@ -174,6 +174,10 @@ describe('Nest product over unchanged OrgOps', () => {
   it('retains owner access after a username change', async () => {
     const r = await product.app.request('/api/auth/profile', {method: 'PATCH', headers: {cookie,'content-type':'application/json'},body:JSON.stringify({username:'renamed'})});
     expect(r.status).toBe(200);
+    const rotated = r.headers.getSetCookie().find(value => value.startsWith('nest_session='));
+    expect(rotated).toBeTruthy();
+    expect((await product.app.request('/api/branding/access', {headers:{cookie}})).status).toBe(401);
+    cookie = rotated!.split(';')[0];
     expect(await (await product.app.request('/api/branding/access', {headers:{cookie}})).json()).toEqual({canManage:true});
   });
   it('rejects malformed branding and oversized bodies', async () => {
