@@ -13,7 +13,8 @@ function token(identity, admin = false) {
   const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
   const unsigned = `${encode({alg: 'HS256', typ: 'JWT'})}.${encode({
     iss: key, sub: identity, nbf: now - 5, exp: now + 60,
-    video: {room: roomName, ...(admin ? {roomAdmin: true} : {roomJoin: true, canPublish: true, canSubscribe: true})},
+    // LiveKit DeleteRoom requires roomCreate, not the per-room roomAdmin grant.
+    video: {room: roomName, ...(admin ? {roomCreate: true} : {roomJoin: true, canPublish: true, canSubscribe: true})},
   })}`;
   return `${unsigned}.${createHmac('sha256', secret).update(unsigned).digest('base64url')}`;
 }
