@@ -15,8 +15,8 @@ export function agentLifecycleStart(event:EventRow):{agent:string;at:number}|nul
 
 export function mergeAgentStarts(current:AgentStarts,updates:AgentStarts):AgentStarts{
  let next=current;
- for(const [agent,at] of Object.entries(updates))if(Number.isFinite(at)&&at>(current[agent]??0)){
-  if(next===current)next={...current};
+ for(const [agent,at] of Object.entries(updates))if(Number.isFinite(at)&&at>(typeof current[agent]==='number'?current[agent]:0)){
+  if(next===current)next=Object.assign(Object.create(null),current);
   (next as Record<string,number>)[agent]=at;
  }
  return next;
@@ -27,7 +27,7 @@ export function mergeAgentStarts(current:AgentStarts,updates:AgentStarts):AgentS
 export async function fetchAgentStarts(fetchJson:<T>(url:string)=>Promise<T>):Promise<AgentStarts>{
  const pages=await Promise.all(['agent.lifecycle.started','wrapper.lifecycle.started'].map(type=>
   fetchJson<EventRow[]>(`/api/events?type=${type}&limit=100&order=desc`)));
- const starts:Record<string,number>={};
+ const starts:Record<string,number>=Object.create(null);
  for(const event of pages.flat()){
   const start=agentLifecycleStart(event);
   if(start)starts[start.agent]=Math.max(starts[start.agent]??0,start.at);

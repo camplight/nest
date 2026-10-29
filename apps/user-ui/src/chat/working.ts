@@ -12,6 +12,8 @@ const STARTS=new Set(['agent.turn.started','wrapper.turn.started']);
 export function activeTurns(events:EventRow[],agents:ReadonlyArray<TurnAgent>,starts:AgentStarts={}):WorkingTurn[]{
   const ordered=[...events].sort((a,b)=>(a.createdAt??0)-(b.createdAt??0)||(a.id<b.id?-1:a.id>b.id?1:0));
   const active=new Map<string,WorkingTurn>(),finished=new Set<string>();
+  const byName=new Map(agents.map(agent=>[agent.name,agent]));
+  const restartBoundary=(agent:string)=>Math.max(typeof starts[agent]==='number'?starts[agent]:0,byName.get(agent)?.lastStartedAt??0);
   for(const event of ordered){
     const p=event.payload&&typeof event.payload==='object'?event.payload as Record<string,unknown>:{};
     const agent=event.source.startsWith('agent:')?event.source.slice(6):typeof p.targetAgentName==='string'?p.targetAgentName:'';
@@ -26,7 +28,7 @@ export function activeTurns(events:EventRow[],agents:ReadonlyArray<TurnAgent>,st
       finished.delete(key);
     }
     let turn=active.get(key);
-    const restartAt=Math.max(starts[agent]??0,agents.find(row=>row.name===agent)?.lastStartedAt??0);
+    const restartAt=restartBoundary(agent);
     if(turn&&STARTS.has(event.type)&&turn.since<restartAt&&(event.createdAt??0)>=restartAt){active.delete(key);turn=undefined;}
     if(!turn){
       // A newer turn by the same agent ends its older ones.
@@ -36,13 +38,12 @@ export function activeTurns(events:EventRow[],agents:ReadonlyArray<TurnAgent>,st
     }
     if(progress!==null){turn.progressText=progress;turn.progressEventId=event.id;}
   }
-  const byName=new Map(agents.map(agent=>[agent.name,agent]));
   return [...active.values()]
     .filter(turn=>{
       const agent=byName.get(turn.agent);
       return !(agent?.desiredState==='STOPPED'&&typeof agent.updatedAt==='number'&&agent.updatedAt>turn.since);
     })
-    .map(turn=>Math.max(starts[turn.agent]??0,byName.get(turn.agent)?.lastStartedAt??0)>turn.since
+    .map(turn=>restartBoundary(turn.agent)>turn.since
       ?{agent:turn.agent,triggerEventId:turn.triggerEventId,since:turn.since,interrupted:true as const}:turn)
     .sort((a,b)=>a.since-b.since||(a.agent<b.agent?-1:a.agent>b.agent?1:0));
 }

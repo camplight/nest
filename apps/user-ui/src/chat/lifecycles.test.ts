@@ -18,4 +18,10 @@ describe('agent lifecycle evidence',()=>{
   expect(urls).toHaveLength(2);expect(urls.every(url=>url.includes('limit=100&order=desc')&&!url.includes('agentName='))).toBe(true);
   expect(starts).toEqual({Pip:2000});expect(JSON.stringify(starts)).not.toContain('not retained');
  });
+ it('supports agent names that match object properties without changing prototypes',async()=>{
+  const starts=await fetchAgentStarts(async<T>()=>[event({payload:{targetAgentName:'__proto__'}}),event({payload:{targetAgentName:'constructor'}})] as T);
+  expect(Object.getPrototypeOf(starts)).toBeNull();
+  const merged=mergeAgentStarts({},starts);
+  expect(merged['__proto__']).toBe(2000);expect(merged.constructor).toBe(2000);
+ });
 });
