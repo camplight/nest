@@ -1,3 +1,4 @@
+import {DEFAULT_AGENT_MODEL_ID} from '@nest/orgops-client';
 import {registerDashboardActivityRoutes} from './dashboard-activity';
 import {registerModelPickerRoutes} from './model-picker';
 import {createProjectNamingWorker} from './project-naming-worker';
@@ -55,7 +56,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   const providerConfig=composioConfigFromEnv();
   const provider=config.connections===null?undefined:config.connections??(providerConfig?createComposioProvider(providerConfig):undefined);
   registerIntegrationRoutes(app,{store,orgops,provider,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
-  const defaultAgentModelId = config.defaultAgentModelId ?? process.env.NEST_DEFAULT_AGENT_MODEL_ID ?? config.personalAgent?.modelId ?? process.env.NEST_PERSONAL_AGENT_MODEL_ID;
+  const defaultAgentModelId = config.defaultAgentModelId ?? process.env.NEST_DEFAULT_AGENT_MODEL_ID ?? config.personalAgent?.modelId ?? process.env.NEST_PERSONAL_AGENT_MODEL_ID ?? DEFAULT_AGENT_MODEL_ID;
   registerAgentModelRoutes(app, orgops, defaultAgentModelId);
   registerDashboardActivityRoutes(app,orgops);
   registerModelPickerRoutes(app, orgops, {engineToken:config.connectionEngineToken??process.env.NEST_RUNNER_TOKEN});
