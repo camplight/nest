@@ -6,6 +6,7 @@ import {demoReturnTo, pendingDemoReturnTo, rememberDemoReturnTo, clearDemoReturn
 import {DemoArtifact} from './components/DemoArtifact';
 import {ChatFileDrop} from './components/ChatFileDrop';
 import {createChannelEventsCore,type ChannelEventsCore} from './chat/channel-events';
+import {fetchAgentStarts} from './chat/lifecycles';
 import {useChannelEvents} from './chat/useChannelEvents';
 import {adaptiveMessageBatchSize} from './chat/history';
 import {ChatThread, type ChatThreadHandle} from './chat/ChatThread';
@@ -283,7 +284,7 @@ function createSessionChannelEvents() {
         }
       ).connection
     );
-  return createChannelEventsCore({ fetchJson: apiJson, limit });
+  return createChannelEventsCore({ fetchJson: apiJson, limit, loadAgentStarts:()=>fetchAgentStarts(apiJson) });
 }
 
 const NO_EVENTS: EventRow[] = [];
@@ -873,6 +874,7 @@ export default function App() {
   function handleIncomingRealtimeEvent(event: EventRow) {
     if (!event.id) return;
     const core = channelEventsRef.current;
+    core.observeLifecycle(event);
     // Only a first sighting counts for unread and nest-message; a status republish just updates the store.
     const sighting = core.seen(event.id, event.status);
     if (sighting === "duplicate") return;

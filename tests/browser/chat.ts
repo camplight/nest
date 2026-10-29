@@ -25,7 +25,9 @@ try{
  assert(project.channelId);
  const other=await(await post('/api/channels',{name:'Other demo chat',visibility:'PRIVATE'},headers)).json();
  const emit=async(type:string,payload:unknown)=>{const response=await post('/api/events',{type,source:'agent:Demo',channelId:project.channelId,payload},{'content-type':'application/json','x-nest-runner-token':'test-runner'});assert.equal(response.status,201,await response.text());};
- await emit('agent.turn.started',{triggerEventId:'fixture-trigger'});await emit('telemetry.context.window.updated',{agentName:'Demo',modelId:'fixture',estimatedUsedTokens:1200,contextWindowTokens:32000,estimatedAvailableTokens:30800,utilizationPct:3.75,messageCount:1,systemChars:0,systemContextChars:0,historyChars:120});await emit('tool.started',{tool:'Search',args:{query:'Demo launch ideas'}});await emit('tool.executed',{tool:'Search',output:'Found three demo references'});await emit('process.output',{stream:'STDERR',text:'Synthetic diagnostic output'});await emit('process.exited',{exitCode:1});
+ const original=await post('/api/events',{type:'message.created',source:'human:demo-owner',channelId:project.channelId,payload:{text:'Prepare a launch draft for review.'}},headers);
+ const originalId=(await original.json()).id;assert(originalId);
+ await emit('agent.turn.started',{triggerEventId:originalId});await emit('telemetry.context.window.updated',{agentName:'Demo',modelId:'fixture',estimatedUsedTokens:1200,contextWindowTokens:32000,estimatedAvailableTokens:30800,utilizationPct:3.75,messageCount:1,systemChars:0,systemContextChars:0,historyChars:120});await emit('tool.started',{tool:'Search',args:{query:'Demo launch ideas'}});await emit('tool.executed',{tool:'Search',output:'Found three demo references'});await emit('process.output',{stream:'STDERR',text:'Synthetic diagnostic output'});await emit('process.exited',{exitCode:1});
  await emit('message.created',{text:'Synthetic retained history. '.repeat(3000)});
  let uploads=0,sends=0,failNext=false,holdNext=false,releaseUpload:(()=>void)|undefined,uploadStarted:(()=>void)|undefined;
  const browser=await chromium.launch();
@@ -49,6 +51,8 @@ try{
   await page.goto(chatUrl);
   await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
   await page.getByText('[Message too large to display. The original content is retained.]',{exact:true}).waitFor();
+  await page.locator('.working-row[data-agent=Demo][data-turn-state=working]').waitFor();
+  await page.screenshot({path:join(screenshots,'interrupted-before-desktop.png'),fullPage:true});
   await page.screenshot({path:join(screenshots,'retained-message-desktop.png'),fullPage:true});
   await page.setViewportSize({width:390,height:844});
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
@@ -59,6 +63,25 @@ try{
   await page.screenshot({path:join(screenshots,'retained-message-mobile.png'),fullPage:true});
   if(detailsWereOpen)await projectDetails.locator('summary').click();
   await page.setViewportSize({width:1440,height:1000});
+  // An actual lifecycle event in a different channel interrupts pre-restart work.
+  const reboot=await post('/api/events',{type:'agent.lifecycle.started',source:'system:runner',channelId:other.id,payload:{targetAgentName:'Demo',text:'Synthetic restart',startedAt:Date.now()}},{'content-type':'application/json','x-nest-runner-token':'test-runner'});
+  assert.equal(reboot.status,201);await page.reload();
+  const interrupted=page.locator('.working-row[data-agent=Demo][data-turn-state=interrupted]');await interrupted.waitFor();
+  assert.equal(await interrupted.locator('.animate-pulse').count(),0);
+  await interrupted.getByRole('button',{name:'Review request',exact:true}).click();
+  await page.waitForURL(url=>url.searchParams.get('message')===originalId);
+  assert.equal(sends,0,'Reviewing interrupted work must never resend it');
+  await page.screenshot({path:join(screenshots,'interrupted-desktop.png'),fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  const details=page.locator('.project-context-disclosure');if(await details.getAttribute('open')!==null)await details.locator('summary').click();
+  await interrupted.scrollIntoViewIfNeeded();assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await page.screenshot({path:join(screenshots,'interrupted-mobile.png'),fullPage:true});
+  await page.setViewportSize({width:1440,height:1000});
+  // A new turn after the restart stays active until its own terminal event.
+  await emit('agent.turn.started',{triggerEventId:'fresh-trigger'});await page.reload();
+  await page.locator('.working-row[data-agent=Demo][data-turn-state=working]').waitFor();
+  await emit('agent.turn.completed',{triggerEventId:'fresh-trigger'});await page.reload();
+  await page.locator('.working-row[data-agent=Demo]').waitFor({state:'hidden'});
   // Plain text drags preserve normal editor/browser behaviour.
   assert.equal(await page.evaluate(()=>{const d=new DataTransfer();d.setData('text/plain','hello');return window.dispatchEvent(new DragEvent('drop',{dataTransfer:d,bubbles:true,cancelable:true}));}),true);
   async function drag(page:Page,target:string,names:string[],type='drop'){
@@ -124,7 +147,7 @@ try{
   assert.equal(sends,2);
   // Tiny event boxes retain the original footprint; names are opt-in.
   await page.goto(chatUrl);
-  const activity=page.getByRole('article',{name:'Agent activity'});
+  const activity=page.getByRole('article',{name:'Agent activity'}).filter({has:page.getByRole('button',{name:'Agent process stopped with an error',exact:true})});
   await activity.getByRole('button',{name:'Agent process stopped with an error',exact:true}).waitFor();
   await activity.scrollIntoViewIfNeeded();
   assert.equal(await activity.locator('.trace-chip').count(),6);
@@ -147,7 +170,7 @@ try{
   await mobileContext.addCookies([{name:'nest_session',value:cookie.slice('nest_session='.length),url:base,httpOnly:true}]);
   await mobileContext.route('**/api/**',relay);await mobileContext.routeWebSocket('**/ws',socket=>socket.close());
   const mobile=await mobileContext.newPage();mobile.on('pageerror',e=>errors.push(e.message));await mobile.goto(chatUrl);
-  const mobileActivity=mobile.getByRole('article',{name:'Agent activity'}),mobileFailure=mobileActivity.getByRole('button',{name:'Agent process stopped with an error',exact:true});
+  const mobileActivity=mobile.getByRole('article',{name:'Agent activity'}).filter({has:mobile.getByRole('button',{name:'Agent process stopped with an error',exact:true})}),mobileFailure=mobileActivity.getByRole('button',{name:'Agent process stopped with an error',exact:true});
   await mobileFailure.waitFor();assert.equal(await mobile.getByRole('tooltip').count(),0);
   assert(await mobile.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   await mobile.screenshot({path:join(screenshots,'activity-mobile.png'),fullPage:true});

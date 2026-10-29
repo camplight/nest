@@ -46,6 +46,19 @@ continues using its explicit runtime project root. These engine API capabilities
 are available through the gateway; upstream UI changes do not automatically alter
 Nest-owned screens.
 
+Chat activity uses trusted OrgOps `agent.lifecycle.started` / `wrapper.lifecycle.started`
+records as restart boundaries. An unfinished turn that predates its agent's next
+lifecycle is shown as **Interrupted · outcome unknown**, without animation or old
+progress text; Review request focuses the original message without resending it.
+A completion/failure removes the indicator; newer turns keep their own activity.
+Heartbeats, availability, wall-clock age and settings updates never establish an
+interruption or successful completion. A failed lifecycle read leaves chat usable
+and labels unverified ongoing activity unavailable. Only lifecycle timestamps are
+kept outside the current room; lifecycle text never enters its timeline or export.
+The current engine is unchanged: two bounded, human-authorized lifecycle queries
+provide compatibility until upstream agent `lastStartedAt` metadata is available.
+No events/receipts are rewritten and no unknown work is automatically retried.
+
 ## Ownership
 
 | Layer | Owner | Location |

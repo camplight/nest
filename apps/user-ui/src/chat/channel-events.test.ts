@@ -54,6 +54,16 @@ const ids=(events:EventRow[])=>events.map(event=>event.id);
 const messages=(count:number,start:number)=>Array.from({length:count},(_,index)=>ev(`m${start+index}`,'message.created',start+index));
 
 describe('createChannelEventsCore',()=>{
+ it('loads restart metadata separately, keeps chat usable on activity failure and recovers',async()=>{
+  const api=fakeApi([ev('m1','message.created',100)]);let fail=false;
+  const core=createChannelEventsCore({fetchJson:api.fetchJson,limit:()=>30,loadAgentStarts:async()=>{if(fail)throw Error('outage');return {Pip:200};}});
+  await core.switchTo('c1');expect(core.snapshot().agentStarts).toEqual({Pip:200});
+  core.observeLifecycle(ev('boot','agent.lifecycle.started',300,{channelId:'lifecycle',source:'system:runner',payload:{targetAgentName:'Rex',text:'private context'}}));
+  expect(core.snapshot().agentStarts).toEqual({Pip:200,Rex:300});expect(ids(core.snapshot().events)).toEqual(['m1']);
+  fail=true;await core.refresh();expect(core.snapshot().activityUnavailable).toBe(true);expect(core.snapshot().error).toBeNull();
+  expect(core.snapshot().agentStarts).toEqual({Pip:200,Rex:300});expect(ids(core.snapshot().events)).toEqual(['m1']);
+  fail=false;await core.refresh();expect(core.snapshot().activityUnavailable).toBe(false);
+ });
  it('switch loads first page',async()=>{
   const {api,core}=setup([
    ev('m2','message.created',300),
