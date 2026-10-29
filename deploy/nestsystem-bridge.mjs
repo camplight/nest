@@ -2,8 +2,8 @@
 // Keep Codex credentials and conversation state on the persistent data volume.
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, renameSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Consume only public assistant messages; never forward reasoning or tool output. */
@@ -58,14 +58,14 @@ export function createCodexOutput({publishProgress, onProgressError = () => {}})
 }
 
 async function runBridge() {
+  const sessionKey = process.env.ORGOPS_WRAPPED_SESSION_ID || process.env.NEST_WRAPPED_SESSION_ID;
+  const message = process.env.ORGOPS_WRAPPED_MESSAGE || process.env.NEST_WRAPPED_MESSAGE;
+  if (!sessionKey || !message) throw new Error("Missing Nest session or message");
   const { managementEnvironment } = await import('/app/skills/nest-management/scripts/capability.mjs');
   const { createWrappedProgressPublisher } = await import('/app/packages/orgops-client/src/wrapped-progress.mjs');
 
   const runtime = "/app/.nest-data/codex-runtime";
   const workspace = process.env.ORGOPS_WRAPPED_WORKSPACE_PATH || process.env.NEST_WRAPPED_WORKSPACE_PATH || "/app/.nest-data/workspaces/NestSystem";
-  const sessionKey = process.env.ORGOPS_WRAPPED_SESSION_ID || process.env.NEST_WRAPPED_SESSION_ID;
-  const message = process.env.ORGOPS_WRAPPED_MESSAGE || process.env.NEST_WRAPPED_MESSAGE;
-  if (!sessionKey || !message) throw new Error("Missing Nest session or message");
   const stateDir = join(runtime, "nestsystem-sessions");
   mkdirSync(stateDir, { recursive: true, mode: 0o700 });
   const statePath = join(stateDir, `${createHash("sha256").update(sessionKey).digest("hex")}.json`);
@@ -122,4 +122,4 @@ async function runBridge() {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await runBridge();
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) await runBridge();

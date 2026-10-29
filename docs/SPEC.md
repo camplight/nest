@@ -155,6 +155,11 @@ embedded old-file installer is removed while other setup fields, session scope,
 workspace, timeout and credentials remain unchanged. Custom recipes require
 operator review; other agents are not rewritten. There is no engine DB access.
 Subsequent releases supply the executable without copying code into runtime data.
+The bridge resolves symlinks on both sides of its executable-entry check so the
+stable `/app` path runs the actual release module. Activation verifies that this
+entrypoint rejects missing input rather than silently exiting successfully; this
+check starts no Codex process and uses no credentials. Existing failed/silent
+requests are not automatically replayed.
 
 The shared Google sign-in control distinguishes an explicitly disabled provider
 from a failed, malformed or timed-out availability check. Unavailable checks offer
