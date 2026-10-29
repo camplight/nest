@@ -14,12 +14,12 @@ This is separate from NestSystem's old bridge hiding progress during active work
 
 | Work | Owner and status | Acceptance |
 |---|---|---|
-| Recursive event-search output and oversized event reads | OrgOps #78 release backport, Nest adoption in review. | Repeated search cannot recursively retain full prior tool output; payloads and reads are bounded by bytes as well as rows; existing history remains recoverable. |
+| Recursive event-search output and oversized event reads | OrgOps #78 and Nest #73 merged/deployed; execution resumed on 2026-10-29. | Repeated search cannot recursively retain full prior tool output; payloads and reads are bounded by bytes as well as rows; existing history remains recoverable. |
 | Runner failure reporting during an API outage | OrgOps; coordinate with upstream rather than patch the submodule. | Losing the API while a turn fails does not produce an unhandled rejection or lose the eventual failure outcome. |
 | Bridge installation drift | Nest; deployed in #71. | Explicitly pinned NestSystem configuration runs `/app/deploy/nestsystem-bridge.mjs`; migrate the recognized legacy recipe through HTTP, preserve session/workspace state, back up configuration privately, and leave custom agents untouched. |
 | Google sign-in outage/recovery | Nest; deployed in #71. | An unavailable or malformed config response shows Retry instead of silently removing signup; recovery works without reload; activation rejects loss of previously enabled Google sign-in. |
 | Preserve execution maintenance during rollout | Nest; deployed in #71. | A paused runner stays paused across upgrades/restarts/reboot; explicit resume verifies heartbeat; API/UI updates can ship independently of the pending upstream crash fix. |
-| Interrupted turns and stale activity | Nest UI plus generic OrgOps lifecycle support; pending. | Distinguish queued, running, interrupted and unavailable states; do not infer successful completion from elapsed time or a runner heartbeat. Reconcile missing terminal events after restart through engine APIs. |
+| Interrupted turns and stale activity | Nest UI restart-boundary handling in review; canonical OrgOps API metadata proposed. | Distinguish queued, running, interrupted and unavailable states; do not infer successful completion from elapsed time or a runner heartbeat. Reconcile missing terminal events after restart through engine APIs. |
 | Codex adapter completion and recovery | Nest or a separate adapter package; pending. | Require explicit completion; recover later progress after temporary outages; checkpoint new session identity before interruption; bound buffers and tolerate supported CLI output versions. |
 | Self-deployment completion | Nest host controller; pending. | A deployment result remains observable even if restarting the runner kills the agent that requested it. |
 | Reviewed upstream adoption | Nest; pending upstream fix. | Review and test the fixed OrgOps revision, update the submodule/lockfile deliberately, run upgrade and outage regressions, then verify both Google login and a real agent turn after deployment. |
@@ -54,9 +54,18 @@ heap crashes and API connection failures. Execution was paused again and APIs
 recovered. OrgOps #78 now supplies a memory-only backport over `cc8faa0`, including
 metadata-first, byte-bounded listing reads. Its synthetic 280 MiB history test
 fails with heap exhaustion on the original cherry-picked read path and passes on
-the backport with the same 256 MiB V8 budget. Nest's adoption remains under review;
-passing this fixture is not yet a claim that production execution has recovered.
+the backport with the same 256 MiB V8 budget. Nest #73 merged and deployed `7c9ebaf` with the backport. Execution resumed at
+14:31 UTC; eight queued turns completed with no heap/API failures or service
+restarts in the observed recovery window.
 PR #77 remains standalone against upstream main and is outside this backport.
+
+The follow-up room audit found three orphaned pre-restart turn starts still shown
+as Working. Existing trusted agent lifecycle records already establish a later
+restart. Nest now uses those records to show Interrupted with an unknown outcome
+and request review; it does not invent terminal events or retry external actions.
+The upstream proposal exposes canonical restart metadata on agents so clients
+can avoid lifecycle-history lookups. Long-running turns without restart evidence
+stay active, and lifecycle-read failures do not prevent chat from loading.
 
 ## Design references
 

@@ -159,7 +159,8 @@ function ThreadItem(){
     <AgentActivity events={item.events} tone={item.tone} formatTime={formatTime}/>
    </div>}
   {view.turns.filter(turn=>turn.triggerEventId===item.id||(!next&&!view.byId.has(turn.triggerEventId))).map(turn=>
-   <WorkingRow key={turn.agent} turn={turn} agent={view.props.agents.find(agent=>agent.name===turn.agent)}/>)}
+   <WorkingRow key={turn.agent} turn={turn} activityUnavailable={view.props.snapshot.activityUnavailable}
+    onReview={()=>view.props.onFocusMessage(turn.triggerEventId)}/>)}
   {item.meta.detached&&next&&!next.meta.detached&&<div data-slot="detached-marker" className="my-3 self-center rounded-full bg-muted/70 px-3 py-1 text-xs text-muted-foreground">Earlier messages not loaded</div>}
  </>;
 }
@@ -203,7 +204,7 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
   return next;
  },[snapshot.events,snapshot.detachedIds,currentUsername]);
  // Each active turn's row follows its trigger message, or the last item when the trigger is not loaded (spec 7.5.1).
- const turns=useMemo(()=>activeTurns(snapshot.events,props.agents),[snapshot.events,props.agents]);
+ const turns=useMemo(()=>activeTurns(snapshot.events,props.agents,snapshot.agentStarts),[snapshot.events,props.agents,snapshot.agentStarts]);
  // A deep-link focus is pending until it scrolled into view and the reader then scrolled themselves (spec 8.5).
  const focusedRef=useRef<string|null>(null);
  const focused=useCallback((eventId:string)=>{focusedRef.current=eventId;},[]);

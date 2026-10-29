@@ -3,11 +3,12 @@
 import type {EventRow} from '../types';
 import {fetchChannelPage,type Cursors} from './history';
 import {isTraceEvent,upsertEvents} from './timeline';
+import {agentLifecycleStart,mergeAgentStarts,type AgentStarts} from './lifecycles';
 
 export type ChannelEventsSnapshot={channelId:string|null;events:EventRow[];detachedIds:ReadonlySet<string>;
- loading:boolean;loadingOlder:boolean;hasOlder:boolean;error:string|null};
+ loading:boolean;loadingOlder:boolean;hasOlder:boolean;error:string|null;agentStarts?:AgentStarts;activityUnavailable?:boolean};
 export type RefreshResult={newTimeline:boolean;newestMessageAt:number};
-type Deps={fetchJson:<T>(url:string)=>Promise<T>;limit:()=>number};
+type Deps={fetchJson:<T>(url:string)=>Promise<T>;limit:()=>number;loadAgentStarts?:()=>Promise<AgentStarts>};
 
 const LOAD_ERROR='Unable to load messages';
 const OLDER_ERROR='Unable to load previous messages';
@@ -27,6 +28,7 @@ const sameEvents=(left:EventRow[],right:EventRow[])=>left===right||(left.length=
 const sameSnapshot=(left:ChannelEventsSnapshot,right:ChannelEventsSnapshot)=>
  left.channelId===right.channelId&&left.detachedIds===right.detachedIds&&left.loading===right.loading&&
  left.loadingOlder===right.loadingOlder&&left.hasOlder===right.hasOlder&&left.error===right.error&&
+ left.agentStarts===right.agentStarts&&left.activityUnavailable===right.activityUnavailable&&
  sameEvents(left.events,right.events);
 
 // A window page that holds a detached event reattaches it: the cursors now cover it.
@@ -57,6 +59,13 @@ export function createChannelEventsCore(deps:Deps){
   for(const listener of [...listeners])listener();
  };
  const page=(channelId:string,from?:Cursors)=>fetchChannelPage(channelId,deps.limit(),from,deps.fetchJson);
+ const head=async(channelId:string)=>{
+  const [latest,activity]=await Promise.all([page(channelId),deps.loadAgentStarts?.()
+   .then(starts=>({starts,unavailable:false})).catch(()=>({starts:{},unavailable:true}))]);
+  return {...latest,activity};
+ };
+ const activityPatch=(activity:{starts:AgentStarts;unavailable:boolean}|undefined)=>activity
+  ?{agentStarts:mergeAgentStarts(state.agentStarts??{},activity.starts),activityUnavailable:activity.unavailable}:{};
  const eventUrl=(eventId:string)=>`/api/events/${encodeURIComponent(eventId)}`;
  // True when timeline events newer than any loaded before arrived; the channel's first load never counts.
  function noteTimeline(channelId:string,events:EventRow[]){
@@ -74,11 +83,11 @@ export function createChannelEventsCore(deps:Deps){
    update({...EMPTY,channelId,loading:channelId!==null});
    if(channelId===null)return;
    try{
-    const first=await page(channelId);
+    const first=await head(channelId);
     if(token!==generation)return;
     cursors=first.cursors;newest=first.newest;
     noteTimeline(channelId,first.events);
-    update({...merged(first.events),hasOlder:first.hasMore,loading:false});
+    update({...merged(first.events),...activityPatch(first.activity),hasOlder:first.hasMore,loading:false});
    }catch{
     if(token===generation)update({loading:false,error:LOAD_ERROR});
    }
@@ -93,14 +102,14 @@ export function createChannelEventsCore(deps:Deps){
    // Each failed refresh reports again, as the classic poll did.
    if(state.error!==null)update({error:null});
    try{
-    const latest=await page(channelId);
+    const latest=await head(channelId);
     if(token!==generation)return NO_REFRESH;
     let rows=latest.events;
     if(cursors===undefined){
      // The first request may have failed. A successful refresh establishes a window.
      cursors=latest.cursors;newest=latest.newest;
      const newTimeline=noteTimeline(channelId,rows);
-     update({...merged(rows),hasOlder:latest.hasMore});
+     update({...merged(rows),...activityPatch(latest.activity),hasOlder:latest.hasMore});
      return {newTimeline,newestMessageAt:newestCreatedAt(rows,isMessageEvent)};
     }
     // A reconnect can skip more than one page. Walk each event stream back to its
@@ -118,7 +127,7 @@ export function createChannelEventsCore(deps:Deps){
     }
     newest=latest.newest;
     const newTimeline=noteTimeline(channelId,rows);
-    update(merged(rows));
+    update({...merged(rows),...activityPatch(latest.activity)});
     return {newTimeline,newestMessageAt:newestCreatedAt(rows,isMessageEvent)};
    }catch{
     if(token===generation)update({error:LOAD_ERROR});
@@ -182,6 +191,11 @@ export function createChannelEventsCore(deps:Deps){
    }catch{
     return null;
    }
+  },
+
+  observeLifecycle(event:EventRow):void{
+   const start=agentLifecycleStart(event);
+   if(start&&state.channelId!==null)update({agentStarts:mergeAgentStarts(state.agentStarts??{},{[start.agent]:start.at})});
   },
 
   ingest(event:EventRow):{accepted:boolean}{

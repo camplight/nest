@@ -30,6 +30,7 @@ export type Agent = {
   visibility?: "PUBLIC" | "PRIVATE";
   ownerHumanId?: string | null;
   runtimeState?: string;
+  lastStartedAt?: number | null;
   desiredState?: string;
   updatedAt?: number;
 };

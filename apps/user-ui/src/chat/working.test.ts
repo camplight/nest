@@ -7,6 +7,17 @@ const wrapper=(id:string,type:string,agent:string,trigger:string,at:number)=>ev(
 const phase=(id:string,agent:string,trigger:string,at:number,phaseName:string,text:string)=>ev(id,'agent.turn.phase',`agent:${agent}`,at,{triggerEventId:trigger,phase:phaseName,text});
 
 describe('activeTurns',()=>{
+ it('marks pre-restart work interrupted without guessing from age or availability',()=>{
+  const begun=[start('s1','Pip','m1',1000)];
+  expect(activeTurns(begun,[{name:'Pip',desiredState:'RUNNING',updatedAt:999999}],{Pip:2000})).toEqual([{agent:'Pip',triggerEventId:'m1',since:1000,interrupted:true}]);
+  expect(activeTurns(begun,[{name:'Pip',lastStartedAt:2000}])).toEqual([{agent:'Pip',triggerEventId:'m1',since:1000,interrupted:true}]);
+  expect(activeTurns(begun,[],{Pip:1000,Rex:2000})).toEqual([{agent:'Pip',triggerEventId:'m1',since:1000}]);
+  expect(activeTurns([...begun,phase('p1','Pip','m1',3000,'wrapped-progress','Late progress')],[],{Pip:2000})[0]).not.toHaveProperty('progressText');
+  expect(activeTurns([...begun,ev('done','agent.turn.completed','agent:Pip',3000,{triggerEventId:'m1'})],[],{Pip:2000})).toEqual([]);
+  expect(activeTurns([...begun,start('s2','Pip','m2',3000)],[],{Pip:2000})).toEqual([{agent:'Pip',triggerEventId:'m2',since:3000}]);
+  expect(activeTurns([...begun,start('retry','Pip','m1',3000)],[],{Pip:2000})).toEqual([{agent:'Pip',triggerEventId:'m1',since:3000}]);
+  expect(activeTurns([...begun,ev('done','agent.turn.completed','agent:Pip',1500,{triggerEventId:'m1'}),start('retry','Pip','m1',3000)],[],{Pip:2000})).toEqual([{agent:'Pip',triggerEventId:'m1',since:3000}]);
+ });
  it('start makes a turn',()=>{
   expect(activeTurns([start('s1','Pip','m1',1000)],[])).toStrictEqual([{agent:'Pip',triggerEventId:'m1',since:1000}]);
  });

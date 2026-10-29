@@ -43,6 +43,17 @@ Google sign-in and protected demos, then explicitly resume and verify fresh runn
 heartbeat, turn outcomes and API stability. Runner identity, workspaces, sessions,
 Codex login and runtime skills are retained. No production DB cleanup is required.
 
+## Interrupted activity compatibility
+
+Nest consumes existing trusted lifecycle records through the human's engine HTTP
+permissions; the `eb2e19d` submodule is unchanged. A later lifecycle can establish
+that an older unclosed turn was interrupted, while its external effects remain
+unknown. Nest displays that state and offers request review without replaying work.
+OrgOps [#79](https://github.com/camplight/orgops/pull/79) exposes nullable `lastStartedAt` on agent list/detail reads as a
+canonical restart boundary; Nest accepts that metadata when supplied. It is not
+required or patched into the current engine. Missing restart evidence never becomes
+an age-based interruption, and heartbeats are not execution ownership.
+
 ## Upstream upgrade: `f7c95b7` → `cc8faa0`
 
 The untouched engine advances through OrgOps PRs #55, #56, #58 and #59. The parent
