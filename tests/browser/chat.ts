@@ -81,6 +81,8 @@ try{
   await emit('agent.turn.started',{triggerEventId:'fresh-trigger'});await page.reload();
   await page.locator('.working-row[data-agent=Demo][data-turn-state=working]').waitFor();
   await emit('agent.turn.completed',{triggerEventId:'fresh-trigger'});await page.reload();
+  await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+  await page.getByText('[Message too large to display. The original content is retained.]',{exact:true}).waitFor();
   await page.locator('.working-row[data-agent=Demo]').waitFor({state:'hidden'});
   // Plain text drags preserve normal editor/browser behaviour.
   assert.equal(await page.evaluate(()=>{const d=new DataTransfer();d.setData('text/plain','hello');return window.dispatchEvent(new DragEvent('drop',{dataTransfer:d,bubbles:true,cancelable:true}));}),true);
