@@ -197,6 +197,46 @@ if(process.env.CI)console.log('AGENT_WORKSPACE_MOBILE_JPEG:'+(await page.screens
 await page.getByRole('button',{name:'Menu',exact:true}).click();
 if(process.env.CI)console.log('AGENT_SIDEBAR_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65,animations:'disabled'})).toString('base64'));
 malformedDirectory=true;await page.goto(`${base}/?view=agents`);await page.getByRole('alert').filter({hasText:'Shared agents are unavailable'}).waitFor();await page.getByRole('button',{name:'Manage NestSystem',exact:true}).waitFor();
+// Large directories keep one expanded agent and a bounded, searchable list.
+malformedDirectory=false;
+for(let index=0;index<30;index++){
+ const name=`Research agent ${String(index).padStart(2,'0')}`;
+ agents.push({name,description:'Synthetic large-directory fixture',mode:'CLASSIC',visibility:'PUBLIC'});
+ channels.push({id:`bulk-${index}`,name:`Research ${index}`,visibility:'PRIVATE',ownerHumanId:'me',participants:[{subscriberType:'HUMAN',subscriberId:'admin'},{subscriberType:'AGENT',subscriberId:name}]});
+}
+for(let index=0;index<25;index++)channels.push({id:`history-${index}`,name:`Earlier discussion ${index}`,visibility:'PRIVATE',ownerHumanId:'me',participants:[{subscriberType:'HUMAN',subscriberId:'admin'},{subscriberType:'AGENT',subscriberId:'NestSystem'}]});
+await page.setViewportSize({width:1440,height:1000});
+await page.goto(`${base}/?channel=agent-second`);
+await page.getByRole('navigation',{name:'NestSystem workspace'}).waitFor();
+const shortcuts=page.getByRole('region',{name:'Agent shortcuts',exact:true});
+assert.equal(await shortcuts.locator('.agent-chat-links').count(),1);
+assert((await shortcuts.boundingBox()).height<=361);
+assert(await shortcuts.evaluate(node=>node.scrollHeight>node.clientHeight));
+await page.getByLabel('Search agents in sidebar',{exact:true}).fill('agent 29');
+assert.equal(await shortcuts.locator('.agent-shortcut').count(),1);
+await shortcuts.getByRole('button',{name:'Research agent 29',exact:true}).click();
+await page.waitForURL('**channel=bulk-29');
+await page.getByRole('navigation',{name:'Research agent 29 workspace'}).waitFor();
+assert.equal(await page.getByLabel('Search agents in sidebar',{exact:true}).inputValue(),'');
+assert.equal(await shortcuts.locator('.agent-chat-links').count(),1);
+await page.getByLabel('Search agents in sidebar',{exact:true}).fill('no such agent');
+await shortcuts.getByText('No matching agents.',{exact:true}).waitFor();
+await page.getByLabel('Search agents in sidebar',{exact:true}).press('Escape');
+await shortcuts.getByRole('button',{name:'Conversations with Research agent 29',exact:true}).click();
+assert.equal(await shortcuts.locator('.agent-chat-links').count(),0);
+if(process.env.CI)console.log('SCALABLE_AGENTS_DESKTOP_JPEG:'+(await page.screenshot({type:'jpeg',quality:65,animations:'disabled'})).toString('base64'));
+await page.setViewportSize({width:375,height:812});
+await page.getByRole('button',{name:'Menu',exact:true}).click();
+await page.getByLabel('Search agents in sidebar',{exact:true}).fill('NestSystem');
+await shortcuts.getByRole('button',{name:'NestSystem',exact:true}).click();
+await page.waitForURL('**channel=agent-second');
+await page.getByRole('button',{name:'Menu',exact:true}).click();
+assert((await shortcuts.boundingBox()).height<=310);
+await mainNav.getByRole('button',{name:'Community',exact:true}).scrollIntoViewIfNeeded();
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+if(process.env.CI)console.log('SCALABLE_AGENTS_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65,animations:'disabled'})).toString('base64'));
+await mainNav.getByRole('button',{name:'Community',exact:true}).click();
+await page.waitForURL('**view=community*');
 assert.equal(fullHealthRequests,0);assert(connectionRequests>0);assert.deepEqual(errors,[]);console.log('PASS: directory, selected navigation, encoded direct links, reload, history, settings persistence, failed saves, private read-only, wrapped settings, missing agents, chat links, dashboard links, mobile and avatar assets.');
 console.log(`Screenshots: ${screenshotDir}`);
 } finally { await browser.close(); }
