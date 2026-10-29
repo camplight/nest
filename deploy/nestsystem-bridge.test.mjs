@@ -1,5 +1,27 @@
 import {it, expect, vi} from 'vitest';
 import {createCodexOutput} from './nestsystem-bridge.mjs';
+import {spawnSync} from 'node:child_process';
+import {copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+
+it.each(['directory', 'file'])('starts the bridge through a native %s symlink instead of silently succeeding', kind => {
+  const root=mkdtempSync(join(tmpdir(),'nest-bridge-entry-'));
+  try {
+    const release=join(root,'release'); mkdirSync(release);
+    const script=join(release,'bridge.mjs');
+    copyFileSync(new URL('./nestsystem-bridge.mjs',import.meta.url),script);
+    const link=join(root,kind==='directory'?'app':'bridge.mjs');
+    symlinkSync(kind==='directory'?release:script,link);
+    const entry=kind==='directory'?join(link,'bridge.mjs'):link;
+    // No message, credentials or model calls: real execution must reject input.
+    const result=spawnSync(process.execPath,[entry],{env:{},encoding:'utf8',timeout:5000});
+    expect(result.error).toBeUndefined();
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('Missing Nest session or message');
+    expect(result.stdout).toBe('');
+  } finally { rmSync(root,{recursive:true,force:true}); }
+});
 
 const line = event => JSON.stringify(event)+'\n';
 const message = (id,text) => ({type:'item.completed',item:{id,type:'agent_message',text}});

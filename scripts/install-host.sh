@@ -316,6 +316,12 @@ ln -sfn "$node_dir" /opt/nest/node
 ln -sfn "$caddy_dir" /opt/nest/caddy
 for tool in node npm npx; do ln -sfn "/opt/nest/node/bin/$tool" "/usr/local/bin/$tool"; done
 ln -sfn "$release" /app
+# Exercise the actual stable entrypoint. With no request it must reject input;
+# silent exit zero means the bridge's main function never ran (symlink drift).
+if runuser -u node -- env -i "$node_dir/bin/node" /app/deploy/nestsystem-bridge.mjs > "$work/bridge-entry-check" 2>&1; then
+  echo 'NestSystem bridge did not execute its entrypoint.' >&2; false
+fi
+grep -q 'Missing Nest session or message' "$work/bridge-entry-check"
 # Restore durable home/tool access used by existing saved wrapped-agent commands.
 if [[ -f /var/lib/nest/engine/codex-home/gitconfig ]]; then ln -sfn /app/.nest-data/codex-home/gitconfig /home/node/.gitconfig; fi
 for tool in codex claude; do

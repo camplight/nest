@@ -560,6 +560,13 @@ instructions in `deploy/devops/README.md` before enabling it.
 
 ## Native hosting preparation
 
+NestSystem's executable-entry check resolves the stable `/app` symlink to the
+release path before comparing module identity. The native installer checks the
+real entrypoint with empty input before opening traffic. This is a Nest bridge
+fix with no engine pin, schema, saved session or credential change. Previously
+acknowledged requests without replies require review; deployment does not replay
+them or invent successful outcomes.
+
 Native setup reuses Nest's CLI and existing `scripts/start-stack.ts` /
 `scripts/start-orgops.ts` entrypoints, without changing the submodule. Pinned runtime versions, Linux
 server units, Caddy configuration and `scripts/install-host.sh` live in Nest. See
