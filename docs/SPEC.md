@@ -3,10 +3,24 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The current pin is `cc8faa0` (OrgOps PRs #55, #56, #58 and #59 over `f7c95b7`).
+The current pin is `eb2e19d`, the OrgOps #78 memory-only release backport over
+`cc8faa0` (OrgOps PRs #55, #56, #58 and #59 over `f7c95b7`).
 It retains multi-agent message routing and native workspace-file uploads and adds
 human invitations into channels, engine LLM usage reporting, agent copy/move and
 federation APIs. External engines must use this revision for the current adapter.
+
+This backport adds no migrations or dependency changes. It caps persisted tool
+results, compacts default event searches and bounds normal event-listing reads
+before historical blobs enter JS: at most 64 KiB per history payload and 1 MiB
+of UTF-8 payloads per page. Runner polls return complete inputs up to 1 MiB, acknowledge
+only the prefix that fits and leave later requests pending; omitted individual
+inputs never trigger agents or broaden targeting. The engine returns
+`payloadTruncated` stubs with original byte sizes while retaining IDs, order, receipt delivery and stored history. Nest shows
+an explicit retained-content notice for omitted chat messages. Explicit SQLite
+exports retain their upstream full-dump behavior. Native release builds run the
+real-engine 280 MiB-history/256 MiB-heap and void-result regressions in CI before
+packaging; production installs prebuilt artifacts without running stress tests.
+Voice features and PR #77 response changes are not part of this pin.
 
 Engine migration `039` consolidates stored `system_instructions` and
 `soul_contents` into `soul_contents`, in that order with a blank line between

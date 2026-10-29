@@ -28,6 +28,7 @@ const record=(payload:unknown):Record<string,unknown>|undefined=>
  payload&&typeof payload==='object'&&!Array.isArray(payload)?payload as Record<string,unknown>:undefined;
 
 function messageText(event:EventRow){
+ if(event.payloadTruncated)return '[Message too large to display. The original content is retained.]';
  const payload=record(event.payload);
  if(!payload)return '';
  if(event.type==='agent.turn.failed')return typeof payload.error==='string'?`Agent error: ${payload.error}`:'Agent failed to respond.';

@@ -26,6 +26,7 @@ try{
  const other=await(await post('/api/channels',{name:'Other demo chat',visibility:'PRIVATE'},headers)).json();
  const emit=async(type:string,payload:unknown)=>{const response=await post('/api/events',{type,source:'agent:Demo',channelId:project.channelId,payload},{'content-type':'application/json','x-nest-runner-token':'test-runner'});assert.equal(response.status,201,await response.text());};
  await emit('agent.turn.started',{triggerEventId:'fixture-trigger'});await emit('telemetry.context.window.updated',{agentName:'Demo',modelId:'fixture',estimatedUsedTokens:1200,contextWindowTokens:32000,estimatedAvailableTokens:30800,utilizationPct:3.75,messageCount:1,systemChars:0,systemContextChars:0,historyChars:120});await emit('tool.started',{tool:'Search',args:{query:'Demo launch ideas'}});await emit('tool.executed',{tool:'Search',output:'Found three demo references'});await emit('process.output',{stream:'STDERR',text:'Synthetic diagnostic output'});await emit('process.exited',{exitCode:1});
+ await emit('message.created',{text:'Synthetic retained history. '.repeat(3000)});
  let uploads=0,sends=0,failNext=false,holdNext=false,releaseUpload:(()=>void)|undefined,uploadStarted:(()=>void)|undefined;
  const browser=await chromium.launch();
  try{
@@ -47,6 +48,17 @@ try{
   const chatUrl=base+'/?view=projects&project='+project.id;
   await page.goto(chatUrl);
   await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+  await page.getByText('[Message too large to display. The original content is retained.]',{exact:true}).waitFor();
+  await page.screenshot({path:join(screenshots,'retained-message-desktop.png'),fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  const projectDetails=page.locator('.project-context-disclosure');
+  const detailsWereOpen=await projectDetails.getAttribute('open')!==null;
+  if(detailsWereOpen)await projectDetails.locator('summary').click();
+  await page.getByText('[Message too large to display. The original content is retained.]',{exact:true}).waitFor();
+  await page.screenshot({path:join(screenshots,'retained-message-mobile.png'),fullPage:true});
+  if(detailsWereOpen)await projectDetails.locator('summary').click();
+  await page.setViewportSize({width:1440,height:1000});
   // Plain text drags preserve normal editor/browser behaviour.
   assert.equal(await page.evaluate(()=>{const d=new DataTransfer();d.setData('text/plain','hello');return window.dispatchEvent(new DragEvent('drop',{dataTransfer:d,bubbles:true,cancelable:true}));}),true);
   async function drag(page:Page,target:string,names:string[],type='drop'){

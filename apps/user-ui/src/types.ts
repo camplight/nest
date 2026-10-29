@@ -42,6 +42,7 @@ export type EventRow = {
   deliverAt?: number;
   channelId?: string;
   payload?: unknown;
+  payloadTruncated?: boolean;
   status?: string;
 };
 
