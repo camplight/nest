@@ -3,9 +3,13 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The reviewed engine pin is upstream main `685c9df`, including OrgOps #76
+The reviewed engine pin is upstream main `7406b6a`, including OrgOps #76
 voice/realtime support, #79 restart metadata, #80 byte-budget compatibility,
 the merged security fixes and #82 realtime maintenance environment handling.
+It also includes #83 runner socket wakeups with HTTP catch-up, #84 private invite
+ownership, #85 price upserts, #86 non-conversational format diagnostics and optional
+chat staging, #89 bounded late-event continuation/SYNC injection suppression,
+and #88 upstream trace pagination (Nest retains its own chat interface).
 The previously deployed pin is `eb2e19d` from OrgOps #78; merging the dependency
 update alone does not install it on existing hosts.
 Personal onboarding binds the workspace returned by OrgOps instead of requiring
@@ -27,9 +31,15 @@ an explicit retained-content notice for omitted chat messages. Explicit SQLite
 exports retain their upstream full-dump behavior. Native release builds run the
 real-engine 280 MiB-history/256 MiB-heap and void-result regressions in CI before
 packaging; production installs prebuilt artifacts without running stress tests.
-The closed, unmerged OrgOps #77 response changes are not part of this pin.
-Engine migrations `046`–`049` add workspace publications, file-backed event
-payload metadata and a lifecycle lookup index. Large new
+Response handling comes from merged OrgOps #86/#89, replacing the earlier closed
+OrgOps #77 proposal. Format exhaustion emits `agent.turn.phase` diagnostics rather
+than a new chat message. Normal mid-turn messages remain immediate; optional
+`stageUntilTurnSettled` discards staged drafts on retry. Late events can extend a
+settled turn within a separate bounded budget, while synchronous process results
+are suppressed from duplicate mid-turn injection. This is not a blanket ban on
+agent collaboration or a claim that all autonomous loops are impossible.
+Engine migrations `046`–`050` add workspace publications, file-backed event
+payload metadata, a lifecycle lookup index and invite ownership. Large new
 payloads live under the persistent engine data directory; backups must include
 those files along with both databases. A pre-open rollback restores the old DB
 pair; do not run an old engine against the upgraded schema after accepting writes.

@@ -22,6 +22,11 @@ npm run test:engine -- \
   apps/api/src/security-live-data.test.ts \
   apps/api/src/security-workspaces.test.ts \
   apps/api/src/agent-starts.test.ts \
+  apps/api/src/runner-socket.test.ts \
+  apps/agent-runner/src/runner/socket.test.ts \
+  apps/agent-runner/src/turn-executor.classic.test.ts \
+  apps/agent-runner/src/turn-executor.test.ts \
+  apps/agent-runner/src/channel-injection.test.ts \
   apps/agent-runner/src/maintenance-loop.test.ts \
   apps/agent-runner/src/realtime-voice.test.ts
 node --test deploy/native/livekit.check.mjs

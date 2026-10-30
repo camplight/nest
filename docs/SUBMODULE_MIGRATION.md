@@ -50,7 +50,7 @@ permissions. A later lifecycle can establish
 that an older unclosed turn was interrupted, while its external effects remain
 unknown. Nest displays that state and offers request review without replaying work.
 OrgOps [#79](https://github.com/camplight/orgops/pull/79) exposes nullable `lastStartedAt` on agent list/detail reads as a
-canonical restart boundary and is included in the reviewed `685c9df` engine pin;
+canonical restart boundary and is included in the reviewed `7406b6a` engine pin;
 Nest accepts that metadata when supplied. No upstream source is patched. Missing restart evidence never becomes
 an age-based interruption, and heartbeats are not execution ownership.
 
@@ -582,12 +582,13 @@ directories and upstream source are retained.
 
 ### Voice/realtime engine upgrade
 
-The update from deployed `eb2e19d` to upstream main `685c9df` includes
+The update from deployed `eb2e19d` to upstream main `7406b6a` includes
 voice/realtime, the reviewed byte-budget compatibility fix in OrgOps #80,
 restart metadata from #79, merged security changes and #82's realtime maintenance
-environment fix. The vendor tree remains untouched.
-Migrations `046`–`049` add publications, file-backed event payload metadata and
-a lifecycle lookup index.
+environment fix, runner socket delivery, private-invite ownership, billing price
+upserts and response/late-event fixes from #86/#89. The vendor tree remains untouched.
+Migrations `046`–`050` add publications, file-backed event payload metadata,
+a lifecycle lookup index and invite ownership.
 Preserve the entire engine data directory, not just its SQLite file, for recovery.
 The existing upgrade fixture checks identities, instructions, private membership,
 secrets and wrapped configuration across all migrations. The release gate also
@@ -614,9 +615,13 @@ initial identity/path binding is atomic and survives lost responses; established
 setups keep their previous paths. No product migration or existing prompt rewrite
 is required. Profile changes must adopt the engine's rotated session cookie.
 
-This revision does not fix CLASSIC fallback-message feedback or synchronous
-process events re-triggering turns. Those remain separate upstream work; neither
-the synthetic agent turn nor a successful upgrade establishes they are resolved.
+OrgOps #86 stops format exhaustion from publishing a conversational error that
+wakes other agents. #89 suppresses duplicate SYNC process notifications during
+turn injection and gives late events a separate bounded continuation budget.
+Native release gates include the actual upstream response/injection/socket
+regressions. Legitimate agent-to-agent messages and ASYNC completion remain
+supported. Existing fallback messages/unknown outcomes are retained, not rewritten
+or replayed; rollout alone does not prove that every possible loop is eliminated.
 
 ## Dashboard live activity
 
