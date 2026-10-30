@@ -45,8 +45,8 @@ those files along with both databases. A pre-open rollback restores the old DB
 pair; do not run an old engine against the upgraded schema after accepting writes.
 
 Realtime model capabilities and voice HTTP/WS APIs remain owned by OrgOps and
-are available through Nest's existing authenticated gateway. Nest chat voice
-controls are a separate milestone. No existing agents/models are reconfigured.
+are available through Nest's existing authenticated gateway. Nest's Huddle UI
+uses these APIs as described below. No existing agents/models are reconfigured.
 For native installations, opt in with `--enable-livekit` or private
 `NEST_ENABLE_LIVEKIT=1`. The installer provisions checksum-pinned LiveKit as
 `nest-livekit.service`, with generated private credentials and a Caddy TLS endpoint
@@ -57,6 +57,59 @@ rollback preserve the credentials, config and activation marker. LiveKit has a
 256 MiB systemd cap and restarts independently of the APIs/runner. Fresh-host CI
 checks real synthetic audio between two clients as well as credential reuse,
 activation rollback and independent SFU crash recovery; no model calls are needed.
+
+### Project and chat huddles
+
+The chat toolbar opens a Figma-inspired Huddle overlay (case-study `904:254`),
+with the recent conversation, existing agent portraits, participant cards, actual
+speaker highlights, microphone level, mute/unmute, expand and leave controls.
+Mobile uses a full-height overlay and horizontally scrolling participant cards.
+Camera and screen sharing are outside this slice. The reference is a flattened
+screen; Nest composes existing dialog, Markdown, attachment and avatar components
+using instance branding rather than embedding the screenshot.
+
+The lazy-loaded LiveKit browser SDK joins through `POST /api/voice/rooms/join`
+using the human's cookie and the existing Nest gateway. OrgOps remains responsible
+for permissions, tokens, voice agents and transcription. No service token reaches
+the browser and no engine DB, schema or source changes are required. Read-only
+and archived chats cannot join. Config comes from `GET /api/voice/config`; missing
+LiveKit configuration, denied microphone access and audio autoplay restrictions
+have explicit recovery states. This slice requires the LiveKit room broker.
+The HTTP adapter buffers only the small voice-join JSON envelope (16 KiB maximum)
+so an upstream 401 is preserved rather than becoming Undici's streaming-body
+network error. Upload bodies remain streamed.
+
+Only subscribed native agents with `desiredState=RUNNING` and realtime audio input
+are offered for invitation. The human can deselect them before joining; an empty
+selection starts a human-only call, without emitting an empty agent invitation
+that upstream would interpret as inviting everyone. Model capability is eligibility,
+not proof of a successful connection: participant presence and active speaker
+state come from LiveKit. Existing models and provider credentials are unchanged.
+
+After media connects, the client emits existing `voice.session.started` and,
+when agents are selected, `voice.room.started` events. The broker's stable channel
+room name is also the logical room ID, so subsequent joins reuse upstream's
+active-call registry. Each browser has a distinct session ID. Leaving emits only
+the local session's ending; it never ends other humans' call. OrgOps's existing
+last-human-disconnected handling closes agent media legs. Media acquisition,
+cancelled permission prompts, connection errors, navigation, tab closure and
+terminal disconnects all release the client's owned tracks and audio elements.
+
+Transcripts are the actual upstream `message.created` events with voice metadata,
+also retained in normal chat. Nest does not fabricate partial transcription or
+record a second microphone stream. A human-only huddle has audio but no automatic
+transcript; spoken AI replies/transcription require an appropriately configured
+agent and its provider credentials. The level display measures the local mic.
+
+`npm run test:ui:huddle` exercises the real Nest/engine gateway with synthetic
+tenant data, mobile/desktop views, eligibility, cancellation and denied capture.
+Set `NEST_HUDDLE_TEST_URL` to a disposable local LiveKit server to additionally run
+the two-browser media, mute, transcript-event and independent-leave test. Its
+test-only credentials are fixed fixtures; never point it at production. Session
+unit tests cover late microphone acquisition, join failures and reconnect cleanup.
+Linux product CI starts and removes a bounded Docker fixture using the native
+installer's pinned LiveKit version, so the real browser media test runs there too.
+This test container does not change native production's systemd topology.
 
 Engine migration `039` consolidates stored `system_instructions` and
 `soul_contents` into `soul_contents`, in that order with a blank line between

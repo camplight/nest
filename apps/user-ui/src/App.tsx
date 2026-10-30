@@ -11,6 +11,8 @@ import {useChannelEvents} from './chat/useChannelEvents';
 import {adaptiveMessageBatchSize} from './chat/history';
 import {ChatThread, type ChatThreadHandle} from './chat/ChatThread';
 import {ChatComposer,useComposerSession,type ChatComposerHandle} from './chat/ChatComposer';
+import {HuddleButton} from './huddle/HuddleButton';
+import './huddle/huddle.css';
 import type {ChannelEventsSnapshot} from './chat/channel-events';
 import {consumeConnectionReturn,forgetConnectionReturn} from './project-connection-return';
 import {ProjectConnections} from './ProjectConnections';
@@ -1660,6 +1662,7 @@ export default function App() {
             focusedMessageId={focusedMessage}
             isConversationEmpty={isConversationEmpty}
             channelLabel={activeConversationName}
+            headerActions={activeChannel && <HuddleButton key={activeChannel.id} channel={activeChannel} label={activeConversationName} username={username} agents={agents} events={threadSnapshot.events} canPost={activeChannelCanPost}/>}
             onPreviewDemo={path => setDemoPreview({channel: activeChannelId!, path})}
             onQuote={(target, quotedText) => {composerRef.current?.setReplyTarget(target, quotedText);composerRef.current?.focus();}}
             onFocusMessage={focusMessage}

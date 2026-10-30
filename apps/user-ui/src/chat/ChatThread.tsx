@@ -25,7 +25,7 @@ import './chat.css';
 export type ChatThreadProps={
  snapshot:ChannelEventsSnapshot;core:ChannelEventsCore;currentUsername:string;agents:Agent[];
  focusedMessageId:string|null;isConversationEmpty:boolean;
- onPreviewDemo(path:string):void;onQuote(target:ReplyTarget,quotedText:string):void;footer?:ReactNode;
+ onPreviewDemo(path:string):void;onQuote(target:ReplyTarget,quotedText:string):void;footer?:ReactNode;headerActions?:ReactNode;
  channelLabel:string;onFocusMessage(eventId:string):void;handle?:Ref<ChatThreadHandle>;
 };
 // What the page may ask of the thread: after a send it follows the new message down (the viewport is the thread's own).
@@ -282,9 +282,8 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  const empty=snapshot.channelId!==null&&!snapshot.loading&&items.length===0;
  return <AssistantRuntimeProvider runtime={runtime}><ChatPortalProvider><ThreadContext.Provider value={view}>
   <div className="nest-chat relative flex min-h-0 flex-1 flex-col">
-   {/* Floats over the thread's top-right corner so the messages start right under the page header. Hidden at the
-       app's 760 px mobile breakpoint (max-[761px] is width below 761 px), where the project panel sits on that spot. */}
-   <div className="absolute end-3 -top-[25px] z-10 empty:hidden max-[761px]:hidden"><ExportButton items={items} channelLabel={props.channelLabel}/></div>
+   {/* Keep Huddle reachable on mobile. Export stays hidden at the existing mobile breakpoint. */}
+   <div className="flex shrink-0 items-center justify-end gap-3 px-3 pb-2 empty:hidden">{props.headerActions}<span className="max-[761px]:hidden"><ExportButton items={items} channelLabel={props.channelLabel}/></span></div>
    <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
     <ThreadPrimitive.Viewport ref={panelRef} turnAnchor="bottom" autoScroll={!focusPending} scrollToBottomOnInitialize={!focusedMessageId}
      onScroll={onScroll} className={cn('messages-panel gap-0 px-1 pt-1 pb-4 sm:ps-2 sm:pe-3',(empty||props.isConversationEmpty)&&'messages-panel-empty')}>

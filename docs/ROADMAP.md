@@ -79,6 +79,7 @@ File: [Nest case study](https://www.figma.com/design/Rqfq3v9a8nZfQKbM3Q0NZk/Port
 | Agent details | `849:574` | `Agents.tsx`; description, native model and instructions can be saved; personal connected apps and private chat are available here. Identity and workspace remain read-only; wrapped runtime configuration remains external/admin. |
 | Project workspace | `849:599` | `Projects.tsx`: one workspace with Chat/Files/Members and automatic private chat creation. Historical task/review URLs remain available; normal task navigation is retired. Budgets remain pending. |
 | Onboarding | `860:680` | New users enter Agents → Your team and can create their personal agent within this view. Project creation remains in Projects. |
+| Huddle | `904:254` within `904:171` | Chat toolbar overlay with recent conversation, Figma avatars, real LiveKit participants/speakers, microphone level, mute and leave. Uses instance branding. Audio-only; transcripts require a voice agent. |
 
 Directory and detail references are flattened images in the case study. Use the
 existing Nest components, exported avatar assets and instance color tokens;
