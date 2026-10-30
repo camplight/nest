@@ -230,3 +230,9 @@ it('rechecks management membership after target lookup before inviting and does 
  const channel=(await (await call('/api/channels')).json()).find((ch:any)=>ch.id===channelId);
  expect(channel.participants.some((m:any)=>m.subscriberId===input.name)).toBe(false);
 });
+
+it('creates managed agents with the built-in GLM default without a registry preset',async()=>{
+ config.defaultModelId='openrouter:z-ai/glm-5.3';
+ expect((await management(input)).status).toBe(201);
+ expect(await (await call('/api/agents/EU%20Tenders')).json()).toMatchObject({modelId:'openrouter:z-ai/glm-5.3'});
+});

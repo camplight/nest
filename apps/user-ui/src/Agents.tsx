@@ -6,7 +6,6 @@ import {WorkspaceTopbar} from "./components/WorkspaceTopbar";
 import { AgentSetupForm } from "./Onboarding";
 import { AgentConnections } from "./AgentConnections";
 import type { OnboardingSummary } from "@nest/schemas";
-import type { AgentModelCatalog } from "@nest/schemas";
 import { useEffect, useState, type FormEvent } from "react";
 import { apiJson, getApiHeaders } from "./api";
 import { AgentAvatar } from "./components/AgentAvatar";
@@ -16,15 +15,6 @@ import "./agents.css";
 
 type AgentSettings = Agent & { mode?: string; modelId?: string; workspacePath?: string; assignedRunnerId?: string; systemInstructions?: string; enabledSkills?: string[] };
 type Props = { tab:AgentTab; onTab:(tab:AgentTab)=>void; onOpenChat:(name:string)=>void; requestLocation:AgentRequestLocation; setup: OnboardingSummary | null; creating:boolean; onCreate:()=>void; onCreated:(name:string)=>void; onChat:(id:string)=>void; agents: Agent[]; name: string | null; userId: string | null; loading: boolean; error: string | null; onSelect: (name: string | null) => void; onMenu: () => void; onRetry: () => void; onSaved: (agent: Agent) => void };
-
-function modelLabel(name: string) {
-  const labels: Record<string, string> = {
-    "moonshotai/kimi-k3": "Kimi K3",
-    "qwen/qwen3.8-27b": "Qwen 3.8 27B",
-    "google/gemini-2.5-flash": "Gemini 2.5 Flash",
-  };
-  return labels[name] ?? name;
-}
 
 function errorMessage(reason: unknown) {
   const message = reason instanceof Error ? reason.message : "Unable to complete request";
@@ -58,9 +48,6 @@ export function Agents({ tab,onTab,onOpenChat,requestLocation,setup, creating, o
 
 function AgentDetails({ tab,name, userId, onSaved, setup, onChat, onResume }: { tab:AgentTab; name: string; userId: string | null; onSaved: (agent: Agent) => void; setup:OnboardingSummary|null; onChat:(id:string)=>void; onResume:()=>void }) {
   const [agent, setAgent] = useState<AgentSettings | null>(null);
-  const [catalog, setCatalog] = useState<AgentModelCatalog | null>(null);
-  const [modelError, setModelError] = useState<string | null>(null);
-  const [modelAttempt, setModelAttempt] = useState(0);
   const [model, setModel] = useState("");
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -78,14 +65,6 @@ function AgentDetails({ tab,name, userId, onSaved, setup, onChat, onResume }: { 
   }, [name, attempt]);
   const editable = Boolean(agent && (agent.visibility !== "PRIVATE" || Boolean(userId && agent.ownerHumanId === userId)));
   const wrapped = agent?.mode === "WRAPPED";
-  useEffect(() => {
-    if (!agent || agent.mode === "WRAPPED") return;
-    const controller = new AbortController();
-    setModelError(null); setCatalog(null);
-    void apiJson<AgentModelCatalog>('/api/agent-models', {signal:controller.signal}).then(setCatalog)
-      .catch(reason => {if (!controller.signal.aborted) setModelError(errorMessage(reason));});
-    return () => controller.abort();
-  }, [modelAttempt, agent?.name, agent?.mode]);
   const dirty = Boolean(agent && (description !== (agent.description ?? "") || (!wrapped && (instructions !== (agent.systemInstructions ?? "") || model !== (agent.modelId ?? "")))));
   useEffect(() => {
     if (!dirty) return;
@@ -120,22 +99,11 @@ function AgentDetails({ tab,name, userId, onSaved, setup, onChat, onResume }: { 
     {agent && <form hidden={tab!=='settings'} className="agent-settings" onSubmit={save}>
       <aside><h2>Avatar</h2><AgentAvatar name={name} size={144} /><p>Your agent’s character in the team.</p></aside>
       <div className="agent-settings-fields">
-        <div className="agent-field"><label htmlFor="agent-name">Name</label><input id="agent-name" value={name} readOnly aria-describedby="agent-name-help" /><small id="agent-name-help">Agent names are permanent identifiers.</small></div>
+        <div className="agent-field"><span>Name</span><strong className="agent-immutable-name">{name}</strong></div>
         <div className="agent-field"><label htmlFor="agent-description">About this agent</label><textarea id="agent-description" rows={3} value={description} disabled={!editable || busy} onChange={e => { setDescription(e.target.value); setSaved(false); }} /><small>A short description shown in your team.</small></div>
         <details className="agent-advanced">
           <summary>Advanced <span>Model, instructions and runtime</span></summary>
           <div className="agent-advanced-content">
-        {!wrapped && <div className="agent-field">
-          <label htmlFor="agent-model">Language model</label>
-          <select id="agent-model" value={model} disabled={!editable || busy || !catalog} onChange={e => {setModel(e.target.value); setSaved(false);}} aria-describedby="agent-model-help">
-            {!catalog?.models.some(m => m.reference === model) && <option value={model}>{model ? `${model} (current)` : 'Not configured'}</option>}
-            {catalog?.models.map(m => <option key={m.id} value={m.reference}>{modelLabel(m.name)}{m.reference === catalog.defaultModel ? ' · Default for new agents' : ''}</option>)}
-          </select>
-          <small id="agent-model-help">Configured models are listed here. Explore OpenRouter below, or keep your current selection. Changes apply on the next agent turn.</small>
-          {!catalog && !modelError && <small role="status">Loading models…</small>}
-          {modelError && <small role="alert">Could not load models. <button type="button" onClick={() => setModelAttempt(n => n + 1)}>Retry models</button></small>}
-          {catalog && catalog.models.length === 0 && <small>No enabled models. Your current setting is preserved.</small>}
-        </div>}
         {!wrapped && <ModelPicker agentName={name} value={model} disabled={!editable || busy} onChange={value=>{setModel(value);setSaved(false);}}/>}
 
         <section><h2>Runtime details</h2><dl className="agent-resources">

@@ -7,7 +7,7 @@ export function normalizeModels(value: unknown): OpenRouterModel[] {
   const price = (v: unknown) => typeof v === 'string' && v.trim() && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) * 1_000_000 : null;
   return rows.flatMap((row: any) => {
     if (!row || typeof row.id !== 'string' || !modelSlug.test(row.id) || !row.architecture?.output_modalities?.includes('text')) return [];
-    return [{id:row.id, name:typeof row.name === 'string' ? row.name : row.id,
+    return [{id:row.id, canonicalSlug:typeof row.canonical_slug==='string'?row.canonical_slug:row.id, name:typeof row.name === 'string' ? row.name : row.id,
       description:typeof row.description === 'string' ? row.description.slice(0,1200) : '',
       context:typeof row.context_length === 'number' && row.context_length > 0 ? row.context_length : null,
       inputPrice:price(row.pricing?.prompt), outputPrice:price(row.pricing?.completion),

@@ -1,5 +1,6 @@
+import {ModelValueChart} from './ModelValueChart';
 import {useEffect,useState,useRef} from 'react';
-import type {OpenRouterCatalog,OpenRouterModel} from '@nest/schemas';
+import type {ModelBenchmarks,OpenRouterCatalog,OpenRouterModel} from '@nest/schemas';
 import {apiJson,getApiHeaders} from './api';
 import './model-picker.css';
 
@@ -15,6 +16,8 @@ export function ModelPicker({agentName,value,disabled,onChange}:{agentName:strin
   const [error,setError]=useState('');
   const [attempt,setAttempt]=useState(0);
   const [query,setQuery]=useState('');
+  const [benchmarks,setBenchmarks]=useState<ModelBenchmarks|null>(null);
+  const [benchmarkError,setBenchmarkError]=useState('');
   const [vision,setVision]=useState(false);
   const [selected,setSelected]=useState(value.replace(/^openrouter:/,''));
   const [busy,setBusy]=useState(false);
@@ -24,9 +27,18 @@ export function ModelPicker({agentName,value,disabled,onChange}:{agentName:strin
   useEffect(()=>{
     if(!open)return;
     const controller=new AbortController();setError('');
-    void apiJson<OpenRouterCatalog>('/api/openrouter-models',{signal:controller.signal}).then(value=>{if(!value||!Array.isArray(value.models))throw Error('OpenRouter catalog unavailable. Use a configured model or an exact model ID.');setCatalog(value);}).catch(e=>{if(!controller.signal.aborted)setError(message(e));});
+    void apiJson<OpenRouterCatalog>('/api/openrouter-models',{signal:controller.signal}).then(value=>{if(!value||!Array.isArray(value.models))throw Error('OpenRouter catalog unavailable. Enter an exact model ID below.');setCatalog(value);}).catch(e=>{if(!controller.signal.aborted)setError(message(e));});
     return ()=>controller.abort();
   },[attempt,open]);
+  useEffect(()=>{
+    if(!open||disabled)return;
+    const controller=new AbortController();setBenchmarkError('');
+    void apiJson<ModelBenchmarks>(`/api/agents/${encodeURIComponent(agentName)}/model-benchmarks`,{signal:controller.signal}).then(data=>{
+      if(!Array.isArray(data?.models))throw Error('Intelligence scores are unavailable.');
+      setBenchmarks(data);
+    }).catch(()=>{if(!controller.signal.aborted)setBenchmarkError('Intelligence scores are unavailable. You can still compare prices below.');});
+    return ()=>controller.abort();
+  },[open,agentName,attempt,disabled]);
   const models=(catalog?.models??[]).filter(m=>m.tools&&(!vision||m.vision)&&`${m.id} ${m.name}`.toLowerCase().includes(query.toLowerCase()));
   const shown=models.slice(0,query?20:5);
   const current=catalog?.models.find(m=>`openrouter:${m.id}`===value);
@@ -42,10 +54,10 @@ export function ModelPicker({agentName,value,disabled,onChange}:{agentName:strin
       setResult(`Tool-call check passed in ${(checked.latencyMs/1000).toFixed(1)}s. Save settings to use this model on the next turn.`);
     }catch(e){setResult(message(e));}finally{setBusy(false);}
   }
-  function card(model:OpenRouterModel,index:number){
+  function card(model:OpenRouterModel){
     const provider=model.id.split('/')[0];
     return <button type="button" className="model-option" key={model.id} aria-pressed={selected===model.id} disabled={disabled||busy} onClick={()=>choose(model.id)}>
-      <span className="model-option-heading"><span className="model-provider-mark" aria-hidden="true">{logos[provider]?<img src={`/model-logos/${logos[provider]}.svg`} alt=""/>:provider.slice(0,2).toUpperCase()}</span><span><strong>{model.name}</strong><small>{provider} · {query?'Search result':`Popular pick ${index+1}`}</small></span><span className="model-selection" aria-hidden="true">{selected===model.id?'✓':'○'}</span></span>
+      <span className="model-option-heading"><span className="model-provider-mark" aria-hidden="true">{logos[provider]?<img src={`/model-logos/${logos[provider]}.svg`} alt=""/>:provider.slice(0,2).toUpperCase()}</span><span><strong>{model.name}</strong><small>{provider} · {query?'Search result':'Catalog model'}</small></span><span className="model-selection" aria-hidden="true">{selected===model.id?'✓':'○'}</span></span>
       <span className="model-capabilities"><span>Tools</span><span>{model.vision?'Image input':'Text input only'}</span>{model.reasoning&&<span>Reasoning</span>}</span>
       <span className="model-price">{money(model.inputPrice)} in / {money(model.outputPrice)} out <small>per 1M tokens</small></span>
       <span className="model-context">{model.context?`${(model.context/1000).toLocaleString()}K context`:'Context not reported'}</span>
@@ -58,6 +70,9 @@ export function ModelPicker({agentName,value,disabled,onChange}:{agentName:strin
     {!catalog&&!error&&<p role="status">Loading live OpenRouter catalog…</p>}
     {error&&<p role="alert">{error} <button type="button" onClick={()=>setAttempt(n=>n+1)}>Retry catalog</button></p>}
     {catalog&&<>
+      {benchmarks&&<ModelValueChart models={models} benchmarks={benchmarks} selected={selected} searching={!!query.trim()} disabled={disabled||busy} onChoose={choose}/>}
+      {benchmarkError&&<p role="status">{benchmarkError} <button type="button" onClick={()=>setAttempt(n=>n+1)}>Retry scores</button></p>}
+      {!benchmarks&&!benchmarkError&&!disabled&&<p role="status">Loading intelligence scores…</p>}
       <div className="model-options">{shown.map(card)}</div>
       {!shown.length&&<p>No matching tool-capable models. Try another search or enter an exact ID below.</p>}
       <p className="model-source">{catalog.stale?'Showing cached models. ':''}<a href="https://openrouter.ai/models" target="_blank" rel="noreferrer">Compare on OpenRouter ↗</a></p>

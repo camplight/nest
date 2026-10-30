@@ -1,3 +1,4 @@
+import {createModelBenchmarks} from './model-benchmarks';
 import type { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
@@ -5,15 +6,31 @@ import { generate } from '@orgops/llm';
 import type { OrgOpsClient } from '@nest/orgops-client';
 import { createOpenRouterCatalog, modelSlug } from './openrouter-catalog';
 
-export function registerModelPickerRoutes(app:Hono, orgops:OrgOpsClient, options:{engineToken?:string;catalog?:ReturnType<typeof createOpenRouterCatalog>;probe?:typeof generate} = {}) {
+export function registerModelPickerRoutes(app:Hono, orgops:OrgOpsClient, options:{benchmarks?:ReturnType<typeof createModelBenchmarks>;engineToken?:string;catalog?:ReturnType<typeof createOpenRouterCatalog>;probe?:typeof generate} = {}) {
   const catalog = options.catalog ?? createOpenRouterCatalog();
   const probe = options.probe ?? generate;
+  const benchmarks=options.benchmarks??createModelBenchmarks();
   const checks = new Map<string,number>();
   app.get('/api/openrouter-models', async c => {
     c.header('Cache-Control','no-store');
     if (!await orgops.currentHuman(c.req.raw.headers)) return c.json({error:'Unauthorized'},401);
     try { return c.json(await catalog()); }
     catch { return c.json({error:'OpenRouter catalog unavailable. Use a configured model or an exact model ID.'},503); }
+  });
+  app.get('/api/agents/:name/model-benchmarks',async c=>{
+    c.header('Cache-Control','no-store');
+    const human=await orgops.currentHuman(c.req.raw.headers);
+    if(!human||human.mustChangePassword)return c.json({error:'Sign in to compare models'},401);
+    const name=c.req.param('name');
+    const response=await orgops.humanRequest(`/api/agents/${encodeURIComponent(name)}`,c.req.raw.headers);
+    if(!response.ok)return c.json({error:'Agent unavailable'},404);
+    const agent=await response.json() as {visibility:string;ownerHumanId:string|null;mode:string};
+    if(agent.visibility!=='PUBLIC'&&agent.ownerHumanId!==human.id)return c.json({error:'Only the owner can use this agent’s connection'},403);
+    if(agent.mode==='WRAPPED')return c.json({error:'Model managed by external runtime'},400);
+    try{
+      const env=await orgops.agentModelEnv(name,options.engineToken??'');
+      return c.json(await benchmarks(env.OPENROUTER_API_KEY??''));
+    }catch{return c.json({error:'Intelligence scores are unavailable. You can still browse prices and choose a model below.'},503);}
   });
   app.post('/api/agents/:name/model-check', bodyLimit({maxSize:2048}), async c => {
     c.header('Cache-Control','no-store');

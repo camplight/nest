@@ -1,3 +1,7 @@
+export const DEFAULT_AGENT_MODEL_ID = 'openrouter:z-ai/glm-5.3';
+export function defaultModelReference(id:string|undefined,models:{id:string;reference:string}[]) {
+  return models.find(m=>m.id===id||m.reference===id)?.reference ?? (id===DEFAULT_AGENT_MODEL_ID?DEFAULT_AGENT_MODEL_ID:null);
+}
 import {agentInstructionBody, agentInstructionResponse, isAgentSettingsPath} from './agent-instructions';
 
 export type Human = { id: string; username: string; mustChangePassword: boolean; createdAt?: number };
@@ -87,10 +91,7 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
   }
   async function nativeModelReference(id: string, headers: HeadersInit) {
     const models = await humanJson<{id:string; provider:string; modelName:string; enabled:boolean}[]>('/api/models', headers);
-    const model = nativeModels(models).find(m => m.id === id || m.reference === id);
-    if (!model) return null;
-    // Agent modelId is a provider:model reference, not the model registry row ID.
-    return model.reference;
+    return defaultModelReference(id,nativeModels(models));
   }
   async function agentModelEnv(agentName: string, serviceToken: string) {
     if (!serviceToken) throw Error('Model checks are not configured');

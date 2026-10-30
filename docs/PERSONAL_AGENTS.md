@@ -238,28 +238,20 @@ onboarding and `POST /api/agents` when no model is specified. The legacy
 onboarding attempts retain their stored model reference. Wrapped agents choose
 models in their external runtime.
 
-The agent settings and admin creation forms offer enabled native models from the
-engine registry. Unlisted current values remain visible and are not silently
-replaced. Selecting another model updates the engine agent through its usual
-permission checks; it applies on the next turn. An enabled registry row is not a
-credential or provider-health guarantee. The dropdown is a convenience catalog,
-not a new security allowlist for the engine's existing explicit-model API.
+User agent settings use the OpenRouter explorer as the single model picker;
+admin creation retains its preset catalog. The built-in default is now
+`openrouter:z-ai/glm-5.3`. This direct reference needs no registry preset. Set
+`NEST_DEFAULT_AGENT_MODEL_ID=openrouter:z-ai/glm-5.3` on deployments with an older
+explicit override. Existing agents and onboarding reservations keep their models;
+wrapped agents continue to choose models in their external runtime. The OpenRouter
+key must be available to the agent; a benchmark score is not a connection test.
 
-As of 2026-10-12, the recommended open-weight multimodal default is
-`openrouter:moonshotai/kimi-k3`, with `openrouter:qwen/qwen3.8-27b` as a smaller
-alternative. Kimi K3's [official model card](https://huggingface.co/moonshotai/Kimi-K3)
-describes its released weights, native vision, and agentic evaluations; there is
-no universal SOTA across all benchmarks. OpenRouter's
-[current catalog](https://openrouter.ai/api/v1/models) lists both image input and
-tool support. Provider pricing and availability change; verify before rollout.
-This changes model selection, not Nest's attachment/audio/video UI support.
-A real isolated CLASSIC runner reply with Kimi K3 was verified on 2026-10-12.
+The value chart uses Artificial Analysis intelligence scores from OpenRouter's
+[benchmarks API](https://openrouter.ai/docs/api/api-reference/benchmarks/list-benchmarks),
+joined to current OpenRouter prices. Missing scores stay unplotted. The green
+frontier compares token price and intelligence, not total task cost or a guarantee
+of suitability. Model selection still requires Connect and Save settings.
 
-For an existing instance, register a new enabled model with ID `nest-kimi-k3`,
-provider `openrouter`, and modelName `moonshotai/kimi-k3`; retain the existing
-Gemini record as an alternative. Set the new default environment variable and
-restart using the normal backup/deployment flow. Do not repurpose an existing
-registry ID: incomplete onboarding reservations may still depend on it.
 
 ### Allow a personal agent in owned team projects
 

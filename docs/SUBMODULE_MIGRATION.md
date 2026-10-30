@@ -604,3 +604,34 @@ separate conversations without changing direct-chat deduplication. Existing
 channel links remain valid. The agent workspace separates Chat, Settings and
 Connected apps; model selection and instructions live inside Advanced settings.
 No ownership or tool-grant rules change.
+
+## Model value picker and GLM default
+
+Agent names are plain text in user settings. The redundant configured-model
+dropdown is removed; the OpenRouter picker is the single native-model control.
+Connect still runs a synthetic tool call before Save settings applies a choice.
+
+`GET /api/agents/:name/model-benchmarks` is human-authenticated and checks agent
+ownership using the engine before resolving that agent's OpenRouter credential.
+It reads OpenRouter's documented `/api/v1/benchmarks?source=artificial-analysis&task_type=intelligence`.
+Only normalized scores/identities/timestamps are returned. Credentials stay
+server-side. Responses coalesce and cache for six hours per hashed provider key,
+with a 24-hour stale limit, one-minute failure cooldown and a bounded cache.
+The chart joins exact catalog IDs/canonical slugs only, never approximate names,
+and omits ambiguous/missing scores. Price is the equal-weight average of input
+and output dollars per million tokens, not estimated task cost. Green rings
+show the Pareto frontier within matching scored tool-capable models. Unscored
+models remain available in the catalog/custom-ID flow. Benchmark failures never
+prevent model selection; Artificial Analysis attribution is visible.
+
+The built-in default for new native agents is `openrouter:z-ai/glm-5.3`, including
+onboarding, ordinary creation and managed creation. It is a direct engine model
+reference and does not require a model-registry preset. Explicit instance/config
+overrides and supplied creation models remain authoritative; existing agents,
+reserved onboarding attempts and externally managed wrapped models are retained.
+On existing deployments, set `NEST_DEFAULT_AGENT_MODEL_ID=openrouter:z-ai/glm-5.3`
+to replace an older default override. An OpenRouter key and an available runner
+are still required for execution. No engine source or model-registry mutation.
+
+Sources: https://openrouter.ai/docs/api/api-reference/benchmarks/list-benchmarks
+and https://openrouter.ai/z-ai/glm-5.3 .

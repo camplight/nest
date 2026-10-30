@@ -1,3 +1,4 @@
+import {defaultModelReference} from '@nest/orgops-client';
 import {createHash} from 'node:crypto';
 import {resolve} from 'node:path';
 import {Hono} from 'hono';
@@ -36,7 +37,7 @@ export function registerAgentManagementRoutes(app:Hono,{orgops,store,config}:{or
   }
   async function context(authorization:string|undefined) {
     const ctx=await requestContext(authorization);
-    const model=ctx.models.find(m=>m.id===ctx.settings.defaultModelId||m.reference===ctx.settings.defaultModelId)??fail(503,'No enabled default model is configured');
+    const model={reference:defaultModelReference(ctx.settings.defaultModelId,ctx.models)??fail(503,'No enabled default model is configured')};
     // Execution context is required for creation, not for project membership.
     const assignedRunner=ctx.runners?.find(r=>r.id===ctx.manager.assignedRunnerId&&r.online)??fail(503,'The manager’s runner is unavailable');
     return {...ctx,model,runner:assignedRunner};
