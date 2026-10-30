@@ -46,12 +46,12 @@ Codex login and runtime skills are retained. No production DB cleanup is require
 ## Interrupted activity compatibility
 
 Nest consumes existing trusted lifecycle records through the human's engine HTTP
-permissions; the `eb2e19d` submodule is unchanged. A later lifecycle can establish
+permissions. A later lifecycle can establish
 that an older unclosed turn was interrupted, while its external effects remain
 unknown. Nest displays that state and offers request review without replaying work.
 OrgOps [#79](https://github.com/camplight/orgops/pull/79) exposes nullable `lastStartedAt` on agent list/detail reads as a
-canonical restart boundary; Nest accepts that metadata when supplied. It is not
-required or patched into the current engine. Missing restart evidence never becomes
+canonical restart boundary and is included in the reviewed `7406b6a` engine pin;
+Nest accepts that metadata when supplied. No upstream source is patched. Missing restart evidence never becomes
 an age-based interruption, and heartbeats are not execution ownership.
 
 ## Upstream upgrade: `f7c95b7` → `cc8faa0`
@@ -579,6 +579,49 @@ does not change an existing host.
 Native units pin engine and file roots to persistent absolute paths. Nest repairs
 its generated compatibility symlinks atomically when releases move; existing real
 directories and upstream source are retained.
+
+### Voice/realtime engine upgrade
+
+The update from deployed `eb2e19d` to upstream main `7406b6a` includes
+voice/realtime, the reviewed byte-budget compatibility fix in OrgOps #80,
+restart metadata from #79, merged security changes and #82's realtime maintenance
+environment fix, runner socket delivery, private-invite ownership, billing price
+upserts and response/late-event fixes from #86/#89. The vendor tree remains untouched.
+Migrations `046`–`050` add publications, file-backed event payload metadata,
+a lifecycle lookup index and invite ownership.
+Preserve the entire engine data directory, not just its SQLite file, for recovery.
+The existing upgrade fixture checks identities, instructions, private membership,
+secrets and wrapped configuration across all migrations. The release gate also
+checks large file-backed inputs and bounded reads at the production heap budget.
+
+Nest provisions the optional local LiveKit SFU through its native installer and
+systemd units. `--enable-livekit` (or private `NEST_ENABLE_LIVEKIT=1`) generates
+credentials once, stores them in `/etc/nest/runtime.env` and reuses them on
+upgrades. Configuration/units/release pointers and both stopped databases are
+restored on activation failure. No provider credentials, agent settings or Nest
+product schemas change. See [native voice operations](../deploy/native/README.md#voice-service).
+Nest voice controls are deferred; this upgrade exposes the engine capability.
+
+The security update preserves identities and existing workspaces but restricts
+instance administration to the bootstrap owner/global runner. Ordinary members
+receive generated workspace paths for new agents and cannot configure host
+runtimes or browse workspaces outside the managed root. Nest must use returned
+workspace paths and preserve engine authorization. Password sessions now expire;
+uploads are served inertly and WebSocket events are filtered by current access.
+The parent dependency override retains upstream's patched Undici version.
+Personal onboarding accepts the returned workspace only for its reserved agent,
+using a prompt reservation marker when the engine generates a member path. Its
+initial identity/path binding is atomic and survives lost responses; established
+setups keep their previous paths. No product migration or existing prompt rewrite
+is required. Profile changes must adopt the engine's rotated session cookie.
+
+OrgOps #86 stops format exhaustion from publishing a conversational error that
+wakes other agents. #89 suppresses duplicate SYNC process notifications during
+turn injection and gives late events a separate bounded continuation budget.
+Native release gates include the actual upstream response/injection/socket
+regressions. Legitimate agent-to-agent messages and ASYNC completion remain
+supported. Existing fallback messages/unknown outcomes are retained, not rewritten
+or replayed; rollout alone does not prove that every possible loop is eliminated.
 
 ## Dashboard live activity
 

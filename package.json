@@ -69,7 +69,7 @@
     "@tootallnate/once": "^3.0.1",
     "sqlite3": "^6.0.1",
     "tar": "^7.5.22",
-    "undici": "^6.24.0",
+    "undici": "^6.29.1",
     "lightningcss": "1.33.0",
     "@tailwindcss/node": {
       "lightningcss": "1.33.0"

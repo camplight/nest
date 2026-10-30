@@ -222,7 +222,24 @@ describe("personal onboarding through the untouched engine", () => {
     expect((await call("/api/onboarding/agent", input)).status).toBe(503);
     expect((await (await call()).json()).setup).toBeNull();
   });
-  it("keeps separate setup records for different humans", async () => {
+  it("refuses to adopt an unbound member agent without its reservation proof", async () => {
+    await call('/api/humans/invite',{username:'member',tempPassword:'password'});
+    engine.db.prepare("UPDATE humans SET must_change_password=0 WHERE username='member'").run();
+    const login = await call('/api/auth/login',{username:'member',password:'password'},{'content-type':'application/json'});
+    const member = {...headers,cookie:login.headers.getSetCookie()[0].split(';')[0]};
+    const body = {...input,name:'PuffMember'};
+    lose = '/api/agents';
+    expect((await call('/api/onboarding/agent',body,member)).status).toBe(502);
+    const patched = await product.app.request('/api/agents/PuffMember',{
+      method:'PATCH',headers:member,body:JSON.stringify({systemInstructions:'Unrelated configuration without the reservation proof'}),
+    });
+    expect(patched.status).toBe(200);
+    expect((await call('/api/onboarding/agent',body,member)).status).toBe(409);
+    const pending = product.store.db.prepare('SELECT agent_id,channel_id FROM product_personal_agents WHERE name=?').get('PuffMember');
+    expect(pending).toEqual({agent_id:null,channel_id:null});
+  });
+  for (const lostPath of ["", "/api/agents", "/api/channels"])
+  it(`keeps member setup isolated with engine-assigned paths${lostPath ? ` after losing ${lostPath}` : ""}`, async () => {
     await call("/api/onboarding/agent", input);
     await call("/api/humans/invite", {
       username: "other",
@@ -245,6 +262,15 @@ describe("personal onboarding through the untouched engine", () => {
     expect(
       (await (await call("/api/onboarding", undefined, other)).json()).setup,
     ).toBeNull();
+    if (lostPath) {
+      lose = lostPath;
+      expect((await call("/api/onboarding/agent", {...input,name:"PuffOther"}, other)).status).toBe(502);
+      product.store.close();
+      product = createApp({orgops:client,dbPath:join(dir,"product.sqlite"),personalAgent:settings});
+    } else {
+      const concurrent = await Promise.all([1,2].map(()=>call('/api/onboarding/agent',{...input,name:'PuffOther'},other)));
+      expect(concurrent.some(result=>result.status===200)).toBe(true);
+    }
     expect(
       (
         await call(
@@ -259,5 +285,14 @@ describe("personal onboarding through the untouched engine", () => {
         .name,
     ).toBe("PuffOther");
     expect((await (await call()).json()).setup.name).toBe("PuffOwner");
+    const memberAgent = await (await call('/api/agents/PuffOther',undefined,other)).json();
+    expect(memberAgent.workspacePath).not.toContain(settings.workspaceRoot);
+    const saved = product.store.db.prepare('SELECT agent_id,workspace_path FROM product_personal_agents WHERE name=?').get('PuffOther');
+    expect(saved).toMatchObject({agent_id:memberAgent.id,workspace_path:memberAgent.workspacePath});
+    expect((await call('/api/onboarding/complete',{},other)).status).toBe(200);
+    expect(await (await call('/api/channels',undefined,other)).json()).toHaveLength(1);
+    // Once bound, even a correctly marked agent may not silently change workspace.
+    engine.db.prepare('UPDATE agents SET workspace_path=? WHERE name=?').run(join(dir,'changed'),'PuffOther');
+    expect((await call('/api/onboarding/complete',{},other)).status).toBe(409);
   });
 });

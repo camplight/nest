@@ -35,6 +35,8 @@ type EngineAgent = {
   visibility: string;
   workspacePath: string;
   runtimeState: string;
+  soulContents?: string;
+  systemInstructions?: string;
 };
 type EngineChannel = {
   id: string;
@@ -73,6 +75,7 @@ export function registerOnboardingRoutes(
     db
       .prepare("SELECT * FROM product_personal_agents WHERE owner_id=?")
       .get(owner) as Row | undefined;
+  const reservationMarker = (r: Row) => `<!-- Nest onboarding reservation: ${r.id} -->`;
   const publicSetup = (r: Row): PersonalAgentSetup => ({
     id: r.id,
     name: r.name,
@@ -120,13 +123,29 @@ export function registerOnboardingRoutes(
     if (
       value.ownerHumanId !== r.owner_id ||
       value.visibility !== "PRIVATE" ||
-      value.workspacePath !== r.workspace_path ||
-      (r.agent_id && value.id !== r.agent_id)
+      (r.agent_id && (value.id !== r.agent_id || value.workspacePath !== r.workspace_path)) ||
+      (!r.agent_id && value.workspacePath !== r.workspace_path &&
+        !(value.soulContents ?? value.systemInstructions ?? "").includes(reservationMarker(r)))
     )
       throw new HTTPException(409, {
         message:
           "Agent ownership or configuration changed. Contact your administrator.",
       });
+    // OrgOps assigns member workspace paths. Bind the returned identity/path once;
+    // the reservation marker also reconciles a committed create with a lost response.
+    // Existing setups retain their saved path and reject subsequent configuration drift.
+    if (!r.agent_id) {
+      if (!value.id || typeof value.workspacePath !== "string" || !value.workspacePath.trim())
+        throw Error("Engine returned an incomplete agent");
+      db.prepare(
+        "UPDATE product_personal_agents SET agent_id=?,workspace_path=? WHERE owner_id=? AND id=? AND agent_id IS NULL AND workspace_path=?",
+      ).run(value.id, value.workspacePath, r.owner_id, r.id, r.workspace_path);
+      const bound = row(r.owner_id);
+      if (bound?.id !== r.id || bound.agent_id !== value.id || bound.workspace_path !== value.workspacePath)
+        throw new HTTPException(409, {message:"Agent ownership or configuration changed. Contact your administrator."});
+      r.agent_id = bound.agent_id;
+      r.workspace_path = bound.workspace_path;
+    }
     return value;
   }
   async function channel(r: Row, headers: Headers) {
@@ -306,7 +325,7 @@ export function registerOnboardingRoutes(
           },
           409,
         );
-      // Stable unique name + owned workspace reconcile lost responses; competing
+      // Stable unique name + reservation marker reconcile lost responses; competing
       // creates cannot produce two engine agents with this name.
       const created = await orgops.humanRequest(
         "/api/agents",
@@ -326,7 +345,7 @@ export function registerOnboardingRoutes(
           enabledSkills: [],
           classicMaxModelSteps: 12,
           description: `Personal assistant for ${human.username}`,
-          systemInstructions: `You are ${r.name}, the personal assistant of ${human.username}. Help with planning, research and follow-through. ${r.brief}\nUse only explicitly granted connections. Never claim an integration or action succeeded without a tool result. Teammates may talk to you, but this does not grant access to your owner's accounts. Ask for clarification before destructive or externally visible actions.`,
+          systemInstructions: `You are ${r.name}, the personal assistant of ${human.username}. Help with planning, research and follow-through. ${r.brief}\nUse only explicitly granted connections. Never claim an integration or action succeeded without a tool result. Teammates may talk to you, but this does not grant access to your owner's accounts. Ask for clarification before destructive or externally visible actions.\n${reservationMarker(r)}`,
         },
       );
       a = await agent(r, headers);

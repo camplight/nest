@@ -31,7 +31,7 @@ Nest API (127.0.0.1:8787). Nest calls OrgOps API (127.0.0.1:8788). The runner ca
 the engine. Each process has a repo-owned systemd unit in [systemd](systemd);
 static UIs share Caddy's service rather than running Vite preview servers.
 
-[versions.env](versions.env) pins Node/Caddy with official artifact checksums.
+[versions.env](versions.env) pins Node/Caddy/LiveKit with official artifact checksums.
 The [agent CLI lockfile](agent-clis/package-lock.json) pins Codex/Claude and package
 integrity. The root lockfile and submodule gitlink pin application dependencies.
 OS security packages come from Ubuntu's maintained repositories. These pins make
@@ -83,6 +83,40 @@ installer installs pinned CLIs; it cannot authorize subscriptions/accounts.
   deployment keys too. DB snapshots alone exclude workspaces, uploads, Codex
   logins, runtime skills and demos. Test a full restore on an isolated host with
   outbound agent/provider actions disabled.
+
+## Voice service
+
+The engine supports realtime models and voice; Nest chat voice controls are a
+separate UI milestone. To provision the local SFU, add `--enable-livekit` to the
+normal installer command, or set `NEST_ENABLE_LIVEKIT=1` in the private installed
+environment before deploying through the restricted controller. The choice is
+persisted across upgrades. No Docker service or separate DNS record is needed.
+
+The installer generates LiveKit credentials once in `/etc/nest/runtime.env` and
+renders private `/etc/nest/livekit.yaml`. It runs the pinned binary under its own
+`nest-livekit` account as `nest-livekit.service`, capped at 256 MiB within the Nest
+slice. Systemd recovers an SFU crash without restarting APIs or agents. Existing
+external `LIVEKIT_URL` configuration is never silently replaced.
+
+Caddy exposes `wss://<Nest domain>:8443`, forwarding to loopback port 7880. Permit
+8443/TCP for signaling, 7881/TCP and 7882/UDP for media in host/cloud firewalls;
+the installer adds these rules when UFW is already active. Never expose 7880.
+Restrictive networks may need a future TURN/TLS service; it is not configured by
+this rollout. See [LiveKit's port reference](https://docs.livekit.io/transport/self-hosting/ports-firewall/).
+
+Fresh-host CI enables the SFU and checks actual synthetic audio between two
+authenticated clients, reinstallation with unchanged keys, activation rollback,
+and independent crash recovery. Operators can run the same bounded check without
+creating product chats or spending model credits:
+
+```sh
+sudo runuser -u node -- /opt/nest/node/bin/node \
+  --env-file=/etc/nest/runtime.env /app/deploy/native/livekit-smoke.mjs
+```
+
+Pre-open rollback restores the SFU configuration, credentials, unit and binary
+pointer with the DB pair. Include engine payload/publication blob directories in
+full-state backups: a new SQLite snapshot alone is insufficient for this engine.
 
 ## Docker import
 
