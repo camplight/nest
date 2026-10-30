@@ -84,6 +84,12 @@ describe("personal onboarding through the untouched engine", () => {
     engine.db.close();
     rmSync(dir, { recursive: true, force: true });
   });
+  it("uses the built-in GLM default for personal onboarding without a registry preset", async () => {
+    product.store.close();
+    product = createApp({orgops:client, dbPath:join(dir,'product.sqlite'), personalAgent:settings, defaultAgentModelId:'openrouter:z-ai/glm-5.3'});
+    expect((await call('/api/onboarding/agent', input)).ok).toBe(true);
+    expect(await (await call('/api/agents/PuffOwner')).json()).toMatchObject({modelId:'openrouter:z-ai/glm-5.3'});
+  });
   it("requires a human and ignores injected runner credentials", async () => {
     expect((await call("/api/onboarding", undefined, {})).status).toBe(401);
     expect(

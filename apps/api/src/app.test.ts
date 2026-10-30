@@ -136,6 +136,18 @@ describe('Nest product over unchanged OrgOps', () => {
     expect((await post('/api/agents',{name:'Disabled',workspacePath:join(dir,'disabled')})).status).toBe(503);
     expect(await (await product.app.request('/api/agents/Default',{headers})).json()).toMatchObject({modelId:'openrouter:moonshotai/kimi-k3'});
   });
+  it('uses GLM-5.3 as a native default without rewriting existing agents',async()=>{
+    const client=createOrgOpsClient('http://engine',async(url,init)=>engine.app.fetch(new Request(url,init)));
+    const fresh=createApp({defaultAgentModelId:'openrouter:z-ai/glm-5.3',orgops:client,dbPath:join(dir,'glm-product.sqlite')});
+    try {
+      const headers={cookie,'content-type':'application/json'};
+      const response=await fresh.app.request('/api/agents',{method:'POST',headers,body:JSON.stringify({name:'GlmDefault',workspacePath:join(dir,'glm')})});
+      expect(response.status).toBe(201);
+      expect(await (await fresh.app.request('/api/agents/GlmDefault',{headers})).json()).toMatchObject({modelId:'openrouter:z-ai/glm-5.3'});
+      expect(await (await fresh.app.request('/api/agent-models',{headers})).json()).toMatchObject({defaultModel:'openrouter:z-ai/glm-5.3'});
+      expect(await client.nativeModelReference('openrouter:z-ai/glm-5.3',headers)).toBe('openrouter:z-ai/glm-5.3');
+    }finally{fresh.store.close();}
+  });
   it('stores branding and audit in the product DB only and retains them after reopen', async () => {
     expect(await (await product.app.request('/api/branding')).json()).toEqual(DEFAULT_BRANDING);
     const value = {...DEFAULT_BRANDING, displayName: 'Camplight'};
