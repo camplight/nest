@@ -600,7 +600,13 @@ credentials once, stores them in `/etc/nest/runtime.env` and reuses them on
 upgrades. Configuration/units/release pointers and both stopped databases are
 restored on activation failure. No provider credentials, agent settings or Nest
 product schemas change. See [native voice operations](../deploy/native/README.md#voice-service).
-Nest voice controls are deferred; this upgrade exposes the engine capability.
+Nest's lazy-loaded Huddle UI now consumes the existing voice config/join APIs
+through its authenticated gateway and emits upstream voice lifecycle events.
+It uses the existing LiveKit service without changing engine source, models,
+credentials, migrations or runner assignment. Browser session cleanup and
+presentation live in `apps/user-ui/src/huddle`; OrgOps still owns voice execution,
+authorization and transcripts. Human-only calls have no automatic transcription;
+voice agents need a supported realtime model and provider credentials.
 
 The security update preserves identities and existing workspaces but restricts
 instance administration to the bootstrap owner/global runner. Ordinary members

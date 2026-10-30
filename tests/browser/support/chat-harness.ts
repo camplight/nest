@@ -34,6 +34,7 @@ export type ChatTestOptions={
   colorScheme?:'light'|'dark';
   reducedMotion?:'reduce';
   hasTouch?:boolean;
+  fakeMedia?:boolean;
   connections?:unknown; // a ConnectionProvider, as projects.ts builds it
 };
 
@@ -127,7 +128,7 @@ async function setup(options:ChatTestOptions,cleanup:(()=>Promise<void>|void)[])
   await must(post('/api/agents',{name:agentName,icon:'pip',visibility:'PUBLIC',modelId:'wrapped:none',workspacePath:join(dir,'workspace')}),'create agent');
   const project=await(await must(post('/api/projects',{id:crypto.randomUUID(),name:'Synthetic chat project',description:'Synthetic test project',members:[{subscriberType:'AGENT',subscriberId:agentName}]}),'create project')).json() as {id:string;channelId:string};
 
-  const browser:Browser=await chromium.launch();cleanup.push(()=>browser.close());
+  const browser:Browser=await chromium.launch(options.fakeMedia?{args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']}:{});cleanup.push(()=>browser.close());
   const openContext=async(sessionCookie:string)=>{
     const context=await browser.newContext({viewport:options.viewport??{width:1440,height:1000},colorScheme:options.colorScheme,reducedMotion:options.reducedMotion,hasTouch:options.hasTouch});
     await context.addCookies([{name:'nest_session',value:sessionCookie.slice('nest_session='.length),url:base,httpOnly:true}]);
