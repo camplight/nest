@@ -18,15 +18,18 @@ try {
     const invitation = await h.post(`/api/projects/${h.project.id}/members`, {subscriberType: 'AGENT', subscriberId: 'Puff'});
     assert.equal(invitation.ok, true, await invitation.text());
     await h.emit('message.created', {text: 'The launch brief is ready for review. We can talk through the next steps here.'});
+    for (let i = 1; i <= 5; i++) await h.emit('message.created', {text: `Review note ${i}: confirm the audience, review the draft together, and agree the next step.\n\nKeep the launch brief and decisions in this project so the whole team can follow along.`});
     await page.reload();
     await page.getByRole('button', {name: 'Huddle', exact: true}).click();
     const dialog = page.getByRole('dialog', {name: 'Huddle', exact: true});
     await dialog.getByRole('button', {name: 'Join huddle', exact: true}).waitFor({state: 'visible'});
     await page.waitForFunction(() => !Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'Join huddle')?.disabled);
-    assert.equal(await dialog.getByLabel('Invite to huddle').count(), 1, 'The wrapped/text agent must not be offered for voice');
+    assert.equal(await dialog.getByLabel(/^Invite .* to huddle$/).count(), 1, 'The wrapped/text agent must not be offered for voice');
     assert.equal(await dialog.locator('img[src$="puff.png"]').count(), 1);
     assert.equal(await dialog.getByText('0 in huddle', {exact: true}).count(), 1, 'Chat membership is not voice presence');
+    assert(await dialog.locator('.huddle-conversation').evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight < 3), 'The huddle opens at the latest messages');
     await page.evaluate(() => Promise.all(document.getAnimations().map(a => a.finished.catch(() => {}))));
+    assert((await dialog.locator('.huddle-agent-invite').boundingBox())!.height >= 44, 'Invitation has a touch-sized target');
     assert((await dialog.boundingBox())!.width > 1000, JSON.stringify(await dialog.evaluate(el => ({classes: el.className, width: getComputedStyle(el).width, maxWidth: getComputedStyle(el).maxWidth, display: getComputedStyle(el).display}))) + ': desktop huddle width');
     await page.waitForFunction(() => Array.from(document.querySelectorAll('.huddle-dialog .agent-portrait img')).every(i => (i as HTMLImageElement).complete && (i as HTMLImageElement).naturalWidth > 0));
     const imgs = await dialog.locator('.agent-portrait img').evaluateAll(imgs => imgs.map(i => ({width: i.getBoundingClientRect().width, height: i.getBoundingClientRect().height})));
@@ -37,6 +40,7 @@ try {
     await dialog.getByRole('button', {name: 'Hide conversation'}).click();
     assert.equal(await dialog.getByRole('region', {name: 'Huddle conversation'}).count(), 0);
     await dialog.getByRole('button', {name: 'Show conversation'}).click();
+    assert(await dialog.locator('.huddle-conversation').evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight < 3), 'Reopening chat restores the latest messages');
     await page.setViewportSize({width: 390, height: 844});
     assert(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth));
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -82,6 +86,16 @@ try {
     assert(await viewer.getByRole('button', {name: 'Join huddle', exact: true}).isDisabled());
     await context.close();
   }, {fakeMedia: true});
+
+  await runChatTest('Huddle loading failure preserves the workspace', async h => {
+    const errors: string[] = []; h.page.on('pageerror', error => errors.push(error.message));
+    await h.page.route('**/src/huddle/Huddle.tsx*', route => route.abort());
+    await h.page.getByRole('button', {name: 'Huddle', exact: true}).click();
+    await h.page.getByRole('alert').filter({hasText: 'Huddle couldn’t load.'}).waitFor();
+    await h.page.getByRole('button', {name: 'Cancel', exact: true}).click();
+    assert(await h.page.getByRole('textbox', {name: 'Message', exact: true}).isVisible());
+    assert.deepEqual(errors, [], 'A voice bundle failure must not crash the workspace');
+  });
 
   if (livekit) await runChatTest('Huddle: two real browser media participants, mute, transcript and leave', async h => {
     const {page} = h;

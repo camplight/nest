@@ -121,8 +121,9 @@ export function createHuddleSession(input: {
     } catch (error) {
       const wasCurrent = current(attempt);
       if (wasCurrent) active = undefined;
-      await dispose(attempt, 'join_failed');
+      const cleanup = dispose(attempt, 'join_failed');
       if (wasCurrent) update({...emptyHuddle(), error: voiceError(error)});
+      await cleanup;
     }
   }
   async function mute(muted: boolean) {

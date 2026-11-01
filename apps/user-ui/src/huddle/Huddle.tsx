@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {Headphones, Maximize2, MessageSquare, Mic, MicOff, Minimize2, PhoneOff, Volume2, X} from 'lucide-react';
 import {Dialog as DialogPrimitive} from 'radix-ui';
 import {apiJson} from '../api';
@@ -25,7 +25,15 @@ export default function Huddle({channel, label, username, agents, events, canPos
   const [expanded, setExpanded] = useState(false), [showChat, setShowChat] = useState(true), [now, setNow] = useState(Date.now);
   // Compare engine timestamps with engine timestamps, not the browser's clock.
   const [voiceBaseline] = useState(() => events.reduce((latest, event) => Math.max(latest, event.createdAt ?? 0), 0));
-  const wave = useRef<HTMLDivElement>(null), conversation = useRef<HTMLDivElement>(null);
+  const wave = useRef<HTMLDivElement>(null), conversation = useRef<HTMLDivElement | null>(null);
+  // The dialog portal mounts after this component's first layout effect.
+  const bindConversation = useCallback((panel: HTMLDivElement | null) => {
+    conversation.current = panel;
+    if (panel) {
+      panel.scrollTop = panel.scrollHeight;
+      window.requestAnimationFrame(() => {if (conversation.current === panel) panel.scrollTop = panel.scrollHeight;});
+    }
+  }, []);
   const [session] = useState(() => createHuddleSession({channelId: channel.id, username, onChange: setState,
     onLevel: level => wave.current?.style.setProperty('--huddle-level', String(Math.min(1, Math.max(0, level * 5)))),
   }));
@@ -52,7 +60,7 @@ export default function Huddle({channel, label, username, agents, events, canPos
   useEffect(() => () => {void session.leave('closed');}, [session]);
   useEffect(() => {if (!allowed) void session.leave('access_changed');}, [allowed, session]);
   useEffect(() => {if (!connected) return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer);}, [connected]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const panel = conversation.current;
     if (panel && panel.scrollHeight - panel.scrollTop - panel.clientHeight < 180) panel.scrollTop = panel.scrollHeight;
   }, [items]);
@@ -76,7 +84,7 @@ export default function Huddle({channel, label, username, agents, events, canPos
       </header>
       <div className={`huddle-body${showChat ? '' : ' huddle-people-only'}`}>
         {showChat && <section className="huddle-work" aria-label="Huddle conversation"><h2><span>#</span>{label}</h2>
-          <div className="huddle-conversation nest-chat" ref={conversation}>
+          <div className="huddle-conversation nest-chat" ref={bindConversation}>
             {!items.length && <p className="huddle-empty">Your project conversation stays here while you talk.</p>}
             {items.map(item => item.kind === 'message' && <article className="huddle-message" key={item.id}>
               {item.meta.authorKind === 'agent' ? <AgentAvatar name={item.meta.authorName} size={32}/> : <span className="huddle-initials" aria-hidden="true">{item.meta.authorName.slice(0, 2).toUpperCase()}</span>}
@@ -103,10 +111,10 @@ export default function Huddle({channel, label, username, agents, events, canPos
               {person.agent ? <AgentAvatar name={person.name} size={68}/> : <span className="huddle-initials huddle-human-portrait" aria-hidden="true">{person.name.slice(0, 2).toUpperCase()}</span>}
               <strong>{person.name}{person.name === username && !person.agent ? ' (you)' : ''}</strong>
               <span className="huddle-participant-state">{present.length ? talking ? 'Speaking' : audible ? 'Connected' : 'Muted' : 'In chat'}</span>
-              {selectable && <label className="huddle-agent-invite"><input type="checkbox" checked={selected.includes(person.name)} onChange={event => setSelected(current => event.target.checked ? [...current, person.name] : current.filter(name => name !== person.name))}/>Invite to huddle</label>}
+              {selectable && <label className="huddle-agent-invite"><input type="checkbox" aria-label={`Invite ${person.name} to huddle`} checked={selected.includes(person.name)} onChange={event => setSelected(current => event.target.checked ? [...current, person.name] : current.filter(name => name !== person.name))}/>Invite</label>}
             </li>;
           })}</ul>
-          {!eligible.length && <p className="huddle-team-note">You can talk with teammates. For spoken AI replies, add an agent configured with a realtime voice model. <a href="?view=agents">Manage agents</a></p>}
+          {!eligible.length && <p className="huddle-team-note">You can talk with teammates. For spoken AI replies, add a voice-enabled agent. <a href="?view=agents">Manage agents</a></p>}
         </aside>
       </div>
       <div className="huddle-notices">

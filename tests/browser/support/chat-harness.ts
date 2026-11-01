@@ -140,7 +140,10 @@ async function setup(options:ChatTestOptions,cleanup:(()=>Promise<void>|void)[])
   };
   const {context,page}=await openContext(cookie);
   await page.goto(`${base}/?view=projects&project=${project.id}`);
-  await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+  // The first cold Vite load also optimizes the lazy voice SDK on Linux CI.
+  // Give startup its own budget; interactive assertions still use 15 seconds.
+  try {await page.getByRole('textbox',{name:'Message',exact:true}).waitFor({timeout:45000});}
+  catch(error){console.error('Synthetic chat startup:',page.url(),(await page.locator('body').innerText()).slice(0,1400));throw error;}
 
   return {
     page,context,base,apiUrl,cookie,engineDb:engine.db as unknown as Database,project,post,
@@ -176,7 +179,7 @@ async function setup(options:ChatTestOptions,cleanup:(()=>Promise<void>|void)[])
     async closeWebSocket(){wsOpen=false;for(const socket of upgraded)socket.destroy();},
     async reopenWebSocket(){wsOpen=true;},
     async screenshot(name){
-      const dir=process.env.NEST_CHAT_SHOTS_DIR||join('/private/tmp/claude-501/nest-chat-ui-shots',basename(process.cwd()));
+      const dir=process.env.NEST_CHAT_SHOTS_DIR||join(tmpdir(),'nest-chat-ui-shots',basename(process.cwd()));
       mkdirSync(dir,{recursive:true});const path=join(dir,`${name}.png`);
       await page.screenshot({path,fullPage:true});return path;
     },

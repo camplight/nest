@@ -64,6 +64,9 @@ The chat toolbar opens a Figma-inspired Huddle overlay (case-study `904:254`),
 with the recent conversation, existing agent portraits, participant cards, actual
 speaker highlights, microphone level, mute/unmute, expand and leave controls.
 Mobile uses a full-height overlay and horizontally scrolling participant cards.
+Agent invitation labels have 44 px touch targets. Opening or restoring the
+conversation starts at its newest messages. The optional voice bundle has its
+own loading/cancel/error state so a failed download cannot blank the workspace.
 Camera and screen sharing are outside this slice. The reference is a flattened
 screen; Nest composes existing dialog, Markdown, attachment and avatar components
 using instance branding rather than embedding the screenshot.

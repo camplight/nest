@@ -85,6 +85,17 @@ describe('Huddle media lifetime', () => {
     f.room.emit(RoomEvent.Disconnected); expect(f.state.phase).toBe('idle');
     expect(f.state.error).toContain('disconnected'); await vi.waitFor(() => expect(f.track.stop).toHaveBeenCalled());
   });
+  it('does not overwrite a successful retry when old connection cleanup finishes late', async () => {
+    const f = fixture(), cleanup = deferred<void>();
+    f.room.connect.mockRejectedValueOnce(Error('First connection failed') as never);
+    f.room.disconnect.mockImplementationOnce(() => cleanup.promise);
+    const first = f.session.join([]);
+    await vi.waitFor(() => expect(f.state.error).toBe('First connection failed'));
+    await f.session.join([]); expect(f.state.phase).toBe('joined');
+    cleanup.resolve(); await first;
+    expect(f.state.phase).toBe('joined'); expect(f.state.error).toBeNull();
+    await f.session.leave();
+  });
   it('reports denied microphone access without leaving an active call', async () => {
     const pending = deferred<LocalAudioTrack>(), f = fixture({microphone: pending.promise});
     // Reject only after join has installed its handler, avoiding a spurious unhandled rejection.
