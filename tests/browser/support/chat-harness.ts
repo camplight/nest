@@ -113,7 +113,11 @@ async function setup(options:ChatTestOptions,cleanup:(()=>Promise<void>|void)[])
 
   const uiRequire=createRequire(join(root,'apps/user-ui/package.json'));
   const {createServer}=await import(uiRequire.resolve('vite')) as typeof import('vite');
-  const vite=await createServer({root:join(root,'apps/user-ui'),logLevel:'warn',server:{host:'127.0.0.1',port:0,proxy:{'/api':apiUrl}}});
+  // Other browser suites run their own Vite processes. Give each fixture its
+  // own optimizer cache so dependency URLs never depend on a previous server.
+  const vite=await createServer({root:join(root,'apps/user-ui'),cacheDir:join(dir,'vite-cache'),logLevel:'warn',
+    optimizeDeps:{include:['react','react-dom/client','@assistant-ui/react','livekit-client']},
+    server:{host:'127.0.0.1',port:0,proxy:{'/api':apiUrl}}});
   cleanup.push(()=>vite.close());
   await vite.listen();
   const base=`http://127.0.0.1:${(vite.httpServer!.address() as {port:number}).port}`;
@@ -139,11 +143,14 @@ async function setup(options:ChatTestOptions,cleanup:(()=>Promise<void>|void)[])
     return {context,page};
   };
   const {context,page}=await openContext(cookie);
+  const startupErrors:string[]=[];
+  page.on('requestfailed',request=>{if(startupErrors.length<8)startupErrors.push(new URL(request.url()).pathname+': '+request.failure()?.errorText);});
+  page.on('console',message=>{if(message.type()==='error'&&startupErrors.length<8)startupErrors.push(message.text().slice(0,300));});
   await page.goto(`${base}/?view=projects&project=${project.id}`);
   // The first cold Vite load also optimizes the lazy voice SDK on Linux CI.
   // Give startup its own budget; interactive assertions still use 15 seconds.
   try {await page.getByRole('textbox',{name:'Message',exact:true}).waitFor({timeout:45000});}
-  catch(error){console.error('Synthetic chat startup:',page.url(),(await page.locator('body').innerText()).slice(0,1400));throw error;}
+  catch(error){console.error('Synthetic chat startup:',page.url(),JSON.stringify(startupErrors),(await page.locator('body').innerText()).slice(0,1400));throw error;}
 
   return {
     page,context,base,apiUrl,cookie,engineDb:engine.db as unknown as Database,project,post,
