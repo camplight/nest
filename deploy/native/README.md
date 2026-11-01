@@ -86,8 +86,9 @@ installer installs pinned CLIs; it cannot authorize subscriptions/accounts.
 
 ## Voice service
 
-The engine supports realtime models and voice; Nest chat voice controls are a
-separate UI milestone. To provision the local SFU, add `--enable-livekit` to the
+Nest's chat toolbar opens the audio Huddle interface, backed by OrgOps voice APIs.
+Spoken agent replies require a configured voice-capable model and provider key;
+human-only calls have no automatic transcription. To provision the local SFU, add `--enable-livekit` to the
 normal installer command, or set `NEST_ENABLE_LIVEKIT=1` in the private installed
 environment before deploying through the restricted controller. The choice is
 persisted across upgrades. No Docker service or separate DNS record is needed.

@@ -23,6 +23,9 @@ export type Channel = {
 };
 
 export type Agent = {
+  mode?: "CLASSIC" | "WRAPPED";
+  modelId?: string;
+  modelCapabilities?: { realtimeAudioInput?: boolean; realtimeAudioOutput?: boolean };
   icon?: string | null;
   id?: string;
   name: string;

@@ -34,6 +34,7 @@ export type ChatTestOptions={
   colorScheme?:'light'|'dark';
   reducedMotion?:'reduce';
   hasTouch?:boolean;
+  fakeMedia?:boolean;
   connections?:unknown; // a ConnectionProvider, as projects.ts builds it
 };
 
@@ -112,7 +113,11 @@ async function setup(options:ChatTestOptions,cleanup:(()=>Promise<void>|void)[])
 
   const uiRequire=createRequire(join(root,'apps/user-ui/package.json'));
   const {createServer}=await import(uiRequire.resolve('vite')) as typeof import('vite');
-  const vite=await createServer({root:join(root,'apps/user-ui'),logLevel:'warn',server:{host:'127.0.0.1',port:0,proxy:{'/api':apiUrl}}});
+  // Other browser suites run their own Vite processes. Give each fixture its
+  // own optimizer cache so dependency URLs never depend on a previous server.
+  const vite=await createServer({root:join(root,'apps/user-ui'),cacheDir:join(dir,'vite-cache'),logLevel:'warn',
+    optimizeDeps:{include:['react','react-dom/client','@assistant-ui/react','livekit-client']},
+    server:{host:'127.0.0.1',port:0,proxy:{'/api':apiUrl}}});
   cleanup.push(()=>vite.close());
   await vite.listen();
   const base=`http://127.0.0.1:${(vite.httpServer!.address() as {port:number}).port}`;
@@ -127,7 +132,7 @@ async function setup(options:ChatTestOptions,cleanup:(()=>Promise<void>|void)[])
   await must(post('/api/agents',{name:agentName,icon:'pip',visibility:'PUBLIC',modelId:'wrapped:none',workspacePath:join(dir,'workspace')}),'create agent');
   const project=await(await must(post('/api/projects',{id:crypto.randomUUID(),name:'Synthetic chat project',description:'Synthetic test project',members:[{subscriberType:'AGENT',subscriberId:agentName}]}),'create project')).json() as {id:string;channelId:string};
 
-  const browser:Browser=await chromium.launch();cleanup.push(()=>browser.close());
+  const browser:Browser=await chromium.launch(options.fakeMedia?{args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']}:{});cleanup.push(()=>browser.close());
   const openContext=async(sessionCookie:string)=>{
     const context=await browser.newContext({viewport:options.viewport??{width:1440,height:1000},colorScheme:options.colorScheme,reducedMotion:options.reducedMotion,hasTouch:options.hasTouch});
     await context.addCookies([{name:'nest_session',value:sessionCookie.slice('nest_session='.length),url:base,httpOnly:true}]);
@@ -138,8 +143,14 @@ async function setup(options:ChatTestOptions,cleanup:(()=>Promise<void>|void)[])
     return {context,page};
   };
   const {context,page}=await openContext(cookie);
+  const startupErrors:string[]=[];
+  page.on('requestfailed',request=>{if(startupErrors.length<8)startupErrors.push(new URL(request.url()).pathname+': '+request.failure()?.errorText);});
+  page.on('console',message=>{if(message.type()==='error'&&startupErrors.length<8)startupErrors.push(message.text().slice(0,300));});
   await page.goto(`${base}/?view=projects&project=${project.id}`);
-  await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+  // The first cold Vite load also optimizes the lazy voice SDK on Linux CI.
+  // Give startup its own budget; interactive assertions still use 15 seconds.
+  try {await page.getByRole('textbox',{name:'Message',exact:true}).waitFor({timeout:45000});}
+  catch(error){console.error('Synthetic chat startup:',page.url(),JSON.stringify(startupErrors),(await page.locator('body').innerText()).slice(0,1400));throw error;}
 
   return {
     page,context,base,apiUrl,cookie,engineDb:engine.db as unknown as Database,project,post,
@@ -175,7 +186,7 @@ async function setup(options:ChatTestOptions,cleanup:(()=>Promise<void>|void)[])
     async closeWebSocket(){wsOpen=false;for(const socket of upgraded)socket.destroy();},
     async reopenWebSocket(){wsOpen=true;},
     async screenshot(name){
-      const dir=process.env.NEST_CHAT_SHOTS_DIR||join('/private/tmp/claude-501/nest-chat-ui-shots',basename(process.cwd()));
+      const dir=process.env.NEST_CHAT_SHOTS_DIR||join(tmpdir(),'nest-chat-ui-shots',basename(process.cwd()));
       mkdirSync(dir,{recursive:true});const path=join(dir,`${name}.png`);
       await page.screenshot({path,fullPage:true});return path;
     },

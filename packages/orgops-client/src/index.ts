@@ -3,6 +3,7 @@ export function defaultModelReference(id:string|undefined,models:{id:string;refe
   return models.find(m=>m.id===id||m.reference===id)?.reference ?? (id===DEFAULT_AGENT_MODEL_ID?DEFAULT_AGENT_MODEL_ID:null);
 }
 import {agentInstructionBody, agentInstructionResponse, isAgentSettingsPath} from './agent-instructions';
+import {voiceJoinBody} from './voice-request';
 
 export type Human = { id: string; username: string; mustChangePassword: boolean; createdAt?: number };
 const hopHeaders = ['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length'];
@@ -43,8 +44,13 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     if (url.origin !== base.origin) throw new Error('Invalid engine path');
     const agentSettings = isAgentSettingsPath(url.pathname);
     const method = (init.method ?? 'GET').toUpperCase();
-    const body = agentSettings && ['POST', 'PATCH'].includes(method) && init.body != null
+    let body = agentSettings && ['POST', 'PATCH'].includes(method) && init.body != null
       ? await agentInstructionBody(init.body) : init.body;
+    if (url.pathname === '/api/voice/rooms/join' && method === 'POST' && body != null) {
+      const buffered = await voiceJoinBody(body);
+      if (buffered instanceof Response) return buffered;
+      body = buffered;
+    }
     const response = await transport(url, { ...init, body, headers: engineHeaders(init.headers ?? {}), redirect: 'manual', signal: init.signal ?? AbortSignal.timeout(30_000) });
     return agentSettings && method === 'GET' ? agentInstructionResponse(response) : response;
   }

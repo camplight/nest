@@ -55,15 +55,17 @@ const DialogContent = forwardRef<
   ElementRef<typeof DialogPrimitive.Content>,
   ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
     showCloseButton?: boolean;
+    customLayout?: boolean;
   }
->(({ className, children, showCloseButton = true, ...props }, ref) => (
+>(({ className, children, showCloseButton = true, customLayout = false, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
       data-slot="dialog-content"
       className={cn(
-        "data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 bg-popover text-popover-foreground ring-foreground/10 data-[state=closed]:animate-out data-[state=open]:animate-in fixed start-[50%] top-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-xl p-5 text-sm ring-1 duration-100 outline-none sm:max-w-sm rtl:-translate-x-[-50%]",
+        "data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 ring-foreground/10 data-[state=closed]:animate-out data-[state=open]:animate-in fixed start-[50%] top-[50%] z-50 translate-x-[-50%] translate-y-[-50%] ring-1 duration-100 outline-none rtl:-translate-x-[-50%]",
+        !customLayout && "bg-popover text-popover-foreground grid w-full max-w-[calc(100%-2rem)] gap-4 rounded-xl p-5 text-sm sm:max-w-sm",
         className,
       )}
       {...props}
