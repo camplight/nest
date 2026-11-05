@@ -282,8 +282,8 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  const empty=snapshot.channelId!==null&&!snapshot.loading&&items.length===0;
  return <AssistantRuntimeProvider runtime={runtime}><ChatPortalProvider><ThreadContext.Provider value={view}>
   <div className="nest-chat relative flex min-h-0 flex-1 flex-col">
-   {/* Keep Huddle reachable on mobile. Export stays hidden at the existing mobile breakpoint. */}
-   <div className="flex shrink-0 items-center justify-end gap-3 px-3 pb-2 empty:hidden">{props.headerActions}<span className="max-[761px]:hidden"><ExportButton items={items} channelLabel={props.channelLabel}/></span></div>
+   {/* Keep Sharing and Huddle reachable on mobile. Export stays hidden at the existing mobile breakpoint. */}
+   <div className="chat-header-actions flex shrink-0 flex-wrap items-center justify-end gap-3 px-3 pb-2 empty:hidden">{props.headerActions}<span className="max-[761px]:hidden"><ExportButton items={items} channelLabel={props.channelLabel}/></span></div>
    <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
     <ThreadPrimitive.Viewport ref={panelRef} turnAnchor="bottom" autoScroll={!focusPending} scrollToBottomOnInitialize={!focusedMessageId}
      onScroll={onScroll} className={cn('messages-panel gap-0 px-1 pt-1 pb-4 sm:ps-2 sm:pe-3',(empty||props.isConversationEmpty)&&'messages-panel-empty')}>

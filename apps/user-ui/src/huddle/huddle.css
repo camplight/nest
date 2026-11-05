@@ -88,3 +88,5 @@ p.huddle-subtitle {margin: 6px 0 0; color: var(--nest-muted); font-size: 13px;}
   .huddle-launch {padding: 8px 10px;}
 }
 @media (prefers-reduced-motion: reduce) {.huddle-wave span {transition: none;}}
+
+.channel-sharing-launch {min-height: 44px;}
