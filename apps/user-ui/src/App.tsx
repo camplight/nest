@@ -489,10 +489,6 @@ export default function App() {
       if(existing){existing.assistantOwner=offer.ownerName;existing.id='ASSISTANT:'+offer.agentName;}
       else candidates.push({id:'ASSISTANT:'+offer.agentName,name:offer.agentName,kind:'Agent',inConversation:false,assistantOwner:offer.ownerName});
     }
-    for(const candidate of candidates){
-      const agent=visibleAgents.find(agent=>candidate.kind==='Agent'&&agent.name===candidate.name);
-      if(agent?.visibility==='PRIVATE'&&agent.ownerHumanId!==userId&&!sharedAssistants.some(a=>a.agentName===agent.name))candidate.inviteBlockedReason='Only this agent’s owner can invite it';
-    }
     return candidates;
   }, [visibleAgents, humans, activeChannel?.participants,sharedAssistants,userId]);
 
