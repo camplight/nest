@@ -162,7 +162,7 @@ try {
       await teammatePage.getByRole('textbox',{name:'Message',exact:true}).waitFor();
       assert.equal(await teammatePage.getByRole('navigation',{name:'Project sections'}).getByRole('button',{name:'Members',exact:true}).count(),0);
       await teammatePage.locator('.project-about').getByText('sarah@example.com',{exact:true}).waitFor();
-      assert.equal(await teammatePage.getByRole('button',{name:'Manage members and sharing'}).count(),0);
+      assert.equal(await teammatePage.getByRole('button',{name:'Sharing',exact:true}).count(),0);
       assert.equal(await teammatePage.getByRole('button',{name:'Edit project details',exact:true}).count(),0);
     }finally{await teammateContext.close();}
     const sections=page.getByRole('navigation',{name:'Project sections'});

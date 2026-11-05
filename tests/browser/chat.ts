@@ -52,6 +52,22 @@ try{
   await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
   await page.getByText('[Message too large to display. The original content is retained.]',{exact:true}).waitFor();
   await page.locator('.working-row[data-agent=Demo][data-turn-state=working]').waitFor();
+  const sharing=page.getByRole('button',{name:'Sharing',exact:true});
+  await sharing.waitFor({state:'visible'});
+  assert.equal(await page.locator('.chat-header-actions').getByRole('button',{name:'Huddle',exact:true}).count(),1);
+  await sharing.focus();await page.keyboard.press('Enter');
+  await page.getByRole('heading',{name:'Manage channel',exact:true}).waitFor();
+  await page.getByLabel('Visibility',{exact:true}).selectOption('PUBLIC');
+  await page.getByRole('button',{name:'Save',exact:true}).click();
+  await page.getByRole('heading',{name:'Manage channel',exact:true}).waitFor({state:'hidden'});
+  const publicChannel=await product.app.request(`/api/channels/${project.channelId}`,{headers});
+  assert.equal((await publicChannel.json()).visibility,'PUBLIC');
+  await sharing.click();
+  await page.getByLabel('Visibility',{exact:true}).selectOption('PRIVATE');
+  await page.getByRole('button',{name:'Save',exact:true}).click();
+  await page.getByRole('heading',{name:'Manage channel',exact:true}).waitFor({state:'hidden'});
+  if(process.env.CI)console.log('SHARING_DESKTOP_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
+
   await page.screenshot({path:join(screenshots,'interrupted-before-desktop.png'),fullPage:true});
   await page.screenshot({path:join(screenshots,'retained-message-desktop.png'),fullPage:true});
   await page.setViewportSize({width:390,height:844});
@@ -59,6 +75,12 @@ try{
   const projectDetails=page.locator('.project-context-disclosure');
   const detailsWereOpen=await projectDetails.getAttribute('open')!==null;
   if(detailsWereOpen)await projectDetails.locator('summary').click();
+  assert(await sharing.isVisible());
+  assert((await sharing.boundingBox())!.height>=44);
+  await sharing.click();await page.getByLabel('Visibility',{exact:true}).waitFor();
+  if(process.env.CI)console.log('SHARING_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
+  await page.getByRole('button',{name:'Close dialog',exact:true}).click();
+
   await page.getByText('[Message too large to display. The original content is retained.]',{exact:true}).waitFor();
   await page.screenshot({path:join(screenshots,'retained-message-mobile.png'),fullPage:true});
   if(detailsWereOpen)await projectDetails.locator('summary').click();

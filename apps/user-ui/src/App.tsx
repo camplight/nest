@@ -11,6 +11,7 @@ import {useChannelEvents} from './chat/useChannelEvents';
 import {adaptiveMessageBatchSize} from './chat/history';
 import {ChatThread, type ChatThreadHandle} from './chat/ChatThread';
 import {ChatComposer,useComposerSession,type ChatComposerHandle} from './chat/ChatComposer';
+import {Share2} from 'lucide-react';
 import {HuddleButton} from './huddle/HuddleButton';
 import './huddle/huddle.css';
 import type {ChannelEventsSnapshot} from './chat/channel-events';
@@ -1662,7 +1663,10 @@ export default function App() {
             focusedMessageId={focusedMessage}
             isConversationEmpty={isConversationEmpty}
             channelLabel={activeConversationName}
-            headerActions={activeChannel && <HuddleButton key={activeChannel.id} channel={activeChannel} label={activeConversationName} username={username} agents={agents} events={threadSnapshot.events} canPost={activeChannelCanPost}/>}
+            headerActions={activeChannel && <>
+              {activeChannelManageable && <button type="button" className="huddle-launch channel-sharing-launch" aria-haspopup="dialog" aria-expanded={showChannelManageDialog} onClick={() => setShowChannelManageDialog(true)}><Share2 size={17} aria-hidden="true"/>Sharing</button>}
+              <HuddleButton key={activeChannel.id} channel={activeChannel} label={activeConversationName} username={username} agents={agents} events={threadSnapshot.events} canPost={activeChannelCanPost}/>
+            </>}
             onPreviewDemo={path => setDemoPreview({channel: activeChannelId!, path})}
             onQuote={(target, quotedText) => {composerRef.current?.setReplyTarget(target, quotedText);composerRef.current?.focus();}}
             onFocusMessage={focusMessage}
