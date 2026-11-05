@@ -165,6 +165,30 @@ try {
       assert.equal(await teammatePage.getByRole('button',{name:'Sharing',exact:true}).count(),0);
       assert.equal(await teammatePage.getByRole('button',{name:'Edit project details',exact:true}).count(),0);
     }finally{await teammateContext.close();}
+    // A visible private agent owned by a teammate can be invited without an onboarding-directory entry.
+    const sarahHeaders={'content-type':'application/json',cookie:teammateLogin.headers.get('set-cookie')!.split(';')[0]};
+    const teammateAgent=await product.app.request('/api/agents',{method:'POST',headers:sarahHeaders,body:JSON.stringify({name:'Website Developer',visibility:'PRIVATE',modelId:'test-model',workspacePath:join(dir,'website-developer')})});
+    assert.equal(teammateAgent.status,201);
+    const sharedChat=await (await product.app.request('/api/channels',{method:'POST',headers:sarahHeaders,body:JSON.stringify({name:'Existing shared work',visibility:'PRIVATE'})})).json();
+    for(const member of [{subscriberType:'HUMAN',subscriberId:'owner'},{subscriberType:'AGENT',subscriberId:'Website Developer'}]){
+      const added=await product.app.request(`/api/channels/${sharedChat.id}/subscribe`,{method:'POST',headers:sarahHeaders,body:JSON.stringify(member)});assert(added.ok,await added.text());
+    }
+    await page.reload();
+    const invitationComposer=page.getByRole('textbox',{name:'Message',exact:true});
+    await invitationComposer.fill('@Website');
+    const invitedOption=page.getByRole('listbox',{name:'Mention people and agents'}).getByRole('option').filter({hasText:'Website Developer'});
+    await invitedOption.waitFor();assert.notEqual(await invitedOption.getAttribute('aria-disabled'),'true');
+    if(process.env.CI)console.log('TRUSTED_INVITE_DESKTOP_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
+    await page.setViewportSize({width:390,height:844});
+    if(process.env.CI)console.log('TRUSTED_INVITE_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
+    await invitedOption.click();
+    await page.getByLabel('Message recipients').getByText('Ask @Website Developer').waitFor();
+    const invitedChannels=await (await product.app.request('/api/channels',{headers})).json();
+    assert(invitedChannels.find((c:any)=>c.id===channelId).participants.some((p:any)=>p.subscriberType==='AGENT'&&p.subscriberId==='Website Developer'));
+    const unchangedAgent=await (await product.app.request('/api/agents/Website%20Developer',{headers:sarahHeaders})).json();
+    assert.equal(unchangedAgent.visibility,'PRIVATE');assert.notEqual(unchangedAgent.ownerHumanId,fixtureOwner);
+    await invitationComposer.fill('');
+    await page.setViewportSize({width:1440,height:1100});
     const sections=page.getByRole('navigation',{name:'Project sections'});
     assert.equal(new URL(page.url()).searchParams.get('tab'),'chat');
     assert((await page.getByRole('textbox',{name:'Message',exact:true}).getAttribute('placeholder'))?.startsWith('Message to Website launch'));
@@ -284,7 +308,7 @@ try {
     assert.equal(await nav.getByRole('button',{name:'Projects',exact:true}).getAttribute('aria-current'),null);
     await page.screenshot({path:join(screenshots,'project-approved.png'),fullPage:true});
     await nav.getByRole('button',{name:'Projects',exact:true}).click();
-    await page.getByText('Existing conversations (1)',{exact:true}).click();
+    await page.getByText('Existing conversations (2)',{exact:true}).click();
     await page.getByRole('button',{name:'Builder →',exact:true}).click();
     await page.getByRole('heading',{name:'Builder',exact:true}).waitFor();
     assert.equal(new URL(page.url()).searchParams.get('view'),null);

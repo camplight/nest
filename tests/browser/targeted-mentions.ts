@@ -209,9 +209,13 @@ try {
     await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>resolve())));
     await input.fill('@PrivateBob');
     const privateAgent=popup.getByRole('option').filter({hasText:'PrivateBob'});
-    assert.equal(await privateAgent.getAttribute('aria-disabled'),'true');
-    await privateAgent.getByText('Agent · Only this agent’s owner can invite it',{exact:true}).waitFor();
-    await input.press('Enter');assert.equal(await input.inputValue(),'@PrivateBob');
+    assert.notEqual(await privateAgent.getAttribute('aria-disabled'),'true');
+    await privateAgent.getByText('Agent · Add to chat and mention',{exact:true}).waitFor();
+    await input.press('Enter');
+    await page.waitForFunction(()=>document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.value==='@PrivateBob ');
+    const trustedJoined=await(await product.app.request('/api/channels?includeArchived=1',{headers})).json();
+    assert.equal(trustedJoined.find((channel:any)=>channel.id===ch.id).participants.filter((p:any)=>p.subscriberType==='AGENT'&&p.subscriberId==='PrivateBob').length,1);
+    assert.equal((await(await product.app.request('/api/events?channelId='+ch.id+'&type=message.created',{headers})).json()).length,0,'A trusted invitation does not send a message');
     await input.press('Escape');
     await input.fill("@pu");
     await input.press("Enter");

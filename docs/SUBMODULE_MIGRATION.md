@@ -684,3 +684,7 @@ are still required for execution. No engine source or model-registry mutation.
 
 Sources: https://openrouter.ai/docs/api/api-reference/benchmarks/list-benchmarks
 and https://openrouter.ai/z-ai/glm-5.3 .
+
+### Trusted invitations for visible agents
+
+Project owners may invite agents already visible through their human-scoped engine session, including private agents owned by teammates outside the onboarding directory. The mention picker applies the same rule. Project/channel management checks remain required; agent ownership, private history, credentials and settings are unchanged. The engine rechecks access when subscribing.

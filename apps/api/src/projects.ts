@@ -14,9 +14,10 @@ export function registerProjectRoutes(app: Hono, {store, orgops, engineToken}: {
   const routes = new Hono<{Variables: {human: Human; channels: Channel[]}}>();
   const db = store.projects;
   const sharedAgents=createPersonalAgentDirectory({store,orgops,engineToken});
-  async function availableAgent(name:string,headers:HeadersInit,human:Human){
+  async function availableAgent(name:string,headers:HeadersInit){
     if((await sharedAgents()).some(a=>a.name===name))return true;
-    const response=await orgops.humanRequest(`/api/agents/${encodeURIComponent(name)}`,headers);if(!response.ok)return false;const agent=await response.json() as {visibility:string;ownerHumanId:string};return agent.visibility==='PUBLIC'||agent.ownerHumanId===human.id;
+    // Human-scoped engine visibility is sufficient; ownership still controls settings and credentials.
+    const response=await orgops.humanRequest(`/api/agents/${encodeURIComponent(name)}`,headers);return response.ok;
   }
   routes.onError((error, c) => {
     if (error instanceof HTTPException) return c.json({error: error.message}, error.status);
@@ -76,11 +77,11 @@ export function registerProjectRoutes(app: Hono, {store, orgops, engineToken}: {
       orgops.humanJson<{name:string;description?:string;visibility?:string;ownerHumanId?:string|null}[]>('/api/agents',headers),
     ]);
     const shared=await sharedAgents();
-    const names=new Set(agents.filter(agent=>agent.visibility==='PUBLIC'||agent.ownerHumanId===human.id).map(a=>a.name));
+    const names=new Set(agents.map(a=>a.name));
     return [
       ...shared.filter(a=>!names.has(a.name)).map(a=>({subscriberType:'AGENT' as const,subscriberId:a.name,description:`Personal agent of ${a.ownerName}`})),
       ...humans.filter(person=>person.username!==human.username).map(person=>({subscriberType:'HUMAN' as const,subscriberId:person.username})),
-      ...agents.filter(agent=>agent.visibility==='PUBLIC'||agent.ownerHumanId===human.id).map(agent=>({subscriberType:'AGENT' as const,subscriberId:agent.name,description:agent.description})),
+      ...agents.map(agent=>({subscriberType:'AGENT' as const,subscriberId:agent.name,description:agent.description})),
     ];
   }
   routes.get('/api/projects/members',async c=>{
@@ -138,7 +139,7 @@ export function registerProjectRoutes(app: Hono, {store, orgops, engineToken}: {
       if(members.some(member=>!options.some(option=>option.subscriberType===member.subscriberType&&option.subscriberId===member.subscriberId)))
         return c.json({error:'Someone selected is no longer available. Check your team and try again.',canEdit:!store.db.prepare('SELECT 1 FROM product_project_chats WHERE project_id=?').get(body.id)},400);
       // Engine detail reads enforce current visibility before any invitation writes.
-      const selectedAgents=await Promise.all(members.filter(member=>member.subscriberType==='AGENT').map(member=>availableAgent(member.subscriberId,c.req.raw.headers,human)));
+      const selectedAgents=await Promise.all(members.filter(member=>member.subscriberType==='AGENT').map(member=>availableAgent(member.subscriberId,c.req.raw.headers)));
       if(selectedAgents.some(allowed=>!allowed))return c.json({error:'An agent’s access has changed. Check your team and try again.',canEdit:!store.db.prepare('SELECT 1 FROM product_project_chats WHERE project_id=?').get(body.id)},403);
     }
     let channelId=body.channelId;
@@ -190,7 +191,7 @@ export function registerProjectRoutes(app: Hono, {store, orgops, engineToken}: {
     if(member.subscriberType==='HUMAN'&&member.subscriberId===human.username)return c.json({status:'joined'});
     if(!options.some(m=>m.subscriberType===member.subscriberType&&m.subscriberId===member.subscriberId))return c.json({error:'This teammate is no longer available'},400);
     if(member.subscriberType==='AGENT'){
-      if(!await availableAgent(member.subscriberId,headers,human))return c.json({error:'Agent access changed'},403);
+      if(!await availableAgent(member.subscriberId,headers))return c.json({error:'Agent access changed'},403);
     }
     const channels=await orgops.humanJson<Channel[]>('/api/channels',headers);owned(project.id,human,channels);
     const present=(list:Channel[])=>list.find(ch=>ch.id===project.channelId)?.participants?.some(m=>m.subscriberType===member.subscriberType&&m.subscriberId===member.subscriberId);
