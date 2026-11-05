@@ -2141,8 +2141,9 @@ export default function App() {
 
             <div className="channel-manage-grid">
               <label>
-                <span>Visibility</span>
+                <span id="channel-visibility-label">Visibility</span>
                 <select
+                  aria-labelledby="channel-visibility-label"
                   value={channelVisibilityDraft}
                   onChange={(event) =>
                     setChannelVisibilityDraft(event.target.value === "PUBLIC" ? "PUBLIC" : "PRIVATE")
