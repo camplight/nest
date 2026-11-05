@@ -308,7 +308,7 @@ try {
     assert.equal(await nav.getByRole('button',{name:'Projects',exact:true}).getAttribute('aria-current'),null);
     await page.screenshot({path:join(screenshots,'project-approved.png'),fullPage:true});
     await nav.getByRole('button',{name:'Projects',exact:true}).click();
-    await page.getByText('Existing conversations (1)',{exact:true}).click();
+    await page.getByText('Existing conversations (2)',{exact:true}).click();
     await page.getByRole('button',{name:'Builder →',exact:true}).click();
     await page.getByRole('heading',{name:'Builder',exact:true}).waitFor();
     assert.equal(new URL(page.url()).searchParams.get('view'),null);
