@@ -60,8 +60,9 @@ try{
   await page.getByLabel('Visibility',{exact:true}).selectOption('PUBLIC');
   await page.getByRole('button',{name:'Save',exact:true}).click();
   await page.getByRole('heading',{name:'Manage channel',exact:true}).waitFor({state:'hidden'});
-  const publicChannel=await product.app.request(`/api/channels/${project.channelId}`,{headers});
-  assert.equal((await publicChannel.json()).visibility,'PUBLIC');
+  const channelList=await product.app.request('/api/channels',{headers});
+  assert.equal(channelList.status,200);
+  assert.equal((await channelList.json()).find((channel:{id:string})=>channel.id===project.channelId).visibility,'PUBLIC');
   await sharing.click();
   await page.getByLabel('Visibility',{exact:true}).selectOption('PRIVATE');
   await page.getByRole('button',{name:'Save',exact:true}).click();
