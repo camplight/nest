@@ -20,7 +20,8 @@ const uuid = z.string().uuid();
 
 /**
  * Privacy boundary of the canvas: a card is described only if the engine lists its chat for
- * the viewer. Anything else exposes at most who placed it (`ownerLabel`), never the chat itself.
+ * the viewer. Anything else exposes at most the chat's engine owner (`ownerLabel`, recorded when
+ * the card was placed), never the chat itself.
  */
 export function resolveBoard(
   rows: CanvasCardRow[], areas: CanvasArea[], canvas: Canvas, channels: Channel[],
@@ -54,6 +55,7 @@ function forViewer(rows: CanvasCardRow[], channels: Channel[]) {
 }
 
 export function registerCanvasRoutes(app: Hono, { store, orgops, enabled }: { store: ProductDb; orgops: OrgOpsClient; enabled: boolean }) {
+  // `channels` is every chat the engine lists for the caller, archived ones included, read once per request.
   const routes = new Hono<{ Variables: { human: Human; channels: Channel[] } }>();
   const canvases = store.canvases;
   routes.onError((error, c) => {
@@ -93,7 +95,7 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled }: { st
   routes.use('/api/canvases', async (_c, next) => { if (!enabled) throw notFound(); await next(); });
   routes.use('/api/canvases/*', async (c, next) => {
     if (!enabled) throw notFound();
-    c.set('channels', await orgops.humanJson<Channel[]>('/api/channels', c.req.raw.headers));
+    c.set('channels', await orgops.humanJson<Channel[]>('/api/channels?includeArchived=1', c.req.raw.headers));
     await next();
   });
 
@@ -102,8 +104,8 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled }: { st
   routes.post('/api/canvases/hidden', async c => {
     const input = parse(HiddenSchema, await body(c));
     const human = c.get('human');
-    // Only channels the caller can see are stored; others are dropped silently.
-    const visible = new Set(c.get('channels').map(channel => channel.id));
+    // Only channels the caller can see (and not archived) are stored; others are dropped silently.
+    const visible = new Set(c.get('channels').filter(channel => !channel.archivedAt).map(channel => channel.id));
     canvases.setHidden(human.id, input.channelIds.filter(id => visible.has(id)), input.hidden);
     return c.json({ channelIds: canvases.hidden(human.id) });
   });
@@ -168,17 +170,15 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled }: { st
     if (!raw || !Number.isInteger(version) || version < 0) throw new HTTPException(400, { message: 'version is required' });
     return version;
   };
-  async function buildBoard(c: { req: { raw: Request }; get(key: 'human'): Human }, canvasId: string) {
-    const human = c.get('human');
+  function buildBoard(human: Human, channels: Channel[], canvasId: string) {
     const canvas = canvases.get(canvasId, human.id);
     if (!canvas) throw notFound();
-    const channels = await orgops.humanJson<Channel[]>('/api/channels?includeArchived=1', c.req.raw.headers);
     const rows = canvases.cards(canvasId);
     return resolveBoard(rows, canvases.areas(canvasId), canvas, channels, store.projects.byChannels(rows.map(r => r.channelId)), human.id);
   }
   routes.get('/api/canvases/:id/board', async c => {
     const canvas = visible(c);
-    const board = await buildBoard(c, canvas.id);
+    const board = buildBoard(c.get('human'), c.get('channels'), canvas.id);
     const etag = c.req.query('etag');
     if (etag && etag === board.etag) return c.json({ unchanged: true });
     return c.json(board);
@@ -208,7 +208,8 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled }: { st
     const human = c.get('human');
     const input = parse(PlaceCardsSchema, await body(c));
     if (canvas.role === 'view') throw new CanvasForbiddenError();
-    const byId = new Map(c.get('channels').map(ch => [ch.id, ch]));
+    // Only chats the engine lists for the caller, and not archived, can be placed.
+    const byId = new Map(c.get('channels').filter(ch => !ch.archivedAt).map(ch => [ch.id, ch]));
     if (input.cards.some(card => !byId.has(card.channelId))) throw new HTTPException(400, { message: 'Some chats are not available to you' });
     const projects = store.projects.byChannels(input.cards.map(card => card.channelId));
     const names = new Map((await people(c.req.raw.headers)).map(h => [h.id, h.username]));
@@ -217,7 +218,7 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled }: { st
       projectId: projects.get(card.channelId)?.id ?? null,
       ownerLabel: names.get(byId.get(card.channelId)!.ownerHumanId ?? '') ?? 'a teammate',
     })), input.area, human.id);
-    return c.json(await buildBoard(c, canvas.id), 201);
+    return c.json(buildBoard(human, c.get('channels'), canvas.id), 201);
   });
   routes.patch('/api/canvases/:id/cards/:channelId', async c => {
     const canvas = visible(c);

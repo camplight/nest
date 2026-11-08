@@ -209,4 +209,25 @@ describe('canvas board against the unchanged engine', () => {
     const own = await call(owner, 'DELETE', `/api/canvases/${canvasId}/cards/${room}?version=999`);
     expect((await own.json()).current).toMatchObject({ projectId });
   });
+
+  it('keeps an archived but visible chat open with its project id, in the board, moves and conflicts, and never places it', async () => {
+    const room = await channel(owner, 'Archived-Room');
+    const projectId = randomUUID();
+    expect((await call(owner, 'POST', '/api/projects', { id: projectId, name: 'Old-Launch', description: 'x', channelId: room })).status).toBe(201);
+    await place(owner, [{ channelId: room, x: 0, y: 0 }]);
+    expect((await call(owner, 'POST', `/api/channels/${room}/archive`)).status).toBe(200);
+    expect((await board(owner, canvasId)).cards[0]).toMatchObject({ access: 'open', archived: true, projectId });
+    const moved = await call(owner, 'PATCH', `/api/canvases/${canvasId}/cards/${room}`, { x: 5, y: 5, version: 0 });
+    expect(await moved.json()).toMatchObject({ channelId: room, projectId, ownerLabel: 'owner' });
+    for (const res of [
+      await call(owner, 'PATCH', `/api/canvases/${canvasId}/cards/${room}`, { x: 9, y: 9, version: 0 }),
+      await call(owner, 'DELETE', `/api/canvases/${canvasId}/cards/${room}?version=0`),
+    ]) {
+      expect(res.status).toBe(409);
+      expect((await res.json()).current).toMatchObject({ channelId: room, projectId, version: 1 });
+    }
+    // Placement still takes only chats that are not archived.
+    expect((await call(owner, 'DELETE', `/api/canvases/${canvasId}/cards/${room}?version=1`)).status).toBe(204);
+    expect((await place(owner, [{ channelId: room, x: 0, y: 0 }])).status).toBe(400);
+  });
 });
