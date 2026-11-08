@@ -615,7 +615,14 @@ include owner, engine channel IDs and the collaboration policy added by migratio
 project foreign key; deliverables and reviews have immutable typed columns,
 foreign keys and uniqueness per task attempt/deliverable. Public types in
 `packages/schemas/src/projects.ts` and the store in `packages/db/src/projects.ts`
-are kept in agreement with this schema. Both databases already participate in
+are kept in agreement with this schema. Migration `011_canvases.sql` adds the
+Switchyard canvas tables: `product_canvases` (owner, name, `private` or `shared`,
+version), `product_canvas_members` (a person and their `edit` or `view` role),
+`product_canvas_areas` (title, position, size, tint, version),
+`product_canvas_cards` (one row per canvas and engine channel id, with position,
+width, version, who placed it and an owner label) and `product_loose_hidden` (the
+chats a person hid from their Loose chats pile). They hold layout only; their types
+are in `packages/schemas/src/canvas.ts` and the store in `packages/db/src/canvases.ts`. Both databases already participate in
 host-controller deployment snapshots and rollback.
 
 Branding includes displayName (1–60 chars), logoUrl, primaryColor, accentColor,
@@ -658,6 +665,91 @@ model invocation. `apps/api/src/projects.test.ts` additionally covers authorizat
 immutable reviews, malformed input, idempotency and restart recovery.
 
 `npm run test:ui:chat-next` runs every browser suite under `tests/browser/chat-next/` (thread, realtime, working row, actions, quote reply, attachments, composer, slash commands and the absence of the old chat) against real engine and product handlers with synthetic data. The earlier browser suites still run against the chat as it renders by default: `test:ui:chat` (`chat.ts`, `codex-progress.mjs`, `claude-code-progress.mjs` and `demo-artifacts.mjs`), `test:ui:projects`, `test:ui:dashboard`, `test:ui:images`, `test:ui:onboarding` (with `test:ui:tour`), `test:ui:agents` (with `connection-projects.mjs`), `tests/browser/targeted-mentions.ts` and `tests/browser/mentions.mjs`. On macOS three upstream tests fail in `npm run test:engine` independently of Nest (the agent runner's two `file-upload` tests and the skills merge test "merges skills from multiple roots with first-name-wins"), and `npm test`'s `deploy/demos/publish.check.mjs` node test fails there too; these four known failures are compared by test ID rather than treated as regressions.
+
+## Switchyard canvas (Phase 1)
+
+The canvas is a board where a person lays out their chats as cards, groups them in
+areas and sees at a glance where each one stands. The design is in
+[the Switchyard design](superpowers/specs/2026-11-08-switchyard-canvas-design.md);
+Phase 1 is built from
+[the Phase 1 plan](superpowers/plans/2026-11-08-switchyard-canvas-phase1.md).
+
+1. Flag. The product API reads `NEST_ENABLE_CANVAS=1` (the `canvasEnabled` config
+   field). When it is off, every `/api/canvases/*` route answers 404
+   `{error:'Not found'}`, except `GET /api/canvases/availability`, which answers
+   `{available:false}`. The user UI shows the Canvas entry only when `available` is
+   true. The view lives at `?view=canvas&canvas=<id>`, and an open chat adds
+   `chat=<channel id>&mode=focus|split`, so a reload restores both.
+
+2. Ownership. Nest owns the layout only: canvases, their members, areas, card
+   positions and the personal Loose chats hides (the 011 tables above). OrgOps owns
+   every chat, message, participant, agent run and file. Moving, grouping, sharing
+   or hiding never writes to the engine. The only engine writes from the canvas use
+   existing endpoints as the signed-in person: adding or removing an agent on a card
+   (`POST /api/channels/:id/subscribe`, `POST /api/projects/:id/members`,
+   `POST /api/channels/:id/unsubscribe`), Nudge (`POST /api/messages`) and starting
+   a chat from the bottom box (`POST /api/projects`). Live state on cards (working,
+   quiet for N min, done, stopped, files, last activity, needs you) is worked out in
+   the browser from engine events the person can already read.
+
+3. Routes. All need a signed-in person and take at most 64 KB.
+   - `GET /api/canvases/availability`
+   - `GET /api/canvases` and `POST /api/canvases` (list and create; a repeated create
+     with the same id and name returns the existing canvas)
+   - `PATCH /api/canvases/:id` (rename) and `DELETE /api/canvases/:id?version=`
+   - `GET /api/canvases/:id/members` and `PUT /api/canvases/:id/members` (owner only)
+   - `GET /api/canvases/:id/board[?etag=]`: the canvas, its areas and its cards as
+     this person may see them, with an etag; a matching etag answers
+     `{unchanged:true}`
+   - `POST /api/canvases/:id/areas`, `PATCH /api/canvases/:id/areas/:areaId[?moveCards=1]`
+     and `DELETE /api/canvases/:id/areas/:areaId?version=`
+   - `POST /api/canvases/:id/cards` (up to 100 at once, optionally with a new area),
+     `PATCH /api/canvases/:id/cards/:channelId` and
+     `DELETE /api/canvases/:id/cards/:channelId?version=`
+   - `GET /api/canvases/hidden` and `POST /api/canvases/hidden` (the Loose chats hides)
+
+   Every change carries the version it was based on. A stale version answers 409
+   with the current record, and the browser refreshes the board and says
+   "Canvas changed. Refreshed." Limits are rejected with 400: names and titles of
+   1–120 characters, coordinates within ±1,000,000, card width 200–640 (default 280),
+   area width and height 160–20,000, at most 500 cards and 100 areas per canvas, 50
+   owned canvases per person and 30 members per canvas.
+
+4. Access rule. A canvas is private to its owner unless the owner shares it with
+   chosen people as `edit` or `view`. Missing and unshared canvases both answer 404;
+   a viewer's change answers 403. Sharing covers the layout only: chat access always
+   stays with the engine. The board describes a card only when the engine lists that
+   chat for the person asking. Anyone else gets a locked card that shows
+   "Private chat" and who placed it, never the title, participants or messages. A
+   card whose chat the person placed but can no longer see shows as unavailable and
+   can be removed. Locked and unavailable cards never open.
+
+5. Using it. A shared canvas syncs every 5 seconds while visible and on window
+   focus. One chat opens at a time, in focus (over a dimmed canvas) or in split
+   screen beside it, and "Open in the regular chat view" leaves the canvas. Only
+   cards near the viewport are mounted, and below 50% zoom cards switch to a
+   compact form. Search (Ctrl/Cmd+K) finds cards, areas, loose chats and canvases.
+   Needs you lists unread mentions and tasks waiting for review on chats the person
+   can see.
+
+6. Phones and display. On viewports up to 760 px wide there is no free canvas.
+   A list takes its place with three segments: Areas (each area opens to its chats,
+   then the chats in no area), Needs you and Loose chats. Tapping a chat opens it in
+   focus over the whole body, and the bottom box stays under the list. Tablets keep
+   the canvas with pinch and pan. Colours come from the Nest brand tokens with
+   light and dark variants under `:root[data-theme="dark"]`; the Pip and Pom tints
+   and the quiet and alert text colours, which have no brand token, are canvas
+   tokens with dark values. Card text keeps at least 4.5:1 contrast in both themes,
+   and a focused card keeps an outline in forced-colours mode.
+
+7. Checks. `apps/api/src/canvases.test.ts` and `canvas-board.test.ts` run the routes
+   against real Nest-to-OrgOps handlers with temporary databases.
+   `npm run test:ui:canvas` (run in CI by `.github/workflows/product.yml`) drives the
+   real engine, API and WebSocket in Chromium on desktop, tablet and phone. It
+   covers sharing and locked cards, live state, opening chats, the phone list,
+   light and dark contrast, and reload. Its scale check seeds 150 cards in 6 areas
+   with 30 agents: fitted to one area, fewer than 60 cards are mounted, a scripted
+   2 second pan averages at least 30 frames a second, and Fit shows every area.
 
 ## Private Community catalog
 

@@ -543,6 +543,34 @@ Deferred:
 
 Remaining gap: CI does not yet run `npm run test:ui:chat-next`.
 
+## Switchyard canvas — Phase 1 implemented for review
+
+A board for laying out chats: each chat is a card, cards sit in rounded areas, and
+each card shows who is in the chat and how its agents are doing (working, quiet for
+N min, stopped, done, files and last activity). People can draw, rename, move and
+resize areas, place chats from the Loose chats pile, start a chat from the bottom
+box, open a chat in focus or split screen, add or remove agents by dragging, Nudge a
+quiet agent, search with Ctrl/Cmd+K, see what needs them, and switch, share and
+delete canvases. Shared canvases stay in sync by refreshing every 5 seconds.
+Teammates who are not in a chat see a locked "Private chat" card. Phones get a list
+with Areas, Needs you and Loose chats instead of the free canvas. Light and dark
+themes keep card text at 4.5:1 contrast or more.
+
+It is off unless `NEST_ENABLE_CANVAS=1` is set. Nest stores only the layout
+(migration `011_canvases.sql`); chats, people, agents and files stay in OrgOps, and
+no engine change was needed. Design:
+[Switchyard canvas design](superpowers/specs/2026-11-08-switchyard-canvas-design.md).
+Plan: [Phase 1 plan](superpowers/plans/2026-11-08-switchyard-canvas-phase1.md).
+Behaviour and routes: [SPEC.md, Switchyard canvas](SPEC.md#switchyard-canvas-phase-1).
+CI runs `npm run test:ui:canvas` (desktop, tablet and phone, with a 150-card,
+30-agent scale check). Pull request: to be added by the operator. Not deployed.
+
+Deferred to later phases, as the design sets out: links between chats, forks,
+context notes and files, schedules and triggers, app activity, per-chat agent setup,
+sandboxes and repos. Needs you covers unread mentions and tasks waiting for review
+only; approvals, picks and missed runs arrive with Phases 3 and 4. Inviting agents
+on the canvas works by drag only, with no keyboard or touch route yet.
+
 ## First-visit visual orientation
 
 Implemented for review: a replayable three-step spotlight tour in the workspace
