@@ -13,7 +13,7 @@ import {createBoardStore} from './board-store';
 import {Surface,type SurfaceControls} from './Surface';
 import {nudgeMessage,type CanvasLive} from './live';
 import {LoosePile} from './LoosePile';
-import {areaAround,gridPlacement,looseChats} from './loose';
+import {areaAround,clearOfCards,dropPlacement,gridPlacement,looseChats} from './loose';
 import {SPLIT_MAX,SPLIT_MIN,clampSplit,readSplit,splitAt,writeSplit} from './split';
 import {cardTitle} from './Card';
 import {AgentTray} from './AgentTray';
@@ -43,7 +43,8 @@ export type CanvasViewProps = {
   chatChannelId: string | null;
   chatMode: CanvasChatMode | null;
   onOpenChat(channelId: string, mode: CanvasChatMode): void;
-  onCloseChat(): void;
+  /** `replace` closes without a new history entry, as when the open chat leaves the visible list. */
+  onCloseChat(options?: {replace?: boolean}): void;
   onOpenRegular(channelId: string): void;
   live: CanvasLive;
   /** Re-reads App's channel and project lists without navigating, so a chat started here shows in the pile. */
@@ -150,18 +151,24 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   }, [cards, candidates, live]);
 
   const controls = useRef<SurfaceControls | null>(null);
-  /** Places the chats in a 3-wide grid at the viewport centre, optionally inside a new area, in one call. */
+  /**
+   * Places the chats in a 3-wide grid at the viewport centre, optionally inside a new area, in one call.
+   * A grid (or its area) that would cover existing cards moves down below them.
+   */
   const place = useCallback((channelIds: string[], withArea: boolean) => {
     const current = store.snapshot().board;
     if (!current || !channelIds.length) return Promise.resolve(false);
-    const {cards: placed, bounds} = gridPlacement(channelIds, clampPoint(controls.current?.centre() ?? {x: 0, y: 0}));
+    const centre = clampPoint(controls.current?.centre() ?? {x: 0, y: 0});
+    const first = gridPlacement(channelIds, centre);
+    const dy = clearOfCards(withArea ? areaAround(first.bounds) : first.bounds, current.cards);
+    const {cards: placed, bounds} = dy ? gridPlacement(channelIds, clampPoint({x: centre.x, y: centre.y + dy})) : first;
     const area: NewArea | undefined = withArea ? {id: crypto.randomUUID(), title: 'New area', ...areaAround(bounds), tint: TINTS[current.areas.length % TINTS.length]} : undefined;
     return store.apply({kind: 'placeCards', cards: placed, ...(area ? {area} : {})});
   }, [store]);
   const dropChat = useCallback((channelId: string, at: Point) => {
     const current = store.snapshot().board;
     if (!current || current.cards.some(card => card.channelId === channelId) || !candidatesRef.current.some(chat => chat.channelId === channelId)) return;
-    void store.apply({kind: 'placeCards', cards: [{channelId, ...clampPoint(at)}]});
+    void store.apply({kind: 'placeCards', cards: [{channelId, ...clampPoint(dropPlacement(at))}]});
   }, [store]);
   const hide = useCallback(async (channelIds: string[], value: boolean) => {
     const result = await setHidden(channelIds, value);
@@ -182,7 +189,19 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const openCard = cards?.find(card => card.channelId === chatChannelId);
   const chatTitle = (openCard?.access === 'open' ? cardTitle(openCard) : null) ?? candidates.find(c => c.channelId === chatChannelId)?.title ?? 'Chat';
   const modeRef = useRef(chatMode); modeRef.current = chatShown ? chatMode : null;
-  const openRef = useRef(onOpenChat); openRef.current = onOpenChat;
+  // Only chats in App's visible list open: a UI-hidden chat is never loaded or marked seen behind the canvas.
+  const visibleRef = useRef(channels); visibleRef.current = channels;
+  const openRef = useRef(onOpenChat);
+  openRef.current = (channelId: string, mode: CanvasChatMode) => { if (visibleRef.current.some(channel => channel.id === channelId)) onOpenChat(channelId, mode); };
+  // The open chat left the visible list (hidden, or access lost): close it in place of this entry.
+  const closeRef = useRef(onCloseChat); closeRef.current = onCloseChat;
+  const listed = useRef(false);
+  useEffect(() => {
+    if (!chatChannelId) { listed.current = false; return; }
+    if (channels.some(channel => channel.id === chatChannelId)) { listed.current = true; return; }
+    // Before App's first channel read the list is empty; App's own load closes an unreadable chat from the URL.
+    if (listed.current || channels.length) { listed.current = false; closeRef.current({replace: true}); }
+  }, [chatChannelId, channels]);
   // A card opens in focus, or replaces the split-screen chat beside the canvas.
   const openFromCard = useCallback((channelId: string) => { setSelectedId(channelId); openRef.current(channelId, modeRef.current ?? 'focus'); }, []);
   // A sent bottom-box chat lands in the pile only: the box starts over and the canvas stays put.
@@ -392,7 +411,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         {body}
       </CanvasMain>
       {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} title={chatTitle}
-        onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={onCloseChat} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
+        onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
         {chat}
       </CanvasChat> : null}
     </div>

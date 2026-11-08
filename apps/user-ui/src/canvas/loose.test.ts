@@ -2,7 +2,7 @@ import {describe,expect,it} from 'vitest';
 import type {Project} from '@nest/schemas';
 import type {Channel} from '../types';
 import type {CardPulse} from './pulse';
-import {areaAround,filterLoose,gridPlacement,looseChats,type LooseChat,type LooseFilter} from './loose';
+import {PLACE_GAP,areaAround,clearOfCards,dropPlacement,filterLoose,gridPlacement,looseChats,type LooseChat,type LooseFilter} from './loose';
 
 const NOW=Date.UTC(2026,10,8,12);
 const HOUR=3_600_000,DAY=24*HOUR;
@@ -96,5 +96,42 @@ describe('gridPlacement',()=>{
     expect(areaAround(bounds)).toEqual({x:512,y:272,w:976,h:456});
     const one=gridPlacement(['a'],{x:0,y:0});
     expect(one.cards).toEqual([{channelId:'a',x:-140,y:-80}]);
+  });
+});
+
+describe('dropPlacement',()=>{
+  it('centres a default-width card on the drop point',()=>{
+    expect(dropPlacement({x:200,y:150})).toEqual({x:60,y:70});
+    expect(dropPlacement({x:0,y:0},400)).toEqual({x:-200,y:-80});
+  });
+});
+
+describe('clearOfCards',()=>{
+  const rect={x:0,y:0,w:880,h:360};
+  it('leaves a grid that covers no card where it is',()=>{
+    expect(clearOfCards(rect,[])).toBe(0);
+    expect(clearOfCards(rect,[{x:900,y:0,w:280},{x:0,y:360,w:280}])).toBe(0);
+  });
+  it('moves a grid below the lowest card it overlaps, plus a gap',()=>{
+    // Two cards under the grid; the lower one's bottom is 300 + 160.
+    expect(clearOfCards(rect,[{x:100,y:0,w:280},{x:500,y:300,w:280}])).toBe(460+PLACE_GAP);
+  });
+  it('keeps moving while the moved grid lands on a card further down',()=>{
+    const below={x:0,y:200+PLACE_GAP+100,w:280};
+    expect(clearOfCards(rect,[{x:0,y:40,w:280},below])).toBe(below.y+160+PLACE_GAP);
+  });
+  it('clears the area around the grid when there is one',()=>{
+    const area=areaAround(rect);
+    expect(clearOfCards(area,[{x:-40,y:-200,w:280}])).toBe(-200+160+PLACE_GAP-area.y);
+  });
+});
+
+describe('a removed card',()=>{
+  it('returns its chat to the loose chats unless the person hid it',()=>{
+    const channels=[chat('a'),chat('b')];
+    const ids=(board:string[],hidden:string[]=[])=>looseChats({...base,channels,boardChannelIds:new Set(board),hidden:new Set(hidden)}).map(c=>c.channelId).sort();
+    expect(ids(['a','b'])).toEqual([]);
+    expect(ids(['b'])).toEqual(['a']);
+    expect(ids(['b'],['a'])).toEqual([]);
   });
 });

@@ -121,7 +121,7 @@ await runChatTest('canvas pile: 220 loose chats stay windowed, search, new area,
   assert.equal(await dock.getByRole('textbox',{name:'Message',exact:true}).inputValue(),'','the box is ready for the next chat');
 },{canvas:true});
 
-await runChatTest('canvas pile: Place on canvas and dragging a row place cards where asked',async h=>{
+await runChatTest('canvas pile: Place on canvas and dragging a row place cards where asked, and Remove from canvas returns a chat',async h=>{
   const {page,base}=h;
   const seeded=await seedChats(h,4);
   const id=await canvasWithHarnessChat(h);
@@ -137,16 +137,38 @@ await runChatTest('canvas pile: Place on canvas and dragging a row place cards w
   assert.equal(body.cards[1].x-body.cards[0].x,300,'300 px apart');
   for(const chat of seeded.slice(0,2))await page.locator(`.canvas-card[data-channel-id="${chat.channelId}"]`).waitFor();
 
-  // A row dropped on the surface becomes one card at the drop point.
+  // Placing again at the same viewport centre does not stack the new grid on the cards already there.
+  const again=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith(`/api/canvases/${id}/cards`));
+  await rowFor(page,seeded[2].name).getByRole('checkbox').check();
+  await pile.getByRole('button',{name:'Place on canvas',exact:true}).click();
+  const second=JSON.parse((await again).request().postData()!) as {cards:{x:number;y:number}[]};
+  assert.equal(second.cards[0].y,body.cards[0].y+160+40,'below the first grid, with a gap');
+  const overlap=(a:{x:number;y:number},b:{x:number;y:number})=>a.x<b.x+280&&b.x<a.x+280&&a.y<b.y+160&&b.y<a.y+160;
+  for(const other of (await board(h,id)).cards.filter(c=>c.channelId!==seeded[2].channelId))assert.ok(!overlap(second.cards[0],other),`clear of ${other.channelId}`);
+  await page.locator(`.canvas-card[data-channel-id="${seeded[2].channelId}"]`).waitFor();
+
+  // A row dropped on the surface becomes one card centred on the drop point.
   const target=seeded[3];
   const surface=(await page.locator('.canvas-surface').boundingBox())!;
   const dropped=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith(`/api/canvases/${id}/cards`));
   await rowFor(page,target.name).dragTo(page.locator('.canvas-surface'),{targetPosition:{x:200,y:150}});
-  const drop=JSON.parse((await dropped).request().postData()!) as {cards:{channelId:string}[]};
+  const drop=JSON.parse((await dropped).request().postData()!) as {cards:{channelId:string;x:number;y:number}[]};
   assert.deepEqual(drop.cards.map(c=>c.channelId),[target.channelId]);
+  assert.deepEqual([drop.cards[0].x,drop.cards[0].y],[200-140,150-80],'offset by half the card width and CARD_HEIGHT');
   const card=page.locator(`.canvas-card[data-channel-id="${target.channelId}"]`);
   await card.waitFor();
   const box=(await card.boundingBox())!;
-  assert.ok(Math.abs(box.x-(surface.x+200))<=2&&Math.abs(box.y-(surface.y+150))<=2,`card at the drop point: ${box.x - surface.x},${box.y - surface.y}`);
+  assert.ok(Math.abs(box.x+box.width/2-(surface.x+200))<=2&&Math.abs(box.y-(surface.y+150-80))<=2,`card centred on the drop point: ${box.x - surface.x},${box.y - surface.y}`);
   await rowFor(page,target.name).waitFor({state:'detached'});
+
+  // Remove from canvas on an open card: the card goes, the chat is back in the pile, and the engine chat is untouched.
+  const removed=page.waitForResponse(r=>r.request().method()==='DELETE'&&r.url().includes(`/api/canvases/${id}/cards/${target.channelId}?version=`));
+  await card.getByRole('button',{name:'Remove from canvas',exact:true}).click();
+  assert.equal((await removed).status(),204);
+  await card.waitFor({state:'detached'});
+  await rowFor(page,target.name).waitFor();
+  await pile.locator('.canvas-pile-count').getByText('1',{exact:true}).waitFor();
+  assert.equal((await board(h,id)).cards.some(c=>c.channelId===target.channelId),false,'off the canvas');
+  const channels=await call<Channel[]>(h,'GET','/api/channels');
+  assert.ok(channels.some(c=>c.id===target.channelId),'the chat still exists and is not archived');
 },{canvas:true});

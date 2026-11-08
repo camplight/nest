@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import type {CanvasArea} from '@nest/schemas';
-import {MAX_ZOOM,MIN_ZOOM,areaMembers,cardCentre,fit,isCompact,toCanvas,toScreen,visible,zoomAt,type View} from './geometry';
+import {MAX_ZOOM,MIN_ZOOM,areaMembers,cardCentre,fit,isCompact,overlaps,toCanvas,toScreen,visible,zoomAt,type View} from './geometry';
 
 const area=(id:string,x:number,y:number,w:number,h:number):CanvasArea=>({id,canvasId:'c',title:id,x,y,w,h,tint:'moss',version:0});
 
@@ -79,5 +79,15 @@ describe('canvas geometry',()=>{
     const members=areaMembers('outer',cards,[outer,inner,other]);
     expect([...members.cards].sort()).toEqual(['in-inner','in-outer']);
     expect([...members.areas]).toEqual(['inner']);
+  });
+});
+
+describe('overlaps',()=>{
+  it('is true only when the rects share area',()=>{
+    const a={x:0,y:0,w:100,h:100};
+    expect(overlaps(a,{x:50,y:50,w:100,h:100})).toBe(true);
+    expect(overlaps(a,{x:10,y:10,w:10,h:10})).toBe(true);
+    expect(overlaps(a,{x:100,y:0,w:50,h:50})).toBe(false);
+    expect(overlaps(a,{x:0,y:-50,w:50,h:50})).toBe(false);
   });
 });

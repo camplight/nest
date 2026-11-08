@@ -1931,7 +1931,7 @@ export default function App() {
       {view === "canvas" ? (canvasAvailable ? <CanvasView canvasId={selectedCanvas} humanId={userId ?? ""} username={username} channels={visibleChannels} projects={projectIndex} agents={visibleAgents} humans={humans}
         onSelectCanvas={selectCanvas} onMenu={() => setMobileSidebarOpen(true)}
         chat={chatWorkspace} chatChannelId={canvasChat.channelId} chatMode={canvasChat.mode}
-        onOpenChat={(channelId, mode) => openCanvasChat(channelId, mode, { replace: channelId === canvasChat.channelId })} onCloseChat={() => openCanvasChat(null, null)}
+        onOpenChat={(channelId, mode) => openCanvasChat(channelId, mode, { replace: channelId === canvasChat.channelId })} onCloseChat={options => openCanvasChat(null, null, options)}
         onOpenRegular={channelId => selectChannel(channelId)} live={canvasLiveRef.current}
         refreshChannels={async () => {
           // Projects first, so a new project chat shows in the pile under its project name.

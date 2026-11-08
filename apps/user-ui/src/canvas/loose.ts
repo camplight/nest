@@ -2,7 +2,7 @@
 import {CARD_HEIGHT,DEFAULT_CARD_WIDTH,type Project} from '@nest/schemas';
 import type {Channel,ChannelParticipant} from '../types';
 import type {CardPulse} from './pulse';
-import type {Point,Rect} from './geometry';
+import {overlaps,type Point,type Rect} from './geometry';
 
 export type LooseChat = {channelId: string; projectId: string | null; title: string; participants: ChannelParticipant[]; lastActivityAt: number | null; needsYou: boolean; agents: string[]};
 export type LooseAge = 'any' | 'today' | 'week' | 'older';
@@ -80,3 +80,25 @@ export function gridPlacement(channelIds: string[], centre: Point): {cards: {cha
 
 /** The rect of a new area that wraps `bounds` with 48 px on every side. */
 export const areaAround = (bounds: Rect, pad = AREA_PADDING): Rect => ({x: bounds.x - pad, y: bounds.y - pad, w: bounds.w + 2 * pad, h: bounds.h + 2 * pad});
+
+/** A chat dropped from the pile lands as a default-width card centred on the drop point. */
+export const dropPlacement = (at: Point, w = DEFAULT_CARD_WIDTH): Point => ({x: Math.round(at.x - w / 2), y: Math.round(at.y - CARD_HEIGHT / 2)});
+
+/** The space kept between a moved grid (or its area) and the card above it. */
+export const PLACE_GAP = 40;
+/**
+ * How far down `rect` (a new grid, or the area around it) must move so it covers no existing card:
+ * below the lowest card it overlaps plus a gap, again until it overlaps none. 0 when it is already clear.
+ */
+export function clearOfCards(rect: Rect, cards: {x: number; y: number; w: number}[], gap = PLACE_GAP): number {
+  const taken = cards.map(card => ({x: card.x, y: card.y, w: card.w, h: CARD_HEIGHT}));
+  let dy = 0;
+  // Each pass moves past at least one more card, so this ends within one pass per card.
+  for (let pass = 0; pass <= taken.length; pass++) {
+    const moved = {...rect, y: rect.y + dy};
+    const hits = taken.filter(card => overlaps(moved, card));
+    if (!hits.length) break;
+    dy = Math.max(...hits.map(card => card.y + card.h)) + gap - rect.y;
+  }
+  return dy;
+}
