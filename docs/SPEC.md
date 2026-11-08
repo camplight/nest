@@ -675,10 +675,12 @@ Phase 1 is built from
 [the Phase 1 plan](superpowers/plans/2026-11-08-switchyard-canvas-phase1.md).
 
 1. Flag. The product API reads `NEST_ENABLE_CANVAS=1` (the `canvasEnabled` config
-   field). When it is off, every `/api/canvases/*` route answers 404
-   `{error:'Not found'}`, except `GET /api/canvases/availability`, which answers
-   `{available:false}`. The user UI shows the Canvas entry only when `available` is
-   true. The view lives at `?view=canvas&canvas=<id>`, and an open chat adds
+   field). Sign-in is checked first: a signed-out caller gets 401 from every
+   `/api/canvases` route, and a person who must still change their password gets
+   403. For signed-in people, when the flag is off, every `/api/canvases/*` route
+   answers 404 `{error:'Not found'}`, except `GET /api/canvases/availability`, which
+   answers `{available:false}`. The user UI shows the Canvas entry only when
+   `available` is true. The view lives at `?view=canvas&canvas=<id>`, and an open chat adds
    `chat=<channel id>&mode=focus|split`, so a reload restores both.
 
 2. Ownership. Nest owns the layout only: canvases, their members, areas, card
@@ -694,35 +696,51 @@ Phase 1 is built from
 
 3. Routes. All need a signed-in person and take at most 64 KB.
    - `GET /api/canvases/availability`
-   - `GET /api/canvases` and `POST /api/canvases` (list and create; a repeated create
-     with the same id and name returns the existing canvas)
+   - `GET /api/canvases` and `POST /api/canvases` (list and create). A repeated
+     create with the same id and name returns the existing canvas; the same id with
+     another name, or another person's id, answers 409 `Canvas ID already used`.
    - `PATCH /api/canvases/:id` (rename) and `DELETE /api/canvases/:id?version=`
-   - `GET /api/canvases/:id/members` and `PUT /api/canvases/:id/members` (owner only)
+   - `GET /api/canvases/:id/members` (anyone who can see the canvas) and
+     `PUT /api/canvases/:id/members` (owner only)
    - `GET /api/canvases/:id/board[?etag=]`: the canvas, its areas and its cards as
      this person may see them, with an etag; a matching etag answers
      `{unchanged:true}`
-   - `POST /api/canvases/:id/areas`, `PATCH /api/canvases/:id/areas/:areaId[?moveCards=1]`
-     and `DELETE /api/canvases/:id/areas/:areaId?version=`
-   - `POST /api/canvases/:id/cards` (up to 100 at once, optionally with a new area),
-     `PATCH /api/canvases/:id/cards/:channelId` and
-     `DELETE /api/canvases/:id/cards/:channelId?version=`
-   - `GET /api/canvases/hidden` and `POST /api/canvases/hidden` (the Loose chats hides)
+   - `POST /api/canvases/:id/areas` (an id already on the canvas answers 409
+     `Area ID already used`), `PATCH /api/canvases/:id/areas/:areaId[?moveCards=1]`
+     and `DELETE /api/canvases/:id/areas/:areaId?version=`. The PATCH answers
+     `{area, cards, areas}`. With `moveCards=1` and a change of position, `cards`
+     holds the cards that moved with the area (shaped for this viewer, as below) and
+     `areas` the areas nested inside it that moved too; otherwise both are empty.
+   - `POST /api/canvases/:id/cards` (up to 100 at once, optionally with a new area;
+     a chat already on the canvas keeps its place; it answers the whole board),
+     `PATCH /api/canvases/:id/cards/:channelId` (answers the moved card, shaped for
+     this viewer) and `DELETE /api/canvases/:id/cards/:channelId?version=`. Placing
+     needs edit access (403 for a viewer), and every chat must be one the engine
+     lists for the person (else 400).
+   - `GET /api/canvases/hidden` returns `{channelIds}`. `POST /api/canvases/hidden`
+     takes `{channelIds (1–100), hidden: true|false}` and returns the person's full
+     `{channelIds}`. Chats the person cannot see are dropped without an error. This
+     is a personal hide from the Loose chats pile, never an engine archive.
 
-   Every change carries the version it was based on. A stale version answers 409
-   with the current record, and the browser refreshes the board and says
-   "Canvas changed. Refreshed." Limits are rejected with 400: names and titles of
-   1–120 characters, coordinates within ±1,000,000, card width 200–640 (default 280),
-   area width and height 160–20,000, at most 500 cards and 100 areas per canvas, 50
-   owned canvases per person and 30 members per canvas.
+   Versions. Rename, sharing, area changes and deletes, card moves and removals, and
+   canvas deletion carry the version they were based on (in the body, or `?version=`
+   for deletes). Creating a canvas or an area, placing cards and hiding take none.
+   A stale version answers 409 `{error:'Canvas changed', current}`, where `current`
+   is the record as it is now, shaped for this viewer: a card for a chat the viewer
+   cannot open has `projectId: null` and no `ownerLabel`. The browser then refreshes
+   the board and says "Canvas changed. Refreshed." Limits are rejected with 400:
+   names and titles of 1–120 characters, coordinates within ±1,000,000, card width
+   200–640 (default 280), area width and height 160–20,000, at most 500 cards and
+   100 areas per canvas, 50 owned canvases per person and 30 members per canvas.
 
 4. Access rule. A canvas is private to its owner unless the owner shares it with
    chosen people as `edit` or `view`. Missing and unshared canvases both answer 404;
    a viewer's change answers 403. Sharing covers the layout only: chat access always
    stays with the engine. The board describes a card only when the engine lists that
    chat for the person asking. Anyone else gets a locked card that shows
-   "Private chat" and who placed it, never the title, participants or messages. A
-   card whose chat the person placed but can no longer see shows as unavailable and
-   can be removed. Locked and unavailable cards never open.
+   "Private chat" and who owns the chat (its engine owner, recorded when the card
+   was placed), never the title, participants or messages. A card whose chat the
+   person placed but can no longer see shows as unavailable and can be removed. Locked and unavailable cards never open.
 
 5. Using it. A shared canvas syncs every 5 seconds while visible and on window
    focus. One chat opens at a time, in focus (over a dimmed canvas) or in split
