@@ -1,6 +1,6 @@
 // A message's attachments (spec 6.6): file link, mime and size, inline previews that zoom on a plain click (spec 7.1.4).
 import {useState,type MouseEvent} from 'react';
-import {formatAttachmentSize} from '../attachments';
+import {fileHref,formatAttachmentSize} from '../attachments';
 import type {MessageAttachment} from './timeline';
 import {ImageZoom} from './ui/ImageZoom';
 
@@ -13,7 +13,7 @@ const isPlainClick=(event:MouseEvent)=>event.button===0&&!event.ctrlKey&&!event.
 function AttachmentItem({attachment}:{attachment:MessageAttachment}):JSX.Element{
  const [failed,setFailed]=useState(false);
  const [zoom,setZoom]=useState(false);
- const url=`/api/files/${encodeURIComponent(attachment.fileId)}`;
+ const url=fileHref(attachment.fileId);
  const size=formatAttachmentSize(attachment.size);
  const preview=previewTypes.has(attachment.mime??'')&&!failed;
  return <li className="message-attachment flex min-w-0 flex-col items-start gap-1.5">

@@ -1,6 +1,10 @@
-// A chat card on the surface. Minimal body for now; Task 6 adds live status, faces and Nudge.
-import {memo,useCallback} from 'react';
+// A chat card on the surface: title, faces with live state, a status line with Nudge, artifacts,
+// last activity and needs-you. Memoized: it re-renders only when its card, pulse or drag offset changes.
+import {memo,useCallback,useState,useSyncExternalStore} from 'react';
 import type {BoardCard} from '@nest/schemas';
+import {AgentAvatar} from '../components/AgentAvatar';
+import {fileHref} from '../attachments';
+import type {AgentPulse,CardPulse} from './pulse';
 
 export type CardProps = {
   card: BoardCard;
@@ -12,15 +16,118 @@ export type CardProps = {
   dragging: boolean;
   /** Reports the mounted element so the surface can measure its height. */
   measure(channelId: string, element: HTMLElement | null): void;
+  /** Live state for an open card; absent until the first seed arrives. */
+  pulse?: CardPulse;
+  onNudge?(channelId: string, agent: string): Promise<void>;
+  /** Editors only: takes an unavailable card off the canvas. */
+  onRemove?(channelId: string): void;
 };
+
+const MAX_FACES = 5;
+const MAX_LINES = 3;
 
 export function cardTitle(card: BoardCard) {
   return card.access === 'open' ? card.title || 'Untitled chat' : card.access === 'locked' ? 'Private chat' : 'This chat is no longer available';
 }
 
-export const Card = memo(function Card({card, draggable, dx, dy, dragging, measure}: CardProps) {
+const STATE_LABEL: Record<AgentPulse['state'], string> = {
+  working: 'working', quiet: 'quiet', interrupted: 'stopped unexpectedly', done: 'done', failed: 'ran into an error', idle: 'idle', unavailable: 'unavailable',
+};
+function statusText(agent: AgentPulse) {
+  switch (agent.state) {
+    case 'working': return `${agent.name} is working`;
+    case 'quiet': return `${agent.name} quiet for ${agent.quietMinutes ?? 0} min`;
+    case 'interrupted': return `${agent.name} stopped unexpectedly`;
+    case 'failed': return `${agent.name} ran into an error`;
+    case 'unavailable': return `${agent.name} is unavailable`;
+    default: return null;
+  }
+}
+const initials = (name: string) => name.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(' ').filter(Boolean).slice(0, 2).map(word => word[0]).join('').toUpperCase() || '?';
+
+// One shared minute tick for every "last activity" label, instead of a timer per card.
+const minuteListeners = new Set<() => void>();
+let minuteTimer: ReturnType<typeof setInterval> | null = null;
+let minute = Math.floor(Date.now() / 60_000);
+function subscribeMinute(listener: () => void) {
+  minuteListeners.add(listener);
+  minuteTimer ??= setInterval(() => {
+    const next = Math.floor(Date.now() / 60_000);
+    if (next === minute) return;
+    minute = next;
+    for (const notify of [...minuteListeners]) notify();
+  }, 15_000);
+  return () => {
+    minuteListeners.delete(listener);
+    if (!minuteListeners.size && minuteTimer) { clearInterval(minuteTimer); minuteTimer = null; }
+  };
+}
+export function ago(at: number, now: number) {
+  const minutes = Math.floor(Math.max(0, now - at) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return `${Math.floor(hours / 24)} d ago`;
+}
+function LastActivity({at}: {at: number}) {
+  useSyncExternalStore(subscribeMinute, () => minute);
+  return <p className="canvas-card-activity"><time dateTime={new Date(at).toISOString()}>Active {ago(at, Date.now())}</time></p>;
+}
+
+function NudgeButton({channelId, agent, onNudge}: {channelId: string; agent: string; onNudge(channelId: string, agent: string): Promise<void>}) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  async function nudge() {
+    if (busy) return;
+    setBusy(true); setFailed(false);
+    try { await onNudge(channelId, agent); } catch { setFailed(true); } finally { setBusy(false); }
+  }
+  return <>
+    <button type="button" className="canvas-card-nudge" aria-label={`Nudge ${agent}`} disabled={busy} onClick={() => void nudge()}>Nudge</button>
+    {failed ? <span className="canvas-card-error" role="alert">Could not send. Try again.</span> : null}
+  </>;
+}
+
+function OpenBody({card, pulse, onNudge}: {card: Extract<BoardCard, {access: 'open'}>; pulse?: CardPulse; onNudge?: CardProps['onNudge']}) {
+  const agents = pulse?.agents ?? card.participants.filter(p => p.subscriberType === 'AGENT').map(p => ({name: p.subscriberId, state: 'idle' as const, since: 0}));
+  const humans = card.participants.filter(p => p.subscriberType === 'HUMAN').map(p => p.subscriberId);
+  const faces = agents.length + humans.length, hidden = Math.max(0, faces - MAX_FACES);
+  const shownAgents = agents.slice(0, MAX_FACES), shownHumans = humans.slice(0, MAX_FACES - shownAgents.length);
+  const lines = agents.filter(agent => statusText(agent) !== null);
+  const done = !lines.length && agents.some(agent => agent.state === 'done');
+  const quiet = agents.some(agent => agent.state === 'quiet');
+  return <>
+    {faces ? <div className="canvas-card-faces" aria-label="Participants">
+      {shownAgents.map(agent => <span key={agent.name} className="canvas-card-face" role="img" data-agent={agent.name} data-state={agent.state}
+        aria-label={`${agent.name}, ${STATE_LABEL[agent.state]}`} title={`${agent.name}: ${STATE_LABEL[agent.state]}`}>
+        <AgentAvatar name={agent.name} size={28}/><i className="canvas-card-dot" aria-hidden="true"/>
+      </span>)}
+      {shownHumans.map(name => <span key={name} className="canvas-card-human" role="img" aria-label={name} title={name}>{initials(name)}</span>)}
+      {hidden ? <span className="canvas-card-more">+{hidden}</span> : null}
+    </div> : null}
+    {quiet ? <p className="canvas-card-marker" data-kind="quiet">Quiet</p> : null}
+    {lines.length || done ? <ul className="canvas-card-status">
+      {lines.slice(0, MAX_LINES).map(agent => <li key={agent.name} data-state={agent.state}>
+        <span>{statusText(agent)}</span>
+        {agent.state === 'quiet' && onNudge ? <NudgeButton channelId={card.channelId} agent={agent.name} onNudge={onNudge}/> : null}
+      </li>)}
+      {lines.length > MAX_LINES ? <li className="canvas-card-more-lines">+{lines.length - MAX_LINES} more</li> : null}
+      {done ? <li data-state="done">Done</li> : null}
+    </ul> : null}
+    {pulse?.artifacts.length ? <ul className="canvas-card-artifacts" aria-label="Files">
+      {pulse.artifacts.map(file => <li key={file.fileId}>
+        <a className="canvas-card-chip" href={fileHref(file.fileId)} target="_blank" rel="noreferrer" title={file.name}>{file.name}</a>
+      </li>)}
+    </ul> : null}
+    {pulse?.lastActivityAt ? <LastActivity at={pulse.lastActivityAt}/> : null}
+  </>;
+}
+
+export const Card = memo(function Card({card, draggable, dx, dy, dragging, measure, pulse, onNudge, onRemove}: CardProps) {
   const title = cardTitle(card);
   const ref = useCallback((element: HTMLElement | null) => measure(card.channelId, element), [card.channelId, measure]);
+  const needs = card.access === 'open' ? pulse?.needsYou.length ?? 0 : 0;
   return <article
     ref={ref}
     className={`canvas-card${dragging ? ' is-dragging' : ''}`}
@@ -29,6 +136,14 @@ export const Card = memo(function Card({card, draggable, dx, dy, dragging, measu
     data-drag={draggable ? 'card' : undefined}
     aria-label={`Chat ${title}`}
     style={{width: card.w, transform: `translate(${card.x + dx}px, ${card.y + dy}px)`}}>
-    <h3 className="canvas-card-title">{title}</h3>
+    <div className="canvas-card-head">
+      <h3 className="canvas-card-title">{title}</h3>
+      {needs ? <span className="canvas-card-needs" role="img" aria-label={`Needs you: ${needs}`} title="Needs you">{needs}</span> : null}
+    </div>
+    {card.access === 'open' ? <OpenBody card={card} pulse={pulse} onNudge={onNudge}/> : null}
+    {card.access === 'locked' ? <p className="canvas-card-owner">Owner: {card.ownerLabel}</p> : null}
+    {card.access === 'unavailable' && onRemove ? <div className="canvas-card-actions">
+      <button type="button" className="canvas-card-remove" onClick={() => onRemove(card.channelId)}>Remove</button>
+    </div> : null}
   </article>;
 });

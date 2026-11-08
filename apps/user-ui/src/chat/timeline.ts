@@ -55,7 +55,7 @@ function authorKind(source:string):AuthorKind{
 
 const displayTime=(event:EventRow)=>event.deliverAt??event.createdAt??0;
 
-function parseMessageAttachments(payload:unknown):MessageAttachment[]{
+export function parseMessageAttachments(payload:unknown):MessageAttachment[]{
  const attachments=record(payload)?.attachments;
  if(!Array.isArray(attachments))return [];
  const result:MessageAttachment[]=[];

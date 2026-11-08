@@ -47,7 +47,7 @@ export function visible<T extends Rect>(items: T[], view: View, viewport: Size, 
 /** The point that decides a card's area. It uses the shared CARD_HEIGHT so client and server agree. */
 export const cardCentre = (card: {x: number; y: number; w: number}): Point => ({x: card.x + card.w / 2, y: card.y + CARD_HEIGHT / 2});
 
-const contains = (outer: Rect, inner: Rect) =>
+export const contains = (outer: Rect, inner: Rect) =>
   inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
 
 /**

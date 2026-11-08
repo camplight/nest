@@ -3,11 +3,11 @@ import {useEffect,useMemo,useState,useSyncExternalStore,type FormEvent,type Reac
 import type {Canvas,Project} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
-import {ApiError} from '../api';
+import {ApiError,apiJson,getApiHeaders} from '../api';
 import {boardApi,createCanvas,listCanvases} from './api';
 import {createBoardStore} from './board-store';
 import {Surface} from './Surface';
-import type {CanvasLive} from './live-types';
+import {nudgeMessage,type CanvasLive} from './live';
 import './canvas.css';
 
 export type CanvasHuman = {id?: string; username: string};
@@ -35,7 +35,12 @@ export type CanvasViewProps = {
 const SYNC_INTERVAL_MS = 5000;
 const mostRecent = (canvases: Canvas[]) => canvases.reduce<Canvas | null>((best, c) => !best || c.updatedAt > best.updatedAt ? c : best, null);
 
-export function CanvasView({canvasId, humanId, onSelectCanvas, onMenu}: CanvasViewProps) {
+/** Nudge goes through the normal send path as the signed-in human. */
+async function sendNudge(channelId: string, agent: string) {
+  await apiJson('/api/messages', {method: 'POST', headers: getApiHeaders(), body: JSON.stringify(nudgeMessage(channelId, agent))});
+}
+
+export function CanvasView({canvasId, humanId, onSelectCanvas, onMenu, live}: CanvasViewProps) {
   const store = useMemo(() => createBoardStore({api: boardApi, now: Date.now, intervalMs: SYNC_INTERVAL_MS}), []);
   const state = useSyncExternalStore(store.subscribe, store.snapshot);
   const [canvases, setCanvases] = useState<Canvas[] | null>(null);
@@ -64,6 +69,14 @@ export function CanvasView({canvasId, humanId, onSelectCanvas, onMenu}: CanvasVi
   }, [canvasId, store]);
 
   const board = state.canvasId === canvasId ? state.board : null;
+  const pulses = useSyncExternalStore(live.subscribe, live.snapshot);
+  // Live state refreshes only while the canvas view is mounted.
+  useEffect(() => { live.start(); return () => live.stop(); }, [live]);
+  const cards = board?.cards;
+  useEffect(() => {
+    live.setCards((cards ?? []).flatMap(card => card.access === 'open'
+      ? [{channelId: card.channelId, agentNames: card.participants.filter(p => p.subscriberType === 'AGENT').map(p => p.subscriberId)}] : []));
+  }, [cards, live]);
   const name = board?.canvas.name ?? canvases?.find(c => c.id === canvasId)?.name ?? '';
   let body: ReactNode;
   if (!canvasId) {
@@ -78,7 +91,7 @@ export function CanvasView({canvasId, humanId, onSelectCanvas, onMenu}: CanvasVi
     body = <CanvasMessage text="Loading canvas…"/>;
   } else {
     // Keyed by canvas so the saved view, gestures and measured card heights start fresh per canvas.
-    body = <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={store.apply}/>;
+    body = <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={store.apply} pulses={pulses} onNudge={sendNudge}/>;
   }
 
   return <section className="canvas-view" aria-label="Canvas">

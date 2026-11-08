@@ -231,7 +231,7 @@
   top: 24px;
 }
 
-/* Cards: minimal body until live status lands. */
+/* Cards: title, faces with a state dot, status lines with Nudge, file chips, last activity, needs-you. */
 .canvas-card {
   position: absolute;
   left: 0;
@@ -267,6 +267,163 @@
 .canvas-world.is-compact .canvas-card-title {
   font-size: 30px;
   line-height: 1.15;
+}
+
+.canvas-card {
+  --canvas-quiet: #9a6f17;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+:root[data-theme="dark"] .canvas-card {
+  --canvas-quiet: #d9ad55;
+}
+.canvas-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.canvas-card-head .canvas-card-title {
+  flex: 1;
+  min-width: 0;
+}
+.canvas-card-needs {
+  flex: none;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: var(--nest-coral);
+  color: var(--nest-forest);
+  font: 700 12px/22px Inter, sans-serif;
+  text-align: center;
+}
+.canvas-card-faces {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.canvas-card-face {
+  position: relative;
+  display: inline-flex;
+}
+.canvas-card-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--nest-surface);
+  border-radius: 999px;
+  background: var(--nest-muted);
+}
+.canvas-card-face[data-state="working"] .canvas-card-dot { background: var(--nest-lime); }
+.canvas-card-face[data-state="quiet"] .canvas-card-dot { background: var(--canvas-quiet); }
+.canvas-card-face[data-state="interrupted"] .canvas-card-dot,
+.canvas-card-face[data-state="failed"] .canvas-card-dot { background: var(--nest-coral); }
+.canvas-card-face[data-state="done"] .canvas-card-dot { background: var(--nest-accent); }
+.canvas-card-face[data-state="unavailable"] .canvas-card-dot { background: var(--nest-border); }
+.canvas-card-human,
+.canvas-card-more {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--nest-muted-surface);
+  color: var(--nest-muted);
+  font: 600 11px Inter, sans-serif;
+}
+.canvas-card-status {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font: 500 13px/1.35 Inter, sans-serif;
+}
+.canvas-card-status li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.canvas-card-status li[data-state="quiet"] { color: var(--canvas-quiet); }
+.canvas-card-status li[data-state="interrupted"],
+.canvas-card-status li[data-state="failed"] { color: var(--nest-coral); }
+.canvas-card-status li[data-state="unavailable"],
+.canvas-card-more-lines { color: var(--nest-muted); }
+.canvas-card-nudge,
+.canvas-card-remove {
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--nest-border);
+  border-radius: 999px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+  font: 600 12px Inter, sans-serif;
+  cursor: pointer;
+}
+.canvas-card-nudge:disabled {
+  opacity: .6;
+  cursor: progress;
+}
+.canvas-card-error {
+  color: var(--nest-coral);
+  font-size: 12px;
+}
+.canvas-card-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.canvas-card-chip {
+  display: inline-block;
+  max-width: 160px;
+  overflow: hidden;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--nest-muted-surface);
+  color: var(--nest-text);
+  font: 500 12px/1.4 Inter, sans-serif;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-card-chip:hover { text-decoration: underline; }
+.canvas-card-activity,
+.canvas-card-owner {
+  margin: 0;
+  color: var(--nest-muted);
+  font: 400 12px Inter, sans-serif;
+}
+.canvas-card-marker {
+  display: none;
+  margin: 0;
+}
+/* Semantic zoom: a big title, faces and a needs-you or quiet marker only. */
+.canvas-world.is-compact .canvas-card-status,
+.canvas-world.is-compact .canvas-card-artifacts,
+.canvas-world.is-compact .canvas-card-activity,
+.canvas-world.is-compact .canvas-card-owner,
+.canvas-world.is-compact .canvas-card-actions {
+  display: none;
+}
+.canvas-world.is-compact .canvas-card-marker {
+  display: block;
+  color: var(--canvas-quiet);
+  font: 700 22px Inter, sans-serif;
+}
+.canvas-world.is-compact .canvas-card-needs {
+  min-width: 40px;
+  height: 40px;
+  font-size: 20px;
+  line-height: 40px;
 }
 
 /* Floating controls: tools top-left, zoom bottom-right. */

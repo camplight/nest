@@ -27,7 +27,7 @@ import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
 import { Community } from "./Community";
 import { CanvasView, type CanvasChatMode } from "./canvas/CanvasView";
 import { canvasAvailability } from "./canvas/api";
-import { idleCanvasLive } from "./canvas/live-types";
+import { createCanvasLive, type CanvasLive } from "./canvas/live";
 import type { Project } from "@nest/schemas";
 import { Projects } from "./Projects";
 import { ProjectNavigation } from "./components/ProjectNavigation";
@@ -349,6 +349,11 @@ export default function App() {
   const [projectIndex, setProjectIndex] = useState<Project[]>([]);
   const [projectTab, setProjectTab] = useState(readProjectTab);
   const chatVisibleRef = useRef(false);
+  // One live card store per session; CanvasView starts and stops its refresh.
+  const canvasLiveRef = useRef<CanvasLive | null>(null);
+  canvasLiveRef.current ??= createCanvasLive({ fetchJson: apiJson, now: Date.now });
+  const canvasViewRef = useRef(false);
+  canvasViewRef.current = view === "canvas";
   chatVisibleRef.current = view === "workspace" || (view === "projects" && projectTab === "chat");
   const onProjectLoaded = useCallback((project: Project) => {
     setProjectIndex(current => current.some(p => p.id === project.id && p.channelId === project.channelId && p.name === project.name && p.description === project.description) ? current : [...current.filter(p => p.id !== project.id), project]);
@@ -914,6 +919,8 @@ export default function App() {
     if (!event.id) return;
     const core = channelEventsRef.current;
     core.observeLifecycle(event);
+    // Before the duplicate check: a status republish of a turn event still updates the card pulse.
+    if (canvasViewRef.current) canvasLiveRef.current?.ingest(event);
     // Only a first sighting counts for unread and nest-message; a status republish just updates the store.
     const sighting = core.seen(event.id, event.status);
     if (sighting === "duplicate") return;
@@ -1076,6 +1083,8 @@ export default function App() {
         }
         void refreshChannelEvents();
         void loadMessageNotifications();
+        // Events missed while disconnected: reseed the canvas cards too.
+        if (canvasViewRef.current) void canvasLiveRef.current?.refresh();
       };
       ws.onmessage = (raw) => {
         try {
@@ -1907,7 +1916,7 @@ export default function App() {
         onSelectCanvas={selectCanvas} onMenu={() => setMobileSidebarOpen(true)}
         chat={null} chatChannelId={canvasChat.channelId} chatMode={canvasChat.mode}
         onOpenChat={(channelId, mode) => setCanvasChatLocation(channelId, mode)} onCloseChat={() => setCanvasChatLocation(null, null)}
-        onOpenRegular={channelId => selectChannel(channelId)} live={idleCanvasLive}
+        onOpenRegular={channelId => selectChannel(channelId)} live={canvasLiveRef.current}
       /> : null) : view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} onManage={activeChannelManageable?()=>setShowChannelManageDialog(true):undefined} /> : view === "agents" ? <Agents tab={agentTab} onTab={tab=>selectAgent(selectedAgent,{tab})} onOpenChat={name=>void openAgentChat(name)} requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
         resumeProject={userId?projectIndex.find(p=>p.id===recentProject(userId)):undefined} channels={visibleChannels} projects={projectIndex} onProject={selectProject} unreadCounts={unreadCounts} onCommunity={selectCommunity}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}

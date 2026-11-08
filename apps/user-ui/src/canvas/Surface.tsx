@@ -5,15 +5,18 @@ import {CARD_HEIGHT,CanvasTint,type BoardCard,type CanvasArea,type CanvasBoard} 
 import type {BoardOp} from './board-store';
 import {Area,type AreaSummary} from './Area';
 import {Card} from './Card';
+import {areaSummaries,type CardPulse} from './pulse';
 import {ORIGIN,areaMembers,clampZoom,fit,isCompact,toCanvas,visible,zoomAt,type Point,type Rect,type Size,type View} from './geometry';
 
 export type SurfaceProps = {
   board: CanvasBoard;
   humanId: string;
   onApply(op: BoardOp): Promise<boolean>;
-  /** Compact-zoom summaries per area id; Task 6 fills them from live state. */
-  summaries?: ReadonlyMap<string, AreaSummary>;
+  /** Live state per channel id; each card gets its own pulse object, stable while unchanged. */
+  pulses?: ReadonlyMap<string, CardPulse>;
+  onNudge?(channelId: string, agent: string): Promise<void>;
 };
+const NO_PULSES: ReadonlyMap<string, CardPulse> = new Map();
 
 type Tool = 'select' | 'area';
 type Mode = 'pan' | 'card' | 'area' | 'resize' | 'draw';
@@ -50,7 +53,7 @@ const isEditable = (target: EventTarget | null) => target instanceof HTMLElement
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + b.y) / 2});
 
-export function Surface({board, humanId, onApply, summaries}: SurfaceProps) {
+export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
   // Without a known human the view is not remembered, so it can never land under another person's key.
   const key = humanId ? viewKey(humanId, board.canvas.id) : null;
@@ -289,7 +292,26 @@ export function Surface({board, humanId, onApply, summaries}: SurfaceProps) {
     void applyRef.current({kind: 'deleteArea', areaId});
   }, []);
 
+  const nudgeRef = useRef(onNudge); nudgeRef.current = onNudge;
+  const nudge = useCallback(async (channelId: string, agent: string) => { await nudgeRef.current?.(channelId, agent); }, []);
+  const removeCard = useCallback((channelId: string) => {
+    surfaceRef.current?.focus({preventScroll: true});
+    void applyRef.current({kind: 'removeCard', channelId});
+  }, []);
+
   const compact = isCompact(view);
+  // Summaries show only at compact zoom; an unchanged count keeps its object so the area does not re-render.
+  const summaryCache = useRef(new Map<string, AreaSummary>());
+  const summaries = useMemo(() => {
+    if (!compact) return null;
+    const next = new Map<string, AreaSummary>();
+    for (const [id, summary] of areaSummaries(board.cards, board.areas, pulses)) {
+      const previous = summaryCache.current.get(id);
+      next.set(id, previous && previous.needYou === summary.needYou && previous.moving === summary.moving ? previous : summary);
+    }
+    summaryCache.current = next;
+    return next;
+  }, [compact, board.cards, board.areas, pulses]);
   const shownCards = useMemo(() => new Set(visible(cardRects, view, size).map(r => r.card.channelId)), [cardRects, view, size]);
   const shownAreas = useMemo(() => new Set(visible(board.areas, view, size).map(a => a.id)), [board.areas, view, size]);
   const cardShift = (card: BoardCard) =>
@@ -327,7 +349,9 @@ export function Surface({board, humanId, onApply, summaries}: SurfaceProps) {
         const shift = cardShift(card);
         if (!shift && !shownCards.has(card.channelId)) return null;
         return <Card key={card.channelId} card={card} draggable={canEdit} dx={shift?.dx ?? 0} dy={shift?.dy ?? 0}
-          dragging={preview?.kind === 'card' && preview.id === card.channelId} measure={measure}/>;
+          dragging={preview?.kind === 'card' && preview.id === card.channelId} measure={measure}
+          pulse={card.access === 'open' ? pulses.get(card.channelId) : undefined}
+          onNudge={onNudge ? nudge : undefined} onRemove={canEdit ? removeCard : undefined}/>;
       })}
     </div>
     <div className="canvas-chrome canvas-tools" role="toolbar" aria-label="Canvas tools">
