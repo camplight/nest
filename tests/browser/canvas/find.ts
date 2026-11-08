@@ -15,6 +15,8 @@ await runChatTest('canvas find: Needs you from a real mention, jump to the chat,
   const {page,base}=h;
   // The harness project chat is placed; an invoice project chat stays loose.
   const loose=await call<{channelId:string}>(h,'POST','/api/projects',{id:crypto.randomUUID(),name:'Synthetic invoice chat',description:'Synthetic test project',members:[]});
+  // Twenty more loose chats, so one search overflows the results box.
+  for(let i=0;i<20;i++)await call(h,'POST','/api/projects',{id:crypto.randomUUID(),name:`Scroll probe ${i}`,description:'Synthetic test project',members:[]});
   const {id}=await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Find launch'});
   await call(h,'POST',`/api/canvases/${id}/cards`,{cards:[{channelId:h.project.channelId,x:200,y:200}]});
   await page.goto(`${base}/?view=canvas&canvas=${id}`);
@@ -80,6 +82,28 @@ await runChatTest('canvas find: Needs you from a real mention, jump to the chat,
   assert.equal(new URL(page.url()).searchParams.get('chat'),h.project.channelId);
   await page.getByRole('button',{name:'Close',exact:true}).click();
   await chat.waitFor({state:'detached'});
+
+  // Many results overflow the list; the active option stays inside its visible box while arrowing down.
+  await page.locator('.canvas-surface').click({position:{x:5,y:5}});
+  await page.keyboard.press('Control+k');
+  await dialog.waitFor();
+  await page.keyboard.type('scroll probe');
+  const options=dialog.getByRole('option');
+  await page.waitForFunction(()=>document.querySelectorAll('.canvas-search [role="option"]').length>=20);
+  const box=dialog.locator('.canvas-search-results');
+  assert.ok(await box.evaluate(el=>el.scrollHeight>el.clientHeight),'the results overflow their box');
+  for(let i=0;i<19;i++){
+    await page.keyboard.press('ArrowDown');
+    const inside=await page.evaluate(()=>{
+      const active=document.querySelector('.canvas-search [role="option"][aria-selected="true"]')!.getBoundingClientRect();
+      const list=document.querySelector('.canvas-search-results')!.getBoundingClientRect();
+      return active.top>=list.top-1&&active.bottom<=list.bottom+1;
+    });
+    assert.ok(inside,`active option ${i+2} is visible`);
+  }
+  assert.equal(await options.count(),20);
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({state:'detached'});
 
   // Escape closes the search without acting.
   await page.locator('.canvas-surface').click({position:{x:5,y:5}});

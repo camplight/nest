@@ -1,5 +1,5 @@
 // Top-bar canvas menu: Yours / Shared with you, New canvas, and the owner's Rename and Delete canvas….
-import {useEffect,useId,useRef,useState,type FormEvent,type KeyboardEvent,type ReactNode} from 'react';
+import {useEffect,useId,useRef,useState,type FormEvent,type KeyboardEvent as ReactKeyboardEvent,type ReactNode} from 'react';
 import type {Canvas} from '@nest/schemas';
 
 export type SwitcherCanvas = Pick<Canvas, 'id' | 'name' | 'role'>;
@@ -96,7 +96,7 @@ export function Modal({label, onClose, children}: {label: string; onClose(): voi
     };
   }, []);
   // Tab and Shift+Tab wrap between the first and last control.
-  const trap = (event: KeyboardEvent<HTMLDivElement>) => {
+  const trap = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Tab' || !panel.current) return;
     const items = [...panel.current.querySelectorAll<HTMLElement>('input,select,button,textarea,[tabindex]:not([tabindex="-1"])')].filter(el => !(el as HTMLInputElement).disabled);
     if (!items.length) { event.preventDefault(); return; }

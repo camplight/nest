@@ -1,5 +1,5 @@
 // Ctrl/Cmd+K search across this canvas's cards and areas, the loose chats and the person's canvases.
-import {useId,useMemo,useState,type KeyboardEvent} from 'react';
+import {useEffect,useId,useMemo,useState,type KeyboardEvent} from 'react';
 import {Modal} from './CanvasSwitcher';
 import {KIND_ORDER,rank,type SearchItem} from './search';
 
@@ -24,6 +24,9 @@ export function CanvasSearch({items, onClose, onChoose}: CanvasSearchProps) {
   const flat = useMemo(() => groups.flatMap(group => group.results), [groups]);
   const current = flat.length ? Math.min(active, flat.length - 1) : -1;
   const optionId = (item: SearchItem) => `${base}-${item.kind}-${item.id}`;
+  // aria-activedescendant does not scroll: keep the active option inside the results box.
+  const activeId = flat[current] ? optionId(flat[current]) : null;
+  useEffect(() => { if (activeId) document.getElementById(activeId)?.scrollIntoView({block: 'nearest'}); }, [activeId]);
 
   const key = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
