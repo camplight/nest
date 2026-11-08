@@ -2,7 +2,7 @@
 // calls against fresh servers; a failure sets process.exitCode and the next file still runs.
 // Usage: npm run test:ui:canvas
 export {};
-const scenarios=['./entry.ts','./surface.ts','./cards.ts','./pile.ts','./open-chat.ts'];
+const scenarios=['./entry.ts','./surface.ts','./cards.ts','./pile.ts','./open-chat.ts','./agents.ts'];
 for(const scenario of scenarios){
   console.log(`\n=== canvas ${scenario}`);
   await import(scenario);

@@ -5,6 +5,7 @@ import {CARD_HEIGHT,CanvasTint,type BoardCard,type CanvasArea,type CanvasBoard} 
 import type {BoardOp} from './board-store';
 import {Area,type AreaSummary} from './Area';
 import {Card} from './Card';
+import {AgentAvatar} from '../components/AgentAvatar';
 import {areaSummaries,type CardPulse} from './pulse';
 import {ORIGIN,areaMembers,clampZoom,fit,isCompact,toCanvas,visible,zoomAt,type Point,type Rect,type Size,type View} from './geometry';
 
@@ -23,6 +24,15 @@ export type SurfaceProps = {
   onOpenChat?(channelId: string): void;
   /** The chat open beside or over the canvas, marked on its card. */
   openChannelId?: string | null;
+  /** An agent from the tray or picker dropped on an open card. Locked and unavailable cards take no drop. */
+  onDropAgent?(channelId: string, agent: string): void;
+  /** An agent's face dragged more than REMOVE_DISTANCE outside its card. */
+  onRemoveAgent?(channelId: string, agent: string): void;
+  /** Whether the person may add and remove this card's agents; without it no face drags. */
+  canManageCard?(card: BoardCard): boolean;
+  /** A press on a card selects it (the agent tray suggests for the selected card). */
+  onSelectCard?(channelId: string): void;
+  selectedChannelId?: string | null;
 };
 export type SurfaceControls = {
   /** The canvas point at the centre of the viewport. */
@@ -30,16 +40,19 @@ export type SurfaceControls = {
 };
 /** The drag data type a pile row carries: the chat's channel id. */
 export const CHAT_DRAG_TYPE = 'application/x-nest-chat';
+/** The drag data type a tray or picker face carries: the agent's name. */
+export const AGENT_DRAG_TYPE = 'application/x-nest-agent';
 const NO_PULSES: ReadonlyMap<string, CardPulse> = new Map();
 
 type Tool = 'select' | 'area';
-type Mode = 'pan' | 'card' | 'area' | 'resize' | 'draw';
-type Gesture = {pointerId: number; mode: Mode; id?: string; start: Point; startView: View; active: boolean; members?: {cards: Set<string>; areas: Set<string>}; base?: {w: number; h: number}};
+type Mode = 'pan' | 'card' | 'area' | 'resize' | 'draw' | 'face';
+type Gesture = {pointerId: number; mode: Mode; id?: string; agent?: string; start: Point; startView: View; active: boolean; members?: {cards: Set<string>; areas: Set<string>}; base?: {w: number; h: number}};
 type Preview =
   | {kind: 'card'; id: string; dx: number; dy: number}
   | {kind: 'area'; id: string; dx: number; dy: number; cards: Set<string>; areas: Set<string>}
   | {kind: 'resize'; id: string; w: number; h: number}
-  | {kind: 'draw'; rect: Rect};
+  | {kind: 'draw'; rect: Rect}
+  | {kind: 'face'; id: string; agent: string; x: number; y: number; away: boolean};
 type Pinch = {ids: [number, number]; dist: number; mid: Point; view: View};
 
 const DRAG_THRESHOLD = 3;
@@ -49,6 +62,8 @@ const TWIG_TILE = 260;
 const MIN_AREA = 160, MAX_AREA = 20_000, MAX_COORD = 1_000_000;
 const TINTS = CanvasTint.options;
 const SAVE_DELAY_MS = 250;
+/** A face released more than this many screen pixels outside its card's bounds leaves the chat. */
+export const REMOVE_DISTANCE = 80;
 
 const viewKey = (humanId: string, canvasId: string) => `nest-canvas-view:${humanId}:${canvasId}`;
 function readView(key: string): View | null {
@@ -67,7 +82,8 @@ const isEditable = (target: EventTarget | null) => target instanceof HTMLElement
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + b.y) / 2});
 
-export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null}: SurfaceProps) {
+export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null,
+  onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
   // Without a known human the view is not remembered, so it can never land under another person's key.
   const key = humanId ? viewKey(humanId, board.canvas.id) : null;
@@ -165,12 +181,43 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
 
   const dropRef = useRef(onDropChat); dropRef.current = onDropChat;
   const carriesChat = (event: ReactDragEvent) => canEdit && Boolean(dropRef.current) && event.dataTransfer.types.includes(CHAT_DRAG_TYPE);
+  // An agent drag targets the open card under the pointer; anywhere else (locked, unavailable, empty canvas) takes no drop.
+  const agentDropRef = useRef(onDropAgent); agentDropRef.current = onDropAgent;
+  const [dropId, setDropId] = useState<string | null>(null);
+  const carriesAgent = (event: ReactDragEvent) => Boolean(agentDropRef.current) && event.dataTransfer.types.includes(AGENT_DRAG_TYPE);
+  const openCardAt = (event: ReactDragEvent) => {
+    const id = (event.target instanceof Element ? event.target.closest<HTMLElement>('.canvas-card') : null)?.dataset.channelId;
+    const card = id ? boardRef.current.cards.find(c => c.channelId === id) : undefined;
+    return card?.access === 'open' ? card : null;
+  };
+  useEffect(() => {
+    const end = () => setDropId(null);
+    window.addEventListener('dragend', end, true);
+    return () => window.removeEventListener('dragend', end, true);
+  }, []);
   function dragOver(event: ReactDragEvent<HTMLDivElement>) {
+    if (carriesAgent(event)) {
+      const card = openCardAt(event);
+      setDropId(card?.channelId ?? null);
+      if (!card) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      return;
+    }
     if (!carriesChat(event)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
   }
   function drop(event: ReactDragEvent<HTMLDivElement>) {
+    if (carriesAgent(event)) {
+      setDropId(null);
+      const card = openCardAt(event);
+      if (!card) return;
+      event.preventDefault();
+      const agent = event.dataTransfer.getData(AGENT_DRAG_TYPE);
+      if (agent) agentDropRef.current?.(card.channelId, agent);
+      return;
+    }
     if (!carriesChat(event)) return;
     event.preventDefault();
     const channelId = event.dataTransfer.getData(CHAT_DRAG_TYPE);
@@ -224,6 +271,16 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', blur); };
   }, [cancel]);
 
+  const removeAgentRef = useRef(onRemoveAgent); removeAgentRef.current = onRemoveAgent;
+  const selectRef = useRef(onSelectCard); selectRef.current = onSelectCard;
+  /** Whether a screen point is more than REMOVE_DISTANCE outside the card's on-screen bounds. */
+  const awayFrom = (channelId: string, at: {clientX: number; clientY: number}) => {
+    const r = elements.current.get(channelId)?.getBoundingClientRect();
+    if (!r) return false;
+    return at.clientX < r.left - REMOVE_DISTANCE || at.clientX > r.right + REMOVE_DISTANCE
+      || at.clientY < r.top - REMOVE_DISTANCE || at.clientY > r.bottom + REMOVE_DISTANCE;
+  };
+
   function startPinch() {
     const [[a, pa], [b, pb]] = [...touches.current.entries()];
     pinch.current = {ids: [a, b], dist: Math.max(1, distance(pa, pb)), mid: midpoint(pa, pb), view: viewRef.current};
@@ -239,12 +296,16 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     } else if (event.button !== 0 && event.button !== 1) return;
     const target = event.target as HTMLElement;
     const pan = spaceRef.current || event.button === 1;
+    const pressed = pan ? undefined : target.closest<HTMLElement>('.canvas-card')?.dataset.channelId;
+    if (pressed) selectRef.current?.(pressed);
     if (!pan && target.closest('button, input, textarea, select, a, .canvas-menu, .canvas-chrome')) return;
     const handle = pan ? null : target.closest<HTMLElement>('[data-drag]');
     const start = local(event), startView = viewRef.current;
     const current = boardRef.current;
     let next: Gesture = {pointerId: event.pointerId, mode: 'pan', start, startView, active: false};
-    if (handle?.dataset.drag === 'card') {
+    if (handle?.dataset.drag === 'face' && pressed && handle.dataset.agent) {
+      next = {...next, mode: 'face', id: pressed, agent: handle.dataset.agent};
+    } else if (handle?.dataset.drag === 'card') {
       next = {...next, mode: 'card', id: handle.dataset.channelId};
     } else if (handle?.dataset.drag === 'area' || handle?.dataset.drag === 'area-resize') {
       const id = handle.closest<HTMLElement>('[data-area-id]')?.dataset.areaId;
@@ -285,6 +346,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     switch (g.mode) {
       case 'pan': setView({...g.startView, x: g.startView.x + dx, y: g.startView.y + dy}); return;
       case 'card': setPreview({kind: 'card', id: g.id!, dx: dx / zoom, dy: dy / zoom}); return;
+      case 'face': setPreview({kind: 'face', id: g.id!, agent: g.agent!, x: point.x, y: point.y, away: awayFrom(g.id!, event)}); return;
       case 'area': setPreview({kind: 'area', id: g.id!, dx: dx / zoom, dy: dy / zoom, cards: g.members!.cards, areas: g.members!.areas}); return;
       case 'resize': setPreview({kind: 'resize', id: g.id!, w: clampSize(g.base!.w + dx / zoom), h: clampSize(g.base!.h + dy / zoom)}); return;
       case 'draw': {
@@ -305,6 +367,10 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     setPreview(null);
     if (g.active) { dragged.current = true; setTimeout(() => { dragged.current = false; }, 0); }
     if (!g.active || event.type === 'pointercancel') return;
+    if (g.mode === 'face') {
+      if (awayFrom(g.id!, event)) removeAgentRef.current?.(g.id!, g.agent!);
+      return;
+    }
     const point = local(event), zoom = g.startView.zoom;
     const dx = (point.x - g.start.x) / zoom, dy = (point.y - g.start.y) / zoom;
     const current = boardRef.current;
@@ -388,8 +454,11 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     onPointerCancel={pointerUp}
     onPointerEnter={() => { pointerOver.current = true; }}
     onPointerLeave={() => { pointerOver.current = false; }}
+    // A press on a face's image or a file chip would start the browser's own drag and cancel the pointer gesture.
+    onDragStart={event => event.preventDefault()}
     onDragOver={dragOver}
     onDrop={drop}
+    onDragLeave={event => { if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) setDropId(null); }}
     onLostPointerCapture={event => {
       // Only the surface's own capture counts; a touch target losing its implicit capture to the surface bubbles here too.
       if (event.target === surfaceRef.current && gesture.current?.pointerId === event.pointerId && gesture.current.active) cancel();
@@ -409,9 +478,17 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
           dragging={preview?.kind === 'card' && preview.id === card.channelId} measure={measure}
           pulse={card.access === 'open' ? pulses.get(card.channelId) : undefined}
           onNudge={onNudge ? nudge : undefined} onRemove={canEdit ? removeCard : undefined}
-          onOpen={onOpenChat ? openCard : undefined} open={card.channelId === openChannelId}/>;
+          onOpen={onOpenChat ? openCard : undefined} open={card.channelId === openChannelId}
+          facesDraggable={Boolean(onRemoveAgent && canManageCard?.(card))}
+          draggingFace={preview?.kind === 'face' && preview.id === card.channelId ? preview.agent : null}
+          dropping={dropId === card.channelId} selected={card.channelId === selectedChannelId}/>;
       })}
     </div>
+    {preview?.kind === 'face' ? <div className={`canvas-face-ghost${preview.away ? ' is-away' : ''}`} aria-hidden="true"
+      style={{transform: `translate(${preview.x}px, ${preview.y}px)`}}>
+      <AgentAvatar name={preview.agent} size={34}/>
+      {preview.away ? <span className="canvas-face-ghost-label">Remove {preview.agent}</span> : null}
+    </div> : null}
     <div className="canvas-chrome canvas-tools" role="toolbar" aria-label="Canvas tools">
       <button type="button" className="canvas-tool" aria-pressed={tool === 'area'} disabled={!canEdit}
         title={canEdit ? 'Drag on the canvas to draw an area' : 'You can view this canvas but not change it.'}

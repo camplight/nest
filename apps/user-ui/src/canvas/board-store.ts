@@ -122,9 +122,13 @@ export function createBoardStore({api, now, intervalMs, doc = globalThis.documen
     }
   }
 
-  /** Re-reads the board with its etag; `{unchanged:true}` leaves the state (and board identity) untouched. */
-  function refresh(): Promise<void> {
-    if (refreshing) return refreshingWrites === writes ? refreshing : refreshing.then(refresh);
+  /**
+   * Re-reads the board with its etag; `{unchanged:true}` leaves the state (and board identity) untouched.
+   * `force` (after an engine change such as a membership write) reads the whole board without the etag,
+   * queued behind a read already in flight, whose answer may predate the change.
+   */
+  function refresh({force = false}: {force?: boolean} = {}): Promise<void> {
+    if (refreshing) return refreshingWrites === writes && !force ? refreshing : refreshing.then(() => refresh({force}));
     const {canvasId, board} = state;
     if (!canvasId || !board || state.status !== 'ready' || pending > 0) return Promise.resolve();
     const gen = generation, startedWrites = writes;
@@ -132,7 +136,7 @@ export function createBoardStore({api, now, intervalMs, doc = globalThis.documen
     lastRefreshAt = now();
     refreshing = (async () => {
       try {
-        const next = await api.getBoard(canvasId, board.etag);
+        const next = await api.getBoard(canvasId, force ? undefined : board.etag);
         // A write that started meanwhile owns the board until it settles and refreshes itself.
         if (gen !== generation || pending > 0 || startedWrites !== writes || 'unchanged' in next) return;
         set({board: next});

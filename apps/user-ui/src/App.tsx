@@ -46,6 +46,7 @@ import {
   useState
 } from "react";
 import { apiFetch, apiJson, getApiHeaders } from "./api";
+import { addChatMember, removeChatMember, type ChatMember } from "./chat-members";
 import { wsUrl } from "./config";
 import type { Agent, AuthMe, Channel, ChannelParticipant, ChannelShare, EventRow, Team } from "./types";
 
@@ -572,13 +573,10 @@ export default function App() {
   async function inviteMention(candidate:import('./mentions').MentionCandidate){
     const channelId=activeChannelId,ownerId=userId;
     if(!channelId||!ownerId||!canInviteMention||!activeChannelCanPost||activeChannel?.archivedAt||candidate.inviteBlockedReason)throw Error('Invitation unavailable');
-    const member={subscriberType:candidate.kind==='Agent'?'AGENT':'HUMAN',subscriberId:candidate.name};
-    try{
-      await apiFetch(mentionProject?`/api/projects/${encodeURIComponent(mentionProject.id)}/members`:`/api/channels/${encodeURIComponent(channelId)}/subscribe`,{method:'POST',headers:getApiHeaders(),body:JSON.stringify(member)});
-    }catch{/* Re-read membership to reconcile a response lost after subscription. */}
-    const fresh=await apiJson<Channel[]>('/api/channels?includeArchived=1');
+    const member:ChatMember={subscriberType:candidate.kind==='Agent'?'AGENT':'HUMAN',subscriberId:candidate.name};
+    const fresh=await addChatMember({channelId,projectId:mentionProject?.id??null,member,fetch:apiFetch,fetchJson:apiJson});
     const channel=fresh.find(channel=>channel.id===channelId);
-    if(!channel||channel.archivedAt||channel.canPost===false||!canManageUserChannel(channel,ownerId)||!channel.participants?.some(participant=>participant.subscriberType===member.subscriberType&&participant.subscriberId===member.subscriberId))throw Error('Invitation unconfirmed');
+    if(!channel||channel.archivedAt||channel.canPost===false||!canManageUserChannel(channel,ownerId))throw Error('Invitation unconfirmed');
     if(userIdRef.current!==ownerId)throw Error('Session changed');
     // Refresh the roster without navigating back if the user changed chats.
     setChannels(fresh);
@@ -1505,13 +1503,11 @@ export default function App() {
     setParticipantRemovingKey(participantKey);
     setError(null);
     try {
-      await apiFetch(`/api/channels/${encodeURIComponent(activeChannelId)}/unsubscribe`, {
-        method: "POST",
-        headers: getApiHeaders(),
-        body: JSON.stringify({
-          subscriberType: participant.subscriberType,
-          subscriberId: participant.subscriberId
-        })
+      await removeChatMember({
+        channelId: activeChannelId,
+        member: participant,
+        fetch: apiFetch,
+        fetchJson: apiJson
       });
       await refreshChannels(activeChannelId);
     } catch (removeError) {
@@ -1941,6 +1937,7 @@ export default function App() {
           setProjectIndex(await apiJson<Project[]>("/api/projects"));
           await refreshChannels(undefined, { select: false });
         }}
+        onChannels={setChannels}
       /> : null) : view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} onManage={activeChannelManageable?()=>setShowChannelManageDialog(true):undefined} /> : view === "agents" ? <Agents tab={agentTab} onTab={tab=>selectAgent(selectedAgent,{tab})} onOpenChat={name=>void openAgentChat(name)} requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
         resumeProject={userId?projectIndex.find(p=>p.id===recentProject(userId)):undefined} channels={visibleChannels} projects={projectIndex} onProject={selectProject} unreadCounts={unreadCounts} onCommunity={selectCommunity}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}

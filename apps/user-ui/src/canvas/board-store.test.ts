@@ -181,6 +181,22 @@ describe('createBoardStore',()=>{
     expect(store.snapshot().board?.etag).toBe('e3');
   });
 
+  it('a forced refresh reads the whole board without the etag, after any read already in flight',async()=>{
+    const api=fakeApi();
+    const store=createBoardStore({api,now:()=>0,intervalMs:5000});
+    await store.open('c1');
+    // A regular read that started before an engine membership change, so its answer may predate it.
+    const earlier=deferred<CanvasBoard|{unchanged:true}>();
+    api.getBoard.mockReturnValueOnce(earlier.promise);
+    const regular=store.refresh();
+    const joined={...card('ch1',0,0),participants:[{subscriberType:'AGENT',subscriberId:'Pip'}]} as BoardCard;
+    api.getBoard.mockResolvedValueOnce(board('e2',[joined]));
+    const forced=store.refresh({force:true});
+    earlier.resolve({unchanged:true});
+    await Promise.all([regular,forced]);
+    expect(api.getBoard.mock.calls.slice(-2)).toEqual([['c1','e1'],['c1',undefined]]);
+    expect(store.snapshot().board?.cards[0]).toMatchObject({participants:[{subscriberType:'AGENT',subscriberId:'Pip'}]});
+  });
   it('notifies subscribers on change and ignores a stale open',async()=>{
     const slow=deferred<CanvasBoard>();
     const api=fakeApi({getBoard:vi.fn().mockReturnValueOnce(slow.promise).mockResolvedValueOnce(board('e2'))});

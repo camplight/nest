@@ -25,6 +25,14 @@ export type CardProps = {
   onOpen?(channelId: string): void;
   /** This card's chat is the one open now. */
   open?: boolean;
+  /** The person may add and remove this chat's agents: agent faces get a drag handle (drag off to remove). */
+  facesDraggable?: boolean;
+  /** The agent whose face is being dragged off this card right now. */
+  draggingFace?: string | null;
+  /** An agent is being dragged over this card. */
+  dropping?: boolean;
+  /** The card the agent tray suggests for. */
+  selected?: boolean;
 };
 
 const MAX_FACES = 5;
@@ -95,7 +103,9 @@ function NudgeButton({channelId, agent, onNudge}: {channelId: string; agent: str
   </>;
 }
 
-function OpenBody({card, pulse, onNudge}: {card: Extract<BoardCard, {access: 'open'}>; pulse?: CardPulse; onNudge?: CardProps['onNudge']}) {
+function OpenBody({card, pulse, onNudge, facesDraggable, draggingFace}: {
+  card: Extract<BoardCard, {access: 'open'}>; pulse?: CardPulse; onNudge?: CardProps['onNudge']; facesDraggable: boolean; draggingFace: string | null;
+}) {
   const agents = pulse?.agents ?? card.participants.filter(p => p.subscriberType === 'AGENT').map(p => ({name: p.subscriberId, state: 'idle' as const, since: 0}));
   const humans = card.participants.filter(p => p.subscriberType === 'HUMAN').map(p => p.subscriberId);
   const faces = agents.length + humans.length, hidden = Math.max(0, faces - MAX_FACES);
@@ -105,8 +115,10 @@ function OpenBody({card, pulse, onNudge}: {card: Extract<BoardCard, {access: 'op
   const quiet = agents.some(agent => agent.state === 'quiet');
   return <>
     {faces ? <div className="canvas-card-faces" aria-label="Participants">
-      {shownAgents.map(agent => <span key={agent.name} className="canvas-card-face" role="img" data-agent={agent.name} data-state={agent.state}
-        aria-label={`${agent.name}, ${STATE_LABEL[agent.state]}`} title={`${agent.name}: ${STATE_LABEL[agent.state]}`}>
+      {shownAgents.map(agent => <span key={agent.name} className={`canvas-card-face${agent.name === draggingFace ? ' is-lifted' : ''}`} role="img"
+        data-agent={agent.name} data-state={agent.state} data-drag={facesDraggable ? 'face' : undefined}
+        aria-label={`${agent.name}, ${STATE_LABEL[agent.state]}`}
+        title={`${agent.name}: ${STATE_LABEL[agent.state]}${facesDraggable ? '. Drag off the card to remove' : ''}`}>
         <AgentAvatar name={agent.name} size={28}/><i className="canvas-card-dot" aria-hidden="true"/>
       </span>)}
       {shownHumans.map(name => <span key={name} className="canvas-card-human" role="img" aria-label={name} title={name}>{initials(name)}</span>)}
@@ -130,14 +142,15 @@ function OpenBody({card, pulse, onNudge}: {card: Extract<BoardCard, {access: 'op
   </>;
 }
 
-export const Card = memo(function Card({card, draggable, dx, dy, dragging, measure, pulse, onNudge, onRemove, onOpen, open = false}: CardProps) {
+export const Card = memo(function Card({card, draggable, dx, dy, dragging, measure, pulse, onNudge, onRemove, onOpen, open = false,
+  facesDraggable = false, draggingFace = null, dropping = false, selected = false}: CardProps) {
   const title = cardTitle(card);
   const ref = useCallback((element: HTMLElement | null) => measure(card.channelId, element), [card.channelId, measure]);
   const needs = card.access === 'open' ? pulse?.needsYou.length ?? 0 : 0;
   const opens = card.access === 'open' && onOpen ? onOpen : undefined;
   return <article
     ref={ref}
-    className={`canvas-card${dragging ? ' is-dragging' : ''}${opens ? ' is-openable' : ''}${open ? ' is-open' : ''}`}
+    className={`canvas-card${dragging ? ' is-dragging' : ''}${opens ? ' is-openable' : ''}${open ? ' is-open' : ''}${dropping ? ' is-drop-target' : ''}${selected ? ' is-selected' : ''}`}
     data-channel-id={card.channelId}
     data-access={card.access}
     data-drag={draggable ? 'card' : undefined}
@@ -151,7 +164,7 @@ export const Card = memo(function Card({card, draggable, dx, dy, dragging, measu
       {opens ? <button type="button" className="canvas-card-open" onClick={() => opens(card.channelId)}>Open chat {title}</button> : null}
       {needs ? <span className="canvas-card-needs" role="img" aria-label={`Needs you: ${needs}`} title="Needs you">{needs}</span> : null}
     </div>
-    {card.access === 'open' ? <OpenBody card={card} pulse={pulse} onNudge={onNudge}/> : null}
+    {card.access === 'open' ? <OpenBody card={card} pulse={pulse} onNudge={onNudge} facesDraggable={facesDraggable} draggingFace={draggingFace}/> : null}
     {card.access === 'locked' ? <p className="canvas-card-owner">Owner: {card.ownerLabel}</p> : null}
     {card.access === 'unavailable' && onRemove ? <div className="canvas-card-actions">
       <button type="button" className="canvas-card-remove" onClick={() => onRemove(card.channelId)}>Remove</button>

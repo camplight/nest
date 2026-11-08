@@ -547,16 +547,29 @@
 .canvas-error {
   color: var(--nest-coral, #ff5c35) !important;
 }
-.canvas-notice {
+/* Store notices and agent membership messages stack at the top centre. */
+.canvas-notices {
   position: absolute;
   top: 14px;
   left: 50%;
   z-index: 3;
   transform: translateX(-50%);
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  pointer-events: none;
+}
+.canvas-notices:empty {
+  display: none;
+}
+.canvas-notice {
+  pointer-events: auto;
   display: flex;
   align-items: center;
   gap: 12px;
-  max-width: calc(100% - 32px);
+  max-width: 100%;
   border: 1px solid var(--nest-border);
   border-radius: 999px;
   padding: 8px 8px 8px 16px;
@@ -1108,4 +1121,247 @@
   .canvas-chat-body > .workspace {
     padding: 0 12px 8px;
   }
+}
+
+/* Agents on cards (Task 9): the pinned tray, the All agents picker and face drags. */
+.canvas-tray {
+  position: absolute;
+  left: 16px;
+  bottom: 18px;
+  z-index: 2;
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  /* Leaves the zoom controls their corner. */
+  max-width: calc(100% - 260px);
+}
+.canvas-tray-label {
+  margin: 0;
+  border-radius: 999px;
+  padding: 3px 10px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--nest-surface) 88%, transparent);
+  color: var(--nest-muted);
+  font-size: 12px;
+}
+.canvas-tray-strip {
+  position: static;
+  max-width: 100%;
+  box-sizing: border-box;
+  gap: 6px;
+  padding: 4px 4px 4px 8px;
+}
+/* Faces scroll when the strip is squeezed; All agents always stays in view. */
+.canvas-tray-scroll {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+/* On a narrow canvas only All agents remains beside the zoom controls. */
+@container (max-width: 560px) {
+  .canvas-tray-scroll,
+  .canvas-tray-label {
+    display: none;
+  }
+}
+.canvas-tray-faces {
+  display: flex;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.canvas-tray-faces[data-group="suggested"] {
+  padding-right: 8px;
+  border-right: 1px solid var(--nest-border);
+}
+.canvas-tray-face {
+  display: inline-flex;
+  border-radius: 999px;
+  cursor: grab;
+}
+.canvas-tray-face:hover {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--nest-lime) 55%, transparent);
+}
+.canvas-chrome .canvas-tray-all {
+  flex: none;
+  white-space: nowrap;
+  font-size: 14px;
+}
+.canvas-picker {
+  position: absolute;
+  left: 16px;
+  bottom: 96px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(340px, calc(100% - 32px));
+  max-height: min(520px, calc(100% - 130px));
+  box-sizing: border-box;
+  padding: 14px;
+  border: 1px solid var(--nest-border);
+  border-radius: 16px;
+  background: var(--nest-surface);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--nest-forest) 16%, transparent);
+  color: var(--nest-text);
+}
+/* While a row is dragged, the panel lets the drop reach the card beneath it. */
+.canvas-picker.is-dragging {
+  opacity: .35;
+  pointer-events: none;
+}
+.canvas-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.canvas-picker-head h2 {
+  margin: 0;
+  font: 600 15px/1.2 Unbounded, Inter, sans-serif;
+}
+.canvas-picker-close {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: var(--nest-muted-surface);
+  color: var(--nest-text);
+  cursor: pointer;
+}
+.canvas-picker-search,
+.canvas-picker-area select {
+  min-height: 36px;
+  border: 1px solid var(--nest-border);
+  border-radius: 10px;
+  padding: 0 12px;
+  background: var(--nest-bg);
+  color: var(--nest-text);
+}
+.canvas-picker-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.canvas-picker-owners {
+  display: inline-flex;
+  border: 1px solid var(--nest-border);
+  border-radius: 999px;
+  padding: 2px;
+}
+.canvas-picker-owners label {
+  position: relative;
+}
+.canvas-picker-owners input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.canvas-picker-owners span {
+  display: block;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 13px;
+}
+.canvas-picker-owners input:checked + span {
+  background: color-mix(in srgb, var(--nest-lime) 22%, transparent);
+}
+.canvas-picker-owners input:focus-visible + span {
+  outline: 2px solid var(--nest-lime);
+}
+.canvas-picker-area {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--nest-muted);
+}
+.canvas-picker-area select {
+  min-height: 32px;
+  max-width: 150px;
+}
+.canvas-picker-hint,
+.canvas-picker-empty {
+  margin: 0;
+  color: var(--nest-muted);
+  font-size: 12px;
+}
+.canvas-picker-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.canvas-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 10px;
+  padding: 6px 8px;
+  cursor: grab;
+}
+.canvas-picker-row:hover {
+  background: var(--nest-muted-surface);
+}
+.canvas-picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+.canvas-picker-owner {
+  color: var(--nest-muted);
+  font-size: 12px;
+}
+/* The bottom box sits above the tray's row wherever the centred box would reach it. */
+@container (max-width: 1560px) {
+  .canvas-dock {
+    bottom: 76px;
+  }
+}
+.canvas-card-face[data-drag="face"] {
+  cursor: grab;
+}
+.canvas-card-face.is-lifted {
+  opacity: .3;
+}
+.canvas-card.is-drop-target {
+  outline: 2px dashed var(--nest-lime);
+  outline-offset: 3px;
+}
+.canvas-card.is-selected:not(.is-open) {
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--nest-lime) 60%, transparent), var(--canvas-shadow);
+}
+.canvas-face-ghost {
+  position: absolute;
+  left: -17px;
+  top: -17px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  filter: drop-shadow(0 6px 12px color-mix(in srgb, var(--nest-forest) 22%, transparent));
+}
+.canvas-face-ghost-label {
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: var(--nest-coral);
+  color: var(--nest-forest);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
 }

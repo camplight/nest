@@ -1,9 +1,10 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
 import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore,type FormEvent,type ReactNode} from 'react';
-import {CanvasTint,type Canvas,type NewArea,type Project} from '@nest/schemas';
+import {CanvasTint,type BoardCard,type Canvas,type NewArea,type Project} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
-import {ApiError,apiJson,getApiHeaders} from '../api';
+import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
+import {addChatMember,removeChatMember} from '../chat-members';
 import {StartChat} from '../ProjectStart';
 import {boardApi,createCanvas,getHidden,listCanvases,setHidden} from './api';
 import {createBoardStore} from './board-store';
@@ -13,6 +14,8 @@ import {LoosePile} from './LoosePile';
 import {areaAround,gridPlacement,looseChats} from './loose';
 import {SPLIT_MAX,SPLIT_MIN,clampSplit,readSplit,splitAt,writeSplit} from './split';
 import {cardTitle} from './Card';
+import {AgentTray} from './AgentTray';
+import {trayAgents} from './tray';
 import type {CardPulse} from './pulse';
 import type {Point} from './geometry';
 import './canvas.css';
@@ -39,7 +42,13 @@ export type CanvasViewProps = {
   live: CanvasLive;
   /** Re-reads App's channel and project lists without navigating, so a chat started here shows in the pile. */
   refreshChannels(): Promise<void>;
+  /** The confirmed channel list after an agent is added or removed here (App's setChannels). */
+  onChannels(channels: Channel[]): void;
 };
+/** A short message over the canvas about a membership change, with Undo after a removal. */
+type MemberNotice = {id: number; text: string; undo?: () => void};
+const MEMBER_NOTICE_MS = 6000;
+export const CANT_ADD = "You can't add people to this chat";
 
 const SYNC_INTERVAL_MS = 5000;
 const NO_PULSES: ReadonlyMap<string, CardPulse> = new Map();
@@ -61,7 +70,7 @@ async function sendNudge(channelId: string, agent: string) {
   await apiJson('/api/messages', {method: 'POST', headers: getApiHeaders(), body: JSON.stringify(nudgeMessage(channelId, agent))});
 }
 
-export function CanvasView({canvasId, humanId, username, channels, projects, onSelectCanvas, onMenu, chat, chatChannelId, chatMode, onOpenChat, onCloseChat, onOpenRegular, live, refreshChannels}: CanvasViewProps) {
+export function CanvasView({canvasId, humanId, username, channels, projects, agents, onSelectCanvas, onMenu, chat, chatChannelId, chatMode, onOpenChat, onCloseChat, onOpenRegular, live, refreshChannels, onChannels}: CanvasViewProps) {
   const store = useMemo(() => createBoardStore({api: boardApi, now: Date.now, intervalMs: SYNC_INTERVAL_MS}), []);
   const state = useSyncExternalStore(store.subscribe, store.snapshot);
   const [canvases, setCanvases] = useState<Canvas[] | null>(null);
@@ -155,7 +164,7 @@ export function CanvasView({canvasId, humanId, username, channels, projects, onS
   const modeRef = useRef(chatMode); modeRef.current = chatShown ? chatMode : null;
   const openRef = useRef(onOpenChat); openRef.current = onOpenChat;
   // A card opens in focus, or replaces the split-screen chat beside the canvas.
-  const openFromCard = useCallback((channelId: string) => openRef.current(channelId, modeRef.current ?? 'focus'), []);
+  const openFromCard = useCallback((channelId: string) => { setSelectedId(channelId); openRef.current(channelId, modeRef.current ?? 'focus'); }, []);
   // A sent bottom-box chat lands in the pile only: the box starts over and the canvas stays put.
   const [dockKey, setDockKey] = useState(0);
   const refreshRef = useRef(refreshChannels); refreshRef.current = refreshChannels;
@@ -163,6 +172,56 @@ export function CanvasView({canvasId, humanId, username, channels, projects, onS
     setDockKey(n => n + 1);
     void refreshRef.current().catch(() => {});
   }, []);
+  // Agents on cards: the selected card leads the tray's suggestions; membership goes through the engine.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  useEffect(() => { setSelectedId(null); }, [canvasId]);
+  const selected = cards?.find(card => card.channelId === selectedId && card.access === 'open');
+  const tray = useMemo(() => board ? trayAgents({agents, humanId, cards: board.cards, areas: board.areas, selectedId: selected?.channelId ?? null}) : [],
+    [board, agents, humanId, selected]);
+  // As in the regular chat: the engine's canManage, not archived, and a project chat only for the project's owner.
+  const manageable = useCallback((card: BoardCard) => card.access === 'open' && card.canManage && !card.archived
+    && (!card.projectId || projects.some(project => project.id === card.projectId && project.ownerId === humanId)), [projects, humanId]);
+  const [memberNotice, setMemberNotice] = useState<MemberNotice | null>(null);
+  const noticeId = useRef(0);
+  const say = useCallback((text: string, undo?: () => void) => setMemberNotice({id: ++noticeId.current, text, undo}), []);
+  useEffect(() => {
+    if (!memberNotice) return;
+    const timer = setTimeout(() => setMemberNotice(current => current?.id === memberNotice.id ? null : current), MEMBER_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [memberNotice]);
+  const humanRef = useRef(humanId); humanRef.current = humanId;
+  const channelsRef = useRef(onChannels); channelsRef.current = onChannels;
+  /** Hands the confirmed list to App and re-reads the board, whose participants come from the server. */
+  const settle = useCallback((fresh: Channel[], by: string) => {
+    if (humanRef.current !== by) return false;
+    channelsRef.current(fresh);
+    void store.refresh({force: true});
+    return true;
+  }, [store]);
+  const cardFor = (channelId: string) => store.snapshot().board?.cards.find(card => card.channelId === channelId);
+  const add = useCallback(async (channelId: string, agent: string) => {
+    const card = cardFor(channelId), by = humanRef.current;
+    if (!card || card.access !== 'open') return;
+    try {
+      const fresh = await addChatMember({channelId, projectId: card.projectId, member: {subscriberType: 'AGENT', subscriberId: agent}, fetch: apiFetch, fetchJson: apiJson});
+      if (settle(fresh, by)) say(`Added ${agent}`);
+    } catch { if (humanRef.current === by) say(`Could not add ${agent}. Try again.`); }
+  }, [store, settle, say]);
+  const dropAgent = useCallback((channelId: string, agent: string) => {
+    const card = cardFor(channelId);
+    if (!card || card.access !== 'open') return;
+    if (!manageable(card)) { say(CANT_ADD); return; }
+    if (card.participants.some(p => p.subscriberType === 'AGENT' && p.subscriberId === agent)) { say(`${agent} is already in this chat`); return; }
+    void add(channelId, agent);
+  }, [store, manageable, add, say]);
+  const removeAgent = useCallback(async (channelId: string, agent: string) => {
+    const card = cardFor(channelId), by = humanRef.current;
+    if (!card || !manageable(card)) return;
+    try {
+      const fresh = await removeChatMember({channelId, member: {subscriberType: 'AGENT', subscriberId: agent}, fetch: apiFetch, fetchJson: apiJson});
+      if (settle(fresh, by)) say(`Removed ${agent}`, () => { setMemberNotice(null); void add(channelId, agent); });
+    } catch { if (humanRef.current === by) say(`Could not remove ${agent}. Try again.`); }
+  }, [store, manageable, settle, say, add]);
   const name = board?.canvas.name ?? canvases?.find(c => c.id === canvasId)?.name ?? '';
   let body: ReactNode;
   if (!canvasId) {
@@ -181,7 +240,9 @@ export function CanvasView({canvasId, humanId, username, channels, projects, onS
     body = <>
       <div className="canvas-stage">
         <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={store.apply} pulses={pulses} onNudge={sendNudge}
-          onDropChat={canPlace ? dropChat : undefined} controls={controls} onOpenChat={openFromCard} openChannelId={chatShown ? chatChannelId : null}/>
+          onDropChat={canPlace ? dropChat : undefined} controls={controls} onOpenChat={openFromCard} openChannelId={chatShown ? chatChannelId : null}
+          onDropAgent={dropAgent} onRemoveAgent={removeAgent} canManageCard={manageable} onSelectCard={setSelectedId} selectedChannelId={selected?.channelId ?? null}/>
+        <AgentTray tray={tray} suggestedFor={selected ? cardTitle(selected) : null} agents={agents} humanId={humanId} cards={board.cards} areas={board.areas}/>
         {/* While a chat is open, dropped files go to that chat only. */}
         {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" onCreated={created} fileDrop={!chatShown}/></div> : null}
       </div>
@@ -198,10 +259,17 @@ export function CanvasView({canvasId, humanId, username, channels, projects, onS
     </div> : undefined}/>
     <div className={`canvas-body${chatShown ? ` has-chat is-${chatMode}` : ''}`}>
       <CanvasMain inert={chatShown && chatMode === 'focus'}>
-        {state.notice && state.canvasId === canvasId ? <div className="canvas-notice" role="status">
-          <span>{state.notice}</span>
-          <button type="button" onClick={store.clearNotice}>Dismiss</button>
-        </div> : null}
+        <div className="canvas-notices">
+          {state.notice && state.canvasId === canvasId ? <div className="canvas-notice" role="status">
+            <span>{state.notice}</span>
+            <button type="button" onClick={store.clearNotice}>Dismiss</button>
+          </div> : null}
+          {memberNotice && board ? <div key={memberNotice.id} className="canvas-notice" role="status">
+            <span>{memberNotice.text}</span>
+            {memberNotice.undo ? <button type="button" onClick={memberNotice.undo}>Undo</button> : null}
+            <button type="button" onClick={() => setMemberNotice(null)}>Dismiss</button>
+          </div> : null}
+        </div>
         {body}
       </CanvasMain>
       {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} title={chatTitle}
