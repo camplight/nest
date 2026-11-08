@@ -126,6 +126,8 @@ export function createCanvasStore(db: Database.Database) {
       if (!before || before.version !== patch.version) throw new CanvasConflictError(before ?? null);
       const next = { ...before, title: patch.title ?? before.title, x: patch.x ?? before.x, y: patch.y ?? before.y, w: patch.w ?? before.w, h: patch.h ?? before.h, tint: patch.tint ?? before.tint };
       const dx = next.x - before.x, dy = next.y - before.y;
+      const movedCards: string[] = [];
+      const movedAreas: string[] = [];
       if (options.moveCards && (dx || dy)) {
         // Membership is judged against the layout before the move: the area's own cards, plus
         // cards and areas nested inside it travel together.
@@ -134,16 +136,20 @@ export function createCanvasStore(db: Database.Database) {
         const shift = db.prepare('UPDATE product_canvas_cards SET x=x+?, y=y+?, version=version+1 WHERE canvas_id=? AND channel_id=?');
         for (const c of cards(canvasId)) {
           const owner = areaFor({ x: c.x + c.w / 2, y: c.y + CARD_HEIGHT / 2 }, all);
-          if (owner && (owner.id === areaId || nested.has(owner.id))) shift.run(dx, dy, canvasId, c.channelId);
+          if (owner && (owner.id === areaId || nested.has(owner.id))) { shift.run(dx, dy, canvasId, c.channelId); movedCards.push(c.channelId); }
         }
         const shiftArea = db.prepare('UPDATE product_canvas_areas SET x=x+?, y=y+?, version=version+1, updated_at=? WHERE id=?');
-        for (const id of nested) shiftArea.run(dx, dy, Date.now(), id);
+        for (const id of nested) { shiftArea.run(dx, dy, Date.now(), id); movedAreas.push(id); }
       }
       db.prepare('UPDATE product_canvas_areas SET title=?,x=?,y=?,w=?,h=?,tint=?,version=version+1,updated_at=? WHERE id=? AND version=?')
         .run(next.title, next.x, next.y, next.w, next.h, next.tint, Date.now(), areaId, patch.version);
       touch(canvasId);
       audit('audit.canvas.area.updated', actor, { canvasId, areaId });
-      return area(canvasId, areaId)!;
+      return {
+        area: area(canvasId, areaId)!,
+        cards: movedCards.map(id => card(canvasId, id)!),
+        areas: movedAreas.map(id => area(canvasId, id)!),
+      };
     })();
   }
   function removeArea(canvasId: string, areaId: string, version: number, actor: string) {

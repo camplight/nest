@@ -74,4 +74,5 @@ export type BoardCard = BoardCardBase & (
   | { access: 'locked'; ownerLabel: string }
   | { access: 'unavailable' }
 );
-export type CanvasBoard = { canvas: Canvas; areas: CanvasArea[]; cards: BoardCard[] };
+/** `etag` hashes the board as this viewer sees it, so engine-side changes (renames, access) alter it too. */
+export type CanvasBoard = { canvas: Canvas; areas: CanvasArea[]; cards: BoardCard[]; etag: string };

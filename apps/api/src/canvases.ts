@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { bodyLimit } from 'hono/body-limit';
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { ProductDb } from '@nest/db';
 import { CanvasConflictError, CanvasForbiddenError, CanvasLimitError } from '@nest/db';
@@ -38,7 +39,18 @@ export function resolveBoard(
     }
     return row.placedBy === viewerId ? { ...base, access: 'unavailable' } : { ...base, access: 'locked', ownerLabel };
   });
-  return { canvas, areas, cards };
+  const etag = createHash('sha256').update(JSON.stringify({ canvas, areas, cards })).digest('hex');
+  return { canvas, areas, cards, etag };
+}
+
+// Card rows from the store carry a project id and owner label; hand them back only for chats the caller can see.
+function forViewer(rows: CanvasCardRow[], channels: Channel[]) {
+  const seen = new Set(channels.map(ch => ch.id));
+  return rows.map(row => {
+    if (seen.has(row.channelId)) return row;
+    const { ownerLabel: _ownerLabel, ...rest } = row;
+    return { ...rest, projectId: null } as CanvasCardRow;
+  });
 }
 
 export function registerCanvasRoutes(app: Hono, { store, orgops, enabled }: { store: ProductDb; orgops: OrgOpsClient; enabled: boolean }) {
@@ -46,7 +58,12 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled }: { st
   const canvases = store.canvases;
   routes.onError((error, c) => {
     if (error instanceof HTTPException) return c.json({ error: error.message }, error.status);
-    if (error instanceof CanvasConflictError) return c.json({ error: 'Canvas changed', current: error.current }, 409);
+    if (error instanceof CanvasConflictError) {
+      // Card rows carry a project id and owner label: shape them for this viewer like any other card.
+      const current = error.current;
+      const shaped = current && 'channelId' in current ? forViewer([current], c.get('channels') ?? [])[0] : current;
+      return c.json({ error: 'Canvas changed', current: shaped }, 409);
+    }
     if (error instanceof CanvasForbiddenError) return c.json({ error: error.message }, 403);
     if (error instanceof CanvasLimitError) return c.json({ error: error.message }, 400);
     console.error('Canvas request failed:', error.name);
@@ -159,16 +176,12 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled }: { st
     const rows = canvases.cards(canvasId);
     return resolveBoard(rows, canvases.areas(canvasId), canvas, channels, store.projects.byChannels(rows.map(r => r.channelId)), human.id);
   }
-  // Card rows from the store carry a project id; hand it back only for chats the caller can see.
-  const forViewer = (rows: CanvasCardRow[], channels: Channel[]) => {
-    const seen = new Set(channels.map(ch => ch.id));
-    return rows.map(row => seen.has(row.channelId) ? row : { ...row, projectId: null });
-  };
   routes.get('/api/canvases/:id/board', async c => {
     const canvas = visible(c);
-    const raw = c.req.query('version');
-    if (raw !== undefined && Number(raw) === canvas.version) return c.json({ unchanged: true });
-    return c.json(await buildBoard(c, canvas.id));
+    const board = await buildBoard(c, canvas.id);
+    const etag = c.req.query('etag');
+    if (etag && etag === board.etag) return c.json({ unchanged: true });
+    return c.json(board);
   });
 
   routes.post('/api/canvases/:id/areas', async c => {
@@ -181,10 +194,8 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled }: { st
     const canvas = visible(c);
     const input = parse(AreaPatchSchema, await body(c));
     const moveCards = c.req.query('moveCards') === '1';
-    const before = new Map(canvases.cards(canvas.id).map(card => [card.channelId, card.version]));
-    const area = canvases.patchArea(canvas.id, c.req.param('areaId'), input, c.get('human').id, { moveCards });
-    const moved = canvases.cards(canvas.id).filter(card => before.get(card.channelId) !== card.version);
-    return c.json({ area, cards: forViewer(moved, c.get('channels')) });
+    const result = canvases.patchArea(canvas.id, c.req.param('areaId'), input, c.get('human').id, { moveCards });
+    return c.json({ area: result.area, cards: forViewer(result.cards, c.get('channels')), areas: result.areas });
   });
   routes.delete('/api/canvases/:id/areas/:areaId', c => {
     const canvas = visible(c);

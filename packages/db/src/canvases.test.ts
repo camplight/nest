@@ -53,7 +53,11 @@ describe('canvas store', () => {
     const outer = store.canvases.createArea(c.id, newArea(0, 0, 2000, 2000), 'owner');
     const inner = store.canvases.createArea(c.id, newArea(100, 100, 600, 600), 'owner');
     store.canvases.placeCards(c.id, [placed('in-outer', 1000, 1000), placed('in-inner', 200, 200), placed('outside', 5000, 5000)], undefined, 'owner');
-    store.canvases.patchArea(c.id, outer.id, { x: 100, y: 50, version: outer.version }, 'owner', { moveCards: true });
+    const result = store.canvases.patchArea(c.id, outer.id, { x: 100, y: 50, version: outer.version }, 'owner', { moveCards: true });
+    expect(result.area).toMatchObject({ id: outer.id, x: 100, y: 50 });
+    expect(result.cards.map(k => k.channelId).sort()).toEqual(['in-inner', 'in-outer']);
+    expect(result.areas.map(a => a.id)).toEqual([inner.id]);
+    expect(result.areas[0]).toMatchObject({ x: 200, y: 150 });
     const byId = Object.fromEntries(store.canvases.cards(c.id).map(k => [k.channelId, k]));
     expect(byId['in-outer']).toMatchObject({ x: 1100, y: 1050 });
     expect(byId['in-inner']).toMatchObject({ x: 300, y: 250 });

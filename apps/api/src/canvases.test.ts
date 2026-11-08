@@ -43,7 +43,7 @@ describe('canvas API against the unchanged engine', () => {
     it('reports unavailable and hides every other route', async () => {
       expect(await (await call(owner, 'GET', '/api/canvases/availability')).json()).toEqual({ available: false });
       for (const p of ['/api/canvases', '/api/canvases/hidden', `/api/canvases/${randomUUID()}`, '/api/canvases/x/y/z'])
-        expect(await call(owner, 'GET', p).then(r => [r.status])).toEqual([404]);
+        expect([(await call(owner, 'GET', p)).status]).toEqual([404]);
       expect((await call(owner, 'POST', '/api/canvases', { id: randomUUID(), name: 'x' })).status).toBe(404);
     });
   });

@@ -95,12 +95,20 @@ describe('canvas board against the unchanged engine', () => {
     expect((await board(mate, canvasId)).cards[0].access).toBe('open');
   });
 
-  it('answers ?version=N with unchanged only when equal', async () => {
+  it('answers ?etag=E with unchanged only while the resolved board is identical', async () => {
     await place(owner, [{ channelId: b, x: 0, y: 0 }]);
-    const { canvas } = await board(owner, canvasId);
-    expect(await (await call(owner, 'GET', `/api/canvases/${canvasId}/board?version=${canvas.version}`)).json()).toEqual({ unchanged: true });
-    const full = await (await call(owner, 'GET', `/api/canvases/${canvasId}/board?version=${canvas.version - 1}`)).json();
-    expect(full.cards).toHaveLength(1);
+    const first = await board(owner, canvasId);
+    expect(first.etag).toMatch(/^[0-9a-f]{64}$/);
+    expect(await (await call(owner, 'GET', `/api/canvases/${canvasId}/board?etag=${first.etag}`)).json()).toEqual({ unchanged: true });
+    expect((await (await call(owner, 'GET', `/api/canvases/${canvasId}/board?etag=`)).json()).cards).toHaveLength(1);
+    expect((await (await call(owner, 'GET', `/api/canvases/${canvasId}/board?etag=nope`)).json()).etag).toBe(first.etag);
+    // An engine-side rename never bumps the canvas version but must change the etag.
+    expect((await call(owner, 'PATCH', `/api/channels/${b}`, { name: 'Renamed-Chat' })).status).toBe(200);
+    const after = await (await call(owner, 'GET', `/api/canvases/${canvasId}/board?etag=${first.etag}`)).json();
+    expect(after.unchanged).toBeUndefined();
+    expect(after.canvas.version).toBe(first.canvas.version);
+    expect(after.cards[0].title).toBe('Renamed-Chat');
+    expect(after.etag).not.toBe(first.etag);
   });
 
   it('moves an area with its cards and reports the moved cards', async () => {
@@ -114,6 +122,7 @@ describe('canvas board against the unchanged engine', () => {
     expect(body.area).toMatchObject({ id: area.id, x: 1000, y: 50, version: 1 });
     expect(body.cards.map((c: any) => c.channelId)).toEqual([b]);
     expect(body.cards[0]).toMatchObject({ x: 1100, y: 150 });
+    expect(body.areas).toEqual([]);
     const after = await board(owner, canvasId);
     expect(after.cards.find((c: any) => c.channelId === b)).toMatchObject({ x: 1100, y: 150 });
     expect(after.cards.find((c: any) => c.channelId === a)).toMatchObject({ x: 5000, y: 5000 });
@@ -169,5 +178,35 @@ describe('canvas board against the unchanged engine', () => {
     await place(owner, [{ channelId: pub, x: 0, y: 0 }]);
     const row = product.store.canvases.cards(canvasId)[0];
     expect(row.ownerLabel).toBe('a teammate');
+  });
+
+  it('reports shifted nested areas from the same transaction', async () => {
+    const outer = { id: randomUUID(), title: 'Outer', x: 0, y: 0, w: 2000, h: 2000 };
+    const inner = { id: randomUUID(), title: 'Inner', x: 100, y: 100, w: 400, h: 400 };
+    await call(owner, 'POST', `/api/canvases/${canvasId}/areas`, outer);
+    await call(owner, 'POST', `/api/canvases/${canvasId}/areas`, inner);
+    const res = await (await call(owner, 'PATCH', `/api/canvases/${canvasId}/areas/${outer.id}?moveCards=1`, { x: 10, y: 20, version: 0 })).json();
+    expect(res.areas).toMatchObject([{ id: inner.id, x: 110, y: 120 }]);
+    expect(res.cards).toEqual([]);
+  });
+
+  it('never leaks a project id, project name or owner label in card conflicts on a locked card', async () => {
+    const room = await channel(owner, 'Hidden-Room');
+    const projectId = randomUUID();
+    expect((await call(owner, 'POST', '/api/projects', { id: projectId, name: 'Codename-Zeta', description: 'x', channelId: room })).status).toBe(201);
+    await place(owner, [{ channelId: room, x: 0, y: 0 }]);
+    const patch = await call(mate, 'PATCH', `/api/canvases/${canvasId}/cards/${room}`, { x: 1, y: 1, version: 999 });
+    const del = await call(mate, 'DELETE', `/api/canvases/${canvasId}/cards/${room}?version=999`);
+    for (const res of [patch, del]) {
+      expect(res.status).toBe(409);
+      const text = await res.text();
+      expect(text).not.toContain(projectId);
+      expect(text).not.toContain('Codename-Zeta');
+      expect(text).not.toContain('ownerLabel');
+      expect(JSON.parse(text).current).toMatchObject({ channelId: room });
+    }
+    // The owner, who can open the chat, still gets the full row.
+    const own = await call(owner, 'DELETE', `/api/canvases/${canvasId}/cards/${room}?version=999`);
+    expect((await own.json()).current).toMatchObject({ projectId });
   });
 });
