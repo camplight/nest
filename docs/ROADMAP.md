@@ -569,7 +569,10 @@ Deferred to later phases, as the design sets out: links between chats, forks,
 context notes and files, schedules and triggers, app activity, per-chat agent setup,
 sandboxes and repos. Needs you covers unread mentions and tasks waiting for review
 only; approvals, picks and missed runs arrive with Phases 3 and 4. Inviting agents
-on the canvas works by drag only, with no keyboard or touch route yet.
+on the canvas works by drag only, with no keyboard or touch route yet. Moving cards
+and areas is by pointer or touch drag only; a keyboard route to move them is
+deferred too. Loose chats the person has hidden are not searchable with Ctrl/Cmd+K
+unless Show hidden is on.
 
 ## First-visit visual orientation
 

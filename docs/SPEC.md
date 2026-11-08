@@ -740,15 +740,23 @@ Phase 1 is built from
    chat for the person asking. Anyone else gets a locked card that shows
    "Private chat" and who owns the chat (its engine owner, recorded when the card
    was placed), never the title, participants or messages. A card whose chat the
-   person placed but can no longer see shows as unavailable and can be removed. Locked and unavailable cards never open.
+   person placed but can no longer see shows as unavailable. Locked and unavailable cards never open.
+   The owner and editors can take any card off the canvas with "Remove from canvas",
+   whether it is open, locked or unavailable; viewers cannot (403). Removing never
+   changes the chat, and a loose chat the person has not hidden returns to the Loose
+   chats pile.
 
 5. Using it. A shared canvas syncs every 5 seconds while visible and on window
    focus. One chat opens at a time, in focus (over a dimmed canvas) or in split
    screen beside it, and "Open in the regular chat view" leaves the canvas. Only
-   cards near the viewport are mounted, and below 50% zoom cards switch to a
-   compact form. Search (Ctrl/Cmd+K) finds cards, areas, loose chats and canvases.
-   Needs you lists unread mentions and tasks waiting for review on chats the person
-   can see.
+   chats in the user UI's visible chat list open; if the open chat leaves that list,
+   it closes. Only cards near the viewport are mounted, and below 50% zoom cards
+   switch to a compact form. A chat dragged from the pile lands centred on the
+   pointer. "Place on canvas" and "New area from these" put a grid at the viewport
+   centre, moved down below any existing cards it would cover. Search (Ctrl/Cmd+K)
+   finds cards, areas, loose chats and canvases; loose chats the person has hidden
+   are not searchable unless Show hidden is on. Needs you lists unread mentions and
+   tasks waiting for review on chats the person can see.
 
 6. Phones and display. On viewports up to 760 px wide there is no free canvas.
    A list takes its place with three segments: Areas (each area opens to its chats,
