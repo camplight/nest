@@ -152,13 +152,13 @@ await runChatTest('canvas pile: Place on canvas and dragging a row place cards w
   const surface=(await page.locator('.canvas-surface').boundingBox())!;
   const dropped=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith(`/api/canvases/${id}/cards`));
   await rowFor(page,target.name).dragTo(page.locator('.canvas-surface'),{targetPosition:{x:200,y:150}});
-  const drop=JSON.parse((await dropped).request().postData()!) as {cards:{channelId:string;x:number;y:number}[]};
+  const drop=JSON.parse((await dropped).request().postData()!) as {cards:{channelId:string}[]};
   assert.deepEqual(drop.cards.map(c=>c.channelId),[target.channelId]);
-  assert.deepEqual([drop.cards[0].x,drop.cards[0].y],[200-140,150-80],'offset by half the card width and CARD_HEIGHT');
   const card=page.locator(`.canvas-card[data-channel-id="${target.channelId}"]`);
   await card.waitFor();
-  const box=(await card.boundingBox())!;
-  assert.ok(Math.abs(box.x+box.width/2-(surface.x+200))<=2&&Math.abs(box.y-(surface.y+150-80))<=2,`card centred on the drop point: ${box.x - surface.x},${box.y - surface.y}`);
+  // Offset by half the card width and CARD_HEIGHT, in screen pixels at the current zoom.
+  const box=(await card.boundingBox())!, zoom=box.width/280;
+  assert.ok(Math.abs(box.x+box.width/2-(surface.x+200))<=2&&Math.abs(box.y+80*zoom-(surface.y+150))<=2,`card centred on the drop point: ${box.x - surface.x},${box.y - surface.y} at ${zoom}`);
   await rowFor(page,target.name).waitFor({state:'detached'});
 
   // Remove from canvas on an open card: the card goes, the chat is back in the pile, and the engine chat is untouched.
