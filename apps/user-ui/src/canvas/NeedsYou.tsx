@@ -10,7 +10,7 @@ const REVIEWS_MS = 60_000;
 const NO_REVIEWS: DashboardTask[] = [];
 
 /** Tasks awaiting review: read on mount, when the list opens, on focus, and once a minute while visible. */
-function useReviews(open: boolean) {
+export function useReviews(open: boolean) {
   const [reviews, setReviews] = useState<DashboardTask[]>(NO_REVIEWS);
   useEffect(() => {
     let current = true;

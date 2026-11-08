@@ -20,6 +20,7 @@ import {AgentTray} from './AgentTray';
 import {trayAgents} from './tray';
 import {NeedsYou} from './NeedsYou';
 import {CanvasSearch} from './CanvasSearch';
+import {PHONE_QUERY,PhoneList,usePhoneLayout} from './PhoneList';
 import {searchIndex,type SearchItem} from './search';
 import type {CardPulse} from './pulse';
 import type {Point} from './geometry';
@@ -66,7 +67,7 @@ const pileKey = (humanId: string) => `nest-canvas-pile-open:${humanId}`;
 function readPileOpen(humanId: string) {
   try { const saved = localStorage.getItem(pileKey(humanId)); if (saved === '1' || saved === '0') return saved === '1'; } catch {}
   // Phones (the 760 px breakpoint) start with the pile folded away.
-  return !(typeof matchMedia === 'function' && matchMedia('(max-width: 760px)').matches);
+  return !(typeof matchMedia === 'function' && matchMedia(PHONE_QUERY).matches);
 }
 const mostRecent = (canvases: Canvas[]) => canvases.reduce<Canvas | null>((best, c) => !best || c.updatedAt > best.updatedAt ? c : best, null);
 
@@ -77,6 +78,8 @@ async function sendNudge(channelId: string, agent: string) {
 
 export function CanvasView({canvasId, humanId, username, humans, channels, projects, agents, onSelectCanvas, onMenu, chat, chatChannelId, chatMode, onOpenChat, onCloseChat, onOpenRegular, live, refreshChannels, onChannels}: CanvasViewProps) {
   const store = useMemo(() => createBoardStore({api: boardApi, now: Date.now, intervalMs: SYNC_INTERVAL_MS}), []);
+  // Phones get a list in place of the free canvas.
+  const phone = usePhoneLayout();
   const state = useSyncExternalStore(store.subscribe, store.snapshot);
   // The list is stamped with the view it was read for: a list read before the URL lost its canvas never drives the redirect.
   const [fetched, setFetched] = useState<{key: string; list: Canvas[]} | null>(null);
@@ -135,6 +138,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const loose = useMemo(() => cards ? looseChats({channels, projects, boardChannelIds: boardIds, hidden, username, userId: humanId, pulses, showHidden}) : [],
     [cards, channels, projects, boardIds, hidden, username, humanId, pulses, showHidden]);
   const looseCount = useMemo(() => showHidden ? loose.filter(chat => !hidden.has(chat.channelId)).length : loose.length, [loose, hidden, showHidden]);
+  const phoneLoose = useMemo(() => showHidden ? loose.filter(chat => !hidden.has(chat.channelId)) : loose, [loose, hidden, showHidden]);
   const candidatesRef = useRef(candidates); candidatesRef.current = candidates;
 
   useEffect(() => {
@@ -331,6 +335,13 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     body = <CanvasMessage text="Could not load this canvas." action="Try again" onAction={() => void store.open(canvasId)}/>;
   } else if (!board) {
     body = <CanvasMessage text="Loading canvas…"/>;
+  } else if (phone) {
+    // The bottom box stays on phones, under the list.
+    body = <div className="canvas-phone-stage">
+      <PhoneList key={board.canvas.id} board={board} pulses={pulses} loose={phoneLoose} titles={titles} projects={projects}
+        onOpenChat={openFromPile} openChannelId={chatShown ? chatChannelId : null}/>
+      {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" onCreated={created} fileDrop={!chatShown}/></div> : null}
+    </div>;
   } else {
     // Keyed by canvas so the saved view, gestures and measured card heights start fresh per canvas.
     const canPlace = board.canvas.role !== 'view';
@@ -352,7 +363,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
 
   return <section className="canvas-view" aria-label="Canvas">
     <WorkspaceTopbar onMenu={onMenu} search={canvasId ? <div className="canvas-tools">
-      <NeedsYou pulses={pulses} titles={titles} projects={projects} onJump={jumpTo}/>
+      {/* On phones Needs you is a segment of the list instead. */}
+      {phone ? null : <NeedsYou pulses={pulses} titles={titles} projects={projects} onJump={jumpTo}/>}
       <button type="button" className="canvas-search-button" title="Search the canvas (Ctrl+K)" onClick={() => setSearchOpen(true)}>Search</button>
     </div> : undefined} leading={canvasId ? <div className="canvas-heading">
       <h1 className="canvas-name">{name}</h1>

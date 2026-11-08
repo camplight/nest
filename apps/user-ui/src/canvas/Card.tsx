@@ -47,7 +47,8 @@ export function cardTitle(card: BoardCard) {
 const STATE_LABEL: Record<AgentPulse['state'], string> = {
   working: 'working', quiet: 'quiet', interrupted: 'stopped unexpectedly', done: 'done', failed: 'ran into an error', idle: 'idle', unavailable: 'unavailable',
 };
-function statusText(agent: AgentPulse) {
+/** The status line for an agent, or null for idle and done (shown once per card instead). */
+export function statusText(agent: AgentPulse) {
   switch (agent.state) {
     case 'working': return `${agent.name} is working`;
     case 'quiet': return `${agent.name} quiet for ${agent.quietMinutes ?? 0} min`;

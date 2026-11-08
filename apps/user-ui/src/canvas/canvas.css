@@ -46,10 +46,20 @@
 .canvas-view {
   --canvas-twig: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cpath d='M127.5 145.8Q136.2 150.2 146.5 153.0M131.7 20.4Q116.8 27.1 104.4 31.3M74.0 203.1Q70.1 210.2 66.4 217.2M61.1 174.7Q73.5 181.7 86.2 188.3M45.8 13.0Q21.3 22.1 7.3 20.5M115.5 248.5Q126.5 254.7 136.1 262.4M174.7 73.0Q191.0 83.9 208.8 93.2M60.5 142.2Q68.9 146.2 69.6 157.7M91.4 91.0Q106.2 99.4 128.3 100.4M229.9 122.4Q239.4 133.8 251.8 142.4M197.3 169.7Q205.6 174.5 215.4 177.9M23.4 12.4Q29.8 25.6 32.1 42.9M248.3 84.5Q250.1 98.5 253.5 110.9M218.0 117.2Q216.3 131.1 221.9 137.7M193.2 34.3Q209.4 42.0 215.6 59.8M251.8 241.0Q238.6 246.1 221.5 255.2M144.2 6.3Q146.3 20.2 156.4 26.1M102.3 178.3Q101.6 179.6 88.1 193.7M1.8 93.5Q-7.3 111.6 -5.0 118.1M257.5 118.6Q243.6 124.8 230.6 130.1M32.5 206.2Q16.0 216.2 12.7 212.9M40.2 183.8Q36.3 191.3 22.0 209.2M59.8 215.9Q60.4 225.6 72.7 223.5M5.5 139.6Q-15.0 153.7 -25.5 157.9M128.4 13.5Q130.9 29.9 145.5 34.1M92.5 59.9Q97.7 78.8 113.1 87.6' fill='none' stroke='rgba(2,24,20,0.055)' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E");
   --canvas-shadow: 0 1px 2px color-mix(in srgb, var(--nest-forest) 8%, transparent), 0 8px 24px color-mix(in srgb, var(--nest-forest) 8%, transparent);
+  /*
+   * Colours with no Nest brand token: the Pip and Pom character tints, and the quiet and alert text.
+   * Text colours keep at least 4.5:1 on a card in both themes (checked by tests/browser/canvas/devices.ts).
+   */
+  --canvas-pip: #1f7f6c;
+  --canvas-amber: #8a6212;
+  --canvas-alert: color-mix(in srgb, var(--nest-coral) 62%, var(--nest-text));
 }
 :root[data-theme="dark"] .canvas-view {
   --canvas-twig: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cpath d='M127.5 145.8Q136.2 150.2 146.5 153.0M131.7 20.4Q116.8 27.1 104.4 31.3M74.0 203.1Q70.1 210.2 66.4 217.2M61.1 174.7Q73.5 181.7 86.2 188.3M45.8 13.0Q21.3 22.1 7.3 20.5M115.5 248.5Q126.5 254.7 136.1 262.4M174.7 73.0Q191.0 83.9 208.8 93.2M60.5 142.2Q68.9 146.2 69.6 157.7M91.4 91.0Q106.2 99.4 128.3 100.4M229.9 122.4Q239.4 133.8 251.8 142.4M197.3 169.7Q205.6 174.5 215.4 177.9M23.4 12.4Q29.8 25.6 32.1 42.9M248.3 84.5Q250.1 98.5 253.5 110.9M218.0 117.2Q216.3 131.1 221.9 137.7M193.2 34.3Q209.4 42.0 215.6 59.8M251.8 241.0Q238.6 246.1 221.5 255.2M144.2 6.3Q146.3 20.2 156.4 26.1M102.3 178.3Q101.6 179.6 88.1 193.7M1.8 93.5Q-7.3 111.6 -5.0 118.1M257.5 118.6Q243.6 124.8 230.6 130.1M32.5 206.2Q16.0 216.2 12.7 212.9M40.2 183.8Q36.3 191.3 22.0 209.2M59.8 215.9Q60.4 225.6 72.7 223.5M5.5 139.6Q-15.0 153.7 -25.5 157.9M128.4 13.5Q130.9 29.9 145.5 34.1M92.5 59.9Q97.7 78.8 113.1 87.6' fill='none' stroke='rgba(145,215,103,0.07)' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E");
   --canvas-shadow: 0 1px 2px rgb(0 0 0 / .3), 0 10px 28px rgb(0 0 0 / .32);
+  --canvas-pip: #4fc3a8;
+  --canvas-amber: #d9ad55;
+  --canvas-alert: var(--nest-coral);
 }
 .canvas-surface {
   flex: 1;
@@ -103,14 +113,11 @@
   border: 1.5px solid color-mix(in srgb, var(--tint) 22%, transparent);
   box-shadow: inset 0 0 80px color-mix(in srgb, var(--tint) 6%, transparent);
 }
-.canvas-area[data-tint="moss"] { --tint: var(--nest-lime); }
-.canvas-area[data-tint="muff"] { --tint: var(--nest-coral); }
-.canvas-area[data-tint="pip"] { --tint: #1f7f6c; }
-.canvas-area[data-tint="pom"] { --tint: #b8892a; }
-.canvas-area[data-tint="puff"] { --tint: #6d7f78; }
-:root[data-theme="dark"] .canvas-area[data-tint="pip"] { --tint: #4fc3a8; }
-:root[data-theme="dark"] .canvas-area[data-tint="pom"] { --tint: #d9ad55; }
-:root[data-theme="dark"] .canvas-area[data-tint="puff"] { --tint: #a9bbb2; }
+:is(.canvas-area, .canvas-phone-area)[data-tint="moss"] { --tint: var(--nest-lime); }
+:is(.canvas-area, .canvas-phone-area)[data-tint="muff"] { --tint: var(--nest-coral); }
+:is(.canvas-area, .canvas-phone-area)[data-tint="pip"] { --tint: var(--canvas-pip); }
+:is(.canvas-area, .canvas-phone-area)[data-tint="pom"] { --tint: var(--canvas-amber); }
+:is(.canvas-area, .canvas-phone-area)[data-tint="puff"] { --tint: var(--nest-muted); }
 .canvas-area-bar {
   position: absolute;
   left: 22px;
@@ -271,13 +278,10 @@
 }
 
 .canvas-card {
-  --canvas-quiet: #9a6f17;
+  --canvas-quiet: var(--canvas-amber);
   display: flex;
   flex-direction: column;
   gap: 10px;
-}
-:root[data-theme="dark"] .canvas-card {
-  --canvas-quiet: #d9ad55;
 }
 .canvas-card-head {
   display: flex;
@@ -353,7 +357,7 @@
 }
 .canvas-card-status li[data-state="quiet"] { color: var(--canvas-quiet); }
 .canvas-card-status li[data-state="interrupted"],
-.canvas-card-status li[data-state="failed"] { color: var(--nest-coral); }
+.canvas-card-status li[data-state="failed"] { color: var(--canvas-alert); }
 .canvas-card-status li[data-state="unavailable"],
 .canvas-card-more-lines { color: var(--nest-muted); }
 .canvas-card-nudge,
@@ -372,7 +376,7 @@
   cursor: progress;
 }
 .canvas-card-error {
-  color: var(--nest-coral);
+  color: var(--canvas-alert);
   font-size: 12px;
 }
 .canvas-card-artifacts {
@@ -546,7 +550,7 @@
   cursor: default;
 }
 .canvas-error {
-  color: var(--nest-coral, #ff5c35) !important;
+  color: var(--canvas-alert) !important;
 }
 /* Store notices and agent membership messages stack at the top centre. */
 .canvas-notices {
@@ -587,11 +591,28 @@
   cursor: pointer;
 }
 @media (max-width: 760px) {
+  /* Menu and the workspace controls share the first row; the canvas name, switcher and Share get their own. */
+  .canvas-view .dashboard-topbar.workspace-topbar {
+    grid-template-areas: "leading controls" "title title" "search search";
+    row-gap: 8px;
+  }
+  .canvas-view .workspace-topbar-leading {
+    display: contents;
+  }
+  .canvas-view .workspace-topbar .sidebar-mobile-toggle {
+    grid-area: leading;
+    justify-self: start;
+  }
+  .canvas-view .canvas-heading {
+    grid-area: title;
+    min-width: 0;
+  }
   .canvas-name {
     font-size: 18px;
   }
   .canvas-switcher {
     max-width: 140px;
+    white-space: nowrap;
   }
 }
 
@@ -833,7 +854,7 @@
 }
 .canvas-pile-error {
   margin: 8px 16px;
-  color: var(--nest-coral, #ff5c35);
+  color: var(--canvas-alert);
   font-size: 13px;
 }
 .canvas-pile-list {
@@ -949,6 +970,11 @@
 .canvas-card:has(.canvas-card-open:focus-visible) {
   box-shadow: 0 0 0 2px var(--nest-surface), 0 0 0 4px var(--nest-lime), var(--canvas-shadow);
 }
+/* Forced colours drop box-shadows; this transparent outline then shows in the system colour. The open card keeps its own. */
+.canvas-card:not(.is-open):has(.canvas-card-open:focus-visible) {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
 
 /* The canvas side of the body: the stage with its bottom box, and the Loose chats pile. */
 .canvas-main {
@@ -1063,7 +1089,7 @@
 .canvas-chat-action[aria-pressed="true"] {
   border-color: var(--nest-forest);
   background: var(--nest-forest);
-  color: #fefefe;
+  color: var(--instance-on-primary, var(--nest-white));
 }
 :root[data-theme="dark"] .canvas-chat-action[aria-pressed="true"] {
   border-color: var(--nest-lime);
@@ -1425,7 +1451,7 @@
   background: var(--nest-muted-surface);
 }
 .canvas-menu-item.is-danger {
-  color: var(--nest-coral, #ff5c35);
+  color: var(--canvas-alert);
 }
 .canvas-menu-name {
   min-width: 0;
@@ -1514,8 +1540,8 @@
   cursor: pointer;
 }
 .canvas-button.is-danger {
-  background: var(--nest-coral, #ff5c35);
-  color: #fff;
+  background: var(--nest-coral);
+  color: var(--nest-forest);
 }
 .canvas-share-visibility,
 .canvas-share-people {
@@ -1738,4 +1764,219 @@ button.canvas-pile-open:hover {
   .canvas-search-button {
     padding: 0 10px;
   }
+}
+
+/* Phones (760 px wide or less): PhoneList replaces the surface, with the bottom box under it. */
+.canvas-phone-stage {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.canvas-phone {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.canvas-phone-segments {
+  display: flex;
+  gap: 4px;
+  margin: 10px 12px 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--nest-muted-surface);
+}
+.canvas-phone-segments [role="tab"] {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--nest-muted);
+  font: 600 13px Inter, sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.canvas-phone-segments [role="tab"][aria-selected="true"] {
+  background: var(--nest-forest);
+  color: var(--instance-on-primary, var(--nest-white));
+}
+:root[data-theme="dark"] .canvas-phone-segments [role="tab"][aria-selected="true"] {
+  background: var(--nest-lime);
+  color: var(--nest-forest);
+}
+.canvas-phone-count {
+  min-width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--nest-border);
+  color: var(--nest-text);
+  font: 700 11px/20px Inter, sans-serif;
+}
+[aria-selected="true"] > .canvas-phone-count {
+  background: color-mix(in srgb, currentColor 22%, transparent);
+  color: inherit;
+}
+.canvas-phone-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 12px 12px;
+}
+.canvas-phone-areas,
+.canvas-phone-rows {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* An area is a small rounded nest in its character tint; it opens to its chats. */
+.canvas-phone-area {
+  --tint: var(--nest-lime);
+  width: 100%;
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px 12px;
+  box-sizing: border-box;
+  padding: 10px 44px 10px 18px;
+  position: relative;
+  border: 1.5px solid color-mix(in srgb, var(--tint) 30%, var(--nest-border));
+  border-radius: 24px 30px 26px 32px / 30px 24px 32px 26px;
+  background: color-mix(in srgb, var(--tint) 8%, var(--nest-surface));
+  color: var(--nest-text);
+  text-align: left;
+  cursor: pointer;
+}
+.canvas-phone-area::after {
+  content: "";
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-70%) rotate(45deg);
+}
+.canvas-phone-area[aria-expanded="true"]::after {
+  transform: translateY(-30%) rotate(-135deg);
+}
+.canvas-phone-area-title {
+  min-width: 0;
+  font: 500 16px/1.25 Unbounded, sans-serif;
+  letter-spacing: -.02em;
+  overflow-wrap: anywhere;
+}
+.canvas-phone-area + .canvas-phone-rows,
+.canvas-phone-area + .canvas-phone-empty {
+  margin: 8px 0 6px 12px;
+}
+.canvas-phone-row {
+  width: 100%;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: 1px solid var(--nest-border);
+  border-radius: 14px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+  font: inherit;
+  text-align: left;
+}
+button.canvas-phone-row {
+  cursor: pointer;
+}
+button.canvas-phone-row[aria-current="true"] {
+  border-color: var(--nest-lime);
+}
+li.canvas-phone-row[data-access] {
+  background: var(--nest-muted-surface);
+  color: var(--nest-muted);
+}
+.canvas-phone-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.canvas-phone-title {
+  overflow: hidden;
+  font: 600 15px/1.3 Inter, sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-phone-meta {
+  overflow: hidden;
+  color: var(--nest-muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-phone-meta[data-state="quiet"] { color: var(--canvas-amber); }
+.canvas-phone-meta[data-state="interrupted"],
+.canvas-phone-meta[data-state="failed"] { color: var(--canvas-alert); }
+.canvas-phone-needs {
+  flex: none;
+  min-width: 22px;
+  height: 22px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--nest-coral);
+  color: var(--nest-forest);
+  font: 700 12px/22px Inter, sans-serif;
+  text-align: center;
+}
+.canvas-phone-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--nest-coral);
+}
+.canvas-phone-age {
+  flex: none;
+  color: var(--nest-muted);
+  font-size: 12px;
+}
+.canvas-phone-search {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  margin: 0 0 8px;
+  border: 1px solid var(--nest-border);
+  border-radius: 999px;
+  padding: 0 16px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+}
+.canvas-phone-empty {
+  margin: 0;
+  padding: 24px 8px;
+  color: var(--nest-muted);
+  font-size: 14px;
+  text-align: center;
+}
+.canvas-phone-stage .canvas-dock {
+  position: static;
+  width: auto;
+  margin: 0 12px 12px;
+  transform: none;
 }
