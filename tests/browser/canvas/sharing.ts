@@ -45,6 +45,24 @@ await runChatTest('canvas sharing: view, locked card, edit, unshare and delete',
   await page.goto(`${base}/?view=canvas&canvas=${id}`);
   await cardAt(page,h.project.channelId).waitFor();
 
+  // Keyboard: Share opens a dialog that traps Tab and gives focus back on Escape.
+  const shareButton=page.getByRole('button',{name:'Share',exact:true});
+  await shareButton.focus();
+  await page.keyboard.press('Enter');
+  const dialog=page.getByRole('dialog',{name:'Share canvas',exact:true});
+  await dialog.waitFor();
+  for(let n=0;n<12;n++){
+    await page.keyboard.press(n%2?'Shift+Tab':'Tab');
+    assert.equal(await dialog.evaluate(el=>el.contains(document.activeElement)),true,`focus stays in the dialog after key ${n}: ${await page.evaluate(()=>document.activeElement?.outerHTML.slice(0,120))}`);
+  }
+  for(let n=0;n<12;n++){
+    await page.keyboard.press('Tab');
+    assert.equal(await dialog.evaluate(el=>el.contains(document.activeElement)),true,`focus stays in the dialog after Tab ${n}`);
+  }
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({state:'detached'});
+  assert.equal(await shareButton.evaluate(el=>el===document.activeElement),true,'focus returns to the Share button');
+
   // View access.
   await share(page,'Shared with chosen people',[{username:'mate',role:'Can view'}]);
   await mate.page.goto(`${base}/?view=canvas`);

@@ -1,5 +1,5 @@
 // Top-bar canvas menu: Yours / Shared with you, New canvas, and the owner's Rename and Delete canvas….
-import {useEffect,useId,useRef,useState,type FormEvent,type ReactNode} from 'react';
+import {useEffect,useId,useRef,useState,type FormEvent,type KeyboardEvent,type ReactNode} from 'react';
 import type {Canvas} from '@nest/schemas';
 
 export type SwitcherCanvas = Pick<Canvas, 'id' | 'name' | 'role'>;
@@ -81,17 +81,32 @@ export function Modal({label, onClose, children}: {label: string; onClose(): voi
   const panel = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose); closeRef.current = onClose;
   useEffect(() => {
-    panel.current?.querySelector<HTMLElement>('input,select,button:not([data-close])')?.focus({preventScroll: true});
+    // Focus goes back to what opened the dialog, when that is still on the page.
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    (panel.current?.querySelector<HTMLElement>('input,select,button:not([data-close])') ?? panel.current)?.focus({preventScroll: true});
     const key = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       event.preventDefault();
       closeRef.current();
     };
     window.addEventListener('keydown', key);
-    return () => window.removeEventListener('keydown', key);
+    return () => {
+      window.removeEventListener('keydown', key);
+      if (opener?.isConnected) opener.focus({preventScroll: true});
+    };
   }, []);
-  return <div className="canvas-modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <div ref={panel} className="canvas-modal" role="dialog" aria-modal="true" aria-label={label}>{children}</div>
+  // Tab and Shift+Tab wrap between the first and last control.
+  const trap = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab' || !panel.current) return;
+    const items = [...panel.current.querySelectorAll<HTMLElement>('input,select,button,textarea,[tabindex]:not([tabindex="-1"])')].filter(el => !(el as HTMLInputElement).disabled);
+    if (!items.length) { event.preventDefault(); return; }
+    const first = items[0], last = items[items.length - 1], active = document.activeElement;
+    if (active === panel.current || !panel.current.contains(active)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
+    else if (event.shiftKey && active === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && active === last) { event.preventDefault(); first.focus(); }
+  };
+  return <div className="canvas-modal-backdrop" onKeyDown={trap} onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <div ref={panel} className="canvas-modal" role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}>{children}</div>
   </div>;
 }
 
