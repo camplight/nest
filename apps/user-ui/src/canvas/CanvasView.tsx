@@ -6,7 +6,9 @@ import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 import {addChatMember,removeChatMember} from '../chat-members';
 import {StartChat} from '../ProjectStart';
-import {boardApi,createCanvas,getHidden,listCanvases,setHidden} from './api';
+import {boardApi,createCanvas,deleteCanvas,getHidden,isCanvasGone,listCanvases,renameCanvas,setHidden,withFreshVersion} from './api';
+import {CanvasSwitcher} from './CanvasSwitcher';
+import {ShareDialog} from './ShareDialog';
 import {createBoardStore} from './board-store';
 import {Surface,type SurfaceControls} from './Surface';
 import {nudgeMessage,type CanvasLive} from './live';
@@ -70,26 +72,37 @@ async function sendNudge(channelId: string, agent: string) {
   await apiJson('/api/messages', {method: 'POST', headers: getApiHeaders(), body: JSON.stringify(nudgeMessage(channelId, agent))});
 }
 
-export function CanvasView({canvasId, humanId, username, channels, projects, agents, onSelectCanvas, onMenu, chat, chatChannelId, chatMode, onOpenChat, onCloseChat, onOpenRegular, live, refreshChannels, onChannels}: CanvasViewProps) {
+export function CanvasView({canvasId, humanId, username, humans, channels, projects, agents, onSelectCanvas, onMenu, chat, chatChannelId, chatMode, onOpenChat, onCloseChat, onOpenRegular, live, refreshChannels, onChannels}: CanvasViewProps) {
   const store = useMemo(() => createBoardStore({api: boardApi, now: Date.now, intervalMs: SYNC_INTERVAL_MS}), []);
   const state = useSyncExternalStore(store.subscribe, store.snapshot);
-  const [canvases, setCanvases] = useState<Canvas[] | null>(null);
+  // The list is stamped with the view it was read for: a list read before the URL lost its canvas never drives the redirect.
+  const [fetched, setFetched] = useState<{key: string; list: Canvas[]} | null>(null);
   const [listFailed, setListFailed] = useState(false);
   const [listAttempt, setListAttempt] = useState(0);
+  const listKey = `${canvasId ?? ''}:${listAttempt}`;
+  const canvases = fetched?.list ?? null;
+  const freshList = fetched?.key === listKey ? fetched.list : null;
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const selectRef = useRef(onSelectCanvas); selectRef.current = onSelectCanvas;
+  /** Re-reads the person's canvases (after create, rename, delete, sharing or access loss). */
+  const reloadList = useCallback(async () => {
+    const list = await listCanvases();
+    setFetched(current => ({key: current?.key ?? '', list}));
+    return list;
+  }, []);
 
   useEffect(() => {
     let current = true;
     setListFailed(false);
-    listCanvases().then(list => { if (current) setCanvases(list); }).catch(() => { if (current) setListFailed(true); });
+    listCanvases().then(list => {
+      if (!current) return;
+      setFetched({key: listKey, list});
+      // Without a canvas in the URL, open the most recently updated one in place of this entry.
+      if (!canvasId) { const recent = mostRecent(list); if (recent) selectRef.current(recent.id, {replace: true}); }
+    }).catch(() => { if (current) setListFailed(true); });
     return () => { current = false; };
   }, [canvasId, listAttempt]);
-
-  // Without a canvas in the URL, open the most recently updated one in place of this entry.
-  useEffect(() => {
-    if (canvasId || !canvases) return;
-    const recent = mostRecent(canvases);
-    if (recent) onSelectCanvas(recent.id, {replace: true});
-  }, [canvasId, canvases]);
 
   useEffect(() => {
     if (!canvasId) return;
@@ -222,14 +235,43 @@ export function CanvasView({canvasId, humanId, username, channels, projects, age
       if (settle(fresh, by)) say(`Removed ${agent}`, () => { setMemberNotice(null); void add(channelId, agent); });
     } catch { if (humanRef.current === by) say(`Could not remove ${agent}. Try again.`); }
   }, [store, manageable, settle, say, add]);
+  // Access lost: say so, open the menu on what is left, and stay put (no redirect, so no loop).
+  const gone = state.status === 'gone' && state.canvasId === canvasId;
+  useEffect(() => {
+    if (!gone) return;
+    setSwitcherOpen(true);
+    void reloadList().catch(() => {});
+  }, [gone, reloadList]);
+  useEffect(() => { if (switcherOpen) void reloadList().catch(() => {}); }, [switcherOpen, reloadList]);
+  useEffect(() => { setSharing(false); }, [canvasId]);
+
+  const canvasVersion = () => store.snapshot().board?.canvas.version ?? 0;
+  const freshVersion = async () => (await reloadList()).find(c => c.id === canvasId)?.version ?? null;
+  const createNew = async (newName: string) => { const created = await createCanvas(newName); await reloadList().catch(() => {}); onSelectCanvas(created.id); };
+  const rename = async (newName: string) => {
+    if (!canvasId) return;
+    await withFreshVersion(canvasVersion(), freshVersion, version => renameCanvas(canvasId, newName, version));
+    void store.refresh({force: true});
+    void reloadList().catch(() => {});
+  };
+  const remove = async () => {
+    if (!canvasId) return;
+    try { await withFreshVersion(canvasVersion(), freshVersion, version => deleteCanvas(canvasId, version)); } catch (error) { if (!isCanvasGone(error)) throw error; }
+    // The next most recent canvas, or the first-canvas prompt when none is left.
+    const rest = (await listCanvases().catch(() => [] as Canvas[])).filter(c => c.id !== canvasId);
+    const next = mostRecent(rest);
+    onSelectCanvas(next ? next.id : null, {replace: true});
+  };
+  const current = board?.canvas ?? canvases?.find(c => c.id === canvasId) ?? null;
+  const ownerName = current && current.role !== 'owner' ? humans.find(h => h.id === current.ownerId)?.username ?? 'the owner' : null;
   const name = board?.canvas.name ?? canvases?.find(c => c.id === canvasId)?.name ?? '';
   let body: ReactNode;
   if (!canvasId) {
     body = listFailed ? <CanvasMessage text="Could not load your canvases." action="Try again" onAction={() => setListAttempt(n => n + 1)}/>
-      : canvases && !canvases.length ? <FirstCanvas onCreated={id => onSelectCanvas(id, {replace: true})}/>
+      : freshList && !freshList.length ? <FirstCanvas onCreated={id => onSelectCanvas(id, {replace: true})}/>
       : <CanvasMessage text="Loading canvases…"/>;
   } else if (state.status === 'gone' && state.canvasId === canvasId) {
-    body = <CanvasMessage text="This canvas is not available. It may have been deleted, or it is no longer shared with you." action="Open another canvas" onAction={() => onSelectCanvas(null)}/>;
+    body = <CanvasMessage text="This canvas is no longer shared with you"/>;
   } else if (state.status === 'error' && state.canvasId === canvasId) {
     body = <CanvasMessage text="Could not load this canvas." action="Try again" onAction={() => void store.open(canvasId)}/>;
   } else if (!board) {
@@ -255,9 +297,14 @@ export function CanvasView({canvasId, humanId, username, channels, projects, age
   return <section className="canvas-view" aria-label="Canvas">
     <WorkspaceTopbar onMenu={onMenu} leading={canvasId ? <div className="canvas-heading">
       <h1 className="canvas-name">{name}</h1>
-      <CanvasSwitcher canvases={canvases ?? []} currentId={canvasId} onSelect={id => onSelectCanvas(id)}/>
+      <CanvasSwitcher canvases={canvases ?? []} current={current} open={switcherOpen} onOpenChange={setSwitcherOpen}
+        onSelect={id => onSelectCanvas(id)} onCreate={createNew} onRename={rename} onDelete={remove}/>
+      {board && board.canvas.role === 'owner' ? <button type="button" className="canvas-share-button" onClick={() => setSharing(true)}>Share</button> : null}
+      {ownerName ? <span className="canvas-shared-by">Shared by {ownerName}</span> : null}
     </div> : undefined}/>
     <div className={`canvas-body${chatShown ? ` has-chat is-${chatMode}` : ''}`}>
+      {sharing && board && board.canvas.role === 'owner' ? <ShareDialog canvasId={board.canvas.id} ownerId={board.canvas.ownerId} humans={humans}
+        version={canvasVersion} freshVersion={freshVersion} onSaved={() => { void store.refresh({force: true}); void reloadList().catch(() => {}); }} onClose={() => setSharing(false)}/> : null}
       <CanvasMain inert={chatShown && chatMode === 'focus'}>
         <div className="canvas-notices">
           {state.notice && state.canvasId === canvasId ? <div className="canvas-notice" role="status">
@@ -376,14 +423,6 @@ function CanvasChat({channelId, mode, title, onMode, onClose, onOpenRegular, chi
       <div className="canvas-chat-body">{children}</div>
     </section>
   </>;
-}
-
-/** Placeholder switcher: lists the person's other canvases. A later task replaces it with the full menu. */
-function CanvasSwitcher({canvases, currentId, onSelect}: {canvases: Canvas[]; currentId: string; onSelect(id: string): void}) {
-  if (canvases.length < 2) return null;
-  return <select className="canvas-switcher" aria-label="Switch canvas" value={currentId} onChange={event => onSelect(event.target.value)}>
-    {canvases.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-  </select>;
 }
 
 function CanvasMessage({text, action, onAction}: {text: string; action?: string; onAction?: () => void}) {

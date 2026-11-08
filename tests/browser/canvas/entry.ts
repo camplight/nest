@@ -42,7 +42,7 @@ await runChatTest('canvas entry: create the first canvas, reload and go back',as
 
   // A canvas that does not exist, or is no longer shared, reads as gone.
   await page.goto(`${base}/?view=canvas&canvas=${crypto.randomUUID()}`);
-  await page.getByText('This canvas is not available',{exact:false}).waitFor();
+  await page.getByText('This canvas is no longer shared with you',{exact:true}).waitFor();
 },{canvas:true});
 
 await runChatTest('canvas entry: no nav entry while the flag is off',async h=>{

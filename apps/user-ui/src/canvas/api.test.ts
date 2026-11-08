@@ -1,6 +1,6 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import {ApiError} from '../api';
-import {CanvasConflict,deleteCanvas,getBoard,moveCard} from './api';
+import {CanvasConflict,deleteCanvas,getBoard,moveCard,withFreshVersion} from './api';
 
 // The wrappers translate HTTP status into canvas errors; the browser suite covers the real API.
 function respond(status:number,body:unknown){
@@ -34,5 +34,26 @@ describe('canvas api',()=>{
     const last=(globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(last[0]).toBe('/api/canvases/c1?version=7');
     expect((last[1] as RequestInit).method).toBe('DELETE');
+  });
+
+  describe('withFreshVersion',()=>{
+    it('retries once with the refreshed version after a conflict',async()=>{
+      const run=vi.fn(async(version:number)=>{if(version===1)throw new CanvasConflict({version:2});return `ok ${version}`;});
+      const fresh=vi.fn(async()=>2);
+      expect(await withFreshVersion(1,fresh,run)).toBe('ok 2');
+      expect(run.mock.calls.map(call=>call[0])).toEqual([1,2]);
+      expect(fresh).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaces a second conflict and does not retry other errors',async()=>{
+      const conflict=vi.fn(async(_version:number)=>{throw new CanvasConflict(null);});
+      await expect(withFreshVersion(1,async()=>2,conflict)).rejects.toBeInstanceOf(CanvasConflict);
+      expect(conflict).toHaveBeenCalledTimes(2);
+      const other=vi.fn(async(_version:number)=>{throw new ApiError('nope',500);});
+      const fresh=vi.fn(async()=>2);
+      await expect(withFreshVersion(1,fresh,other)).rejects.toBeInstanceOf(ApiError);
+      expect(other).toHaveBeenCalledTimes(1);
+      expect(fresh).not.toHaveBeenCalled();
+    });
   });
 });

@@ -13,6 +13,21 @@ export class CanvasConflict extends Error {
 export const isCanvasGone = (error: unknown) => error instanceof ApiError && error.status === 404;
 export const isCanvasForbidden = (error: unknown) => error instanceof ApiError && error.status === 403;
 
+/**
+ * Runs a canvas-level write (rename, sharing, delete) with the canvas version. Another editor's layout write
+ * bumps that version, so a 409 re-reads the current version and tries once more; a second conflict is the caller's.
+ */
+export async function withFreshVersion<T>(version: number, fresh: () => Promise<number | null>, run: (version: number) => Promise<T>): Promise<T> {
+  try {
+    return await run(version);
+  } catch (error) {
+    if (!(error instanceof CanvasConflict)) throw error;
+    const next = await fresh();
+    if (next === null) throw error;
+    return run(next);
+  }
+}
+
 export type CanvasMember = {humanId: string; username: string; role: CanvasRole};
 export type CanvasMembers = {visibility: CanvasVisibility; members: CanvasMember[]};
 export type CanvasSharingInput = {visibility: CanvasVisibility; members: {humanId: string; role: 'edit' | 'view'}[]; version: number};

@@ -328,7 +328,7 @@ export default function App() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [personalSetup, setPersonalSetup] = useState<OnboardingSummary | null>(null);
   const [creatingPersonalAgent, setCreatingPersonalAgent] = useState(() => new URL(window.location.href).searchParams.get("create") === "personal");
-  const [humans, setHumans] = useState<Array<{ username: string }>>([]);
+  const [humans, setHumans] = useState<Array<{ id?: string; username: string }>>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [channelEvents, setChannelEvents] = useState<ChannelEventsCore>(createSessionChannelEvents);
   const channelEventsRef = useRef(channelEvents);
@@ -780,7 +780,7 @@ export default function App() {
       const [nextChannels, nextAgents, nextHumans, nextTeams, nextProjects, nextOnboarding] = await Promise.all([
         apiJson<Channel[]>("/api/channels?includeArchived=1"),
         apiJson<Agent[]>("/api/agents"),
-        apiJson<Array<{ username: string }>>("/api/humans").catch(() => []),
+        apiJson<Array<{ id?: string; username: string }>>("/api/humans").catch(() => []),
         apiJson<Team[]>("/api/teams/me").catch(() => []),
         apiJson<Project[]>("/api/projects"),
         apiJson<OnboardingSummary>("/api/onboarding/summary").catch(() => null)
@@ -1832,7 +1832,7 @@ export default function App() {
         <InstanceBrand />
         <nav className="product-nav" aria-label="Main navigation">
           <button aria-current={view === "dashboard" ? "page" : undefined} onClick={() => selectChannel(null)}><DesignIcon name="dashboard" />Dashboard</button>
-          {canvasAvailable ? <button aria-current={view === "canvas" ? "page" : undefined} onClick={() => selectCanvas(null)}><DesignIcon name="canvas" />Canvas</button> : null}
+          {canvasAvailable ? <button aria-current={view === "canvas" ? "page" : undefined} onClick={() => selectCanvas(null, { replace: view === "canvas" && Boolean(selectedCanvas) })}><DesignIcon name="canvas" />Canvas</button> : null}
           <ProjectNavigation projects={projectIndex} currentProjectId={view === "projects" ? selectedProject : null} inProjects={view === "projects" || view === "workspace"} creating={view === "projects" && !selectedProject && projectTab === "new"} unreadCounts={unreadCounts} onBrowse={() => selectProject(null)} onSelect={id => selectProject(id)} onCreate={() => selectProject(null, null, "new")} />
           <AgentNavigation agents={visibleAgents} chats={agentChats} activeAgent={activeChatAgent??(view==='agents'?selectedAgent:null)} activeChannelId={activeChannelId} inAgents={view==='agents'||!!activeChatAgent} busy={agentOpening} error={agentNavigationError} unread={unreadCounts} label={c=>isHumanAgentDirectChannel(c)?'First conversation':channelLabel(c,username)} onBrowse={()=>selectAgent(null)} onOpen={name=>void openAgentChat(name)} onChat={selectChannel} onNew={newAgentChat}/>
           <button data-tour="community" aria-current={view === "community" ? "page" : undefined} onClick={()=>selectCommunity(null)}><DesignIcon name="community" />Community</button>
