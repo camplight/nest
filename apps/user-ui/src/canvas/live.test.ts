@@ -1,6 +1,6 @@
 import {describe,expect,it,vi} from 'vitest';
 import type {EventRow} from '../types';
-import {createCanvasLive,nudgeMessage} from './live';
+import {createCanvasLive,nudgeMessage,toSignal} from './live';
 
 const now=Date.UTC(2026,10,8,12,0,0);
 const min=60_000;
@@ -79,6 +79,70 @@ describe('createCanvasLive',()=>{
     live.setCards([{channelId:'c1',agentNames:['Pom']},{channelId:'loose',agentNames:['Pom']}]);
     flush();
     expect(live.snapshot().get('loose')!.agents[0].state).toBe('working');
+  });
+});
+
+describe('agent signals between turn events (Ruling R13)',()=>{
+  const running={'/api/agents':[{name:'Pom',desiredState:'RUNNING',runtimeState:'RUNNING'}]};
+  const tool=(id:string,at:number,channelId='c1'):EventRow=>({id,type:'tool.executed',source:'agent:Pom',createdAt:at,channelId,payload:{tool:'shell',output:'synthetic tool output'}});
+
+  it('seeds tool events, so a long tool-heavy turn reads working straight after seeding',async()=>{
+    const {live,urls,flush}=harness({...running,'/api/events?typePrefix=agent.turn.':[started('s1','Pom','c1',now-25*min)],'/api/events?typePrefix=tool.':[tool('t1',now-min)]});
+    live.setCards([{channelId:'c1',agentNames:['Pom']}]);
+    await live.refresh();
+    flush();
+    expect(urls).toContain('/api/events?typePrefix=tool.&order=desc&limit=500');
+    expect(live.snapshot().get('c1')!.agents[0].state).toBe('working');
+  });
+
+  it('a refresh keeps a live tool signal newer than the seed, so the card does not flap back to quiet',async()=>{
+    const {live,flush}=harness({...running,'/api/events?typePrefix=agent.turn.':[started('s1','Pom','c1',now-25*min)]});
+    live.setCards([{channelId:'c1',agentNames:['Pom']}]);
+    await live.refresh();
+    flush();
+    expect(live.snapshot().get('c1')!.agents[0].state).toBe('quiet');
+    live.ingest(tool('t1',now-min));
+    flush();
+    expect(live.snapshot().get('c1')!.agents[0].state).toBe('working');
+    await live.refresh();
+    flush();
+    expect(live.snapshot().get('c1')!.agents[0].state).toBe('working');
+  });
+
+  it('a refresh keeps live turn events newer than a full seed page and drops older ones',async()=>{
+    // The turn page is full (limit 1000) and reaches back 10 minutes: a live start 2 minutes old is kept.
+    const page=Array.from({length:1000},(_,i)=>({id:`x${i}`,type:'agent.turn.phase',source:'agent:Other',createdAt:now-10*min+i,channelId:'elsewhere',payload:{}}));
+    const {live,flush}=harness({...running,'/api/events?typePrefix=agent.turn.':page});
+    live.setCards([{channelId:'c1',agentNames:['Pom']},{channelId:'c2',agentNames:['Pom']}]);
+    live.ingest(started('s1','Pom','c1',now-2*min));
+    // Older than the page reaches: the seed would hold its ending if it had one, so it is not kept.
+    live.ingest(started('s2','Pom','c2',now-20*min));
+    await live.refresh();
+    flush();
+    expect(live.snapshot().get('c1')!.agents[0].state).toBe('working');
+    expect(live.snapshot().get('c2')!.agents[0].state).toBe('idle');
+  });
+
+  it('hundreds of tool events do not evict the turn start',async()=>{
+    const {live,flush}=harness({...running,'/api/events?typePrefix=agent.turn.':[started('s1','Pom','c1',now-25*min)]});
+    live.setCards([{channelId:'c1',agentNames:['Pom']}]);
+    await live.refresh();
+    for(let i=0;i<450;i++)live.ingest(tool(`t${i}`,now-24*min+i*3000));
+    flush();
+    expect(live.snapshot().get('c1')!.agents[0]).toMatchObject({state:'working'});
+  });
+
+  it('a flood of progress phases does not evict the turn start',async()=>{
+    const {live,flush}=harness({...running,'/api/events?typePrefix=agent.turn.':[started('s1','Pom','c1',now-5*min)]});
+    live.setCards([{channelId:'c1',agentNames:['Pom']}]);
+    await live.refresh();
+    for(let i=0;i<450;i++)live.ingest({id:`p${i}`,type:'agent.turn.phase',source:'agent:Pom',createdAt:now-4*min+i*100,channelId:'c1',payload:{triggerEventId:'m-other',phase:'thinking'}});
+    flush();
+    expect(live.snapshot().get('c1')!.agents[0]).toMatchObject({state:'working',since:now-5*min});
+  });
+
+  it('stores only the timestamp fields of a tool event, never its arguments or output',()=>{
+    expect(toSignal(tool('t1',now-min))).toEqual({id:'t1',type:'tool.executed',source:'agent:Pom',channelId:'c1',createdAt:now-min});
   });
 });
 

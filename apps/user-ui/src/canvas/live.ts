@@ -30,13 +30,28 @@ export type CanvasLiveOptions = {
 const REFRESH_MS = 30_000;
 const MENTIONS_DELAY_MS = 1500;
 // Enough history per chat to find the open turn, the latest ending and the newest artifacts.
+// Over the cap a channel is trimmed back to TRIM_TO, progress phases first, so a start is not evicted.
 const MAX_EVENTS_PER_CHANNEL = 400;
+const TRIM_TO = 300;
+/** Kept in full, per channel. Each seed's page also sets how far back a refresh can vouch for its kind. */
 const SEEDS = [
-  '/api/events?typePrefix=agent.turn.&order=desc&limit=1000',
+  {url: '/api/events?typePrefix=agent.turn.&order=desc&limit=1000', limit: 1000, prefix: 'agent.turn.'},
   // Wrapped agents report their turns as wrapper.turn.*, which activeTurns reads too.
-  '/api/events?typePrefix=wrapper.turn.&order=desc&limit=200',
-  '/api/events?type=message.created&order=desc&limit=500',
+  {url: '/api/events?typePrefix=wrapper.turn.&order=desc&limit=200', limit: 200, prefix: 'wrapper.turn.'},
+  {url: '/api/events?type=message.created&order=desc&limit=500', limit: 500, prefix: 'message.created'},
 ];
+/**
+ * A native turn's mid-turn signals are its tool events. Only their timestamps matter, so each is kept
+ * stripped (toSignal) and only the latest per channel and agent.
+ */
+const TOOL_SEED = '/api/events?typePrefix=tool.&order=desc&limit=500';
+const at = (event: EventRow) => event.createdAt ?? 0;
+const kindOf = (type: string) => SEEDS.findIndex(seed => type.startsWith(seed.prefix));
+
+/** What a signal keeps of an agent event: no payload, so tool arguments and output never sit in memory. */
+export function toSignal({id, type, source, channelId, createdAt}: EventRow): EventRow {
+  return {id, type, source, channelId, createdAt};
+}
 
 const NUDGE_TEXT = 'are you still on this? Please post a short status update.';
 /** A Nudge: a message targeted at the agent with a leading mention of it, through the normal send path. */
@@ -53,6 +68,8 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
   });
   const listeners = new Set<() => void>();
   const events = new Map<string, Map<string, EventRow>>();
+  /** channel → agent → that agent's latest stripped signal there. */
+  const signals = new Map<string, Map<string, EventRow>>();
   let cards = new Map<string, string[]>();
   let agents: Agent[] = [];
   let starts: AgentStarts = {};
@@ -62,19 +79,33 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
   let all = false;
   let scheduled = false;
   let generation = 0;
-  let inflight: EventRow[] | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
   let mentionsTimer: ReturnType<typeof setTimeout> | null = null;
 
-  function store(event: EventRow) {
-    if (!event.channelId) return;
-    let channel = events.get(event.channelId);
-    if (!channel) events.set(event.channelId, channel = new Map());
+  function storeEvent(channelId: string, event: EventRow) {
+    let channel = events.get(channelId);
+    if (!channel) events.set(channelId, channel = new Map());
     channel.set(event.id, event);
-    if (channel.size > MAX_EVENTS_PER_CHANNEL) {
-      const kept = [...channel.values()].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)).slice(0, MAX_EVENTS_PER_CHANNEL);
-      events.set(event.channelId, new Map(kept.map(e => [e.id, e])));
-    }
+    if (channel.size <= MAX_EVENTS_PER_CHANNEL) return;
+    const newest = (rows: EventRow[]) => rows.sort((a, b) => at(b) - at(a));
+    const rows = [...channel.values()];
+    const others = newest(rows.filter(e => e.type !== 'agent.turn.phase')).slice(0, TRIM_TO);
+    const phases = newest(rows.filter(e => e.type === 'agent.turn.phase')).slice(0, TRIM_TO - others.length);
+    events.set(channelId, new Map([...others, ...phases].map(e => [e.id, e])));
+  }
+
+  /** Keeps what the pulses read; returns false for anything else. */
+  function store(event: EventRow) {
+    const channelId = event.channelId;
+    if (!channelId) return false;
+    if (kindOf(event.type) >= 0) { storeEvent(channelId, event); return true; }
+    if (!event.source.startsWith('agent:')) return false;
+    const agent = event.source.slice(6);
+    let channel = signals.get(channelId);
+    if (!channel) signals.set(channelId, channel = new Map());
+    const previous = channel.get(agent);
+    if (!previous || at(event) >= at(previous)) channel.set(agent, toSignal(event));
+    return true;
   }
 
   /** Recomputes the dirty channels (or all of them) and publishes only if a pulse changed. */
@@ -84,7 +115,7 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
     all = false; dirty = new Set();
     if (!ids.length && !removed.length) return;
     const subset = ids.map(channelId => ({channelId, agentNames: cards.get(channelId)!}));
-    const rows = ids.flatMap(id => [...(events.get(id)?.values() ?? [])]);
+    const rows = ids.flatMap(id => [...(events.get(id)?.values() ?? []), ...(signals.get(id)?.values() ?? [])]);
     const fresh = cardPulse({events: rows, agents, starts, mentions, cards: subset, now: now()});
     let next: Map<string, CardPulse> | null = null;
     for (const [id, pulse] of fresh) {
@@ -115,23 +146,31 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
 
   async function refresh() {
     const mine = ++generation;
-    inflight = [];
-    const [turnRows, wrapperRows, messageRows, nextStarts, nextAgents, nextMentions] = await Promise.allSettled([
-      fetchJson<EventRow[]>(SEEDS[0]),
-      fetchJson<EventRow[]>(SEEDS[1]),
-      fetchJson<EventRow[]>(SEEDS[2]),
+    const [turnRows, wrapperRows, messageRows, toolRows, nextStarts, nextAgents, nextMentions] = await Promise.allSettled([
+      fetchJson<EventRow[]>(SEEDS[0].url),
+      fetchJson<EventRow[]>(SEEDS[1].url),
+      fetchJson<EventRow[]>(SEEDS[2].url),
+      fetchJson<EventRow[]>(TOOL_SEED),
       fetchAgentStarts(fetchJson),
       fetchJson<Agent[]>('/api/agents'),
       fetchJson<{items: MentionNotification[]}>('/api/mentions'),
     ]);
     if (mine !== generation) return;
-    const live = inflight ?? [];
-    inflight = null;
-    const seeded = [turnRows, wrapperRows, messageRows];
-    // A full seed replaces what was held, so turns that ended while the canvas was closed do not linger.
-    if (seeded.every(r => r.status === 'fulfilled')) events.clear();
-    for (const result of seeded) if (result.status === 'fulfilled' && Array.isArray(result.value)) result.value.forEach(store);
-    live.forEach(store);
+    const pages = [turnRows, wrapperRows, messageRows].map(result => result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : null);
+    // A full page vouches for its kind back to its oldest row; a short page for all of it. A failed page
+    // vouches for nothing, so everything held of that kind is kept.
+    const horizons = pages.map((page, i) => page && page.length >= SEEDS[i].limit ? page.reduce((oldest, e) => Math.min(oldest, at(e)), Infinity) : -Infinity);
+    // The seed replaces held events it vouches for, so a turn that ended while the canvas was closed does not
+    // linger. Held events newer than the horizon (live ones, and any ingested during this fetch) are merged back by id.
+    const held = [...events.values()].flatMap(channel => [...channel.values()]);
+    events.clear();
+    for (const page of pages) page?.forEach(store);
+    for (const event of held) {
+      const kind = kindOf(event.type);
+      if (kind >= 0 && at(event) >= horizons[kind]) storeEvent(event.channelId!, event);
+    }
+    // Signals only ever move forward: a refresh never takes one back.
+    if (toolRows.status === 'fulfilled' && Array.isArray(toolRows.value)) toolRows.value.forEach(store);
     if (nextStarts.status === 'fulfilled') starts = mergeAgentStarts(starts, nextStarts.value);
     if (nextAgents.status === 'fulfilled' && Array.isArray(nextAgents.value)) agents = nextAgents.value;
     if (nextMentions.status === 'fulfilled' && Array.isArray(nextMentions.value.items)) mentions = nextMentions.value.items;
@@ -162,9 +201,7 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
         if (merged !== starts) { starts = merged; mark('all'); }
         return;
       }
-      if (!event.channelId) return;
-      store(event);
-      inflight?.push(event);
+      if (!event.channelId || !store(event)) return;
       if (event.type === 'message.created') {
         if (mentionsTimer) clearTimeout(mentionsTimer);
         mentionsTimer = setTimeout(() => { mentionsTimer = null; void loadMentions(); }, MENTIONS_DELAY_MS);

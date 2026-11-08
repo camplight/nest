@@ -77,6 +77,17 @@ await runChatTest('canvas cards: a 25 minute old turn reads quiet, never done, a
   assert.equal(found.source,'human:demo-owner');
   await nudge.and(page.locator(':enabled')).waitFor();
   assert.equal(await card.getByText('Done',{exact:true}).count(),0);
+
+  // A tool event is a mid-turn signal from Pip (Ruling R13): the card is working again, and stays so across a refresh.
+  await h.emit('tool.executed',{tool:'synthetic'},{source:`agent:${agentName}`,channelId:h.project.channelId});
+  await card.getByText(`${agentName} is working`,{exact:true}).waitFor();
+  const seed=(part:string)=>page.waitForResponse(r=>r.url().includes(part));
+  const reseeded=Promise.all(['/api/events?typePrefix=agent.turn.','/api/events?type=message.created&order=desc&limit=500','/api/events?type=agent.lifecycle.started','/api/mentions'].map(seed));
+  await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+  await reseeded;
+  await page.waitForTimeout(500); // the refresh settles and publishes on the next frame
+  assert.equal(await card.getByText(`${agentName} is working`,{exact:true}).count(),1,'still working after a refresh');
+  assert.equal(await card.getByText(`${agentName} quiet for`,{exact:false}).count(),0);
 },{canvas:true});
 
 await runChatTest('canvas cards: an uploaded file shows as a chip, and compact zoom keeps only the title and faces',async h=>{
