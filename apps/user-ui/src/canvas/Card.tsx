@@ -21,9 +21,15 @@ export type CardProps = {
   onNudge?(channelId: string, agent: string): Promise<void>;
   /** Editors only: takes an unavailable card off the canvas. */
   onRemove?(channelId: string): void;
+  /** Opens the chat; only open cards use it. Locked and unavailable cards never open. */
+  onOpen?(channelId: string): void;
+  /** This card's chat is the one open now. */
+  open?: boolean;
 };
 
 const MAX_FACES = 5;
+/** Clicks here act on their own control, never open the chat. */
+const OWN_CLICK = 'button, a, input, textarea, select, .canvas-card-faces';
 const MAX_LINES = 3;
 
 export function cardTitle(card: BoardCard) {
@@ -124,20 +130,25 @@ function OpenBody({card, pulse, onNudge}: {card: Extract<BoardCard, {access: 'op
   </>;
 }
 
-export const Card = memo(function Card({card, draggable, dx, dy, dragging, measure, pulse, onNudge, onRemove}: CardProps) {
+export const Card = memo(function Card({card, draggable, dx, dy, dragging, measure, pulse, onNudge, onRemove, onOpen, open = false}: CardProps) {
   const title = cardTitle(card);
   const ref = useCallback((element: HTMLElement | null) => measure(card.channelId, element), [card.channelId, measure]);
   const needs = card.access === 'open' ? pulse?.needsYou.length ?? 0 : 0;
+  const opens = card.access === 'open' && onOpen ? onOpen : undefined;
   return <article
     ref={ref}
-    className={`canvas-card${dragging ? ' is-dragging' : ''}`}
+    className={`canvas-card${dragging ? ' is-dragging' : ''}${opens ? ' is-openable' : ''}${open ? ' is-open' : ''}`}
     data-channel-id={card.channelId}
     data-access={card.access}
     data-drag={draggable ? 'card' : undefined}
     aria-label={`Chat ${title}`}
+    aria-current={open ? 'true' : undefined}
+    onClick={opens ? event => { if (!(event.target as Element).closest(OWN_CLICK)) opens(card.channelId); } : undefined}
     style={{width: card.w, transform: `translate(${card.x + dx}px, ${card.y + dy}px)`}}>
     <div className="canvas-card-head">
       <h3 className="canvas-card-title">{title}</h3>
+      {/* Keyboard route to the same action; a pointer opens the card by clicking its body. */}
+      {opens ? <button type="button" className="canvas-card-open" onClick={() => opens(card.channelId)}>Open chat {title}</button> : null}
       {needs ? <span className="canvas-card-needs" role="img" aria-label={`Needs you: ${needs}`} title="Needs you">{needs}</span> : null}
     </div>
     {card.access === 'open' ? <OpenBody card={card} pulse={pulse} onNudge={onNudge}/> : null}

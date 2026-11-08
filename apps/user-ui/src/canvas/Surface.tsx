@@ -19,6 +19,10 @@ export type SurfaceProps = {
   onDropChat?(channelId: string, at: Point): void;
   /** Filled in by the surface so its owner can ask where the viewport is. */
   controls?: MutableRefObject<SurfaceControls | null>;
+  /** A click (not a drag) on an open card's body. */
+  onOpenChat?(channelId: string): void;
+  /** The chat open beside or over the canvas, marked on its card. */
+  openChannelId?: string | null;
 };
 export type SurfaceControls = {
   /** The canvas point at the centre of the viewport. */
@@ -63,7 +67,7 @@ const isEditable = (target: EventTarget | null) => target instanceof HTMLElement
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + b.y) / 2});
 
-export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls}: SurfaceProps) {
+export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
   // Without a known human the view is not remembered, so it can never land under another person's key.
   const key = humanId ? viewKey(humanId, board.canvas.id) : null;
@@ -82,6 +86,9 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   const applyRef = useRef(onApply); applyRef.current = onApply;
   const toolRef = useRef(tool); toolRef.current = tool;
   const spaceRef = useRef(false);
+  const pointerOver = useRef(false);
+  /** Set by a drag's pointerup so the click that follows it does not open the card. */
+  const dragged = useRef(false);
   const gesture = useRef<Gesture | null>(null);
   const touches = useRef(new Map<number, Point>());
   const pinch = useRef<Pinch | null>(null);
@@ -195,12 +202,18 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     setPreview(null);
   }, []);
 
-  // Space+drag pans from anywhere; Escape drops the tool and any gesture.
+  // Space+drag pans while focus is on the canvas, or nowhere with the pointer over it; Escape drops the tool and any gesture.
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
       // Space still presses a focused button or link; only a free Space arms panning.
       if (isEditable(event.target) || (event.target instanceof Element && event.target.closest('button, a'))) return;
-      if (event.key === ' ') { event.preventDefault(); if (!spaceRef.current) { spaceRef.current = true; setSpaceHeld(true); } }
+      if (event.key === ' ') {
+        // A split-screen chat (or anything else beside the canvas) keeps its own Space.
+        const surface = surfaceRef.current, focus = document.activeElement;
+        const onSurface = Boolean(surface && focus && surface.contains(focus));
+        if (!onSurface && !((!focus || focus === document.body) && pointerOver.current)) return;
+        event.preventDefault(); if (!spaceRef.current) { spaceRef.current = true; setSpaceHeld(true); }
+      }
       else if (event.key === 'Escape') { setTool('select'); if (gesture.current?.active) cancel(); }
     };
     const up = (event: KeyboardEvent) => { if (event.key === ' ') { spaceRef.current = false; setSpaceHeld(false); } };
@@ -290,6 +303,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     if (!g || g.pointerId !== event.pointerId) return;
     gesture.current = null;
     setPreview(null);
+    if (g.active) { dragged.current = true; setTimeout(() => { dragged.current = false; }, 0); }
     if (!g.active || event.type === 'pointercancel') return;
     const point = local(event), zoom = g.startView.zoom;
     const dx = (point.x - g.start.x) / zoom, dy = (point.y - g.start.y) / zoom;
@@ -327,6 +341,12 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
 
   const nudgeRef = useRef(onNudge); nudgeRef.current = onNudge;
   const nudge = useCallback(async (channelId: string, agent: string) => { await nudgeRef.current?.(channelId, agent); }, []);
+  const openRef = useRef(onOpenChat); openRef.current = onOpenChat;
+  // Stable while the surface lives, so memoized cards do not re-render; a drag or Space-pan never opens.
+  const openCard = useCallback((channelId: string) => {
+    if (dragged.current || spaceRef.current) return;
+    openRef.current?.(channelId);
+  }, []);
   const removeCard = useCallback((channelId: string) => {
     surfaceRef.current?.focus({preventScroll: true});
     void applyRef.current({kind: 'removeCard', channelId});
@@ -366,6 +386,8 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     onPointerMove={pointerMove}
     onPointerUp={pointerUp}
     onPointerCancel={pointerUp}
+    onPointerEnter={() => { pointerOver.current = true; }}
+    onPointerLeave={() => { pointerOver.current = false; }}
     onDragOver={dragOver}
     onDrop={drop}
     onLostPointerCapture={event => {
@@ -386,7 +408,8 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
         return <Card key={card.channelId} card={card} draggable={canEdit} dx={shift?.dx ?? 0} dy={shift?.dy ?? 0}
           dragging={preview?.kind === 'card' && preview.id === card.channelId} measure={measure}
           pulse={card.access === 'open' ? pulses.get(card.channelId) : undefined}
-          onNudge={onNudge ? nudge : undefined} onRemove={canEdit ? removeCard : undefined}/>;
+          onNudge={onNudge ? nudge : undefined} onRemove={canEdit ? removeCard : undefined}
+          onOpen={onOpenChat ? openCard : undefined} open={card.channelId === openChannelId}/>;
       })}
     </div>
     <div className="canvas-chrome canvas-tools" role="toolbar" aria-label="Canvas tools">

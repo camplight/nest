@@ -910,3 +910,213 @@
     box-shadow: var(--canvas-shadow);
   }
 }
+
+/* Opening a chat (Task 8). Clicking an open card's body opens it; the open one is marked. */
+.canvas-card.is-openable {
+  cursor: pointer;
+}
+.canvas-card.is-openable[data-drag] {
+  cursor: grab;
+}
+.canvas-card.is-open {
+  outline: 2px solid var(--nest-lime);
+  outline-offset: 2px;
+}
+/* The keyboard route to Open: hidden until focused. */
+.canvas-card-open {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.canvas-card-open:focus-visible {
+  top: 8px;
+  right: 8px;
+  width: auto;
+  height: auto;
+  clip-path: none;
+  z-index: 1;
+  border: 0;
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: var(--nest-forest);
+  color: #fefefe;
+  font: 600 12px/1.4 Inter, sans-serif;
+  outline: 2px solid var(--nest-lime);
+}
+
+/* The canvas side of the body: the stage with its bottom box, and the Loose chats pile. */
+.canvas-main {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.canvas-body.is-split .canvas-main {
+  min-width: 40%;
+}
+
+/* Focus: the chat enlarged over a dimmed canvas. */
+.canvas-chat-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: color-mix(in srgb, var(--nest-forest) 42%, transparent);
+}
+.canvas-chat {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+}
+.canvas-chat:focus {
+  outline: none;
+}
+.canvas-chat[data-mode="focus"] {
+  position: absolute;
+  inset: 20px 0;
+  z-index: 21;
+  width: min(1080px, calc(100% - 40px));
+  margin-inline: auto;
+  border: 1px solid var(--nest-border);
+  border-radius: 20px;
+  box-shadow: var(--canvas-shadow);
+  overflow: hidden;
+}
+/* Split: the canvas stays on the left; the chat sits on the right with a draggable divider. */
+.canvas-chat[data-mode="split"] {
+  position: relative;
+  flex: none;
+  border-left: 1px solid var(--nest-border);
+}
+.canvas-chat-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  z-index: 4;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.canvas-chat-divider::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 2px;
+  background: transparent;
+  transition: background .15s;
+}
+.canvas-chat-divider:hover::after,
+.canvas-chat-divider:focus-visible::after {
+  background: var(--nest-lime);
+}
+.canvas-chat-divider:focus-visible {
+  outline: none;
+}
+.canvas-chat-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 20px;
+  border-bottom: 1px solid var(--nest-border);
+}
+.canvas-chat-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font: 500 16px/1.3 Unbounded, sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.canvas-chat-actions {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.canvas-chat-action {
+  min-height: 34px;
+  border: 1px solid var(--nest-border);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+  font: 500 13px/1 Inter, sans-serif;
+  cursor: pointer;
+}
+.canvas-chat-action:hover {
+  background: var(--nest-muted-surface);
+}
+.canvas-chat-action[aria-pressed="true"] {
+  border-color: var(--nest-forest);
+  background: var(--nest-forest);
+  color: #fefefe;
+}
+:root[data-theme="dark"] .canvas-chat-action[aria-pressed="true"] {
+  border-color: var(--nest-lime);
+  background: var(--nest-lime);
+  color: var(--nest-forest);
+}
+.canvas-chat-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* App's chat workspace, fitted to the panel; the canvas bar already names the chat. */
+.canvas-chat-body > .workspace {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  padding: 0 16px 12px;
+  background: transparent;
+}
+.canvas-chat-body .workspace-header {
+  padding: 8px 0;
+}
+.canvas-chat-body .workspace-header > div > span,
+.canvas-chat-body .workspace-title-row {
+  display: none;
+}
+.canvas-chat-body .workspace-header p {
+  margin: 0;
+}
+.canvas-chat-body .chat-stack {
+  margin-top: 8px;
+}
+@media (max-width: 760px) {
+  /* Phones have no room beside the canvas: both modes fill the body. */
+  .canvas-chat[data-mode="focus"],
+  .canvas-chat[data-mode="split"] {
+    position: absolute;
+    inset: 0;
+    z-index: 21;
+    width: auto !important;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+  }
+  .canvas-chat-divider {
+    display: none;
+  }
+  .canvas-chat-bar {
+    flex-wrap: wrap;
+    padding: 8px 12px;
+  }
+  .canvas-chat-actions {
+    justify-content: flex-start;
+  }
+  .canvas-chat-body > .workspace {
+    padding: 0 12px 8px;
+  }
+}

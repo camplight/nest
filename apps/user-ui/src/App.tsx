@@ -354,7 +354,8 @@ export default function App() {
   canvasLiveRef.current ??= createCanvasLive({ fetchJson: apiJson, now: Date.now });
   const canvasViewRef = useRef(false);
   canvasViewRef.current = view === "canvas";
-  chatVisibleRef.current = view === "workspace" || (view === "projects" && projectTab === "chat");
+  // A chat open over or beside the canvas is as visible as the workspace one: live events, seen and unread follow it.
+  chatVisibleRef.current = view === "workspace" || (view === "projects" && projectTab === "chat") || (view === "canvas" && canvasChat.mode !== null);
   const onProjectLoaded = useCallback((project: Project) => {
     setProjectIndex(current => current.some(p => p.id === project.id && p.channelId === project.channelId && p.name === project.name && p.description === project.description) ? current : [...current.filter(p => p.id !== project.id), project]);
     void apiJson<Channel[]>("/api/channels?includeArchived=1").then(setChannels).catch(() => {});
@@ -628,12 +629,16 @@ export default function App() {
     setActiveChannelId(null); setView('canvas'); setSelectedCanvas(canvasId); setCanvasChat({channelId:null,mode:null}); setMobileSidebarOpen(false);
   }
 
-  function setCanvasChatLocation(channelId:string|null, mode:CanvasChatMode|null) {
+  /** Opens a chat over (focus) or beside (split) the canvas, or closes it with null. Like selectChannel, the session core switches to it, but the view stays the canvas. */
+  function openCanvasChat(channelId:string|null, mode:CanvasChatMode|null, opts?:{replace?:boolean}) {
+    setFocusedMessage(null);
+    const open = channelId && mode ? {channelId,mode} : {channelId:null,mode:null};
     const url = new URL(window.location.href);
-    if (channelId && mode) { url.searchParams.set('chat',channelId); url.searchParams.set('mode',mode); }
+    url.searchParams.delete('message');
+    if (open.channelId && open.mode) { url.searchParams.set('chat',open.channelId); url.searchParams.set('mode',open.mode); }
     else { url.searchParams.delete('chat'); url.searchParams.delete('mode'); }
-    window.history.pushState(null,'',url);
-    setCanvasChat(channelId && mode ? {channelId,mode} : {channelId:null,mode:null});
+    window.history[opts?.replace ? 'replaceState' : 'pushState'](null,'',url);
+    setCanvasChat(open); setActiveChannelId(open.channelId); setMobileSidebarOpen(false);
   }
 
   function selectProject(project: string | null, task: string | null = null, tab = task ? "tasks" : "chat", replace = false) {
@@ -825,6 +830,10 @@ export default function App() {
         selectAgent(nextOnboarding?.setup?.channelId ? nextOnboarding.setup.name : null, {replace:true,create:legacySetupLink && !nextOnboarding?.setup?.channelId,tab:new URL(window.location.href).searchParams.has('connected_account_id')?'connections':'settings'});
       } else if (!claimedShareChannelId && ["agents", "projects", "community", "canvas"].includes(new URL(window.location.href).searchParams.get("view") ?? "") && !linkedChannelId) {
         setActiveChannelId(nextProjects.find(p => p.id === new URL(window.location.href).searchParams.get("project"))?.channelId ?? null); setView(new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : new URL(window.location.href).searchParams.get("view") === "canvas" ? "canvas" : "agents");
+        // A reload restores the chat open on the canvas, if this person can still read it.
+        const canvasOpen = urlView === "canvas" ? readCanvasChat() : null;
+        if (canvasOpen?.channelId && visibleChannels.some(channel => channel.id === canvasOpen.channelId)) setActiveChannelId(canvasOpen.channelId);
+        else if (canvasOpen?.channelId) openCanvasChat(null, null, { replace: true });
       } else {
         const linkedMessage=new URL(window.location.href).searchParams.get('message');
         const project = nextProjects.find(p => p.channelId === nextActiveChannelId);
@@ -1206,6 +1215,11 @@ export default function App() {
       setSelectedProject(url.searchParams.get("project")); setSelectedTask(url.searchParams.get("task"));
       setProjectTab(readProjectTab());
       if (!linkedChannel && url.searchParams.get("view") === "projects") setActiveChannelId(projectIndex.find(p => p.id === url.searchParams.get("project"))?.channelId ?? null);
+      // Back to the canvas reopens the chat that was open there.
+      if (!linkedChannel && url.searchParams.get("view") === "canvas") {
+        const open = readCanvasChat().channelId;
+        setActiveChannelId(channels.some(channel => channel.id === open && channelVisibleToUserUi(channel, userId, username, viewerTeamIds)) ? open : null);
+      }
       const project = projectIndex.find(p => p.channelId === linkedChannelId);
       if (project) selectProject(project.id, null, "chat", true);
     }
@@ -1321,6 +1335,9 @@ export default function App() {
     const nextChannels = await apiJson<Channel[]>("/api/channels?includeArchived=1");
     setChannels(nextChannels);
     if (options.select === false) return nextChannels;
+    // Over the canvas, a refresh keeps the open chat in place; one that goes away (archived, left) just closes.
+    if (view === "canvas" && canvasChat.channelId && (nextActiveChannelId === undefined || nextActiveChannelId === canvasChat.channelId)) return nextChannels;
+    if (view === "canvas" && canvasChat.channelId && nextActiveChannelId === null) { openCanvasChat(null, null, { replace: true }); return nextChannels; }
     const visibleChannels = nextChannels.filter((channel) =>
       channelVisibleToUserUi(channel, userId, username, viewerTeamIds)
     );
@@ -1916,8 +1933,8 @@ export default function App() {
 
       {view === "canvas" ? (canvasAvailable ? <CanvasView canvasId={selectedCanvas} humanId={userId ?? ""} username={username} channels={visibleChannels} projects={projectIndex} agents={visibleAgents} humans={humans}
         onSelectCanvas={selectCanvas} onMenu={() => setMobileSidebarOpen(true)}
-        chat={null} chatChannelId={canvasChat.channelId} chatMode={canvasChat.mode}
-        onOpenChat={(channelId, mode) => setCanvasChatLocation(channelId, mode)} onCloseChat={() => setCanvasChatLocation(null, null)}
+        chat={chatWorkspace} chatChannelId={canvasChat.channelId} chatMode={canvasChat.mode}
+        onOpenChat={(channelId, mode) => openCanvasChat(channelId, mode, { replace: channelId === canvasChat.channelId })} onCloseChat={() => openCanvasChat(null, null)}
         onOpenRegular={channelId => selectChannel(channelId)} live={canvasLiveRef.current}
         refreshChannels={async () => {
           // Projects first, so a new project chat shows in the pile under its project name.

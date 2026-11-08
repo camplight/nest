@@ -11,6 +11,8 @@ import {Surface,type SurfaceControls} from './Surface';
 import {nudgeMessage,type CanvasLive} from './live';
 import {LoosePile} from './LoosePile';
 import {areaAround,gridPlacement,looseChats} from './loose';
+import {SPLIT_MAX,SPLIT_MIN,clampSplit,readSplit,splitAt,writeSplit} from './split';
+import {cardTitle} from './Card';
 import type {CardPulse} from './pulse';
 import type {Point} from './geometry';
 import './canvas.css';
@@ -59,7 +61,7 @@ async function sendNudge(channelId: string, agent: string) {
   await apiJson('/api/messages', {method: 'POST', headers: getApiHeaders(), body: JSON.stringify(nudgeMessage(channelId, agent))});
 }
 
-export function CanvasView({canvasId, humanId, username, channels, projects, onSelectCanvas, onMenu, live, refreshChannels}: CanvasViewProps) {
+export function CanvasView({canvasId, humanId, username, channels, projects, onSelectCanvas, onMenu, chat, chatChannelId, chatMode, onOpenChat, onCloseChat, onOpenRegular, live, refreshChannels}: CanvasViewProps) {
   const store = useMemo(() => createBoardStore({api: boardApi, now: Date.now, intervalMs: SYNC_INTERVAL_MS}), []);
   const state = useSyncExternalStore(store.subscribe, store.snapshot);
   const [canvases, setCanvases] = useState<Canvas[] | null>(null);
@@ -142,6 +144,18 @@ export function CanvasView({canvasId, humanId, username, channels, projects, onS
     setPileOpen(open);
     try { localStorage.setItem(pileKey(humanId), open ? '1' : '0'); } catch {}
   }, [humanId]);
+  // Split screen folds the pile so the canvas keeps its room; opening it there lasts until split screen ends.
+  const [splitPile, setSplitPile] = useState(false);
+  useEffect(() => { if (chatMode !== 'split') setSplitPile(false); }, [chatMode]);
+
+  // One chat at a time, and only one this person can read: never a locked or unavailable card's.
+  const chatShown = Boolean(chat && chatChannelId && chatMode && channels.some(channel => channel.id === chatChannelId));
+  const openCard = cards?.find(card => card.channelId === chatChannelId);
+  const chatTitle = (openCard?.access === 'open' ? cardTitle(openCard) : null) ?? candidates.find(c => c.channelId === chatChannelId)?.title ?? 'Chat';
+  const modeRef = useRef(chatMode); modeRef.current = chatShown ? chatMode : null;
+  const openRef = useRef(onOpenChat); openRef.current = onOpenChat;
+  // A card opens in focus, or replaces the split-screen chat beside the canvas.
+  const openFromCard = useCallback((channelId: string) => openRef.current(channelId, modeRef.current ?? 'focus'), []);
   // A sent bottom-box chat lands in the pile only: the box starts over and the canvas stays put.
   const [dockKey, setDockKey] = useState(0);
   const refreshRef = useRef(refreshChannels); refreshRef.current = refreshChannels;
@@ -167,11 +181,13 @@ export function CanvasView({canvasId, humanId, username, channels, projects, onS
     body = <>
       <div className="canvas-stage">
         <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={store.apply} pulses={pulses} onNudge={sendNudge}
-          onDropChat={canPlace ? dropChat : undefined} controls={controls}/>
-        {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" onCreated={created}/></div> : null}
+          onDropChat={canPlace ? dropChat : undefined} controls={controls} onOpenChat={openFromCard} openChannelId={chatShown ? chatChannelId : null}/>
+        {/* While a chat is open, dropped files go to that chat only. */}
+        {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" onCreated={created} fileDrop={!chatShown}/></div> : null}
       </div>
       <LoosePile chats={loose} count={looseCount} hidden={hidden} showHidden={showHidden} onShowHidden={setShowHidden}
-        canPlace={canPlace} onPlace={place} onHide={hide} open={pileOpen} onOpen={openPile} now={Date.now}/>
+        canPlace={canPlace} onPlace={place} onHide={hide} open={chatShown && chatMode === 'split' ? splitPile : pileOpen}
+        onOpen={chatShown && chatMode === 'split' ? setSplitPile : openPile} now={Date.now}/>
     </>;
   }
 
@@ -180,14 +196,107 @@ export function CanvasView({canvasId, humanId, username, channels, projects, onS
       <h1 className="canvas-name">{name}</h1>
       <CanvasSwitcher canvases={canvases ?? []} currentId={canvasId} onSelect={id => onSelectCanvas(id)}/>
     </div> : undefined}/>
-    <div className="canvas-body">
-      {state.notice && state.canvasId === canvasId ? <div className="canvas-notice" role="status">
-        <span>{state.notice}</span>
-        <button type="button" onClick={store.clearNotice}>Dismiss</button>
-      </div> : null}
-      {body}
+    <div className={`canvas-body${chatShown ? ` has-chat is-${chatMode}` : ''}`}>
+      <CanvasMain inert={chatShown && chatMode === 'focus'}>
+        {state.notice && state.canvasId === canvasId ? <div className="canvas-notice" role="status">
+          <span>{state.notice}</span>
+          <button type="button" onClick={store.clearNotice}>Dismiss</button>
+        </div> : null}
+        {body}
+      </CanvasMain>
+      {chatShown ? <CanvasChat key={chatChannelId} mode={chatMode!} title={chatTitle}
+        onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={onCloseChat} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
+        {chat}
+      </CanvasChat> : null}
     </div>
   </section>;
+}
+
+/** The canvas side of the body. Behind a focus chat it is inert: no pointer, Tab or screen reader reaches it. */
+function CanvasMain({inert, children}: {inert: boolean; children: ReactNode}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    if (inert) element.setAttribute('inert', ''); else element.removeAttribute('inert');
+  }, [inert]);
+  return <div ref={ref} className="canvas-main">{children}</div>;
+}
+
+const SPLIT_STEP = 2;
+/** Another dialog above the chat (manage channel, the tour) takes Escape for itself. */
+const OTHER_DIALOG = '[aria-modal="true"]:not(.canvas-chat), .dialog-backdrop';
+
+/**
+ * The open chat: enlarged over a dimmed canvas (focus), or on the right with a draggable divider (split).
+ * The header holds Split screen, Open in the regular chat view and Close; the chat itself is App's chat workspace.
+ */
+function CanvasChat({mode, title, onMode, onClose, onOpenRegular, children}: {
+  mode: CanvasChatMode; title: string; onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
+}) {
+  const panel = useRef<HTMLElement>(null);
+  const [split, setSplit] = useState(readSplit);
+  const splitRef = useRef(split); splitRef.current = split;
+  const resizing = useRef<number | null>(null);
+  const closeRef = useRef(onClose); closeRef.current = onClose;
+
+  // Focus moves into the chat when it opens and returns to where it was (the card, the canvas) when it closes.
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    panel.current?.focus({preventScroll: true});
+    return () => { if (previous?.isConnected) previous.focus({preventScroll: true}); };
+  }, []);
+
+  // Escape closes a focus chat, after any inner popup (the mention picker) has had it.
+  useEffect(() => {
+    if (mode !== 'focus') return;
+    const key = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector(OTHER_DIALOG)) return;
+      event.preventDefault();
+      closeRef.current();
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [mode]);
+
+  const resizeTo = (clientX: number) => {
+    const body = panel.current?.parentElement?.getBoundingClientRect();
+    if (body) setSplit(splitAt(clientX, {left: body.left, width: body.width}));
+  };
+  const finish = () => { if (resizing.current === null) return; resizing.current = null; writeSplit(splitRef.current); };
+  const nudge = (delta: number) => { const next = clampSplit(splitRef.current + delta); setSplit(next); writeSplit(next); };
+
+  const focus = mode === 'focus';
+  return <>
+    {focus ? <div className="canvas-chat-backdrop" aria-hidden="true" onClick={onClose}/> : null}
+    <section ref={panel} className="canvas-chat" data-mode={mode} tabIndex={-1}
+      role={focus ? 'dialog' : 'region'} aria-label={`Open chat ${title}`}
+      style={focus ? undefined : {width: `${split}%`}}>
+      {focus ? null : <div className="canvas-chat-divider" role="separator" aria-label="Resize chat" aria-orientation="vertical"
+        aria-valuenow={split} aria-valuemin={SPLIT_MIN} aria-valuemax={SPLIT_MAX} aria-valuetext={`Chat ${Math.round(split)}% wide`} tabIndex={0}
+        onPointerDown={event => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          resizing.current = event.pointerId;
+          try { event.currentTarget.setPointerCapture(event.pointerId); } catch {}
+        }}
+        onPointerMove={event => { if (resizing.current === event.pointerId) resizeTo(event.clientX); }}
+        onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={finish}
+        onKeyDown={event => {
+          if (event.key === 'ArrowLeft') { event.preventDefault(); nudge(SPLIT_STEP); }
+          else if (event.key === 'ArrowRight') { event.preventDefault(); nudge(-SPLIT_STEP); }
+        }}/>}
+      <header className="canvas-chat-bar">
+        <h2 className="canvas-chat-title">{title}</h2>
+        <div className="canvas-chat-actions">
+          <button type="button" className="canvas-chat-action" aria-pressed={!focus} onClick={() => onMode(focus ? 'split' : 'focus')}>Split screen</button>
+          <button type="button" className="canvas-chat-action" onClick={onOpenRegular}>Open in the regular chat view</button>
+          <button type="button" className="canvas-chat-action" onClick={onClose}>Close</button>
+        </div>
+      </header>
+      <div className="canvas-chat-body">{children}</div>
+    </section>
+  </>;
 }
 
 /** Placeholder switcher: lists the person's other canvases. A later task replaces it with the full menu. */
