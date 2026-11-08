@@ -63,3 +63,15 @@ export function areaFor(point: { x: number; y: number }, areas: CanvasArea[]): C
   }
   return best;
 }
+
+/**
+ * A card as one viewer may see it. Locked and unavailable cards deliberately carry no
+ * title, participants, project id or kind: the viewer cannot see that chat in the engine.
+ */
+type BoardCardBase = Omit<CanvasCardRow, 'ownerLabel' | 'projectId'>;
+export type BoardCard = BoardCardBase & (
+  | { access: 'open'; title: string; kind?: string; projectId: string | null; participants: { subscriberType: string; subscriberId: string }[]; archived: boolean; canManage: boolean }
+  | { access: 'locked'; ownerLabel: string }
+  | { access: 'unavailable' }
+);
+export type CanvasBoard = { canvas: Canvas; areas: CanvasArea[]; cards: BoardCard[] };

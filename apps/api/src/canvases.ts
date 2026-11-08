@@ -5,11 +5,41 @@ import { z } from 'zod';
 import type { ProductDb } from '@nest/db';
 import { CanvasConflictError, CanvasForbiddenError, CanvasLimitError } from '@nest/db';
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
-import { NewCanvasSchema, CanvasRenameSchema, CanvasSharingSchema, HiddenSchema } from '@nest/schemas';
+import {
+  DEFAULT_CARD_WIDTH, NewCanvasSchema, CanvasRenameSchema, CanvasSharingSchema, HiddenSchema, NewAreaSchema, AreaPatchSchema, PlaceCardsSchema, CardPatchSchema,
+  type BoardCard, type Canvas, type CanvasArea, type CanvasBoard, type CanvasCardRow,
+} from '@nest/schemas';
 
-type Channel = { id: string };
+export type Channel = {
+  id: string; name?: string; kind?: string; archivedAt?: number | null; ownerHumanId?: string | null;
+  participants?: { subscriberType: string; subscriberId: string }[]; canManage?: boolean;
+};
 type Person = { id: string; username: string };
 const uuid = z.string().uuid();
+
+/**
+ * Privacy boundary of the canvas: a card is described only if the engine lists its chat for
+ * the viewer. Anything else exposes at most who placed it (`ownerLabel`), never the chat itself.
+ */
+export function resolveBoard(
+  rows: CanvasCardRow[], areas: CanvasArea[], canvas: Canvas, channels: Channel[],
+  projectsByChannel: Map<string, { id: string; name: string }>, viewerId: string,
+): CanvasBoard {
+  const visible = new Map(channels.map(ch => [ch.id, ch]));
+  const cards = rows.map((row): BoardCard => {
+    const { ownerLabel, projectId, ...base } = row;
+    const ch = visible.get(row.channelId);
+    if (ch) {
+      const project = projectsByChannel.get(row.channelId);
+      return {
+        ...base, access: 'open', title: project?.name ?? ch.name ?? '', ...(ch.kind ? { kind: ch.kind } : {}),
+        projectId: project?.id ?? projectId, participants: ch.participants ?? [], archived: Boolean(ch.archivedAt), canManage: Boolean(ch.canManage),
+      };
+    }
+    return row.placedBy === viewerId ? { ...base, access: 'unavailable' } : { ...base, access: 'locked', ownerLabel };
+  });
+  return { canvas, areas, cards };
+}
 
 export function registerCanvasRoutes(app: Hono, { store, orgops, enabled }: { store: ProductDb; orgops: OrgOpsClient; enabled: boolean }) {
   const routes = new Hono<{ Variables: { human: Human; channels: Channel[] } }>();
@@ -113,6 +143,81 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled }: { st
     if (input.members.some(m => !known.has(m.humanId))) throw new HTTPException(400, { message: 'Unknown teammate' });
     const updated = canvases.setSharing(canvas.id, input, human.id);
     return c.json(sharing(canvas.id, humans, updated.visibility));
+  });
+
+  const requiredVersion = (c: { req: { query(name: string): string | undefined } }) => {
+    const raw = c.req.query('version');
+    const version = Number(raw);
+    if (!raw || !Number.isInteger(version) || version < 0) throw new HTTPException(400, { message: 'version is required' });
+    return version;
+  };
+  async function buildBoard(c: { req: { raw: Request }; get(key: 'human'): Human }, canvasId: string) {
+    const human = c.get('human');
+    const canvas = canvases.get(canvasId, human.id);
+    if (!canvas) throw notFound();
+    const channels = await orgops.humanJson<Channel[]>('/api/channels?includeArchived=1', c.req.raw.headers);
+    const rows = canvases.cards(canvasId);
+    return resolveBoard(rows, canvases.areas(canvasId), canvas, channels, store.projects.byChannels(rows.map(r => r.channelId)), human.id);
+  }
+  // Card rows from the store carry a project id; hand it back only for chats the caller can see.
+  const forViewer = (rows: CanvasCardRow[], channels: Channel[]) => {
+    const seen = new Set(channels.map(ch => ch.id));
+    return rows.map(row => seen.has(row.channelId) ? row : { ...row, projectId: null });
+  };
+  routes.get('/api/canvases/:id/board', async c => {
+    const canvas = visible(c);
+    const raw = c.req.query('version');
+    if (raw !== undefined && Number(raw) === canvas.version) return c.json({ unchanged: true });
+    return c.json(await buildBoard(c, canvas.id));
+  });
+
+  routes.post('/api/canvases/:id/areas', async c => {
+    const canvas = visible(c);
+    const input = parse(NewAreaSchema, await body(c));
+    if (canvases.areas(canvas.id).some(a => a.id === input.id)) return c.json({ error: 'Area ID already used' }, 409);
+    return c.json(canvases.createArea(canvas.id, input, c.get('human').id), 201);
+  });
+  routes.patch('/api/canvases/:id/areas/:areaId', async c => {
+    const canvas = visible(c);
+    const input = parse(AreaPatchSchema, await body(c));
+    const moveCards = c.req.query('moveCards') === '1';
+    const before = new Map(canvases.cards(canvas.id).map(card => [card.channelId, card.version]));
+    const area = canvases.patchArea(canvas.id, c.req.param('areaId'), input, c.get('human').id, { moveCards });
+    const moved = canvases.cards(canvas.id).filter(card => before.get(card.channelId) !== card.version);
+    return c.json({ area, cards: forViewer(moved, c.get('channels')) });
+  });
+  routes.delete('/api/canvases/:id/areas/:areaId', c => {
+    const canvas = visible(c);
+    canvases.removeArea(canvas.id, c.req.param('areaId'), requiredVersion(c), c.get('human').id);
+    return c.body(null, 204);
+  });
+
+  routes.post('/api/canvases/:id/cards', async c => {
+    const canvas = visible(c);
+    const human = c.get('human');
+    const input = parse(PlaceCardsSchema, await body(c));
+    if (canvas.role === 'view') throw new CanvasForbiddenError();
+    const byId = new Map(c.get('channels').map(ch => [ch.id, ch]));
+    if (input.cards.some(card => !byId.has(card.channelId))) throw new HTTPException(400, { message: 'Some chats are not available to you' });
+    const projects = store.projects.byChannels(input.cards.map(card => card.channelId));
+    const names = new Map((await people(c.req.raw.headers)).map(h => [h.id, h.username]));
+    canvases.placeCards(canvas.id, input.cards.map(card => ({
+      channelId: card.channelId, x: card.x, y: card.y, w: card.w ?? DEFAULT_CARD_WIDTH,
+      projectId: projects.get(card.channelId)?.id ?? null,
+      ownerLabel: names.get(byId.get(card.channelId)!.ownerHumanId ?? '') ?? 'a teammate',
+    })), input.area, human.id);
+    return c.json(await buildBoard(c, canvas.id), 201);
+  });
+  routes.patch('/api/canvases/:id/cards/:channelId', async c => {
+    const canvas = visible(c);
+    const input = parse(CardPatchSchema, await body(c));
+    const row = canvases.moveCard(canvas.id, c.req.param('channelId'), input, c.get('human').id);
+    return c.json(forViewer([row], c.get('channels'))[0]);
+  });
+  routes.delete('/api/canvases/:id/cards/:channelId', c => {
+    const canvas = visible(c);
+    canvases.removeCard(canvas.id, c.req.param('channelId'), requiredVersion(c), c.get('human').id);
+    return c.body(null, 204);
   });
 
   routes.all('/api/canvases/*', () => { throw notFound(); });
