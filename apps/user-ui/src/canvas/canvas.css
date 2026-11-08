@@ -38,13 +38,283 @@
   min-height: 0;
   display: flex;
 }
-/* The surface stays plain until the woven-twig texture lands with pan and zoom. No dot grid. */
+/*
+ * The surface: Nest's woven-twig texture (never a dot grid). Surface.tsx scales and offsets the tile
+ * with the view so the twigs move with the canvas.
+ */
+.canvas-view {
+  --canvas-twig: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cpath d='M127.5 145.8Q136.2 150.2 146.5 153.0M131.7 20.4Q116.8 27.1 104.4 31.3M74.0 203.1Q70.1 210.2 66.4 217.2M61.1 174.7Q73.5 181.7 86.2 188.3M45.8 13.0Q21.3 22.1 7.3 20.5M115.5 248.5Q126.5 254.7 136.1 262.4M174.7 73.0Q191.0 83.9 208.8 93.2M60.5 142.2Q68.9 146.2 69.6 157.7M91.4 91.0Q106.2 99.4 128.3 100.4M229.9 122.4Q239.4 133.8 251.8 142.4M197.3 169.7Q205.6 174.5 215.4 177.9M23.4 12.4Q29.8 25.6 32.1 42.9M248.3 84.5Q250.1 98.5 253.5 110.9M218.0 117.2Q216.3 131.1 221.9 137.7M193.2 34.3Q209.4 42.0 215.6 59.8M251.8 241.0Q238.6 246.1 221.5 255.2M144.2 6.3Q146.3 20.2 156.4 26.1M102.3 178.3Q101.6 179.6 88.1 193.7M1.8 93.5Q-7.3 111.6 -5.0 118.1M257.5 118.6Q243.6 124.8 230.6 130.1M32.5 206.2Q16.0 216.2 12.7 212.9M40.2 183.8Q36.3 191.3 22.0 209.2M59.8 215.9Q60.4 225.6 72.7 223.5M5.5 139.6Q-15.0 153.7 -25.5 157.9M128.4 13.5Q130.9 29.9 145.5 34.1M92.5 59.9Q97.7 78.8 113.1 87.6' fill='none' stroke='rgba(2,24,20,0.055)' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E");
+  --canvas-shadow: 0 1px 2px color-mix(in srgb, var(--nest-forest) 8%, transparent), 0 8px 24px color-mix(in srgb, var(--nest-forest) 8%, transparent);
+}
+:root[data-theme="dark"] .canvas-view {
+  --canvas-twig: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cpath d='M127.5 145.8Q136.2 150.2 146.5 153.0M131.7 20.4Q116.8 27.1 104.4 31.3M74.0 203.1Q70.1 210.2 66.4 217.2M61.1 174.7Q73.5 181.7 86.2 188.3M45.8 13.0Q21.3 22.1 7.3 20.5M115.5 248.5Q126.5 254.7 136.1 262.4M174.7 73.0Q191.0 83.9 208.8 93.2M60.5 142.2Q68.9 146.2 69.6 157.7M91.4 91.0Q106.2 99.4 128.3 100.4M229.9 122.4Q239.4 133.8 251.8 142.4M197.3 169.7Q205.6 174.5 215.4 177.9M23.4 12.4Q29.8 25.6 32.1 42.9M248.3 84.5Q250.1 98.5 253.5 110.9M218.0 117.2Q216.3 131.1 221.9 137.7M193.2 34.3Q209.4 42.0 215.6 59.8M251.8 241.0Q238.6 246.1 221.5 255.2M144.2 6.3Q146.3 20.2 156.4 26.1M102.3 178.3Q101.6 179.6 88.1 193.7M1.8 93.5Q-7.3 111.6 -5.0 118.1M257.5 118.6Q243.6 124.8 230.6 130.1M32.5 206.2Q16.0 216.2 12.7 212.9M40.2 183.8Q36.3 191.3 22.0 209.2M59.8 215.9Q60.4 225.6 72.7 223.5M5.5 139.6Q-15.0 153.7 -25.5 157.9M128.4 13.5Q130.9 29.9 145.5 34.1M92.5 59.9Q97.7 78.8 113.1 87.6' fill='none' stroke='rgba(145,215,103,0.07)' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E");
+  --canvas-shadow: 0 1px 2px rgb(0 0 0 / .3), 0 10px 28px rgb(0 0 0 / .32);
+}
 .canvas-surface {
   flex: 1;
   min-width: 0;
   position: relative;
   overflow: hidden;
-  background: var(--nest-bg);
+  background-color: var(--nest-bg);
+  background-image: var(--canvas-twig);
+  background-size: 260px 260px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.canvas-surface.is-gesturing {
+  cursor: grabbing;
+}
+.canvas-surface.is-drawing {
+  cursor: crosshair;
+}
+.canvas-surface.is-panning-key,
+.canvas-surface.is-panning-key * {
+  cursor: grab !important;
+}
+.canvas-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* Areas are rounded nests tinted with a Nest character colour. */
+.canvas-area {
+  --tint: var(--nest-lime);
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  border-radius: 64px 92px 72px 104px / 84px 64px 96px 72px;
+  background: color-mix(in srgb, var(--tint) 7%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--tint) 22%, transparent);
+  box-shadow: inset 0 0 80px color-mix(in srgb, var(--tint) 6%, transparent);
+}
+.canvas-area[data-tint="moss"] { --tint: var(--nest-lime); }
+.canvas-area[data-tint="muff"] { --tint: var(--nest-coral); }
+.canvas-area[data-tint="pip"] { --tint: #1f7f6c; }
+.canvas-area[data-tint="pom"] { --tint: #b8892a; }
+.canvas-area[data-tint="puff"] { --tint: #6d7f78; }
+:root[data-theme="dark"] .canvas-area[data-tint="pip"] { --tint: #4fc3a8; }
+:root[data-theme="dark"] .canvas-area[data-tint="pom"] { --tint: #d9ad55; }
+:root[data-theme="dark"] .canvas-area[data-tint="puff"] { --tint: #a9bbb2; }
+.canvas-area-bar {
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  top: 12px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-radius: 999px;
+}
+.canvas-area-bar[data-drag] {
+  cursor: move;
+}
+.canvas-area-title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 18px/1.2 Unbounded, sans-serif;
+  letter-spacing: -.03em;
+}
+.canvas-area-input {
+  min-width: 0;
+  width: min(100%, 360px);
+  min-height: 36px;
+  border: 1px solid var(--nest-border);
+  border-radius: 10px;
+  padding: 0 10px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+  font: 500 16px Inter, sans-serif;
+  user-select: text;
+}
+.canvas-area-menu {
+  position: relative;
+  margin-left: auto;
+}
+.canvas-area-more {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--nest-muted);
+  font-size: 18px;
+  cursor: pointer;
+}
+.canvas-area-more:hover,
+.canvas-area-more[aria-expanded="true"] {
+  background: var(--nest-muted-surface);
+}
+.canvas-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 2;
+  min-width: 160px;
+  display: grid;
+  padding: 6px;
+  border: 1px solid var(--nest-border);
+  border-radius: 12px;
+  background: var(--nest-surface);
+  box-shadow: var(--canvas-shadow);
+}
+.canvas-menu button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--nest-text);
+  text-align: left;
+  cursor: pointer;
+}
+.canvas-menu button:hover {
+  background: var(--nest-muted-surface);
+}
+.canvas-area-summary {
+  position: absolute;
+  left: 34px;
+  top: 64px;
+  margin: 0;
+  color: var(--nest-muted);
+  font: 500 22px Inter, sans-serif;
+}
+.canvas-area-resize {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  width: 22px;
+  height: 22px;
+  border-right: 2px solid color-mix(in srgb, var(--tint) 55%, transparent);
+  border-bottom: 2px solid color-mix(in srgb, var(--tint) 55%, transparent);
+  border-bottom-right-radius: 10px;
+  cursor: nwse-resize;
+}
+.canvas-area-draft {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  border-radius: 64px 92px 72px 104px / 84px 64px 96px 72px;
+  border: 1.5px dashed color-mix(in srgb, var(--nest-lime) 60%, transparent);
+  background: color-mix(in srgb, var(--nest-lime) 6%, transparent);
+  pointer-events: none;
+}
+.canvas-world.is-compact .canvas-area-title {
+  font-size: 46px;
+}
+.canvas-world.is-compact .canvas-area-bar {
+  top: -14px;
+  right: auto;
+  transform: translateY(-100%);
+}
+.canvas-world.is-compact .canvas-area-summary {
+  top: 24px;
+}
+
+/* Cards: minimal body until live status lands. */
+.canvas-card {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  min-height: 96px;
+  padding: 14px 16px;
+  border: 1px solid var(--nest-border);
+  border-radius: 14px;
+  background: var(--nest-surface);
+  box-shadow: var(--canvas-shadow);
+  color: var(--nest-text);
+}
+.canvas-card[data-drag] {
+  cursor: grab;
+}
+.canvas-card.is-dragging {
+  cursor: grabbing;
+  z-index: 1;
+  border-color: color-mix(in srgb, var(--nest-accent) 45%, var(--nest-border));
+}
+.canvas-card[data-access="locked"],
+.canvas-card[data-access="unavailable"] {
+  background: var(--nest-muted-surface);
+  color: var(--nest-muted);
+}
+.canvas-card-title {
+  margin: 0;
+  font: 600 15px/1.3 Inter, sans-serif;
+  letter-spacing: -.005em;
+  overflow-wrap: anywhere;
+}
+.canvas-world.is-compact .canvas-card-title {
+  font-size: 30px;
+  line-height: 1.15;
+}
+
+/* Floating controls: tools top-left, zoom bottom-right. */
+.canvas-chrome {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--nest-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--nest-surface) 88%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--canvas-shadow);
+  cursor: default;
+}
+.canvas-tools {
+  left: 16px;
+  top: 16px;
+}
+.canvas-zoom {
+  right: 16px;
+  bottom: 18px;
+}
+.canvas-chrome button {
+  min-width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 10px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--nest-text);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.canvas-chrome button:hover:enabled {
+  background: var(--nest-muted-surface);
+}
+.canvas-chrome button:disabled {
+  opacity: .45;
+  cursor: default;
+}
+.canvas-tool[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--nest-lime) 22%, transparent) !important;
+  color: var(--nest-text);
+}
+.canvas-zoom output {
+  width: 48px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--nest-muted);
+  font-variant-numeric: tabular-nums;
 }
 .canvas-message,
 .canvas-first {

@@ -1,4 +1,4 @@
-// Canvas view shell (Task 4): top bar, first-canvas prompt and the board surface. Later tasks fill the surface.
+// Canvas view: top bar, first-canvas prompt, notices and the board surface.
 import {useEffect,useMemo,useState,useSyncExternalStore,type FormEvent,type ReactNode} from 'react';
 import type {Canvas,Project} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
@@ -6,6 +6,7 @@ import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError} from '../api';
 import {boardApi,createCanvas,listCanvases} from './api';
 import {createBoardStore} from './board-store';
+import {Surface} from './Surface';
 import type {CanvasLive} from './live-types';
 import './canvas.css';
 
@@ -34,7 +35,7 @@ export type CanvasViewProps = {
 const SYNC_INTERVAL_MS = 5000;
 const mostRecent = (canvases: Canvas[]) => canvases.reduce<Canvas | null>((best, c) => !best || c.updatedAt > best.updatedAt ? c : best, null);
 
-export function CanvasView({canvasId, onSelectCanvas, onMenu}: CanvasViewProps) {
+export function CanvasView({canvasId, humanId, onSelectCanvas, onMenu}: CanvasViewProps) {
   const store = useMemo(() => createBoardStore({api: boardApi, now: Date.now, intervalMs: SYNC_INTERVAL_MS}), []);
   const state = useSyncExternalStore(store.subscribe, store.snapshot);
   const [canvases, setCanvases] = useState<Canvas[] | null>(null);
@@ -76,7 +77,8 @@ export function CanvasView({canvasId, onSelectCanvas, onMenu}: CanvasViewProps) 
   } else if (!board) {
     body = <CanvasMessage text="Loading canvas…"/>;
   } else {
-    body = <div className="canvas-surface" aria-label={`Canvas ${board.canvas.name}`} data-role={board.canvas.role}/>;
+    // Keyed by canvas so the saved view, gestures and measured card heights start fresh per canvas.
+    body = <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={store.apply}/>;
   }
 
   return <section className="canvas-view" aria-label="Canvas">

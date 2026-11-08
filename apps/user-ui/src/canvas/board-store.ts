@@ -1,6 +1,7 @@
 // Board state for one open canvas: optimistic layout writes, conflict refresh and the sync loop.
-import {CARD_HEIGHT,areaFor,type AreaPatch,type BoardCard,type CanvasArea,type CanvasBoard,type CanvasCardRow,type NewArea} from '@nest/schemas';
+import type {AreaPatch,BoardCard,CanvasArea,CanvasBoard,CanvasCardRow,NewArea} from '@nest/schemas';
 import {CanvasConflict,isCanvasForbidden,isCanvasGone,type CardPlacement,type boardApi} from './api';
+import {areaMembers} from './geometry';
 
 export type BoardApi = typeof boardApi;
 export type BoardStatus = 'loading' | 'ready' | 'gone' | 'error';
@@ -26,6 +27,23 @@ type StoreOptions = {
 };
 
 const cardFromRow = (card: BoardCard, row: CanvasCardRow): BoardCard => ({...card, x: row.x, y: row.y, w: row.w, version: row.version});
+const cardKey = (channelId: string) => `card:${channelId}`;
+const areaKey = (areaId: string) => `area:${areaId}`;
+
+/** The cards and areas an op changes, judged against the board it is applied to. */
+function touched(board: CanvasBoard, op: BoardOp): string[] {
+  switch (op.kind) {
+    case 'moveCard': case 'removeCard': return [cardKey(op.channelId)];
+    case 'createArea': return [areaKey(op.area.id)];
+    case 'deleteArea': return [areaKey(op.areaId)];
+    case 'placeCards': return [];
+    case 'patchArea': {
+      if (!op.moveCards) return [areaKey(op.areaId)];
+      const members = areaMembers(op.areaId, board.cards, board.areas);
+      return [areaKey(op.areaId), ...[...members.areas].map(areaKey), ...[...members.cards].map(cardKey)];
+    }
+  }
+}
 
 /** The local, unconfirmed result of an op. placeCards waits for the server, which resolves the card contents. */
 function optimistic(board: CanvasBoard, op: BoardOp): CanvasBoard {
@@ -43,9 +61,14 @@ function optimistic(board: CanvasBoard, op: BoardOp): CanvasBoard {
       if (!before) return board;
       const next: CanvasArea = {...before, ...op.patch};
       const dx = next.x - before.x, dy = next.y - before.y;
-      // Mirrors the server: cards whose centre is in this area travel with it (nested areas follow on confirm).
-      const cards = op.moveCards && (dx || dy) ? board.cards.map(c => areaFor({x: c.x + c.w / 2, y: c.y + CARD_HEIGHT / 2}, board.areas)?.id === op.areaId ? {...c, x: c.x + dx, y: c.y + dy} : c) : board.cards;
-      return {...board, cards, areas: board.areas.map(a => a.id === op.areaId ? next : a)};
+      if (!op.moveCards || (!dx && !dy)) return {...board, areas: board.areas.map(a => a.id === op.areaId ? next : a)};
+      // Mirrors the server: nested areas and the cards whose centre is in this area or one of them travel with it.
+      const members = areaMembers(op.areaId, board.cards, board.areas);
+      return {
+        ...board,
+        cards: board.cards.map(c => members.cards.has(c.channelId) ? {...c, x: c.x + dx, y: c.y + dy} : c),
+        areas: board.areas.map(a => a.id === op.areaId ? next : members.areas.has(a.id) ? {...a, x: a.x + dx, y: a.y + dy} : a),
+      };
     }
     case 'deleteArea':
       return {...board, areas: board.areas.filter(a => a.id !== op.areaId)};
@@ -65,6 +88,12 @@ export function createBoardStore({api, now, intervalMs, doc = globalThis.documen
   let writes = 0; // bumped by apply(): a read that started before a write must not overwrite it
   let refreshingWrites = 0;
   let lastRefreshAt = -Infinity;
+  // How many unsettled ops touch each card or area. While a later op on an item is still queued,
+  // a confirmation takes only the item's new version: its position is the later op's to set.
+  const inFlight = new Map<string, number>();
+  const later = (key: string) => (inFlight.get(key) ?? 0) > 1;
+  const confirmCard = (card: BoardCard, row: CanvasCardRow): BoardCard => later(cardKey(card.channelId)) ? {...card, version: row.version} : cardFromRow(card, row);
+  const confirmArea = (area: CanvasArea, row: CanvasArea): CanvasArea => later(areaKey(area.id)) ? {...area, version: row.version} : row;
 
   function fail(error: unknown, gen: number) {
     if (gen !== generation) return true;
@@ -128,7 +157,7 @@ export function createBoardStore({api, now, intervalMs, doc = globalThis.documen
         const card = board.cards.find(c => c.channelId === op.channelId);
         if (!card) return;
         const row = await api.moveCard(canvasId, op.channelId, {x: op.x, y: op.y, ...(op.w === undefined ? {} : {w: op.w}), version: card.version});
-        set({board: {...state.board!, cards: state.board!.cards.map(c => c.channelId === row.channelId ? cardFromRow(c, row) : c)}});
+        set({board: {...state.board!, cards: state.board!.cards.map(c => c.channelId === row.channelId ? confirmCard(c, row) : c)}});
         return;
       }
       case 'removeCard': {
@@ -141,7 +170,7 @@ export function createBoardStore({api, now, intervalMs, doc = globalThis.documen
         return;
       case 'createArea': {
         const area = await api.createArea(canvasId, op.area);
-        set({board: {...state.board!, areas: state.board!.areas.map(a => a.id === area.id ? area : a)}});
+        set({board: {...state.board!, areas: state.board!.areas.map(a => a.id === area.id ? confirmArea(a, area) : a)}});
         return;
       }
       case 'patchArea': {
@@ -151,7 +180,7 @@ export function createBoardStore({api, now, intervalMs, doc = globalThis.documen
         const rows = new Map(result.cards.map(row => [row.channelId, row]));
         const areas = new Map([...result.areas, result.area].map(a => [a.id, a]));
         const current = state.board!;
-        set({board: {...current, areas: current.areas.map(a => areas.get(a.id) ?? a), cards: current.cards.map(c => rows.has(c.channelId) ? cardFromRow(c, rows.get(c.channelId)!) : c)}});
+        set({board: {...current, areas: current.areas.map(a => areas.has(a.id) ? confirmArea(a, areas.get(a.id)!) : a), cards: current.cards.map(c => rows.has(c.channelId) ? confirmCard(c, rows.get(c.channelId)!) : c)}});
         return;
       }
       case 'deleteArea': {
@@ -170,6 +199,8 @@ export function createBoardStore({api, now, intervalMs, doc = globalThis.documen
     const {canvasId, board} = state;
     if (!canvasId || !board || state.status !== 'ready') return Promise.resolve(false);
     const gen = generation, opEpoch = epoch;
+    const keys = touched(board, op);
+    for (const key of keys) inFlight.set(key, (inFlight.get(key) ?? 0) + 1);
     set({board: optimistic(board, op), notice: null});
     pending++;
     writes++;
@@ -183,7 +214,10 @@ export function createBoardStore({api, now, intervalMs, doc = globalThis.documen
         await reload(canvasId, gen, error instanceof CanvasConflict ? CONFLICT_NOTICE : isCanvasForbidden(error) ? FORBIDDEN_NOTICE : FAILED_NOTICE);
         return false;
       }
-    }).finally(() => { pending--; });
+    }).finally(() => {
+      pending--;
+      for (const key of keys) { const n = (inFlight.get(key) ?? 1) - 1; if (n > 0) inFlight.set(key, n); else inFlight.delete(key); }
+    });
     queue = run;
     // Layout writes bump the canvas version (rename, sharing and delete use it), so re-read once writes settle.
     return run.then(async ok => { if (ok && pending === 0) await refresh(); return ok; });

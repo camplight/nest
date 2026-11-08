@@ -1,5 +1,5 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
-import type {BoardCard,CanvasBoard,CanvasCardRow} from '@nest/schemas';
+import type {BoardCard,CanvasArea,CanvasBoard,CanvasCardRow} from '@nest/schemas';
 import {ApiError} from '../api';
 import {CanvasConflict} from './api';
 import {createBoardStore,type BoardApi} from './board-store';
@@ -56,6 +56,50 @@ describe('createBoardStore',()=>{
     // The layout write bumped the canvas version, so the store re-reads the board with its etag.
     expect(api.getBoard).toHaveBeenLastCalledWith('c1','e1');
     expect(store.snapshot().board?.etag).toBe('e2');
+  });
+
+  it('keeps a queued later move of the same card when an earlier move is confirmed, taking only its version',async()=>{
+    const first=deferred<CanvasCardRow>(),second=deferred<CanvasCardRow>();
+    const row=(x:number,y:number,version:number):CanvasCardRow=>({canvasId:'c1',channelId:'ch1',projectId:null,x,y,w:280,version,placedBy:'h1',placedAt:1,ownerLabel:'demo'});
+    const api=fakeApi({moveCard:vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)});
+    const store=createBoardStore({api,now:()=>0,intervalMs:5000});
+    await store.open('c1');
+    const a=store.apply({kind:'moveCard',channelId:'ch1',x:100,y:10});
+    const b=store.apply({kind:'moveCard',channelId:'ch1',x:300,y:30});
+    expect(store.snapshot().board?.cards[0]).toMatchObject({x:300,y:30});
+    await vi.waitFor(()=>expect(api.moveCard).toHaveBeenCalledTimes(1));
+    first.resolve(row(100,10,1));
+    // The later drag is still queued: the card stays where it was last dropped, with the confirmed version.
+    await vi.waitFor(()=>expect(api.moveCard).toHaveBeenCalledTimes(2));
+    expect(store.snapshot().board?.cards[0]).toMatchObject({x:300,y:30,version:1});
+    expect(api.moveCard).toHaveBeenLastCalledWith('c1','ch1',{x:300,y:30,version:1});
+    api.getBoard.mockResolvedValueOnce(board('e2',[card('ch1',300,30,2)]));
+    second.resolve(row(300,30,2));
+    expect(await a).toBe(true);expect(await b).toBe(true);
+    expect(store.snapshot().board?.cards[0]).toMatchObject({x:300,y:30,version:2});
+  });
+
+  it('keeps a queued later area edit when an earlier one is confirmed, and moves nested areas with the area at once',async()=>{
+    const first=deferred<{area:CanvasArea;cards:CanvasCardRow[];areas:CanvasArea[]}>(),second=deferred<{area:CanvasArea;cards:CanvasCardRow[];areas:CanvasArea[]}>();
+    const area=(id:string,x:number,y:number,w:number,h:number,version=0,title=id):CanvasArea=>({id,canvasId:'c1',title,x,y,w,h,tint:'moss',version});
+    const start={...board('e1',[card('in-inner',150,150)]),areas:[area('outer',0,0,1000,800),area('inner',100,100,400,300)]};
+    const api=fakeApi({getBoard:vi.fn(async()=>start),patchArea:vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)});
+    const store=createBoardStore({api,now:()=>0,intervalMs:5000});
+    await store.open('c1');
+    void store.apply({kind:'patchArea',areaId:'outer',patch:{x:200,y:0},moveCards:true});
+    // The nested area and the card inside it follow the move before the server answers.
+    expect(store.snapshot().board?.areas.find(a=>a.id==='inner')).toMatchObject({x:300,y:100});
+    expect(store.snapshot().board?.cards[0]).toMatchObject({x:350,y:150});
+    const renamed=store.apply({kind:'patchArea',areaId:'outer',patch:{title:'Launch content'}});
+    await vi.waitFor(()=>expect(api.patchArea).toHaveBeenCalledTimes(1));
+    first.resolve({area:area('outer',200,0,1000,800,1),cards:[{canvasId:'c1',channelId:'in-inner',projectId:null,x:350,y:150,w:280,version:1,placedBy:'h1',placedAt:1,ownerLabel:'demo'}],areas:[area('inner',300,100,400,300,1)]});
+    await vi.waitFor(()=>expect(api.patchArea).toHaveBeenCalledTimes(2));
+    expect(store.snapshot().board?.areas.find(a=>a.id==='outer')).toMatchObject({title:'Launch content',x:200,version:1});
+    expect(api.patchArea).toHaveBeenLastCalledWith('c1','outer',{title:'Launch content',version:1},false);
+    api.getBoard.mockResolvedValueOnce({unchanged:true});
+    second.resolve({area:area('outer',200,0,1000,800,2,'Launch content'),cards:[],areas:[]});
+    expect(await renamed).toBe(true);
+    expect(store.snapshot().board?.areas.find(a=>a.id==='outer')).toMatchObject({title:'Launch content',version:2});
   });
 
   it('replaces the board from a fresh read and says so when a write conflicts',async()=>{
