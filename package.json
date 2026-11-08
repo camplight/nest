@@ -50,6 +50,7 @@
     "test:ui:demo-artifacts": "node tests/browser/demo-artifacts.mjs",
     "test:ui:tour": "node tests/browser/quick-tour.mjs",
     "test:ui:chat-next": "node --import tsx tests/browser/support/chat-next-run.ts",
+    "test:ui:canvas": "node --import tsx tests/browser/canvas/run.ts",
     "test:ui:dashboard:webkit": "playwright install --with-deps webkit && node --import tsx tests/browser/dashboard.ts --webkit"
   },
   "devDependencies": {

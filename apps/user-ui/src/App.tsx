@@ -25,6 +25,9 @@ import type { OnboardingSummary } from "@nest/schemas";
 import {apiUrl} from './config';
 import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
 import { Community } from "./Community";
+import { CanvasView, type CanvasChatMode } from "./canvas/CanvasView";
+import { canvasAvailability } from "./canvas/api";
+import { idleCanvasLive } from "./canvas/live-types";
 import type { Project } from "@nest/schemas";
 import { Projects } from "./Projects";
 import { ProjectNavigation } from "./components/ProjectNavigation";
@@ -259,6 +262,7 @@ function updateChannelDeepLink(channelId: string | null, replace = false, dashbo
   url.searchParams.delete("agent"); url.searchParams.delete("skill");
   url.searchParams.delete("project");
   url.searchParams.delete("task"); url.searchParams.delete("tab"); url.searchParams.delete("create");
+  clearCanvasParams(url);
   if (channelId) {
     url.searchParams.set("channel", channelId);
   } else {
@@ -267,6 +271,16 @@ function updateChannelDeepLink(channelId: string | null, replace = false, dashbo
   }
   const method = replace ? "replaceState" : "pushState";
   window.history[method](null, "", url);
+}
+
+function clearCanvasParams(url: URL) {
+  for (const key of ["canvas", "chat", "mode"]) url.searchParams.delete(key);
+}
+
+function readCanvasChat(): { channelId: string | null; mode: CanvasChatMode | null } {
+  const url = new URL(window.location.href);
+  const channelId = url.searchParams.get("chat"), mode = url.searchParams.get("mode");
+  return channelId && (mode === "focus" || mode === "split") ? { channelId, mode } : { channelId: null, mode: null };
 }
 
 function consumeShareToken(channelId?: string | null) {
@@ -326,7 +340,11 @@ export default function App() {
   const threadSnapshot = useMemo<ChannelEventsSnapshot>(() => channelEventsCurrent ? channelSnapshot : {
     channelId: activeChannelId, events: NO_EVENTS, detachedIds: NO_DETACHED, loading: Boolean(activeChannelId), loadingOlder: false, hasOlder: false, error: null
   }, [channelEventsCurrent, channelSnapshot, activeChannelId]);
-  const [view, setView] = useState<"dashboard" | "workspace" | "agents" | "projects" | "community">(() => readLinkedChannelId() ? "workspace" : new URL(window.location.href).searchParams.get("view") === "onboarding" || window.location.pathname === "/onboarding" ? "agents" : new URL(window.location.href).searchParams.get("view") === "agents" ? "agents" : new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : "dashboard");
+  const [view, setView] = useState<"dashboard" | "workspace" | "agents" | "projects" | "community" | "canvas">(() => readLinkedChannelId() ? "workspace" : new URL(window.location.href).searchParams.get("view") === "onboarding" || window.location.pathname === "/onboarding" ? "agents" : new URL(window.location.href).searchParams.get("view") === "agents" ? "agents" : new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : new URL(window.location.href).searchParams.get("view") === "canvas" ? "canvas" : "dashboard");
+  const [selectedCanvas, setSelectedCanvas] = useState<string | null>(() => new URL(window.location.href).searchParams.get("canvas"));
+  const [canvasChat, setCanvasChat] = useState(readCanvasChat);
+  // null until the product API answers; the Canvas entry shows only when it says available.
+  const [canvasAvailable, setCanvasAvailable] = useState<boolean | null>(null);
   const [selectedCommunitySkill, setSelectedCommunitySkill] = useState<string|null>(()=>new URL(window.location.href).searchParams.get("skill"));
   const [projectIndex, setProjectIndex] = useState<Project[]>([]);
   const [projectTab, setProjectTab] = useState(readProjectTab);
@@ -586,11 +604,31 @@ export default function App() {
     const url = new URL(window.location.href);
     url.searchParams.delete('message');
     for (const key of ['channel','agent','project','task','tab','create','request','assistant']) url.searchParams.delete(key);
+    clearCanvasParams(url);
     url.searchParams.set('view','community');
     url.searchParams.delete('category');
     if (name) url.searchParams.set('skill',name); else url.searchParams.delete('skill');
     window.history.pushState(null,'',url);
     setActiveChannelId(null); setView('community'); setSelectedCommunitySkill(name); setMobileSidebarOpen(false);
+  }
+
+  function selectCanvas(canvasId:string|null, opts?:{replace?:boolean}) {
+    setFocusedMessage(null);
+    const url = new URL(window.location.href);
+    for (const key of ['message','channel','agent','project','task','tab','create','request','assistant','category','skill']) url.searchParams.delete(key);
+    clearCanvasParams(url);
+    url.searchParams.set('view','canvas');
+    if (canvasId) url.searchParams.set('canvas',canvasId);
+    window.history[opts?.replace ? 'replaceState' : 'pushState'](null,'',url);
+    setActiveChannelId(null); setView('canvas'); setSelectedCanvas(canvasId); setCanvasChat({channelId:null,mode:null}); setMobileSidebarOpen(false);
+  }
+
+  function setCanvasChatLocation(channelId:string|null, mode:CanvasChatMode|null) {
+    const url = new URL(window.location.href);
+    if (channelId && mode) { url.searchParams.set('chat',channelId); url.searchParams.set('mode',mode); }
+    else { url.searchParams.delete('chat'); url.searchParams.delete('mode'); }
+    window.history.pushState(null,'',url);
+    setCanvasChat(channelId && mode ? {channelId,mode} : {channelId:null,mode:null});
   }
 
   function selectProject(project: string | null, task: string | null = null, tab = task ? "tasks" : "chat", replace = false) {
@@ -600,6 +638,7 @@ export default function App() {
     url.searchParams.delete('request');url.searchParams.delete('assistant');
     url.searchParams.delete('category');
     url.searchParams.delete("channel"); url.searchParams.delete("agent"); url.searchParams.delete("skill");
+    clearCanvasParams(url);
     url.searchParams.set("view", "projects");
     if (project) url.searchParams.set("project", project); else url.searchParams.delete("project");
     if (task) url.searchParams.set("task", task); else url.searchParams.delete("task"); url.searchParams.delete("tab"); url.searchParams.delete("create");
@@ -619,6 +658,7 @@ export default function App() {
     url.searchParams.delete("project"); url.searchParams.delete("task"); url.searchParams.delete("tab"); url.searchParams.delete("create");
     url.searchParams.delete("skill");
     url.pathname = "/";
+    clearCanvasParams(url);
     url.searchParams.set("view", "agents");
     url.searchParams.delete("request");url.searchParams.delete("assistant");
     if(options.requests){url.searchParams.set("tab","requests");if(options.request)url.searchParams.set("request",options.request);if(options.assistant)url.searchParams.set("assistant",options.assistant);}
@@ -778,8 +818,8 @@ export default function App() {
       } else if (!claimedShareChannelId && !linkedChannelId && (urlView === "onboarding" || window.location.pathname === "/onboarding" || (!urlView && nextOnboarding && !nextOnboarding.setup?.completedAt && (nextOnboarding.setup || (!nextProjects.length && !nextAgents.some(a=>a.ownerHumanId===userId)))))) {
         const legacySetupLink = urlView === "onboarding" || window.location.pathname === "/onboarding";
         selectAgent(nextOnboarding?.setup?.channelId ? nextOnboarding.setup.name : null, {replace:true,create:legacySetupLink && !nextOnboarding?.setup?.channelId,tab:new URL(window.location.href).searchParams.has('connected_account_id')?'connections':'settings'});
-      } else if (!claimedShareChannelId && ["agents", "projects", "community"].includes(new URL(window.location.href).searchParams.get("view") ?? "") && !linkedChannelId) {
-        setActiveChannelId(nextProjects.find(p => p.id === new URL(window.location.href).searchParams.get("project"))?.channelId ?? null); setView(new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : "agents");
+      } else if (!claimedShareChannelId && ["agents", "projects", "community", "canvas"].includes(new URL(window.location.href).searchParams.get("view") ?? "") && !linkedChannelId) {
+        setActiveChannelId(nextProjects.find(p => p.id === new URL(window.location.href).searchParams.get("project"))?.channelId ?? null); setView(new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : new URL(window.location.href).searchParams.get("view") === "canvas" ? "canvas" : "agents");
       } else {
         const linkedMessage=new URL(window.location.href).searchParams.get('message');
         const project = nextProjects.find(p => p.channelId === nextActiveChannelId);
@@ -1122,6 +1162,20 @@ export default function App() {
 
   useEffect(() => {
     if (!authenticated || mustChangePassword) return;
+    let current = true;
+    // A failed re-check on focus keeps the last answer, so a network blip does not close an open canvas.
+    const probe = () => void canvasAvailability().then(result => { if (current) setCanvasAvailable(result.available === true); }).catch(() => { if (current) setCanvasAvailable(previous => previous ?? false); });
+    probe();
+    window.addEventListener("focus", probe);
+    return () => { current = false; window.removeEventListener("focus", probe); };
+  }, [authenticated, mustChangePassword]);
+
+  useEffect(() => {
+    if (view === "canvas" && canvasAvailable === false) selectChannel(null, { replace: true });
+  }, [view, canvasAvailable]);
+
+  useEffect(() => {
+    if (!authenticated || mustChangePassword) return;
     function handlePopState() {
       const linkedChannelId = readLinkedChannelId();
       const linkedChannel = channels.find(
@@ -1133,7 +1187,8 @@ export default function App() {
       setActiveChannelId(linkedChannel?.id ?? null);
       const url = new URL(window.location.href);
       setFocusedMessage(url.searchParams.get("message"));
-      setView(linkedChannel ? "workspace" : url.searchParams.get("view") === "onboarding" ? "agents" : url.searchParams.get("view") === "agents" ? "agents" : url.searchParams.get("view") === "projects" ? "projects" : url.searchParams.get("view") === "community" ? "community" : "dashboard");
+      setView(linkedChannel ? "workspace" : url.searchParams.get("view") === "onboarding" ? "agents" : url.searchParams.get("view") === "agents" ? "agents" : url.searchParams.get("view") === "projects" ? "projects" : url.searchParams.get("view") === "community" ? "community" : url.searchParams.get("view") === "canvas" ? "canvas" : "dashboard");
+      setSelectedCanvas(url.searchParams.get("canvas")); setCanvasChat(readCanvasChat());
       setSelectedAgent(url.searchParams.get("agent"));
       setAgentTab(url.searchParams.get("tab")==='connections'?'connections':'settings');
       setRequestLocation(readAgentRequestLocation());
@@ -1753,6 +1808,7 @@ export default function App() {
         <InstanceBrand />
         <nav className="product-nav" aria-label="Main navigation">
           <button aria-current={view === "dashboard" ? "page" : undefined} onClick={() => selectChannel(null)}><DesignIcon name="dashboard" />Dashboard</button>
+          {canvasAvailable ? <button aria-current={view === "canvas" ? "page" : undefined} onClick={() => selectCanvas(null)}><DesignIcon name="canvas" />Canvas</button> : null}
           <ProjectNavigation projects={projectIndex} currentProjectId={view === "projects" ? selectedProject : null} inProjects={view === "projects" || view === "workspace"} creating={view === "projects" && !selectedProject && projectTab === "new"} unreadCounts={unreadCounts} onBrowse={() => selectProject(null)} onSelect={id => selectProject(id)} onCreate={() => selectProject(null, null, "new")} />
           <AgentNavigation agents={visibleAgents} chats={agentChats} activeAgent={activeChatAgent??(view==='agents'?selectedAgent:null)} activeChannelId={activeChannelId} inAgents={view==='agents'||!!activeChatAgent} busy={agentOpening} error={agentNavigationError} unread={unreadCounts} label={c=>isHumanAgentDirectChannel(c)?'First conversation':channelLabel(c,username)} onBrowse={()=>selectAgent(null)} onOpen={name=>void openAgentChat(name)} onChat={selectChannel} onNew={newAgentChat}/>
           <button data-tour="community" aria-current={view === "community" ? "page" : undefined} onClick={()=>selectCommunity(null)}><DesignIcon name="community" />Community</button>
@@ -1847,7 +1903,12 @@ export default function App() {
         />
       ) : null}
 
-      {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} onManage={activeChannelManageable?()=>setShowChannelManageDialog(true):undefined} /> : view === "agents" ? <Agents tab={agentTab} onTab={tab=>selectAgent(selectedAgent,{tab})} onOpenChat={name=>void openAgentChat(name)} requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
+      {view === "canvas" ? (canvasAvailable ? <CanvasView canvasId={selectedCanvas} humanId={userId ?? ""} username={username} channels={visibleChannels} projects={projectIndex} agents={visibleAgents} humans={humans}
+        onSelectCanvas={selectCanvas} onMenu={() => setMobileSidebarOpen(true)}
+        chat={null} chatChannelId={canvasChat.channelId} chatMode={canvasChat.mode}
+        onOpenChat={(channelId, mode) => setCanvasChatLocation(channelId, mode)} onCloseChat={() => setCanvasChatLocation(null, null)}
+        onOpenRegular={channelId => selectChannel(channelId)} live={idleCanvasLive}
+      /> : null) : view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} onManage={activeChannelManageable?()=>setShowChannelManageDialog(true):undefined} /> : view === "agents" ? <Agents tab={agentTab} onTab={tab=>selectAgent(selectedAgent,{tab})} onOpenChat={name=>void openAgentChat(name)} requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
         resumeProject={userId?projectIndex.find(p=>p.id===recentProject(userId)):undefined} channels={visibleChannels} projects={projectIndex} onProject={selectProject} unreadCounts={unreadCounts} onCommunity={selectCommunity}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}
         onSelect={selectChannel} onCreate={() => selectProject(null, null, "new")}

@@ -36,6 +36,7 @@ export type ChatTestOptions={
   hasTouch?:boolean;
   fakeMedia?:boolean;
   connections?:unknown; // a ConnectionProvider, as projects.ts builds it
+  canvas?:boolean; // NEST_ENABLE_CANVAS for this product API; off unless set
 };
 
 const root=join(import.meta.dirname,'../../..');
@@ -80,7 +81,7 @@ async function setup(options:ChatTestOptions,cleanup:(()=>Promise<void>|void)[])
   const upstreamSockets=track(upstream);engine.injectWebSocket(upstream);await once(upstream,'listening');
   cleanup.push(()=>closeServer(upstream,upstreamSockets));
   const engineUrl=`http://127.0.0.1:${(upstream.address() as {port:number}).port}`;
-  const product=createApp({orgops:createOrgOpsClient(engineUrl),dbPath:join(dir,'product.sqlite'),connections:(options.connections as ConnectionProvider|undefined)??null});
+  const product=createApp({orgops:createOrgOpsClient(engineUrl),dbPath:join(dir,'product.sqlite'),connections:(options.connections as ConnectionProvider|undefined)??null,canvasEnabled:options.canvas===true});
   cleanup.push(()=>product.store.db.close());
 
   // holdNext: the matching request's body is read in full before `started` resolves.

@@ -1,0 +1,148 @@
+/* Switchyard canvas: plain CSS on Nest brand tokens (Tailwind stays scoped to chat/). */
+.canvas-view {
+  min-width: 0;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--nest-bg);
+  color: var(--nest-text);
+}
+.canvas-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.canvas-name {
+  margin: 0;
+  min-width: 0;
+  font-size: 22px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.canvas-switcher {
+  min-height: 36px;
+  max-width: 200px;
+  border: 1px solid var(--nest-border);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+}
+.canvas-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+/* The surface stays plain until the woven-twig texture lands with pan and zoom. No dot grid. */
+.canvas-surface {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  background: var(--nest-bg);
+}
+.canvas-message,
+.canvas-first {
+  margin: auto;
+  max-width: 440px;
+  padding: 32px 24px;
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  text-align: center;
+}
+.canvas-message p,
+.canvas-first p {
+  margin: 0;
+  color: var(--nest-muted);
+  line-height: 1.5;
+}
+.canvas-first h2 {
+  margin: 0;
+  font-size: 26px;
+}
+.canvas-first-character {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+}
+.canvas-first form {
+  width: 100%;
+  display: grid;
+  gap: 12px;
+  margin-top: 6px;
+}
+.canvas-first label {
+  display: grid;
+  gap: 6px;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 500;
+}
+.canvas-first input {
+  min-height: 44px;
+  border: 1px solid var(--nest-border);
+  border-radius: 12px;
+  padding: 0 14px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+}
+.canvas-button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 22px;
+  background: var(--nest-forest);
+  color: var(--instance-on-primary, #fefefe);
+  font-weight: 600;
+  cursor: pointer;
+}
+:root[data-theme="dark"] .canvas-button {
+  background: var(--nest-lime);
+  color: var(--nest-forest);
+}
+.canvas-button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+.canvas-error {
+  color: var(--nest-coral, #ff5c35) !important;
+}
+.canvas-notice {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100% - 32px);
+  border: 1px solid var(--nest-border);
+  border-radius: 999px;
+  padding: 8px 8px 8px 16px;
+  background: var(--nest-surface);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--nest-forest) 14%, transparent);
+  font-size: 14px;
+}
+.canvas-notice button {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: var(--nest-muted-surface);
+  color: var(--nest-text);
+  cursor: pointer;
+}
+@media (max-width: 760px) {
+  .canvas-name {
+    font-size: 18px;
+  }
+  .canvas-switcher {
+    max-width: 140px;
+  }
+}
