@@ -8,7 +8,7 @@ export const CanvasTint = z.enum(['moss', 'puff', 'pom', 'pip', 'muff']);
 export type CanvasTint = z.infer<typeof CanvasTint>;
 
 /** Assumed rendered card height, used to find a card's centre for area membership. */
-export const CARD_HEIGHT = 120;
+export const CARD_HEIGHT = 160;
 export const DEFAULT_CARD_WIDTH = 280;
 export const MAX_CANVASES_PER_OWNER = 50;
 export const MAX_AREAS = 100;
