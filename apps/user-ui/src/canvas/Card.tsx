@@ -19,7 +19,7 @@ export type CardProps = {
   /** Live state for an open card; absent until the first seed arrives. */
   pulse?: CardPulse;
   onNudge?(channelId: string, agent: string): Promise<void>;
-  /** Editors only: takes an unavailable card off the canvas. */
+  /** Editors and owners only (never viewers): takes any card, open, locked or unavailable, off the canvas. */
   onRemove?(channelId: string): void;
   /** Opens the chat; only open cards use it. Locked and unavailable cards never open. */
   onOpen?(channelId: string): void;
@@ -167,8 +167,9 @@ export const Card = memo(function Card({card, draggable, dx, dy, dragging, measu
     </div>
     {card.access === 'open' ? <OpenBody card={card} pulse={pulse} onNudge={onNudge} facesDraggable={facesDraggable} draggingFace={draggingFace}/> : null}
     {card.access === 'locked' ? <p className="canvas-card-owner">Owner: {card.ownerLabel}</p> : null}
-    {card.access === 'unavailable' && onRemove ? <div className="canvas-card-actions">
-      <button type="button" className="canvas-card-remove" onClick={() => onRemove(card.channelId)}>Remove</button>
+    {/* Every card can come off the canvas; the chat itself is untouched and an open one returns to the pile. */}
+    {onRemove ? <div className="canvas-card-actions">
+      <button type="button" className="canvas-card-remove" onClick={() => onRemove(card.channelId)}>Remove from canvas</button>
     </div> : null}
   </article>;
 });

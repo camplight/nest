@@ -1,7 +1,7 @@
 // The Loose chats pile: the person's chats that are not on this canvas, with search, filters,
 // multi-select, bulk place/area/hide and drag onto the surface. The list is windowed by hand:
 // fixed 56 px rows, and only the rows in view (plus a few) are in the DOM.
-import {memo,useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState,type DragEvent as ReactDragEvent,type MouseEvent as ReactMouseEvent} from 'react';
+import {memo,useCallback,useEffect,useId,useLayoutEffect,useMemo,useRef,useState,type DragEvent as ReactDragEvent,type MouseEvent as ReactMouseEvent} from 'react';
 import {filterLoose,type LooseAge,type LooseChat} from './loose';
 import {CHAT_DRAG_TYPE} from './Surface';
 
@@ -81,6 +81,7 @@ export function LoosePile({chats, count, hidden, showHidden, onShowHidden, canPl
   const [agent, setAgent] = useState<string | null>(null);
   const [age, setAge] = useState<LooseAge>('any');
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const limitId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const anchor = useRef<number | null>(null);
@@ -183,9 +184,10 @@ export function LoosePile({chats, count, hidden, showHidden, onShowHidden, canPl
       </div>
       {picked.length ? <div className="canvas-pile-bulk" role="toolbar" aria-label="Selected chats">
         <span>{picked.length} selected</span>
-        <button type="button" disabled={busy || !canPlace || tooMany} title={placeTitle} onClick={() => void run(() => onPlace(picked, false), 'Could not place those chats. Try again.')}>Place on canvas</button>
-        <button type="button" disabled={busy || !canPlace || tooMany} title={placeTitle} onClick={() => void run(() => onPlace(picked, true), 'Could not make that area. Try again.')}>New area from these</button>
-        <button type="button" disabled={busy || tooMany} title={tooMany ? `Select up to ${MAX_BULK} chats` : 'Hide from your loose chats. The chat itself is not archived.'} onClick={() => void run(() => onHide(picked, true), 'Could not hide those chats. Try again.')}>Hide</button>
+        {tooMany ? <span id={limitId} className="canvas-pile-limit">Select up to {MAX_BULK}</span> : null}
+        <button type="button" disabled={busy || !canPlace || tooMany} title={placeTitle} aria-describedby={tooMany ? limitId : undefined} onClick={() => void run(() => onPlace(picked, false), 'Could not place those chats. Try again.')}>Place on canvas</button>
+        <button type="button" disabled={busy || !canPlace || tooMany} title={placeTitle} aria-describedby={tooMany ? limitId : undefined} onClick={() => void run(() => onPlace(picked, true), 'Could not make that area. Try again.')}>New area from these</button>
+        <button type="button" disabled={busy || tooMany} title={tooMany ? `Select up to ${MAX_BULK} chats` : 'Hide from your loose chats. The chat itself is not archived.'} aria-describedby={tooMany ? limitId : undefined} onClick={() => void run(() => onHide(picked, true), 'Could not hide those chats. Try again.')}>Hide</button>
         <button type="button" className="canvas-pile-clear" disabled={busy} onClick={() => setSelected(new Set())}>Clear</button>
       </div> : null}
       {error ? <p className="canvas-pile-error" role="alert">{error}</p> : null}

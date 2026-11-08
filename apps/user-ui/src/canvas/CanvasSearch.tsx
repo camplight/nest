@@ -29,6 +29,8 @@ export function CanvasSearch({items, onClose, onChoose}: CanvasSearchProps) {
   useEffect(() => { if (activeId) document.getElementById(activeId)?.scrollIntoView({block: 'nearest'}); }, [activeId]);
 
   const key = (event: KeyboardEvent<HTMLInputElement>) => {
+    // An IME uses Enter and the arrows to compose and pick characters; they never move or choose a result then.
+    if (event.nativeEvent.isComposing) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       if (!flat.length) return;

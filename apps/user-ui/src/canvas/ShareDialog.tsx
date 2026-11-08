@@ -1,6 +1,6 @@
 // Owner-only sharing: Private or chosen people, each with Can edit / Can view. Save calls putMembers.
 import {useEffect,useId,useMemo,useState} from 'react';
-import type {CanvasVisibility} from '@nest/schemas';
+import {MAX_MEMBERS,type CanvasVisibility} from '@nest/schemas';
 import {getMembers,putMembers,withFreshVersion} from './api';
 import {Modal} from './CanvasSwitcher';
 
@@ -49,6 +49,10 @@ export function ShareDialog({canvasId, ownerId, humans, version, freshVersion, o
     return [...byId].map(([id, username]) => ({id, username})).sort((a, b) => a.username.localeCompare(b.username));
   }, [humans, known, ownerId]);
   const shown = people.filter(person => person.username.toLowerCase().includes(query.trim().toLowerCase()));
+  // The server takes at most 30 members: at the cap, only chosen people can still be changed.
+  const chosen = [...roles.keys()].filter(id => people.some(p => p.id === id)).length;
+  const full = chosen >= MAX_MEMBERS;
+  const capId = useId();
 
   const setRole = (id: string, role: Role | null) => setRoles(current => {
     const next = new Map(current);
@@ -78,11 +82,13 @@ export function ShareDialog({canvasId, ownerId, humans, version, freshVersion, o
       </div>
       {visibility === 'shared' ? <div className="canvas-share-people">
         {people.length > SEARCH_ABOVE ? <input type="search" aria-label="Search people" placeholder="Search people" value={query} onChange={event => setQuery(event.target.value)}/> : null}
+        {full ? <p id={capId} className="canvas-share-cap">Up to {MAX_MEMBERS} people.</p> : null}
         {shown.length ? <ul aria-label="People">
           {shown.map(person => {
             const role = roles.get(person.id);
             return <li key={person.id}>
-              <label><input type="checkbox" checked={Boolean(role)} onChange={event => setRole(person.id, event.target.checked ? 'view' : null)}/>{person.username}</label>
+              <label><input type="checkbox" checked={Boolean(role)} disabled={full && !role} aria-describedby={full && !role ? capId : undefined}
+                onChange={event => setRole(person.id, event.target.checked ? 'view' : null)}/>{person.username}</label>
               <select aria-label={`Access for ${person.username}`} value={role ?? 'view'} disabled={!role} onChange={event => setRole(person.id, event.target.value as Role)}>
                 <option value="edit">Can edit</option>
                 <option value="view">Can view</option>

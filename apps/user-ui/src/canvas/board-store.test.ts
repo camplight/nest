@@ -122,6 +122,30 @@ describe('createBoardStore',()=>{
     expect(api.removeCard).toHaveBeenCalledWith('c1','ch1',1);
   });
 
+  it('removes an open, a locked and an unavailable card with each card version',async()=>{
+    const {title:_t,participants:_p,projectId:_j,archived:_a,canManage:_m,...rest}=card('ch2',300,0,2) as Extract<BoardCard,{access:'open'}>;
+    const locked:BoardCard={...rest,access:'locked',ownerLabel:'mate'};
+    const unavailable:BoardCard={...rest,channelId:'ch3',version:5,access:'unavailable'};
+    const api=fakeApi({getBoard:vi.fn(async()=>board('e1',[card('ch1',0,0,1),locked,unavailable]))});
+    const store=createBoardStore({api,now:()=>0,intervalMs:5000});
+    await store.open('c1');
+    api.getBoard.mockResolvedValue({unchanged:true});
+    for(const channelId of ['ch1','ch2','ch3'])expect(await store.apply({kind:'removeCard',channelId})).toBe(true);
+    expect(store.snapshot().board?.cards).toEqual([]);
+    expect(vi.mocked(api.removeCard).mock.calls).toEqual([['c1','ch1',1],['c1','ch2',2],['c1','ch3',5]]);
+  });
+
+  it('puts a removed card back and says why when a viewer is refused',async()=>{
+    const api=fakeApi({removeCard:vi.fn(async()=>{throw new ApiError('Forbidden',403);})});
+    const store=createBoardStore({api,now:()=>0,intervalMs:5000});
+    await store.open('c1');
+    const removal=store.apply({kind:'removeCard',channelId:'ch1'});
+    expect(store.snapshot().board?.cards).toEqual([]);
+    expect(await removal).toBe(false);
+    expect(store.snapshot().board?.cards.map(c=>c.channelId)).toEqual(['ch1']);
+    expect(store.snapshot().notice).toBe('You can view this canvas but not change it.');
+  });
+
   it('replaces the board from a fresh read and says so when a write conflicts',async()=>{
     const api=fakeApi({moveCard:vi.fn(async()=>{throw new CanvasConflict({channelId:'ch1',x:5,y:5,version:3});})});
     const store=createBoardStore({api,now:()=>0,intervalMs:5000});

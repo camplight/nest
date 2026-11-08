@@ -415,9 +415,17 @@
 .canvas-world.is-compact .canvas-card-status,
 .canvas-world.is-compact .canvas-card-artifacts,
 .canvas-world.is-compact .canvas-card-activity,
-.canvas-world.is-compact .canvas-card-owner,
-.canvas-world.is-compact .canvas-card-actions {
+.canvas-world.is-compact .canvas-card-owner {
   display: none;
+}
+/* Compact cards keep Remove from canvas in the Tab order: hidden until it has keyboard focus. */
+.canvas-world.is-compact .canvas-card-actions:not(:focus-within) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .canvas-world.is-compact .canvas-card-marker {
   display: block;
@@ -831,6 +839,11 @@
 .canvas-pile-bulk > span {
   flex-basis: 100%;
   color: var(--nest-muted);
+}
+/* Over 100 selected: the reason the bulk actions are off, in plain view. */
+.canvas-pile-bulk > .canvas-pile-limit {
+  color: var(--nest-text);
+  font-weight: 600;
 }
 .canvas-pile-bulk button,
 .canvas-pile-unhide {
@@ -1543,6 +1556,11 @@
   background: var(--nest-coral);
   color: var(--nest-forest);
 }
+/* The dark .canvas-button rule is more specific; Delete keeps its danger colour (forest on coral, 5.98:1). */
+:root[data-theme="dark"] .canvas-button.is-danger {
+  background: var(--nest-coral);
+  color: var(--nest-forest);
+}
 .canvas-share-visibility,
 .canvas-share-people {
   display: grid;
@@ -1571,6 +1589,14 @@
 }
 .canvas-share-people select {
   min-height: 36px;
+}
+.canvas-share-cap {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.canvas-share-people li label:has(input:disabled) {
+  color: var(--nest-muted);
 }
 .canvas-share-note {
   font-size: 13px;

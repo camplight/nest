@@ -538,7 +538,8 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     </div>
     <div className="canvas-chrome canvas-zoom" role="group" aria-label="Zoom">
       <button type="button" aria-label="Zoom out" onClick={() => zoomBy(1 / ZOOM_STEP)}><span aria-hidden="true">−</span></button>
-      <output aria-label="Zoom level" aria-live="polite">{Math.round(view.zoom * 100)}%</output>
+      {/* Not live: a pinch or wheel zoom would announce every step. */}
+      <output aria-label="Zoom level" aria-live="off">{Math.round(view.zoom * 100)}%</output>
       <button type="button" aria-label="Zoom in" onClick={() => zoomBy(ZOOM_STEP)}><span aria-hidden="true">+</span></button>
       <button type="button" className="canvas-fit" onClick={fitAll}>Fit</button>
     </div>

@@ -78,6 +78,7 @@ await runChatTest('canvas sharing: view, locked card, edit, unshare and delete',
   assert.equal(await mate.page.getByRole('button',{name:'Share',exact:true}).count(),0,'only the owner shares');
   assert.equal(await theirs.getAttribute('data-drag'),null);
   assert.equal(await mate.page.getByRole('button',{name:'Area',exact:true}).isDisabled(),true);
+  assert.equal(await mate.page.getByRole('button',{name:'Remove from canvas',exact:true}).count(),0,'a viewer removes no card');
 
   // A chat the teammate is not in stays private, in the whole page.
   const locked=cardAt(mate.page,hidden);
@@ -89,6 +90,9 @@ await runChatTest('canvas sharing: view, locked card, edit, unshare and delete',
   // Edit access reaches the teammate on the next poll, without a reload.
   await share(page,'Shared with chosen people',[{username:'mate',role:'Can edit'}]);
   await mate.page.waitForFunction(selector=>document.querySelector(selector)?.getAttribute('data-drag')==='card',`.canvas-card[data-channel-id="${h.project.channelId}"]`,{timeout:9000});
+  // An editor can take any card off the canvas, the locked one too.
+  await locked.getByRole('button',{name:'Remove from canvas',exact:true}).waitFor();
+  await theirs.getByRole('button',{name:'Remove from canvas',exact:true}).waitFor();
   const start=await theirs.boundingBox();assert.ok(start);
   const write=mate.page.waitForResponse(r=>r.request().method()==='PATCH'&&r.url().includes('/cards/'));
   await drag(mate.page,{x:start.x+40,y:start.y+20},{x:start.x+190,y:start.y+20});
