@@ -15,3 +15,4 @@ export type OpenRouterModel = {id:string;canonicalSlug?:string;name:string;descr
 export type OpenRouterCatalog = {models:OpenRouterModel[];fetchedAt:number;stale:boolean};
 
 export type ModelBenchmarks={models:{id:string;intelligence:number}[];fetchedAt:number;asOf:string|null;stale:boolean};
+export * from './canvas';
