@@ -27,6 +27,10 @@ export type LoosePileProps = {
   open: boolean;
   onOpen(open: boolean): void;
   now(): number;
+  /** Clicking a row's title opens that chat in focus. */
+  onOpenChat?(channelId: string): void;
+  /** A chat to point out (a jump from Needs you or search): filters clear and the list scrolls to it. `n` repeats a jump. */
+  highlight?: {id: string; n: number} | null;
 };
 
 const AGES: {value: LooseAge; label: string}[] = [
@@ -44,11 +48,12 @@ function ago(at: number | null, now: number) {
 }
 
 type RowProps = {
-  chat: LooseChat; index: number; top: number; selected: boolean; hidden: boolean; draggable: boolean; now: number; size: number;
+  chat: LooseChat; index: number; top: number; selected: boolean; hidden: boolean; draggable: boolean; now: number; size: number; highlighted: boolean;
+  onOpenChat?(channelId: string): void;
   onToggle(index: number, channelId: string, checked: boolean, range: boolean): void;
   onUnhide(channelId: string): void;
 };
-const Row = memo(function Row({chat, index, top, selected, hidden, draggable, now, size, onToggle, onUnhide}: RowProps) {
+const Row = memo(function Row({chat, index, top, selected, hidden, draggable, now, size, highlighted, onOpenChat, onToggle, onUnhide}: RowProps) {
   const start = (event: ReactDragEvent<HTMLLIElement>) => {
     event.dataTransfer.setData(CHAT_DRAG_TYPE, chat.channelId);
     event.dataTransfer.setData('text/plain', chat.title);
@@ -56,12 +61,13 @@ const Row = memo(function Row({chat, index, top, selected, hidden, draggable, no
   };
   const agents = chat.agents.length ? chat.agents.slice(0, 2).join(', ') + (chat.agents.length > 2 ? ` +${chat.agents.length - 2}` : '') : 'No agents';
   return <li className="canvas-pile-row" style={{transform: `translateY(${top}px)`}} aria-setsize={size} aria-posinset={index + 1}
-    data-channel-id={chat.channelId} data-hidden={hidden || undefined} draggable={draggable && !hidden} onDragStart={draggable && !hidden ? start : undefined}>
+    data-channel-id={chat.channelId} data-hidden={hidden || undefined} data-highlight={highlighted || undefined} draggable={draggable && !hidden} onDragStart={draggable && !hidden ? start : undefined}>
     <input type="checkbox" aria-label={`Select ${chat.title}`} checked={selected}
       onClick={(event: ReactMouseEvent<HTMLInputElement>) => onToggle(index, chat.channelId, event.currentTarget.checked, event.shiftKey)}
       onChange={() => {}}/>
     <span className="canvas-pile-main">
-      <span className="canvas-pile-title" title={chat.title}>{chat.title || 'Untitled chat'}</span>
+      {onOpenChat ? <button type="button" className="canvas-pile-title canvas-pile-open" title={chat.title} onClick={() => onOpenChat(chat.channelId)}>{chat.title || 'Untitled chat'}</button>
+        : <span className="canvas-pile-title" title={chat.title}>{chat.title || 'Untitled chat'}</span>}
       <span className="canvas-pile-meta">{agents}{chat.lastActivityAt !== null ? <> · {ago(chat.lastActivityAt, now)}</> : null}</span>
     </span>
     {chat.needsYou ? <span className="canvas-pile-needs" role="img" aria-label="Needs you" title="Needs you"/> : null}
@@ -69,7 +75,7 @@ const Row = memo(function Row({chat, index, top, selected, hidden, draggable, no
   </li>;
 });
 
-export function LoosePile({chats, count, hidden, showHidden, onShowHidden, canPlace, onPlace, onHide, open, onOpen, now}: LoosePileProps) {
+export function LoosePile({chats, count, hidden, showHidden, onShowHidden, canPlace, onPlace, onHide, open, onOpen, now, onOpenChat, highlight = null}: LoosePileProps) {
   const [query, setQuery] = useState('');
   const [needsYou, setNeedsYou] = useState(false);
   const [agent, setAgent] = useState<string | null>(null);
@@ -106,6 +112,26 @@ export function LoosePile({chats, count, hidden, showHidden, onShowHidden, canPl
   const offset = Math.min(scrollTop, Math.max(0, total - viewport));
   const first = Math.max(0, Math.floor(offset / PILE_ROW_HEIGHT) - OVERSCAN);
   const last = Math.min(shown.length, Math.ceil((offset + viewport) / PILE_ROW_HEIGHT) + OVERSCAN);
+
+  // A jump to a chat: clear the filters that could hide it, then scroll it to the middle of the list.
+  const pointed = useRef(-1);
+  const hiddenRef = useRef(hidden); hiddenRef.current = hidden;
+  const showRef = useRef(onShowHidden); showRef.current = onShowHidden;
+  useEffect(() => {
+    if (!highlight) return;
+    pointed.current = -1;
+    setQuery(''); setNeedsYou(false); setAgent(null); setAge('any');
+    if (hiddenRef.current.has(highlight.id)) showRef.current(true);
+  }, [highlight]);
+  useEffect(() => {
+    if (!highlight || !open || pointed.current === highlight.n || query || needsYou || agent !== null || age !== 'any') return;
+    const index = shown.findIndex(chat => chat.channelId === highlight.id);
+    if (index < 0) return;
+    pointed.current = highlight.n;
+    const target = Math.max(0, index * PILE_ROW_HEIGHT - (viewport - PILE_ROW_HEIGHT) / 2);
+    if (listRef.current) listRef.current.scrollTop = target;
+    setScrollTop(target);
+  }, [highlight, open, shown, viewport, query, needsYou, agent, age]);
 
   const toggle = useCallback((index: number, channelId: string, checked: boolean, range: boolean) => {
     const list = shownRef.current;
@@ -167,6 +193,7 @@ export function LoosePile({chats, count, hidden, showHidden, onShowHidden, canPl
         {shown.length ? <ul style={{height: total}}>
           {shown.slice(first, last).map((chat, i) => <Row key={chat.channelId} chat={chat} index={first + i} top={(first + i) * PILE_ROW_HEIGHT}
             selected={selected.has(chat.channelId)} hidden={hidden.has(chat.channelId)} draggable={canPlace} now={time} size={shown.length}
+            highlighted={highlight?.id === chat.channelId} onOpenChat={onOpenChat}
             onToggle={toggle} onUnhide={unhide}/>)}
         </ul> : <p className="canvas-pile-empty">{chats.length ? 'No loose chats match.' : 'Every chat you are in is on this canvas.'}</p>}
       </div>

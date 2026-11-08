@@ -18,6 +18,9 @@ import {SPLIT_MAX,SPLIT_MIN,clampSplit,readSplit,splitAt,writeSplit} from './spl
 import {cardTitle} from './Card';
 import {AgentTray} from './AgentTray';
 import {trayAgents} from './tray';
+import {NeedsYou} from './NeedsYou';
+import {CanvasSearch} from './CanvasSearch';
+import {searchIndex,type SearchItem} from './search';
 import type {CardPulse} from './pulse';
 import type {Point} from './geometry';
 import './canvas.css';
@@ -191,6 +194,58 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const selected = cards?.find(card => card.channelId === selectedId && card.access === 'open');
   const tray = useMemo(() => board ? trayAgents({agents, humanId, cards: board.cards, areas: board.areas, selectedId: selected?.channelId ?? null}) : [],
     [board, agents, humanId, selected]);
+  // Needs you and search. Only chats the person can see are named: open cards and loose chats, never a locked or unavailable card.
+  const titles = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const card of cards ?? []) if (card.access === 'open') map.set(card.channelId, card.title || 'Untitled chat');
+    for (const chat of candidates) map.set(chat.channelId, chat.title || 'Untitled chat');
+    return map;
+  }, [cards, candidates]);
+  const [highlight, setHighlight] = useState<{id: string; n: number} | null>(null);
+  const highlightCount = useRef(0);
+  useEffect(() => { setHighlight(null); }, [canvasId]);
+  // The pointer fades once the chat that was opened over the pile is closed.
+  useEffect(() => {
+    if (!highlight || chatShown) return;
+    const timer = setTimeout(() => setHighlight(null), 4000);
+    return () => clearTimeout(timer);
+  }, [highlight, chatShown]);
+  /** A chat on this canvas is centred and opened in focus; any other opens in focus and the pile points at it. */
+  const jumpTo = useCallback((channelId: string) => {
+    const card = store.snapshot().board?.cards.find(c => c.channelId === channelId);
+    if (card?.access === 'open') {
+      controls.current?.reveal({channelId});
+      setSelectedId(channelId);
+    } else {
+      setHighlight({id: channelId, n: ++highlightCount.current});
+      setPileOpen(true);
+    }
+    openRef.current(channelId, 'focus');
+  }, [store]);
+  const openFromPile = useCallback((channelId: string) => openRef.current(channelId, 'focus'), []);
+  const [searchOpen, setSearchOpen] = useState(false);
+  useEffect(() => { setSearchOpen(false); }, [canvasId]);
+  const index = useMemo(() => searchIndex({canvases: canvases ?? [], board, loose}), [canvases, board, loose]);
+  const choose = useCallback((item: SearchItem) => {
+    setSearchOpen(false);
+    if (item.kind === 'area') controls.current?.reveal({areaId: item.id});
+    else if (item.kind === 'canvas') { if (item.id !== canvasId) selectRef.current(item.id); }
+    else jumpTo(item.id);
+  }, [canvasId, jumpTo]);
+  // Ctrl/Cmd+K opens the search, except while typing in any other field: a composer may use it.
+  useEffect(() => {
+    if (!canvasId) return;
+    const key = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'k') return;
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) && !target.closest('.canvas-search')) return;
+      if (document.querySelector('[aria-modal="true"]:not([aria-label="Search the canvas"])')) return;
+      event.preventDefault();
+      setSearchOpen(true);
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [canvasId]);
   // As in the regular chat: the engine's canManage, not archived, and a project chat only for the project's owner.
   const manageable = useCallback((card: BoardCard) => card.access === 'open' && card.canManage && !card.archived
     && (!card.projectId || projects.some(project => project.id === card.projectId && project.ownerId === humanId)), [projects, humanId]);
@@ -290,18 +345,23 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       </div>
       <LoosePile chats={loose} count={looseCount} hidden={hidden} showHidden={showHidden} onShowHidden={setShowHidden}
         canPlace={canPlace} onPlace={place} onHide={hide} open={chatShown && chatMode === 'split' ? splitPile : pileOpen}
-        onOpen={chatShown && chatMode === 'split' ? setSplitPile : openPile} now={Date.now}/>
+        onOpen={chatShown && chatMode === 'split' ? setSplitPile : openPile} now={Date.now}
+        onOpenChat={openFromPile} highlight={highlight}/>
     </>;
   }
 
   return <section className="canvas-view" aria-label="Canvas">
-    <WorkspaceTopbar onMenu={onMenu} leading={canvasId ? <div className="canvas-heading">
+    <WorkspaceTopbar onMenu={onMenu} search={canvasId ? <div className="canvas-tools">
+      <NeedsYou pulses={pulses} titles={titles} projects={projects} onJump={jumpTo}/>
+      <button type="button" className="canvas-search-button" title="Search the canvas (Ctrl+K)" onClick={() => setSearchOpen(true)}>Search</button>
+    </div> : undefined} leading={canvasId ? <div className="canvas-heading">
       <h1 className="canvas-name">{name}</h1>
       <CanvasSwitcher canvases={canvases ?? []} current={current} open={switcherOpen} onOpenChange={setSwitcherOpen}
         onSelect={id => onSelectCanvas(id)} onCreate={createNew} onRename={rename} onDelete={remove}/>
       {board && board.canvas.role === 'owner' ? <button type="button" className="canvas-share-button" onClick={() => setSharing(true)}>Share</button> : null}
       {ownerName ? <span className="canvas-shared-by">Shared by {ownerName}</span> : null}
     </div> : undefined}/>
+    {searchOpen && canvasId ? <CanvasSearch items={index} onClose={() => setSearchOpen(false)} onChoose={choose}/> : null}
     <div className={`canvas-body${chatShown ? ` has-chat is-${chatMode}` : ''}`}>
       {sharing && board && board.canvas.role === 'owner' ? <ShareDialog canvasId={board.canvas.id} ownerId={board.canvas.ownerId} humans={humans}
         version={canvasVersion} freshVersion={freshVersion} onSaved={() => { void store.refresh({force: true}); void reloadList().catch(() => {}); }} onClose={() => setSharing(false)}/> : null}

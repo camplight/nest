@@ -1164,7 +1164,8 @@ export default function App() {
   useEffect(() => {
     if (!authenticated || mustChangePassword) return;
     function handleShortcut(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      // On the canvas, Ctrl/Cmd+K is the canvas search (CanvasView), and it leaves composers alone.
+      if (view !== "canvas" && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         selectProject(null, null, "new");
       }
@@ -1174,7 +1175,7 @@ export default function App() {
     }
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [authenticated, mustChangePassword]);
+  }, [authenticated, mustChangePassword, view]);
 
   useEffect(() => {
     if (!authenticated || mustChangePassword) return;

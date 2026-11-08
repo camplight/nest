@@ -9,7 +9,7 @@ const HOUR=3_600_000,DAY=24*HOUR;
 const me='demo-owner',myId='human-1';
 const chat=(id:string,patch:Partial<Channel>={}):Channel=>({id,name:`chat-${id}`,visibility:'PRIVATE',ownerHumanId:null,archivedAt:null,
   participants:[{subscriberType:'HUMAN',subscriberId:me},{subscriberType:'AGENT',subscriberId:'Pip'}],...patch});
-const pulse=(lastActivityAt:number|null,needs=0):CardPulse=>({agents:[],lastActivityAt,artifacts:[],needsYou:Array.from({length:needs},(_,i)=>({kind:'mention' as const,id:`m${i}`,at:NOW}))});
+const pulse=(lastActivityAt:number|null,needs=0):CardPulse=>({agents:[],lastActivityAt,artifacts:[],needsYou:Array.from({length:needs},(_,i)=>({kind:'mention' as const,id:`m${i}`,at:NOW,sender:'x',text:'hi'}))});
 const project=(id:string,channelId:string,name:string):Project=>({id,ownerId:myId,channelId,name,description:'',createdAt:NOW-10*DAY});
 const base={projects:[] as Project[],boardChannelIds:new Set<string>(),hidden:new Set<string>(),username:me,userId:myId,pulses:new Map<string,CardPulse>(),showHidden:false};
 const ANY:LooseFilter={query:'',needsYou:false,agent:null,age:'any'};

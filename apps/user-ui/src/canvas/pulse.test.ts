@@ -79,7 +79,7 @@ describe('cardPulse',()=>{
 
   it('unread mentions for the channel need you; read ones do not',()=>{
     const result=pulse([],{mentions:[mention('n1','c1',null,now-3*min),mention('n2','c1',now-min,now-4*min),mention('n3','c2',null,now-2*min)]});
-    expect(result.get('c1')!.needsYou).toEqual([{kind:'mention',id:'n1',at:now-3*min}]);
+    expect(result.get('c1')!.needsYou).toEqual([{kind:'mention',id:'n1',at:now-3*min,sender:'demo-owner',text:'@me look'}]);
     expect(result.get('c1')!.lastActivityAt).toBeNull();
   });
 
@@ -94,7 +94,7 @@ describe('areaSummaries',()=>{
   it('counts cards that need you and cards with a working agent, including nested areas',()=>{
     const area=(id:string,x:number,y:number,w:number,h:number)=>({id,canvasId:'cv',title:id,x,y,w,h,tint:'moss' as const,version:1});
     const outer=area('outer',0,0,2000,1000),inner=area('inner',100,100,800,600),apart=area('apart',3000,0,600,600);
-    const p=(state:'working'|'idle',needs:number):CardPulse=>({agents:[{name:'Pom',state,since:1}],lastActivityAt:null,artifacts:[],needsYou:Array.from({length:needs},(_,i)=>({kind:'mention' as const,id:`n${i}`,at:1}))});
+    const p=(state:'working'|'idle',needs:number):CardPulse=>({agents:[{name:'Pom',state,since:1}],lastActivityAt:null,artifacts:[],needsYou:Array.from({length:needs},(_,i)=>({kind:'mention' as const,id:`n${i}`,at:1,sender:'x',text:'hi'}))});
     const placed=(channelId:string,x:number,y:number)=>({channelId,x,y,w:280});
     const result=areaSummaries(
       [placed('a',200,200),placed('b',1200,200),placed('c',1200,600),placed('d',3100,100)],

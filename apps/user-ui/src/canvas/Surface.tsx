@@ -37,7 +37,13 @@ export type SurfaceProps = {
 export type SurfaceControls = {
   /** The canvas point at the centre of the viewport. */
   centre(): Point;
+  /** Animates the view to a card (at zoom 0.8 or more) or fits an area. False when it is not on this canvas. */
+  reveal(target: {channelId: string} | {areaId: string}): boolean;
 };
+/** A reveal reads at a comfortable size: never smaller than this. */
+const REVEAL_MIN_ZOOM = 0.8;
+const REVEAL_MS = 320;
+const prefersReducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 /** The drag data type a pile row carries: the chat's channel id. */
 export const CHAT_DRAG_TYPE = 'application/x-nest-chat';
 /** The drag data type a tray or picker face carries: the agent's name. */
@@ -170,14 +176,50 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     return {x: event.clientX - rect.left, y: event.clientY - rect.top};
   };
 
+  // An animated move of the view. Any gesture that sets the view meanwhile takes over, and the animation stops.
+  const tween = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(tween.current), []);
+  const animateTo = useCallback((target: View) => {
+    cancelAnimationFrame(tween.current);
+    if (prefersReducedMotion() || typeof requestAnimationFrame !== 'function') { viewRef.current = target; setViewState(target); return; }
+    const from = viewRef.current, started = performance.now();
+    let last = from;
+    const step = (time: number) => {
+      if (viewRef.current !== last) return;
+      const t = Math.min(1, (time - started) / REVEAL_MS), e = 1 - (1 - t) ** 3;
+      last = {x: from.x + (target.x - from.x) * e, y: from.y + (target.y - from.y) * e, zoom: from.zoom + (target.zoom - from.zoom) * e};
+      viewRef.current = last;
+      setViewState(last);
+      if (t < 1) tween.current = requestAnimationFrame(step);
+    };
+    tween.current = requestAnimationFrame(step);
+  }, []);
+  const cardRectsRef = useRef(cardRects); cardRectsRef.current = cardRects;
   useEffect(() => {
     if (!controls) return;
-    controls.current = {centre: () => {
-      const element = surfaceRef.current;
-      return toCanvas(viewRef.current, {x: (element?.clientWidth ?? 0) / 2, y: (element?.clientHeight ?? 0) / 2});
-    }};
+    controls.current = {
+      centre: () => {
+        const element = surfaceRef.current;
+        return toCanvas(viewRef.current, {x: (element?.clientWidth ?? 0) / 2, y: (element?.clientHeight ?? 0) / 2});
+      },
+      reveal: target => {
+        const element = surfaceRef.current;
+        if (!element?.clientWidth || !element.clientHeight) return false;
+        const viewport = {w: element.clientWidth, h: element.clientHeight};
+        const card = 'channelId' in target;
+        const rect: Rect | undefined = card ? cardRectsRef.current.find(c => c.card.channelId === target.channelId) : boardRef.current.areas.find(a => a.id === target.areaId);
+        if (!rect) return false;
+        let next = fit([rect], viewport);
+        if (card && next.zoom < REVEAL_MIN_ZOOM) {
+          const zoom = REVEAL_MIN_ZOOM;
+          next = {zoom, x: viewport.w / 2 - (rect.x + rect.w / 2) * zoom, y: viewport.h / 2 - (rect.y + rect.h / 2) * zoom};
+        }
+        animateTo(next);
+        return true;
+      },
+    };
     return () => { controls.current = null; };
-  }, [controls]);
+  }, [controls, animateTo]);
 
   const dropRef = useRef(onDropChat); dropRef.current = onDropChat;
   const carriesChat = (event: ReactDragEvent) => canEdit && Boolean(dropRef.current) && event.dataTransfer.types.includes(CHAT_DRAG_TYPE);

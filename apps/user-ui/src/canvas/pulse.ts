@@ -13,7 +13,7 @@ export const QUIET_AFTER_MS = 20 * 60_000;
 const MAX_ARTIFACTS = 6;
 
 export type AgentPulse = {name: string; state: 'working' | 'quiet' | 'interrupted' | 'done' | 'failed' | 'idle' | 'unavailable'; since: number; quietMinutes?: number};
-export type CardPulse = {agents: AgentPulse[]; lastActivityAt: number | null; artifacts: {fileId: string; name: string; mime?: string}[]; needsYou: {kind: 'mention'; id: string; at: number}[]};
+export type CardPulse = {agents: AgentPulse[]; lastActivityAt: number | null; artifacts: {fileId: string; name: string; mime?: string}[]; needsYou: {kind: 'mention'; id: string; at: number; sender: string; text: string}[]};
 export type PulseCard = {channelId: string; agentNames: string[]};
 export type PulseInput = {events: EventRow[]; agents: Agent[]; starts: AgentStarts; mentions: MentionNotification[]; cards: PulseCard[]; now: number};
 
@@ -83,7 +83,7 @@ function channelPulse(events: EventRow[], card: PulseCard, input: PulseInput, by
   const needsYou = input.mentions
     .filter(m => m.channelId === card.channelId && m.readAt == null)
     .sort((a, b) => b.createdAt - a.createdAt)
-    .map(m => ({kind: 'mention' as const, id: m.id, at: m.createdAt}));
+    .map(m => ({kind: 'mention' as const, id: m.id, at: m.createdAt, sender: m.sender, text: m.text}));
 
   return {agents, lastActivityAt, artifacts, needsYou};
 }
