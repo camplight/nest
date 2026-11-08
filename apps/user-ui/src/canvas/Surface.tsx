@@ -163,7 +163,7 @@ export function Surface({board, humanId, onApply, summaries}: SurfaceProps) {
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
       // Space still presses a focused button or link; only a free Space arms panning.
-      if (isEditable(event.target) || (event.target instanceof Element && event.target.closest('button, a, [role="menuitem"]'))) return;
+      if (isEditable(event.target) || (event.target instanceof Element && event.target.closest('button, a'))) return;
       if (event.key === ' ') { event.preventDefault(); if (!spaceRef.current) { spaceRef.current = true; setSpaceHeld(true); } }
       else if (event.key === 'Escape') { setTool('select'); if (gesture.current?.active) cancel(); }
     };
@@ -181,6 +181,8 @@ export function Surface({board, humanId, onApply, summaries}: SurfaceProps) {
   }
 
   function pointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    // A new press always ends the previous gesture, even when this one is ignored below.
+    if (gesture.current) cancel();
     if (event.pointerType === 'touch') {
       touches.current.set(event.pointerId, local(event));
       if (touches.current.size === 2) { cancel(); startPinch(); return; }
@@ -188,7 +190,7 @@ export function Surface({board, humanId, onApply, summaries}: SurfaceProps) {
     } else if (event.button !== 0 && event.button !== 1) return;
     const target = event.target as HTMLElement;
     const pan = spaceRef.current || event.button === 1;
-    if (!pan && target.closest('button, input, textarea, select, a, [role="menu"], .canvas-chrome')) return;
+    if (!pan && target.closest('button, input, textarea, select, a, .canvas-menu, .canvas-chrome')) return;
     const handle = pan ? null : target.closest<HTMLElement>('[data-drag]');
     const start = local(event), startView = viewRef.current;
     const current = boardRef.current;
@@ -220,6 +222,9 @@ export function Surface({board, humanId, onApply, summaries}: SurfaceProps) {
     }
     const g = gesture.current;
     if (!g || g.pointerId !== event.pointerId) return;
+    // A press released outside the surface before the drag began sends no pointerup here:
+    // hovering with no button down ends that gesture instead of resuming it.
+    if (event.pointerType !== 'touch' && event.buttons === 0) { cancel(); return; }
     const point = local(event);
     const dx = point.x - g.start.x, dy = point.y - g.start.y;
     if (!g.active) {
@@ -278,7 +283,11 @@ export function Surface({board, humanId, onApply, summaries}: SurfaceProps) {
   const zoomBy = (factor: number) => setView(zoomAt(viewRef.current, factor, {x: size.w / 2, y: size.h / 2}));
   const fitAll = () => setView(fit(contentRects(), size));
   const rename = useCallback((areaId: string, title: string) => void applyRef.current({kind: 'patchArea', areaId, patch: {title}}), []);
-  const remove = useCallback((areaId: string) => void applyRef.current({kind: 'deleteArea', areaId}), []);
+  const remove = useCallback((areaId: string) => {
+    // The area and its focused Delete button unmount: keep keyboard focus on the canvas.
+    surfaceRef.current?.focus({preventScroll: true});
+    void applyRef.current({kind: 'deleteArea', areaId});
+  }, []);
 
   const compact = isCompact(view);
   const shownCards = useMemo(() => new Set(visible(cardRects, view, size).map(r => r.card.channelId)), [cardRects, view, size]);
@@ -293,6 +302,7 @@ export function Surface({board, humanId, onApply, summaries}: SurfaceProps) {
   const classes = ['canvas-surface', tool === 'area' ? 'is-drawing' : '', spaceHeld ? 'is-panning-key' : '', preview ? 'is-gesturing' : ''].filter(Boolean).join(' ');
   return <div
     ref={surfaceRef}
+    tabIndex={-1}
     className={classes}
     aria-label={`Canvas ${board.canvas.name}`}
     data-role={board.canvas.role}

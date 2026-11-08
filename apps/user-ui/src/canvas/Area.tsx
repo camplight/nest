@@ -25,14 +25,22 @@ export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, su
   // Enter commits and unmounts the input; a blur that follows must not commit again.
   const committed = useRef(false);
 
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuId = `canvas-area-actions-${area.id}`;
+
+  // A disclosure of plain buttons: Tab moves through them, Escape closes and returns focus to the trigger.
   useEffect(() => {
     if (!menu) return;
-    const close = (event: Event) => {
-      if ('key' in event ? event.key === 'Escape' : !menuRef.current?.contains(event.target as Node)) setMenu(false);
+    const outside = (event: PointerEvent) => { if (!menuRef.current?.contains(event.target as Node)) setMenu(false); };
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      const inside = menuRef.current?.contains(document.activeElement);
+      setMenu(false);
+      if (inside) triggerRef.current?.focus();
     };
-    window.addEventListener('pointerdown', close, true);
-    window.addEventListener('keydown', close);
-    return () => { window.removeEventListener('pointerdown', close, true); window.removeEventListener('keydown', close); };
+    window.addEventListener('pointerdown', outside, true);
+    window.addEventListener('keydown', escape);
+    return () => { window.removeEventListener('pointerdown', outside, true); window.removeEventListener('keydown', escape); };
   }, [menu]);
 
   function edit() { committed.current = false; setEditing(true); }
@@ -59,13 +67,15 @@ export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, su
         ? <input className="canvas-area-input" aria-label="Area title" defaultValue={area.title} maxLength={120} autoFocus
             onFocus={event => event.currentTarget.select()} onKeyDown={key} onBlur={event => commit(event.currentTarget.value)}/>
         : <h3 className="canvas-area-title" onDoubleClick={canEdit ? edit : undefined}>{area.title}</h3>}
-      {canEdit ? <div className="canvas-area-menu" ref={menuRef}>
-        <button type="button" className="canvas-area-more" aria-label="Area options" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(open => !open)}>
+      {canEdit ? <div className="canvas-area-menu" ref={menuRef}
+        onBlur={event => { if (!menuRef.current?.contains(event.relatedTarget as Node | null)) setMenu(false); }}>
+        <button ref={triggerRef} type="button" className="canvas-area-more" aria-label="Area options" aria-expanded={menu} aria-controls={menu ? menuId : undefined}
+          onClick={() => setMenu(open => !open)}>
           <span aria-hidden="true">⋯</span>
         </button>
-        {menu ? <div role="menu" className="canvas-menu">
-          <button type="button" role="menuitem" onClick={() => { setMenu(false); edit(); }}>Rename area</button>
-          <button type="button" role="menuitem" onClick={() => { setMenu(false); onDelete(area.id); }}>Delete area</button>
+        {menu ? <div id={menuId} className="canvas-menu">
+          <button type="button" onClick={() => { setMenu(false); edit(); }}>Rename area</button>
+          <button type="button" onClick={() => { setMenu(false); onDelete(area.id); }}>Delete area</button>
         </div> : null}
       </div> : null}
     </div>

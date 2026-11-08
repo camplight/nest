@@ -184,3 +184,52 @@ await runChatTest('canvas surface: a two-finger pinch on a tablet zooms and the 
   await zoomLabel(page).waitFor();
   assert.equal(await zoomLabel(page).textContent(),zoomed,'the saved zoom is restored');
 },{canvas:true,viewport:{width:1024,height:768},hasTouch:true});
+
+await runChatTest('canvas surface: a released press never resumes, and the area menu works from the keyboard',async h=>{
+  const {page,base}=h;
+  const id=await newCanvas(h,'Keyboard');
+  const channelId=h.project.channelId;
+  await call(h,'POST',`/api/canvases/${id}/cards`,{cards:[{channelId,x:200,y:200}]});
+  await call(h,'POST',`/api/canvases/${id}/areas`,{id:crypto.randomUUID(),title:'Plans',x:600,y:100,w:400,h:300});
+  await openCanvas(page,base,id);
+  const card=cardAt(page,channelId);
+  await card.waitFor();
+  const before=await card.boundingBox();assert.ok(before);
+  const surface=await box(page,'.canvas-surface');
+
+  // Press on empty canvas, move under the drag threshold, release outside the surface, then hover back.
+  const start={x:surface.x+60,y:surface.y+surface.height-60};
+  await page.mouse.move(start.x,start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x+1,start.y);
+  await page.mouse.move(surface.x-40,start.y);
+  await page.mouse.up();
+  await page.mouse.move(start.x,start.y,{steps:2});
+  await page.mouse.move(start.x+80,start.y-60,{steps:6});
+  await page.waitForTimeout(100);
+  const after=await card.boundingBox();assert.ok(after);
+  assert.deepEqual([after.x,after.y],[before.x,before.y],'hovering with the button up does not pan');
+
+  // The area menu is a disclosure: Enter opens it, Tab reaches its buttons, Escape returns to the trigger.
+  const trigger=page.getByRole('button',{name:'Area options',exact:true});
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await trigger.getAttribute('aria-expanded'),'true');
+  const focused=()=>page.evaluate(()=>document.activeElement?.getAttribute('aria-label')||document.activeElement?.textContent?.trim()||'');
+  await page.keyboard.press('Tab');
+  assert.equal(await focused(),'Rename area');
+  await page.keyboard.press('Tab');
+  assert.equal(await focused(),'Delete area');
+  await page.keyboard.press('Escape');
+  assert.equal(await focused(),'Area options','Escape returns focus to the trigger');
+  assert.equal(await trigger.getAttribute('aria-expanded'),'false');
+
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  const removed=page.waitForResponse(r=>r.request().method()==='DELETE'&&r.url().includes(`/api/canvases/${id}/areas/`));
+  await page.keyboard.press('Enter');
+  assert.equal((await removed).status(),204);
+  await page.locator('[aria-label="Area Plans"]').waitFor({state:'detached'});
+  assert.equal(await page.evaluate(()=>document.activeElement?.classList.contains('canvas-surface')),true,'focus lands on the surface after Delete');
+},{canvas:true,viewport:{width:1440,height:900}});

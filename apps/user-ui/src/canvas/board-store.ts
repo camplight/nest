@@ -94,6 +94,11 @@ export function createBoardStore({api, now, intervalMs, doc = globalThis.documen
   const later = (key: string) => (inFlight.get(key) ?? 0) > 1;
   const confirmCard = (card: BoardCard, row: CanvasCardRow): BoardCard => later(cardKey(card.channelId)) ? {...card, version: row.version} : cardFromRow(card, row);
   const confirmArea = (area: CanvasArea, row: CanvasArea): CanvasArea => later(areaKey(area.id)) ? {...area, version: row.version} : row;
+  // A queued delete hides its item at once, so its version lives here until the delete is sent;
+  // an earlier write on that item that confirms meanwhile updates it.
+  const hidden = new Map<string, number>();
+  const confirmHidden = (key: string, version: number) => { if (hidden.has(key)) hidden.set(key, version); };
+  const takeHidden = (key: string, version: number | undefined) => { const kept = hidden.get(key); hidden.delete(key); return kept ?? version; };
 
   function fail(error: unknown, gen: number) {
     if (gen !== generation) return true;
@@ -105,6 +110,7 @@ export function createBoardStore({api, now, intervalMs, doc = globalThis.documen
     if (state.canvasId === canvasId && state.status === 'ready') return refresh();
     const gen = ++generation;
     epoch++;
+    hidden.clear();
     set({canvasId, board: null, status: 'loading', notice: null});
     try {
       const board = await api.getBoard(canvasId);
@@ -141,6 +147,7 @@ export function createBoardStore({api, now, intervalMs, doc = globalThis.documen
 
   async function reload(canvasId: string, gen: number, notice: string) {
     epoch++;
+    hidden.clear();
     try {
       const board = await api.getBoard(canvasId);
       if (gen !== generation || 'unchanged' in board) return;
@@ -157,12 +164,13 @@ export function createBoardStore({api, now, intervalMs, doc = globalThis.documen
         const card = board.cards.find(c => c.channelId === op.channelId);
         if (!card) return;
         const row = await api.moveCard(canvasId, op.channelId, {x: op.x, y: op.y, ...(op.w === undefined ? {} : {w: op.w}), version: card.version});
+        confirmHidden(cardKey(row.channelId), row.version);
         set({board: {...state.board!, cards: state.board!.cards.map(c => c.channelId === row.channelId ? confirmCard(c, row) : c)}});
         return;
       }
       case 'removeCard': {
-        const card = board.cards.find(c => c.channelId === op.channelId);
-        if (card) await api.removeCard(canvasId, op.channelId, card.version);
+        const version = takeHidden(cardKey(op.channelId), board.cards.find(c => c.channelId === op.channelId)?.version);
+        if (version !== undefined) await api.removeCard(canvasId, op.channelId, version);
         return;
       }
       case 'placeCards':
@@ -170,6 +178,7 @@ export function createBoardStore({api, now, intervalMs, doc = globalThis.documen
         return;
       case 'createArea': {
         const area = await api.createArea(canvasId, op.area);
+        confirmHidden(areaKey(area.id), area.version);
         set({board: {...state.board!, areas: state.board!.areas.map(a => a.id === area.id ? confirmArea(a, area) : a)}});
         return;
       }
@@ -179,13 +188,15 @@ export function createBoardStore({api, now, intervalMs, doc = globalThis.documen
         const result = await api.patchArea(canvasId, op.areaId, {...op.patch, version: area.version}, Boolean(op.moveCards));
         const rows = new Map(result.cards.map(row => [row.channelId, row]));
         const areas = new Map([...result.areas, result.area].map(a => [a.id, a]));
+        for (const row of rows.values()) confirmHidden(cardKey(row.channelId), row.version);
+        for (const row of areas.values()) confirmHidden(areaKey(row.id), row.version);
         const current = state.board!;
         set({board: {...current, areas: current.areas.map(a => areas.has(a.id) ? confirmArea(a, areas.get(a.id)!) : a), cards: current.cards.map(c => rows.has(c.channelId) ? confirmCard(c, rows.get(c.channelId)!) : c)}});
         return;
       }
       case 'deleteArea': {
-        const area = board.areas.find(a => a.id === op.areaId);
-        if (area) await api.deleteArea(canvasId, op.areaId, area.version);
+        const version = takeHidden(areaKey(op.areaId), board.areas.find(a => a.id === op.areaId)?.version);
+        if (version !== undefined) await api.deleteArea(canvasId, op.areaId, version);
         return;
       }
     }
@@ -201,6 +212,8 @@ export function createBoardStore({api, now, intervalMs, doc = globalThis.documen
     const gen = generation, opEpoch = epoch;
     const keys = touched(board, op);
     for (const key of keys) inFlight.set(key, (inFlight.get(key) ?? 0) + 1);
+    if (op.kind === 'removeCard') { const card = board.cards.find(c => c.channelId === op.channelId); if (card) hidden.set(cardKey(card.channelId), card.version); }
+    if (op.kind === 'deleteArea') { const area = board.areas.find(a => a.id === op.areaId); if (area) hidden.set(areaKey(area.id), area.version); }
     set({board: optimistic(board, op), notice: null});
     pending++;
     writes++;

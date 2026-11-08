@@ -102,6 +102,26 @@ describe('createBoardStore',()=>{
     expect(store.snapshot().board?.areas.find(a=>a.id==='outer')).toMatchObject({title:'Launch content',version:2});
   });
 
+  it('sends deletes with the version of the item it hid, including one an earlier queued write confirmed',async()=>{
+    const moved=deferred<CanvasCardRow>();
+    const area:CanvasArea={id:'a1',canvasId:'c1',title:'Plans',x:0,y:0,w:400,h:300,tint:'moss',version:4};
+    const api=fakeApi({getBoard:vi.fn(async()=>({...board('e1'),areas:[area]})),moveCard:vi.fn(()=>moved.promise)});
+    const store=createBoardStore({api,now:()=>0,intervalMs:5000});
+    await store.open('c1');
+    api.getBoard.mockResolvedValue({unchanged:true});
+    expect(await store.apply({kind:'deleteArea',areaId:'a1'})).toBe(true);
+    expect(store.snapshot().board?.areas).toEqual([]);
+    expect(api.deleteArea).toHaveBeenCalledWith('c1','a1',4);
+    void store.apply({kind:'moveCard',channelId:'ch1',x:10,y:10});
+    // The move is already on the wire when the card is removed; its confirmed version must be the one deleted.
+    await vi.waitFor(()=>expect(api.moveCard).toHaveBeenCalled());
+    const removal=store.apply({kind:'removeCard',channelId:'ch1'});
+    expect(store.snapshot().board?.cards).toEqual([]);
+    moved.resolve({canvasId:'c1',channelId:'ch1',projectId:null,x:10,y:10,w:280,version:1,placedBy:'h1',placedAt:1,ownerLabel:'demo'});
+    expect(await removal).toBe(true);
+    expect(api.removeCard).toHaveBeenCalledWith('c1','ch1',1);
+  });
+
   it('replaces the board from a fresh read and says so when a write conflicts',async()=>{
     const api=fakeApi({moveCard:vi.fn(async()=>{throw new CanvasConflict({channelId:'ch1',x:5,y:5,version:3});})});
     const store=createBoardStore({api,now:()=>0,intervalMs:5000});

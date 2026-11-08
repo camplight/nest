@@ -63,6 +63,13 @@
   user-select: none;
   -webkit-user-select: none;
 }
+.canvas-surface:focus {
+  outline: none;
+}
+.canvas-surface:focus-visible {
+  outline: 2px solid var(--nest-lime);
+  outline-offset: -2px;
+}
 .canvas-surface.is-gesturing {
   cursor: grabbing;
 }
