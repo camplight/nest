@@ -176,6 +176,24 @@ await runChatTest('canvas chat: the regular view and Back, and unavailable cards
   assert.equal(await chat.count(),0,'no chat for an unavailable card');
   assert.equal(params(page).chat,null);
 
+  // Closing returns focus to the card's Open button: after a keyboard open and Escape, and after a mouse open and Close.
+  const openButton=card.getByRole('button',{name:'Open chat Synthetic regular chat',exact:true});
+  const focusedOpen=()=>page.evaluate(chatId=>document.activeElement?.matches(`.canvas-card[data-channel-id="${chatId}"] .canvas-card-open`)??false,chatId);
+  await openButton.focus();
+  await page.keyboard.press('Enter');
+  await chat.waitFor();
+  assert.equal(await chat.getAttribute('data-mode'),'focus');
+  await page.keyboard.press('Escape');
+  await chat.waitFor({state:'detached'});
+  await page.waitForFunction(chatId=>document.activeElement?.matches(`.canvas-card[data-channel-id="${chatId}"] .canvas-card-open`)??false,chatId,{timeout:2000}).catch(()=>{});
+  assert.equal(await focusedOpen(),true,`Escape returns focus to the Open button, not ${await page.evaluate(()=>document.activeElement?.outerHTML.slice(0,80))}`);
+  await card.locator('.canvas-card-title').click();
+  await chat.waitFor();
+  await chat.getByRole('button',{name:'Close',exact:true}).click();
+  await chat.waitFor({state:'detached'});
+  await page.waitForFunction(chatId=>document.activeElement?.matches(`.canvas-card[data-channel-id="${chatId}"] .canvas-card-open`)??false,chatId,{timeout:2000}).catch(()=>{});
+  assert.equal(await focusedOpen(),true,`Close after a mouse open returns focus to the Open button, not ${await page.evaluate(()=>document.activeElement?.outerHTML.slice(0,80))}`);
+
   // Focus, then the regular view, then Back to the same open chat.
   await card.locator('.canvas-card-title').click();
   await chat.waitFor();

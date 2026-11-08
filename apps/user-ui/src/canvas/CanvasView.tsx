@@ -1,5 +1,5 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
-import {useCallback,useEffect,useMemo,useRef,useState,useSyncExternalStore,type FormEvent,type ReactNode} from 'react';
+import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore,type FormEvent,type ReactNode} from 'react';
 import {CanvasTint,type Canvas,type NewArea,type Project} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
@@ -204,7 +204,7 @@ export function CanvasView({canvasId, humanId, username, channels, projects, onS
         </div> : null}
         {body}
       </CanvasMain>
-      {chatShown ? <CanvasChat key={chatChannelId} mode={chatMode!} title={chatTitle}
+      {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} title={chatTitle}
         onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={onCloseChat} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
         {chat}
       </CanvasChat> : null}
@@ -212,10 +212,13 @@ export function CanvasView({canvasId, humanId, username, channels, projects, onS
   </section>;
 }
 
-/** The canvas side of the body. Behind a focus chat it is inert: no pointer, Tab or screen reader reaches it. */
+/**
+ * The canvas side of the body. Behind a focus chat it is inert: no pointer, Tab or screen reader reaches it.
+ * A layout effect, so inert is gone before the closing chat's passive cleanup moves focus back here.
+ */
 function CanvasMain({inert, children}: {inert: boolean; children: ReactNode}) {
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = ref.current;
     if (!element) return;
     if (inert) element.setAttribute('inert', ''); else element.removeAttribute('inert');
@@ -231,8 +234,8 @@ const OTHER_DIALOG = '[aria-modal="true"]:not(.canvas-chat), .dialog-backdrop';
  * The open chat: enlarged over a dimmed canvas (focus), or on the right with a draggable divider (split).
  * The header holds Split screen, Open in the regular chat view and Close; the chat itself is App's chat workspace.
  */
-function CanvasChat({mode, title, onMode, onClose, onOpenRegular, children}: {
-  mode: CanvasChatMode; title: string; onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
+function CanvasChat({channelId, mode, title, onMode, onClose, onOpenRegular, children}: {
+  channelId: string; mode: CanvasChatMode; title: string; onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
 }) {
   const panel = useRef<HTMLElement>(null);
   const [split, setSplit] = useState(readSplit);
@@ -240,11 +243,19 @@ function CanvasChat({mode, title, onMode, onClose, onOpenRegular, children}: {
   const resizing = useRef<number | null>(null);
   const closeRef = useRef(onClose); closeRef.current = onClose;
 
-  // Focus moves into the chat when it opens and returns to where it was (the card, the canvas) when it closes.
+  // Focus moves into the chat when it opens. On close it returns to the opened card's Open button when that card
+  // is mounted (after a mouse open too), else to what was focused before, else the canvas.
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const body = panel.current?.closest<HTMLElement>('.canvas-body') ?? null;
     panel.current?.focus({preventScroll: true});
-    return () => { if (previous?.isConnected) previous.focus({preventScroll: true}); };
+    return () => {
+      if (!body?.isConnected) return;
+      const card = body.querySelector<HTMLElement>(`.canvas-card[data-channel-id="${CSS.escape(channelId)}"] .canvas-card-open`);
+      const surface = body.querySelector<HTMLElement>('.canvas-surface');
+      const target = [card, previous, surface].find(element => element?.isConnected && body.contains(element));
+      target?.focus({preventScroll: true});
+    };
   }, []);
 
   // Escape closes a focus chat, after any inner popup (the mention picker) has had it.

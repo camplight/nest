@@ -922,7 +922,7 @@
   outline: 2px solid var(--nest-lime);
   outline-offset: 2px;
 }
-/* The keyboard route to Open: hidden until focused. */
+/* The keyboard route to Open stays visually hidden; its focus ring is drawn on the card, so it never covers the title. */
 .canvas-card-open {
   position: absolute;
   width: 1px;
@@ -930,21 +930,10 @@
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+  pointer-events: none;
 }
-.canvas-card-open:focus-visible {
-  top: 8px;
-  right: 8px;
-  width: auto;
-  height: auto;
-  clip-path: none;
-  z-index: 1;
-  border: 0;
-  border-radius: 999px;
-  padding: 4px 10px;
-  background: var(--nest-forest);
-  color: #fefefe;
-  font: 600 12px/1.4 Inter, sans-serif;
-  outline: 2px solid var(--nest-lime);
+.canvas-card:has(.canvas-card-open:focus-visible) {
+  box-shadow: 0 0 0 2px var(--nest-surface), 0 0 0 4px var(--nest-lime), var(--canvas-shadow);
 }
 
 /* The canvas side of the body: the stage with its bottom box, and the Loose chats pile. */
