@@ -1,6 +1,6 @@
 // The infinite canvas: pan and zoom (mouse, trackpad, touch), culling, area drawing and card/area moves.
 // One transformed container holds every mounted item; only items near the viewport mount.
-import {useCallback,useEffect,useLayoutEffect,useMemo,useReducer,useRef,useState,type PointerEvent as ReactPointerEvent} from 'react';
+import {useCallback,useEffect,useLayoutEffect,useMemo,useReducer,useRef,useState,type DragEvent as ReactDragEvent,type MutableRefObject,type PointerEvent as ReactPointerEvent} from 'react';
 import {CARD_HEIGHT,CanvasTint,type BoardCard,type CanvasArea,type CanvasBoard} from '@nest/schemas';
 import type {BoardOp} from './board-store';
 import {Area,type AreaSummary} from './Area';
@@ -15,7 +15,17 @@ export type SurfaceProps = {
   /** Live state per channel id; each card gets its own pulse object, stable while unchanged. */
   pulses?: ReadonlyMap<string, CardPulse>;
   onNudge?(channelId: string, agent: string): Promise<void>;
+  /** A loose chat dragged from the pile and dropped here, at this canvas point. */
+  onDropChat?(channelId: string, at: Point): void;
+  /** Filled in by the surface so its owner can ask where the viewport is. */
+  controls?: MutableRefObject<SurfaceControls | null>;
 };
+export type SurfaceControls = {
+  /** The canvas point at the centre of the viewport. */
+  centre(): Point;
+};
+/** The drag data type a pile row carries: the chat's channel id. */
+export const CHAT_DRAG_TYPE = 'application/x-nest-chat';
 const NO_PULSES: ReadonlyMap<string, CardPulse> = new Map();
 
 type Tool = 'select' | 'area';
@@ -53,7 +63,7 @@ const isEditable = (target: EventTarget | null) => target instanceof HTMLElement
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + b.y) / 2});
 
-export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge}: SurfaceProps) {
+export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
   // Without a known human the view is not remembered, so it can never land under another person's key.
   const key = humanId ? viewKey(humanId, board.canvas.id) : null;
@@ -136,6 +146,29 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge}: 
     const rect = surfaceRef.current!.getBoundingClientRect();
     return {x: event.clientX - rect.left, y: event.clientY - rect.top};
   };
+
+  useEffect(() => {
+    if (!controls) return;
+    controls.current = {centre: () => {
+      const element = surfaceRef.current;
+      return toCanvas(viewRef.current, {x: (element?.clientWidth ?? 0) / 2, y: (element?.clientHeight ?? 0) / 2});
+    }};
+    return () => { controls.current = null; };
+  }, [controls]);
+
+  const dropRef = useRef(onDropChat); dropRef.current = onDropChat;
+  const carriesChat = (event: ReactDragEvent) => canEdit && Boolean(dropRef.current) && event.dataTransfer.types.includes(CHAT_DRAG_TYPE);
+  function dragOver(event: ReactDragEvent<HTMLDivElement>) {
+    if (!carriesChat(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }
+  function drop(event: ReactDragEvent<HTMLDivElement>) {
+    if (!carriesChat(event)) return;
+    event.preventDefault();
+    const channelId = event.dataTransfer.getData(CHAT_DRAG_TYPE);
+    if (channelId) dropRef.current?.(channelId, toCanvas(viewRef.current, local(event)));
+  }
 
   // Wheel: Ctrl/Cmd (and trackpad pinch, which arrives as a ctrlKey wheel) zooms; a plain wheel pans.
   useEffect(() => {
@@ -333,6 +366,8 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge}: 
     onPointerMove={pointerMove}
     onPointerUp={pointerUp}
     onPointerCancel={pointerUp}
+    onDragOver={dragOver}
+    onDrop={drop}
     onLostPointerCapture={event => {
       // Only the surface's own capture counts; a touch target losing its implicit capture to the surface bubbles here too.
       if (event.target === surfaceRef.current && gesture.current?.pointerId === event.pointerId && gesture.current.active) cancel();

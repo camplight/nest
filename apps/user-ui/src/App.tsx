@@ -1316,9 +1316,11 @@ export default function App() {
     setSelectedConversationAgents((current) => current.filter((name) => name !== agentName));
   }
 
-  async function refreshChannels(nextActiveChannelId?: string | null) {
+  /** `select: false` only updates the lists, leaving the current view and selection alone (the canvas uses it). */
+  async function refreshChannels(nextActiveChannelId?: string | null, options: { select?: boolean } = {}) {
     const nextChannels = await apiJson<Channel[]>("/api/channels?includeArchived=1");
     setChannels(nextChannels);
+    if (options.select === false) return nextChannels;
     const visibleChannels = nextChannels.filter((channel) =>
       channelVisibleToUserUi(channel, userId, username, viewerTeamIds)
     );
@@ -1917,6 +1919,11 @@ export default function App() {
         chat={null} chatChannelId={canvasChat.channelId} chatMode={canvasChat.mode}
         onOpenChat={(channelId, mode) => setCanvasChatLocation(channelId, mode)} onCloseChat={() => setCanvasChatLocation(null, null)}
         onOpenRegular={channelId => selectChannel(channelId)} live={canvasLiveRef.current}
+        refreshChannels={async () => {
+          // Projects first, so a new project chat shows in the pile under its project name.
+          setProjectIndex(await apiJson<Project[]>("/api/projects"));
+          await refreshChannels(undefined, { select: false });
+        }}
       /> : null) : view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} onManage={activeChannelManageable?()=>setShowChannelManageDialog(true):undefined} /> : view === "agents" ? <Agents tab={agentTab} onTab={tab=>selectAgent(selectedAgent,{tab})} onOpenChat={name=>void openAgentChat(name)} requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
         resumeProject={userId?projectIndex.find(p=>p.id===recentProject(userId)):undefined} channels={visibleChannels} projects={projectIndex} onProject={selectProject} unreadCounts={unreadCounts} onCommunity={selectCommunity}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}

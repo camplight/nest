@@ -156,7 +156,8 @@ await runChatTest('canvas surface: two editors move the same card and the stale 
   await mate.page.locator('[aria-label="Area Review"]').waitFor();
   assert.equal(await mate.page.locator('[aria-label="Area Review"] [data-drag]').count(),0);
   assert.equal(await mate.page.getByRole('button',{name:'Area options',exact:true}).count(),0);
-},{canvas:true,viewport:{width:1440,height:900}});
+// Wide enough that the card and area fit at 100% beside the Loose chats pile, so screen and canvas pixels match.
+},{canvas:true,viewport:{width:1760,height:900}});
 
 await runChatTest('canvas surface: a two-finger pinch on a tablet zooms and the view is kept',async h=>{
   const {page,base}=h;

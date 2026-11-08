@@ -1,13 +1,18 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
-import {useEffect,useMemo,useState,useSyncExternalStore,type FormEvent,type ReactNode} from 'react';
-import type {Canvas,Project} from '@nest/schemas';
+import {useCallback,useEffect,useMemo,useRef,useState,useSyncExternalStore,type FormEvent,type ReactNode} from 'react';
+import {CanvasTint,type Canvas,type NewArea,type Project} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiJson,getApiHeaders} from '../api';
-import {boardApi,createCanvas,listCanvases} from './api';
+import {StartChat} from '../ProjectStart';
+import {boardApi,createCanvas,getHidden,listCanvases,setHidden} from './api';
 import {createBoardStore} from './board-store';
-import {Surface} from './Surface';
+import {Surface,type SurfaceControls} from './Surface';
 import {nudgeMessage,type CanvasLive} from './live';
+import {LoosePile} from './LoosePile';
+import {areaAround,gridPlacement,looseChats} from './loose';
+import type {CardPulse} from './pulse';
+import type {Point} from './geometry';
 import './canvas.css';
 
 export type CanvasHuman = {id?: string; username: string};
@@ -30,9 +35,23 @@ export type CanvasViewProps = {
   onCloseChat(): void;
   onOpenRegular(channelId: string): void;
   live: CanvasLive;
+  /** Re-reads App's channel and project lists without navigating, so a chat started here shows in the pile. */
+  refreshChannels(): Promise<void>;
 };
 
 const SYNC_INTERVAL_MS = 5000;
+const NO_PULSES: ReadonlyMap<string, CardPulse> = new Map();
+const NOTHING: ReadonlySet<string> = new Set();
+const TINTS = CanvasTint.options;
+/** Keeps a placed grid (or area) well inside the ±1,000,000 coordinate limit. */
+const PLACE_LIMIT = 900_000;
+const clampPoint = (p: Point): Point => ({x: Math.round(Math.min(PLACE_LIMIT, Math.max(-PLACE_LIMIT, p.x))), y: Math.round(Math.min(PLACE_LIMIT, Math.max(-PLACE_LIMIT, p.y)))});
+const pileKey = (humanId: string) => `nest-canvas-pile-open:${humanId}`;
+function readPileOpen(humanId: string) {
+  try { const saved = localStorage.getItem(pileKey(humanId)); if (saved === '1' || saved === '0') return saved === '1'; } catch {}
+  // Phones (the 760 px breakpoint) start with the pile folded away.
+  return !(typeof matchMedia === 'function' && matchMedia('(max-width: 760px)').matches);
+}
 const mostRecent = (canvases: Canvas[]) => canvases.reduce<Canvas | null>((best, c) => !best || c.updatedAt > best.updatedAt ? c : best, null);
 
 /** Nudge goes through the normal send path as the signed-in human. */
@@ -40,7 +59,7 @@ async function sendNudge(channelId: string, agent: string) {
   await apiJson('/api/messages', {method: 'POST', headers: getApiHeaders(), body: JSON.stringify(nudgeMessage(channelId, agent))});
 }
 
-export function CanvasView({canvasId, humanId, onSelectCanvas, onMenu, live}: CanvasViewProps) {
+export function CanvasView({canvasId, humanId, username, channels, projects, onSelectCanvas, onMenu, live, refreshChannels}: CanvasViewProps) {
   const store = useMemo(() => createBoardStore({api: boardApi, now: Date.now, intervalMs: SYNC_INTERVAL_MS}), []);
   const state = useSyncExternalStore(store.subscribe, store.snapshot);
   const [canvases, setCanvases] = useState<Canvas[] | null>(null);
@@ -73,10 +92,63 @@ export function CanvasView({canvasId, humanId, onSelectCanvas, onMenu, live}: Ca
   // Live state refreshes only while the canvas view is mounted.
   useEffect(() => { live.start(); return () => live.stop(); }, [live]);
   const cards = board?.cards;
+
+  // Loose chats: the person's chats not on this canvas. The hidden list is personal, across canvases.
+  const [hidden, setHiddenIds] = useState<ReadonlySet<string>>(NOTHING);
+  const [showHidden, setShowHidden] = useState(false);
   useEffect(() => {
-    live.setCards((cards ?? []).flatMap(card => card.access === 'open'
-      ? [{channelId: card.channelId, agentNames: card.participants.filter(p => p.subscriberType === 'AGENT').map(p => p.subscriberId)}] : []));
-  }, [cards, live]);
+    let current = true;
+    getHidden().then(result => { if (current) setHiddenIds(new Set(result.channelIds)); }).catch(() => {});
+    return () => { current = false; };
+  }, [humanId]);
+  const boardIds = useMemo(() => new Set((cards ?? []).map(card => card.channelId)), [cards]);
+  // Every loose chat, hidden or not and before live state: what the live store covers besides the cards.
+  const candidates = useMemo(() => cards ? looseChats({channels, projects, boardChannelIds: boardIds, hidden: NOTHING, username, userId: humanId, pulses: NO_PULSES, showHidden: true}) : [],
+    [cards, channels, projects, boardIds, username, humanId]);
+  const loose = useMemo(() => cards ? looseChats({channels, projects, boardChannelIds: boardIds, hidden, username, userId: humanId, pulses, showHidden}) : [],
+    [cards, channels, projects, boardIds, hidden, username, humanId, pulses, showHidden]);
+  const looseCount = useMemo(() => showHidden ? loose.filter(chat => !hidden.has(chat.channelId)).length : loose.length, [loose, hidden, showHidden]);
+  const candidatesRef = useRef(candidates); candidatesRef.current = candidates;
+
+  useEffect(() => {
+    live.setCards([
+      ...(cards ?? []).flatMap(card => card.access === 'open'
+        ? [{channelId: card.channelId, agentNames: card.participants.filter(p => p.subscriberType === 'AGENT').map(p => p.subscriberId)}] : []),
+      ...candidates.map(chat => ({channelId: chat.channelId, agentNames: chat.agents})),
+    ]);
+  }, [cards, candidates, live]);
+
+  const controls = useRef<SurfaceControls | null>(null);
+  /** Places the chats in a 3-wide grid at the viewport centre, optionally inside a new area, in one call. */
+  const place = useCallback((channelIds: string[], withArea: boolean) => {
+    const current = store.snapshot().board;
+    if (!current || !channelIds.length) return Promise.resolve(false);
+    const {cards: placed, bounds} = gridPlacement(channelIds, clampPoint(controls.current?.centre() ?? {x: 0, y: 0}));
+    const area: NewArea | undefined = withArea ? {id: crypto.randomUUID(), title: 'New area', ...areaAround(bounds), tint: TINTS[current.areas.length % TINTS.length]} : undefined;
+    return store.apply({kind: 'placeCards', cards: placed, ...(area ? {area} : {})});
+  }, [store]);
+  const dropChat = useCallback((channelId: string, at: Point) => {
+    const current = store.snapshot().board;
+    if (!current || current.cards.some(card => card.channelId === channelId) || !candidatesRef.current.some(chat => chat.channelId === channelId)) return;
+    void store.apply({kind: 'placeCards', cards: [{channelId, ...clampPoint(at)}]});
+  }, [store]);
+  const hide = useCallback(async (channelIds: string[], value: boolean) => {
+    const result = await setHidden(channelIds, value);
+    setHiddenIds(new Set(result.channelIds));
+    return true;
+  }, []);
+  const [pileOpen, setPileOpen] = useState(() => readPileOpen(humanId));
+  const openPile = useCallback((open: boolean) => {
+    setPileOpen(open);
+    try { localStorage.setItem(pileKey(humanId), open ? '1' : '0'); } catch {}
+  }, [humanId]);
+  // A sent bottom-box chat lands in the pile only: the box starts over and the canvas stays put.
+  const [dockKey, setDockKey] = useState(0);
+  const refreshRef = useRef(refreshChannels); refreshRef.current = refreshChannels;
+  const created = useCallback(() => {
+    setDockKey(n => n + 1);
+    void refreshRef.current().catch(() => {});
+  }, []);
   const name = board?.canvas.name ?? canvases?.find(c => c.id === canvasId)?.name ?? '';
   let body: ReactNode;
   if (!canvasId) {
@@ -91,7 +163,16 @@ export function CanvasView({canvasId, humanId, onSelectCanvas, onMenu, live}: Ca
     body = <CanvasMessage text="Loading canvas…"/>;
   } else {
     // Keyed by canvas so the saved view, gestures and measured card heights start fresh per canvas.
-    body = <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={store.apply} pulses={pulses} onNudge={sendNudge}/>;
+    const canPlace = board.canvas.role !== 'view';
+    body = <>
+      <div className="canvas-stage">
+        <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={store.apply} pulses={pulses} onNudge={sendNudge}
+          onDropChat={canPlace ? dropChat : undefined} controls={controls}/>
+        {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" onCreated={created}/></div> : null}
+      </div>
+      <LoosePile chats={loose} count={looseCount} hidden={hidden} showHidden={showHidden} onShowHidden={setShowHidden}
+        canPlace={canPlace} onPlace={place} onHide={hide} open={pileOpen} onOpen={openPile} now={Date.now}/>
+    </>;
   }
 
   return <section className="canvas-view" aria-label="Canvas">

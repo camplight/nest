@@ -580,3 +580,333 @@
     max-width: 140px;
   }
 }
+
+/* The stage holds the surface and the bottom box; the Loose chats pile sits beside it. */
+.canvas-stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  container-type: inline-size;
+}
+
+/* Bottom box: the canvas's chat-first start (StartChat variant="dock"), centred under the surface. */
+.canvas-dock {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 2;
+  width: min(600px, calc(100% - 32px));
+  transform: translateX(-50%);
+}
+/* Where the centred box would run into the zoom controls, it sits above them. */
+@container (max-width: 1040px) {
+  .canvas-dock {
+    bottom: 76px;
+  }
+}
+.project-start-dock-form {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--nest-border);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--nest-surface) 94%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--canvas-shadow);
+  font-size: 13px;
+}
+.project-start-dock-form > p,
+.project-start-dock-form > .notice {
+  margin: 0;
+  padding: 4px 8px;
+}
+.project-start-dock-form .notice p {
+  margin: 4px 0 0;
+}
+.project-start-dock-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+.project-start-dock-row .mention-input {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.project-start-dock-row textarea {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  max-height: 160px;
+  border: 0;
+  padding: 10px 6px;
+  background: transparent;
+  color: var(--nest-text);
+  font: inherit;
+  font-size: 15px;
+  line-height: 20px;
+  resize: none;
+  field-sizing: content;
+}
+.project-start-dock-row textarea:focus {
+  outline: none;
+}
+.project-start-dock-form:focus-within {
+  border-color: color-mix(in srgb, var(--nest-lime) 60%, var(--nest-border));
+}
+.project-start-dock-attach {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--nest-muted);
+  cursor: pointer;
+}
+.project-start-dock-attach:hover:enabled {
+  background: var(--nest-muted-surface);
+  color: var(--nest-text);
+}
+.project-start-dock-attach:disabled {
+  opacity: .45;
+  cursor: default;
+}
+.project-start-dock-send {
+  flex: none;
+  min-height: 40px;
+  padding: 0 18px;
+}
+.project-start-assistant.is-compact {
+  padding: 2px 8px;
+  gap: 4px 8px;
+  font-size: 12px;
+}
+.project-start-assistant.is-compact small {
+  font-size: 11px;
+}
+
+/* Loose chats pile: a right-side panel; folded, it is a floating chip at the top right of the canvas. */
+.canvas-pile {
+  flex: none;
+  width: 320px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--nest-border);
+  background: var(--nest-surface);
+}
+.canvas-pile:not(.is-open) {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 3;
+  width: auto;
+  border: 1px solid var(--nest-border);
+  border-radius: 14px;
+  box-shadow: var(--canvas-shadow);
+}
+.canvas-pile-head {
+  padding: 8px;
+}
+.canvas-pile-toggle {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 0;
+  border-radius: 10px;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--nest-text);
+  font-family: Unbounded, Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.canvas-pile-toggle:hover {
+  background: var(--nest-muted-surface);
+}
+.canvas-pile-count {
+  min-width: 28px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: var(--nest-muted-surface);
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.canvas-pile-filters {
+  display: grid;
+  gap: 8px;
+  padding: 0 16px 10px;
+}
+.canvas-pile-search {
+  min-height: 36px;
+  border: 1px solid var(--nest-border);
+  border-radius: 10px;
+  padding: 0 12px;
+  background: var(--nest-bg);
+  color: var(--nest-text);
+}
+.canvas-pile-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.canvas-pile-chip {
+  min-height: 32px;
+  max-width: 130px;
+  border: 1px solid var(--nest-border);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.canvas-pile-chip[aria-pressed="true"] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--nest-lime) 26%, transparent);
+}
+.canvas-pile-hidden {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--nest-muted);
+  font-size: 13px;
+}
+.canvas-pile-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-block: 1px solid var(--nest-border);
+  background: var(--nest-muted-surface);
+  font-size: 13px;
+}
+.canvas-pile-bulk > span {
+  flex-basis: 100%;
+  color: var(--nest-muted);
+}
+.canvas-pile-bulk button,
+.canvas-pile-unhide {
+  min-height: 32px;
+  border: 1px solid var(--nest-border);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.canvas-pile-bulk button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+.canvas-pile-bulk .canvas-pile-clear {
+  border-color: transparent;
+  background: transparent;
+}
+.canvas-pile-error {
+  margin: 8px 16px;
+  color: var(--nest-coral, #ff5c35);
+  font-size: 13px;
+}
+.canvas-pile-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.canvas-pile-list ul {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.canvas-pile-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--nest-border) 60%, transparent);
+  background: var(--nest-surface);
+}
+.canvas-pile-row[draggable="true"] {
+  cursor: grab;
+}
+.canvas-pile-row:hover {
+  background: var(--nest-muted-surface);
+}
+.canvas-pile-row[data-hidden] .canvas-pile-main {
+  opacity: .6;
+}
+.canvas-pile-row input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--nest-forest);
+}
+:root[data-theme="dark"] .canvas-pile-row input {
+  accent-color: var(--nest-lime);
+}
+.canvas-pile-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.canvas-pile-title,
+.canvas-pile-meta {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.canvas-pile-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+.canvas-pile-meta {
+  color: var(--nest-muted);
+  font-size: 12px;
+}
+.canvas-pile-needs {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--nest-coral);
+}
+.canvas-pile-empty {
+  margin: 0;
+  padding: 24px 16px;
+  color: var(--nest-muted);
+  font-size: 14px;
+  text-align: center;
+}
+@media (max-width: 760px) {
+  .canvas-pile.is-open {
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 4;
+    width: min(360px, 100%);
+    box-shadow: var(--canvas-shadow);
+  }
+}

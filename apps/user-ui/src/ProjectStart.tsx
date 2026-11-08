@@ -2,7 +2,7 @@ import {useAttachments,restoreAttachments} from './attachments';
 import {ChatAttachments} from './components/ChatAttachments';
 import {ChatFileDrop} from './components/ChatFileDrop';
 import {projectDraftKey} from './drafts';
-import {useEffect,useRef,useState,type FormEvent} from 'react';
+import {useEffect,useRef,useState,type ChangeEvent,type FormEvent,type KeyboardEvent} from 'react';
 import {NewProjectSchema,SelectedMentionSchema,MessageAttachmentSchema,MAX_MESSAGE_ATTACHMENTS,type SendMessage,type Project,type SelectedMention,type ProjectMemberOption} from '@nest/schemas';
 import {apiJson,getApiHeaders} from './api';
 import {ProjectCreateForm} from './ProjectCreateForm';
@@ -42,7 +42,11 @@ export function ProjectStart(props:{ownerId:string;onCreated:(project:Project)=>
   const [legacy]=useState(()=>pendingLegacy(props.ownerId));
   return legacy?<><p className="notice">Finish your previous project setup before starting another.</p><ProjectCreateForm {...props}/></>:<StartChat {...props}/>;
 }
-function StartChat({ownerId,onCreated,onCancel}:{ownerId:string;onCreated:(project:Project)=>void;onCancel:()=>void}) {
+/**
+ * Chat-first project creation. `page` is the Projects page composer. `dock` is the canvas bottom box: one row
+ * with no intro or Cancel. It shares the page's draft, and its parent decides what happens after `onCreated`.
+ */
+export function StartChat({ownerId,onCreated,onCancel,variant='page'}:{ownerId:string;onCreated:(project:Project)=>void;onCancel?:()=>void;variant?:'page'|'dock'}) {
   const [draft,setDraft]=useState(()=>restore(ownerId));
   const {attachments,setAttachments,uploadFiles,error:attachmentError}=useAttachments(ownerId+':'+draft.id,restoreAttachments(draft.attachments??[]));
   const readyFiles=attachments.flatMap(item=>item.uploaded&&item.status==='ready'?[{fileId:item.uploaded.fileId,name:item.uploaded.name,mime:item.uploaded.mime,size:item.uploaded.size}]:[]);
@@ -63,7 +67,7 @@ function StartChat({ownerId,onCreated,onCancel}:{ownerId:string;onCreated:(proje
   },[refresh]);
   const locked=busy||draft.submitted;
   const recipients=[...new Map(draft.mentions.map(mention=>[mention.kind+':'+mention.name,mention])).values()];
-  const picker=useMentionPicker({value:draft.text,onChange:text=>setDraft(current=>({...current,text,mentions:reconcileMentions(current.text,text,current.mentions)})),onChoose:(text,mention)=>setDraft(current=>({...current,text,mentions:[...reconcileMentions(current.text,text,current.mentions),mention]})),textareaRef,candidates:roster.map(member=>({id:member.subscriberType+':'+member.subscriberId,name:member.subscriberId,kind:member.subscriberType==='AGENT'?'Agent':'Person',inConversation:false})),channelId:'new-project',disabled:locked,projectDraft:true});
+  const picker=useMentionPicker({value:draft.text,onChange:text=>setDraft(current=>({...current,text,mentions:reconcileMentions(current.text,text,current.mentions)})),onChoose:(text,mention)=>setDraft(current=>({...current,text,mentions:[...reconcileMentions(current.text,text,current.mentions),mention]})),textareaRef,candidates:roster.map(member=>({id:member.subscriberType+':'+member.subscriberId,name:member.subscriberId,kind:member.subscriberType==='AGENT'?'Agent':'Person',inConversation:false})),channelId:'new-project',disabled:locked,projectDraft:true,variant:variant==='dock'?'chat':'default'});
   async function submit(event:FormEvent) {
     event.preventDefault();if(busy||uploading||failed||(!draft.text.trim()&&!readyFiles.length)||(!rosterReady&&!draft.submitted))return;
     setBusy(true);setError(null);
@@ -81,20 +85,44 @@ function StartChat({ownerId,onCreated,onCancel}:{ownerId:string;onCreated:(proje
       if(mounted.current)onCreated(project);
     }catch(reason){if(mounted.current)setError(message(reason));}finally{if(mounted.current)setBusy(false);}
   }
+  const canSend=!busy&&!uploading&&!failed&&(!!draft.text.trim()||readyFiles.length>0)&&(rosterReady||draft.submitted);
+  const fileInput=<input className="composer-file-input" ref={fileInputRef} type="file" multiple disabled={locked} onChange={event=>{if(!locked)uploadFiles(Array.from(event.currentTarget.files??[]));event.currentTarget.value='';}}/>;
+  const notices=<>
+    {!stored&&<p role="status">Draft storage is unavailable. Keep this tab open until you send.</p>}
+    {rosterError&&<p role="alert">We couldn’t load your team. You can still start on your own. <button type="button" className="project-inline-action" disabled={locked} onClick={()=>setRefresh(n=>n+1)}>Try again</button></p>}
+    <ChatAttachments items={attachments} error={attachmentError} disabled={locked} onRemove={id=>setAttachments(items=>items.filter(item=>item.localId!==id))}/>
+    {failed&&<p role="alert">Remove failed uploads before sending. You can attach them again to retry.</p>}
+  </>;
+  const onTextChange=(event:ChangeEvent<HTMLTextAreaElement>)=>{const text=event.target.value;setDraft(current=>({...current,text,mentions:reconcileMentions(current.text,text,current.mentions)}));picker.sync(event.target);};
+  const onTextKey=(event:KeyboardEvent<HTMLTextAreaElement>)=>{if(picker.onKeyDown(event))return;if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing&&event.keyCode!==229){event.preventDefault();event.currentTarget.form?.requestSubmit();}};
+  const errorNotice=error&&<div className="notice error" role="alert">{error}<p>Your message is saved. Retry unchanged to finish this project.</p></div>;
+  const dropFiles=<ChatFileDrop scope={ownerId+':'+draft.id} disabledReason={locked?'Finish sending this project before attaching more files.':undefined} onFiles={files=>{if(!locked)uploadFiles(files);}}/>;
+  if(variant==='dock')return <section className="project-start-dock" aria-label="Start a chat">
+    {dropFiles}
+    <form className="project-start-dock-form" onSubmit={submit}>
+      {notices}
+      {errorNotice}
+      {draft.assistant&&<div className="project-start-assistant is-compact"><span><strong>{draft.assistant}</strong> will join and help you get started.</span><button type="button" className="project-inline-action" disabled={locked} onClick={()=>setDraft(current=>({...current,assistant:null,assistantDismissed:true}))}>Start without my agent</button>{draft.text.trim()&&<small>Your agent can use its granted apps here, including when you are absent. Other participants may request actions and see results.</small>}</div>}
+      {recipients.length>0&&<p className="project-start-recipients">Joining: {recipients.map(m=>m.name).join(', ')}</p>}
+      {fileInput}
+      <div className="project-start-dock-row">
+        <button type="button" className="project-start-dock-attach" aria-label="Attach files" title="Attach files" disabled={locked} onClick={()=>fileInputRef.current?.click()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21 11-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg></button>
+        <div className="mention-input">{picker.popup}<textarea ref={textareaRef} {...picker.textareaProps} aria-label="Message" placeholder="Start a new chat. Type @ to bring someone in." value={draft.text} maxLength={32000} rows={1} disabled={locked} onChange={onTextChange} onKeyDown={onTextKey}/></div>
+        <button className="canvas-button project-start-dock-send" disabled={!canSend}>{busy?'Starting…':draft.submitted?'Retry send':'Send'}</button>
+      </div>
+    </form>
+  </section>;
   return <section className="project-start-chat" aria-label="Start a project in chat">
-    <ChatFileDrop scope={ownerId+':'+draft.id} disabledReason={locked?'Finish sending this project before attaching more files.':undefined} onFiles={files=>{if(!locked)uploadFiles(files);}}/>
+    {dropFiles}
     <div className="project-start-intro"><h2>What are we working on?</h2><p>Send a message to start your project. We’ll suggest a name and description with AI in the background. You can change them later.</p></div>
     <form className="dashboard-card project-start-composer" onSubmit={submit}>
-      {!stored&&<p role="status">Draft storage is unavailable. Keep this tab open until you send.</p>}
-      {rosterError&&<p role="alert">We couldn’t load your team. You can still start on your own. <button type="button" className="project-inline-action" disabled={locked} onClick={()=>setRefresh(n=>n+1)}>Try again</button></p>}
-      <input className="composer-file-input" ref={fileInputRef} type="file" multiple disabled={locked} onChange={event=>{if(!locked)uploadFiles(Array.from(event.currentTarget.files??[]));event.currentTarget.value='';}}/>
-      <ChatAttachments items={attachments} error={attachmentError} disabled={locked} onRemove={id=>setAttachments(items=>items.filter(item=>item.localId!==id))}/>
-      {failed&&<p role="alert">Remove failed uploads before sending. You can attach them again to retry.</p>}
-      <div className="mention-input">{picker.popup}<textarea ref={textareaRef} {...picker.textareaProps} aria-label="Message" placeholder="Tell us what you want to work on. Type @ to bring someone in." value={draft.text} autoFocus maxLength={32000} rows={4} disabled={locked} onChange={event=>{const text=event.target.value;setDraft(current=>({...current,text,mentions:reconcileMentions(current.text,text,current.mentions)}));picker.sync(event.target);}} onKeyDown={event=>{if(picker.onKeyDown(event))return;if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing&&event.keyCode!==229){event.preventDefault();event.currentTarget.form?.requestSubmit();}}}/></div>
+      {fileInput}
+      {notices}
+      <div className="mention-input">{picker.popup}<textarea ref={textareaRef} {...picker.textareaProps} aria-label="Message" placeholder="Tell us what you want to work on. Type @ to bring someone in." value={draft.text} autoFocus maxLength={32000} rows={4} disabled={locked} onChange={onTextChange} onKeyDown={onTextKey}/></div>
       {draft.assistant&&<div className="project-start-assistant"><span><strong>{draft.assistant}</strong> will join and help you get started.</span><button type="button" className="project-inline-action" disabled={locked} onClick={()=>setDraft(current=>({...current,assistant:null,assistantDismissed:true}))}>Start without my agent</button><small>Your agent can use its granted apps here, including when you are absent. Other participants may request actions and see results.</small></div>}
       {recipients.length>0&&<p className="project-start-recipients">Joining: {recipients.map(m=>m.name).join(', ')}</p>}
-      {error&&<div className="notice error" role="alert">{error}<p>Your message is saved. Retry unchanged to finish this project.</p></div>}
-      <div className="project-start-footer"><span>Type @ to add people or agents.</span><div><button type="button" className="dashboard-action" disabled={locked} onClick={()=>fileInputRef.current?.click()}>Attach files</button><button type="button" className="dashboard-action" disabled={busy} onClick={onCancel}>Cancel</button><button className="dashboard-action project-primary" disabled={busy||uploading||failed||(!draft.text.trim()&&!readyFiles.length)||(!rosterReady&&!draft.submitted)}>{busy?'Starting…':draft.submitted?'Retry send':'Send'}</button></div></div>
+      {errorNotice}
+      <div className="project-start-footer"><span>Type @ to add people or agents.</span><div><button type="button" className="dashboard-action" disabled={locked} onClick={()=>fileInputRef.current?.click()}>Attach files</button>{onCancel&&<button type="button" className="dashboard-action" disabled={busy} onClick={onCancel}>Cancel</button>}<button className="dashboard-action project-primary" disabled={!canSend}>{busy?'Starting…':draft.submitted?'Retry send':'Send'}</button></div></div>
     </form>
   </section>;
 }
