@@ -138,6 +138,7 @@ try {
     assert.equal((product.store.db.prepare('SELECT COUNT(*) AS count FROM product_projects').get() as {count:number}).count,1);
     await page.getByRole('heading',{name:'Website launch',exact:true,level:1}).waitFor();
     assert(new URL(page.url()).searchParams.get('project'));
+    console.log('Project created; testing AI brief');
     const projectId=new URL(page.url()).searchParams.get('project')!;
     const namingRun=(async()=>{for(let n=0;n<20;n++)await product.projectNaming.tick();})();
     await namingStarted;assert.notEqual(product.store.projects.project(projectId)?.description,aiBrief,'Chat opens before AI naming completes');releaseNaming();await namingRun;
@@ -146,6 +147,7 @@ try {
     const projectChannel=(await (await product.app.request('/api/channels',{headers})).json()).find((channel:any)=>channel.id===channelId);
     assert(projectChannel.participants.some((member:any)=>member.subscriberType==='HUMAN'&&member.subscriberId==='sarah@example.com'));
     assert(projectChannel.participants.some((member:any)=>member.subscriberType==='AGENT'&&member.subscriberId==='Moss'));
+    console.log('AI brief visible; testing teammate access');
     // A teammate uses their own engine session to discover and open the project.
     engine.db.prepare('UPDATE humans SET must_change_password=0 WHERE username=?').run('sarah@example.com');
     const teammateLogin=await product.app.request('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'sarah@example.com',password:'test-password'})});
@@ -164,6 +166,7 @@ try {
       await teammatePage.locator('.project-about').getByText('sarah@example.com',{exact:true}).waitFor();
       assert.equal(await teammatePage.getByRole('button',{name:'Sharing',exact:true}).count(),0);
       assert.equal(await teammatePage.getByRole('button',{name:'Edit project details',exact:true}).count(),0);
+      console.log('Testing legacy project URL');
       await teammatePage.goto(`http://127.0.0.1:5298/onboarding?view=projects&project=${projectId}&tab=files`);
       await teammatePage.getByRole('heading',{name:'Files shared in chat'}).waitFor();
       assert.equal(new URL(teammatePage.url()).pathname,'/');
@@ -173,6 +176,7 @@ try {
       await projectSections.getByRole('button',{name:'Chat',exact:true}).click();
       await teammatePage.getByRole('textbox',{name:'Message',exact:true}).waitFor();
       await teammatePage.reload();await teammatePage.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+      console.log('Testing OAuth root restoration');
       // Simulate the root landing after OAuth with a valid teammate session.
       // Google itself is not exercised here; verify restoration before loadShell.
       await teammatePage.evaluate(id=>sessionStorage.setItem('nest-workspace-login-return',JSON.stringify({path:`/?view=projects&project=${id}&tab=files`,expires:Date.now()+60_000})),projectId);
@@ -488,5 +492,5 @@ try {
     console.log('PASS: nested project navigation, keyboard disclosure, bounded shortcuts with active project, full directory search, cross-view access, single current page and mobile drawer.');
     console.log('PASS: first-message creation, @ selection, roster retry, persistent drafts, exact creation/send retry and desktop/mobile screens.');
     console.log(`PASS: automatic private chat, invited-user discovery, uploads/files, members, chat-first project tabs, legacy links, standalone chats, task dispatch/revision/approval, persistence, history and mobile. Screenshots: ${screenshots}`);
-  } finally {await browser.close();}
+  } catch (error) { console.error("Project browser regression failed:", error); throw error; } finally {await browser.close();}
 } finally {server.kill('SIGTERM');product.store.close();engine.db.close();rmSync(dir,{recursive:true,force:true});}
