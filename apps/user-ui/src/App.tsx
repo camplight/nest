@@ -27,6 +27,7 @@ import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
 import { Community } from "./Community";
 import { CanvasView, type CanvasChatMode } from "./canvas/CanvasView";
 import { canvasAvailability } from "./canvas/api";
+import { usePhoneLayout } from "./canvas/PhoneList";
 import { createCanvasLive, type CanvasLive } from "./canvas/live";
 import type { Project } from "@nest/schemas";
 import { Projects } from "./Projects";
@@ -411,6 +412,21 @@ export default function App() {
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  // Desktop icon-only sidebar, remembered per browser (a per-viewer convenience, not product state).
+  // The canvas keeps its own setting and starts collapsed so the surface gets the room; other views start expanded.
+  const [sidebarPrefs, setSidebarPrefs] = useState(() => {
+    const read = (key: string, fallback: boolean) => { try { const v = localStorage.getItem(key); return v === null ? fallback : v === "1"; } catch { return fallback; } };
+    return {canvas: read("nest-sidebar-collapsed-canvas", true), other: read("nest-sidebar-collapsed", false)};
+  });
+  const sidebarScope = view === "canvas" ? "canvas" : "other";
+  // Phones use the slide-in menu at full width, so the icon rail is a desktop-only state.
+  const phoneLayout = usePhoneLayout();
+  const sidebarCollapsed = !phoneLayout && sidebarPrefs[sidebarScope];
+  const toggleSidebar = () => setSidebarPrefs(current => {
+    const next = !current[sidebarScope];
+    try { localStorage.setItem(sidebarScope === "canvas" ? "nest-sidebar-collapsed-canvas" : "nest-sidebar-collapsed", next ? "1" : "0"); } catch { /* storage may be unavailable */ }
+    return {...current, [sidebarScope]: next};
+  });
   const [tourOpen,setTourOpen]=useState(false);
   const tourSidebarWasOpen=useRef(false);
   function startTour(){tourSidebarWasOpen.current=mobileSidebarOpen;setMobileSidebarOpen(true);setTourOpen(true);}
@@ -1821,7 +1837,7 @@ export default function App() {
       </aside>;
 
   return (
-    <AgentAvatarChoices value={Object.fromEntries(agents.map(agent=>[agent.name, agent.icon]))}><WorkspaceHeaderProvider onTour={startTour} tourNew={!tourSeen(userId??username)} channelLabel={(id,fallback)=>projectIndex.find(project=>project.channelId===id)?.name ?? fallback} username={username} onAgents={()=>selectAgent(null)} onSignOut={()=>void handleLogout()} onMention={(channelId,eventId)=>{selectChannel(channelId);setFocusedMessage(eventId);const url=new URL(window.location.href);url.searchParams.set('message',eventId);window.history.replaceState(null,'',url);}}><main className={`app-shell product-shell ${view !== "workspace" ? "dashboard-shell" : ""}`}>
+    <AgentAvatarChoices value={Object.fromEntries(agents.map(agent=>[agent.name, agent.icon]))}><WorkspaceHeaderProvider onTour={startTour} tourNew={!tourSeen(userId??username)} channelLabel={(id,fallback)=>projectIndex.find(project=>project.channelId===id)?.name ?? fallback} username={username} onAgents={()=>selectAgent(null)} onSignOut={()=>void handleLogout()} onMention={(channelId,eventId)=>{selectChannel(channelId);setFocusedMessage(eventId);const url=new URL(window.location.href);url.searchParams.set('message',eventId);window.history.replaceState(null,'',url);}}><main className={`app-shell product-shell ${view !== "workspace" ? "dashboard-shell" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className={`sidebar ${mobileSidebarOpen ? "sidebar-mobile-open" : ""} ${tourOpen ? "tour-navigation" : ""}`}>
         <button
           type="button"
@@ -1830,13 +1846,18 @@ export default function App() {
         >
           Close
         </button>
-        <InstanceBrand />
+        <div className="sidebar-head">
+          <InstanceBrand />
+          <button type="button" className="sidebar-collapse-toggle" aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!sidebarCollapsed} title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={toggleSidebar}>
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{transform: sidebarCollapsed ? "rotate(180deg)" : undefined}}><path d="m10 3-5 5 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </button>
+        </div>
         <nav className="product-nav" aria-label="Main navigation">
-          <button aria-current={view === "dashboard" ? "page" : undefined} onClick={() => selectChannel(null)}><DesignIcon name="dashboard" />Dashboard</button>
-          {canvasAvailable ? <button aria-current={view === "canvas" ? "page" : undefined} onClick={() => selectCanvas(null, { replace: view === "canvas" && Boolean(selectedCanvas) })}><DesignIcon name="canvas" />Canvas</button> : null}
-          <ProjectNavigation projects={projectIndex} currentProjectId={view === "projects" ? selectedProject : null} inProjects={view === "projects" || view === "workspace"} creating={view === "projects" && !selectedProject && projectTab === "new"} unreadCounts={unreadCounts} onBrowse={() => selectProject(null)} onSelect={id => selectProject(id)} onCreate={() => selectProject(null, null, "new")} />
-          <AgentNavigation agents={visibleAgents} chats={agentChats} activeAgent={activeChatAgent??(view==='agents'?selectedAgent:null)} activeChannelId={activeChannelId} inAgents={view==='agents'||!!activeChatAgent} busy={agentOpening} error={agentNavigationError} unread={unreadCounts} label={c=>isHumanAgentDirectChannel(c)?'First conversation':channelLabel(c,username)} onBrowse={()=>selectAgent(null)} onOpen={name=>void openAgentChat(name)} onChat={selectChannel} onNew={newAgentChat}/>
-          <button data-tour="community" aria-current={view === "community" ? "page" : undefined} onClick={()=>selectCommunity(null)}><DesignIcon name="community" />Community</button>
+          <button aria-current={view === "dashboard" ? "page" : undefined} title={sidebarCollapsed ? "Dashboard" : undefined} onClick={() => selectChannel(null)}><DesignIcon name="dashboard" /><span className="sidebar-label">Dashboard</span></button>
+          {canvasAvailable ? <button aria-current={view === "canvas" ? "page" : undefined} title={sidebarCollapsed ? "Canvas" : undefined} onClick={() => selectCanvas(null, { replace: view === "canvas" && Boolean(selectedCanvas) })}><DesignIcon name="canvas" /><span className="sidebar-label">Canvas</span></button> : null}
+          <ProjectNavigation projects={projectIndex} currentProjectId={view === "projects" ? selectedProject : null} inProjects={view === "projects" || view === "workspace"} creating={view === "projects" && !selectedProject && projectTab === "new"} unreadCounts={unreadCounts} onBrowse={() => selectProject(null)} onSelect={id => selectProject(id)} onCreate={() => selectProject(null, null, "new")} collapsed={sidebarCollapsed} />
+          <AgentNavigation agents={visibleAgents} chats={agentChats} activeAgent={activeChatAgent??(view==='agents'?selectedAgent:null)} activeChannelId={activeChannelId} inAgents={view==='agents'||!!activeChatAgent} busy={agentOpening} error={agentNavigationError} unread={unreadCounts} label={c=>isHumanAgentDirectChannel(c)?'First conversation':channelLabel(c,username)} collapsed={sidebarCollapsed} onBrowse={()=>selectAgent(null)} onOpen={name=>void openAgentChat(name)} onChat={selectChannel} onNew={newAgentChat}/>
+          <button data-tour="community" aria-current={view === "community" ? "page" : undefined} title={sidebarCollapsed ? "Community" : undefined} onClick={()=>selectCommunity(null)}><DesignIcon name="community" /><span className="sidebar-label">Community</span></button>
         </nav>
 
         {view === "workspace" && <section className="sidebar-section">

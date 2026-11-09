@@ -16,6 +16,101 @@
   padding: 0 8px;
   flex-shrink: 0;
 }
+/* Sidebar head: brand plus the desktop collapse toggle. */
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sidebar-head .instance-brand {
+  flex: 1;
+  min-width: 0;
+}
+.sidebar-collapse-toggle {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: inherit;
+  background: transparent;
+  opacity: 0.72;
+}
+.sidebar-collapse-toggle:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--instance-on-primary) 16%, transparent);
+}
+.sidebar-collapse-toggle:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.sidebar-collapse-toggle svg {
+  transition: transform 0.15s ease;
+}
+/* Icon-only sidebar on desktop. Labels stay in the DOM as accessible names. */
+@media (min-width: 761px) {
+  .product-shell.sidebar-collapsed,
+  .product-shell.sidebar-collapsed.dashboard-shell {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+  .product-shell.sidebar-collapsed:not(.dashboard-shell) {
+    grid-template-columns: 72px minmax(0, 1fr) 280px;
+  }
+  .product-shell.sidebar-collapsed > .sidebar {
+    padding: 20px 12px;
+    align-items: center;
+  }
+  .sidebar-collapsed .sidebar-head {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .sidebar-collapsed .instance-brand {
+    padding: 0;
+    justify-content: center;
+  }
+  .sidebar-collapsed .instance-wordmark,
+  .sidebar-collapsed .instance-brand small {
+    display: none;
+  }
+  .sidebar-collapsed .instance-brand .instance-logo {
+    width: 40px;
+    height: 40px;
+  }
+  .sidebar-collapsed .product-nav {
+    width: 100%;
+    margin-top: 12px;
+  }
+  .sidebar-collapsed .product-nav button {
+    justify-content: center;
+    padding: 10px;
+  }
+  .sidebar-collapsed .sidebar-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .sidebar-collapsed .instance-sidebar-footer {
+    display: none;
+  }
+}
+@media (min-width: 761px) and (max-width: 900px) {
+  .product-shell.sidebar-collapsed:not(.dashboard-shell) {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .sidebar-collapse-toggle {
+    display: none;
+  }
+}
 .product-nav {
   display: grid;
   gap: 8px;

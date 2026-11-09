@@ -56,3 +56,61 @@ await runChatTest('canvas entry: no nav entry while the flag is off',async h=>{
   assert.equal(await nav.getByRole('button',{name:'Canvas',exact:true}).count(),0);
   assert.equal(await page.locator('.canvas-surface').count(),0);
 },{canvas:false});
+
+await runChatTest('canvas entry: the canvas starts with an icon sidebar, other views start full, and each choice is remembered',async h=>{
+  const {page,base}=h;
+  await page.setViewportSize({width:1440,height:900});
+  const nav=page.getByRole('navigation',{name:'Main navigation'});
+  const sidebar=page.locator('aside.sidebar');
+  const width=async()=>(await sidebar.boundingBox())!.width;
+
+  // Other views start with the full sidebar. The agent list hides with the Agents button and stays hidden.
+  await page.goto(`${base}/?view=dashboard`);
+  await page.getByRole('button',{name:'Collapse sidebar',exact:true}).waitFor();
+  const wide=await width();
+  assert.ok(wide>200,`the dashboard sidebar is full width (${wide})`);
+  const agents=nav.getByRole('button',{name:'Agents',exact:true});
+  assert.equal(await agents.getAttribute('aria-expanded'),'true');
+  await agents.click();
+  assert.equal(await agents.getAttribute('aria-expanded'),'false');
+  assert.equal(await page.locator('#agent-shortcuts').count(),0,'the agent list is hidden');
+  await page.reload();
+  await page.getByRole('button',{name:'Collapse sidebar',exact:true}).waitFor();
+  assert.equal(await agents.getAttribute('aria-expanded'),'false','the hidden agent list is remembered');
+
+  // The canvas starts as an icon rail: same accessible names, a tooltip each, and the canvas gets the room.
+  await nav.getByRole('button',{name:'Canvas',exact:true}).click();
+  const expand=page.getByRole('button',{name:'Expand sidebar',exact:true});
+  await expand.waitFor();
+  assert.equal(await expand.getAttribute('aria-expanded'),'false');
+  const narrow=await width();
+  assert.ok(narrow<=72,`the canvas sidebar is an icon rail (${narrow})`);
+  for(const name of ['Dashboard','Canvas','Projects','Agents','Community']){
+    const button=nav.getByRole('button',{name,exact:true});
+    assert.equal(await button.getAttribute('title'),name,`${name} has a tooltip`);
+    assert.ok(((await button.boundingBox())!.width)<=narrow,`${name} fits the rail`);
+  }
+
+  // Expanding on the canvas is remembered for the canvas, and leaves other views alone.
+  await expand.click();
+  await page.getByRole('button',{name:'Collapse sidebar',exact:true}).waitFor();
+  assert.ok(await width()>200,'the canvas sidebar expands');
+  await page.reload();
+  await page.getByRole('button',{name:'Collapse sidebar',exact:true}).waitFor();
+  assert.ok(await width()>200,'the expanded canvas sidebar is remembered');
+  await page.getByRole('button',{name:'Collapse sidebar',exact:true}).click();
+  await expand.waitFor();
+
+  // Collapsing elsewhere is a separate choice; the rail's Agents button opens the agents page.
+  await nav.getByRole('button',{name:'Dashboard',exact:true}).click();
+  await page.getByRole('button',{name:'Collapse sidebar',exact:true}).click();
+  await page.reload();
+  await expand.waitFor();
+  assert.ok(await width()<=72,'the collapsed dashboard sidebar is remembered');
+  await nav.getByRole('button',{name:'Agents',exact:true}).click();
+  await page.waitForURL(url=>url.searchParams.get('view')==='agents');
+
+  // Phones keep the slide-in menu and never show the collapse control.
+  await page.setViewportSize({width:390,height:844});
+  assert.equal(await page.getByRole('button',{name:/^(Collapse|Expand) sidebar$/}).isVisible(),false);
+},{canvas:true});

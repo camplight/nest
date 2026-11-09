@@ -12,10 +12,12 @@ type Props = {
   onBrowse: () => void;
   onSelect: (id: string) => void;
   onCreate: () => void;
+  /** Icon-only sidebar: only the Projects button is shown. */
+  collapsed?: boolean;
 };
 const shortcutLimit = 5;
 
-export function ProjectNavigation({projects, currentProjectId, inProjects, creating, unreadCounts, onBrowse, onSelect, onCreate}: Props) {
+export function ProjectNavigation({projects, currentProjectId, inProjects, creating, unreadCounts, onBrowse, onSelect, onCreate, collapsed = false}: Props) {
   const [expanded, setExpanded] = useState(true);
   const childrenId = useId();
   useEffect(() => {
@@ -27,6 +29,13 @@ export function ProjectNavigation({projects, currentProjectId, inProjects, creat
   // Keep the open project in context without allowing the shortcut list to grow.
   if (current && !shortcuts.some(project => project.id === current.id)) shortcuts.splice(shortcutLimit - 1, 1, current);
   function browse() { setExpanded(true); onBrowse(); }
+  if (collapsed) return <div className="project-navigation">
+    <div className={`project-navigation-parent${inProjects ? ' is-active' : ''}`}>
+      <button type="button" data-tour="projects" className="project-navigation-browse" aria-current={inProjects ? 'page' : undefined} title="Projects" onClick={browse}>
+        <DesignIcon name="conversations"/><span className="sidebar-label">Projects</span>
+      </button>
+    </div>
+  </div>;
   return <div className="project-navigation">
     <div className={`project-navigation-parent${inProjects ? ' is-active' : ''}`}>
       <button type="button" data-tour="projects" className="project-navigation-browse" aria-current={inProjects && !currentProjectId && !creating ? 'page' : undefined} onClick={browse}>

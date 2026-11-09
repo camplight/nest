@@ -4,12 +4,19 @@ import {AgentAvatar} from './AgentAvatar';
 import {DesignIcon} from '../Dashboard';
 import './agent-navigation.css';
 
-export function AgentNavigation({agents, chats, activeAgent, activeChannelId, inAgents, busy, error, unread, label, onBrowse, onOpen, onChat, onNew}: {
+const expandedKey='nest-agent-nav-expanded';
+function readExpanded(){try{return localStorage.getItem(expandedKey)!=='0';}catch{return true;}}
+function saveExpanded(value:boolean){try{localStorage.setItem(expandedKey,value?'1':'0');}catch{/* per-viewer convenience only */}}
+
+export function AgentNavigation({agents, chats, activeAgent, activeChannelId, inAgents, busy, error, unread, label, collapsed=false, onBrowse, onOpen, onChat, onNew}: {
   agents: Agent[]; chats: Map<string, Channel[]>; activeAgent: string | null; activeChannelId: string | null;
   inAgents: boolean; busy: boolean; error: string; unread: Record<string, number>; label: (channel:Channel)=>string;
+  /** Icon-only sidebar: the Agents button opens the agents page and the shortcut list is not shown. */
+  collapsed?: boolean;
   onBrowse:()=>void; onOpen:(name:string)=>void; onChat:(id:string)=>void; onNew:(name:string)=>void;
 }) {
-  const [expanded,setExpanded]=useState(true);
+  // The person's choice to show or hide the agent list is remembered; opening an agent still reveals it for this visit.
+  const [expanded,setExpanded]=useState(readExpanded);
   const [opened,setOpened]=useState<string|null>(activeAgent);
   const [query,setQuery]=useState('');
   const listRef=useRef<HTMLDivElement>(null);
@@ -28,8 +35,11 @@ export function AgentNavigation({agents, chats, activeAgent, activeChannelId, in
   },[activeAgent,activeChannelId,expanded,query]);
   const names=[...new Set([...agents.map(a=>a.name),...chats.keys()])];
   const matchingNames=names.filter(name=>name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  if(collapsed)return <div className="agent-navigation">
+    <button data-tour="agents" aria-current={inAgents?'page':undefined} title="Agents" onClick={onBrowse}><DesignIcon name="agents"/><span className="sidebar-label">Agents</span></button>
+  </div>;
   return <div className="agent-navigation">
-    <button data-tour="agents" aria-current={inAgents?'page':undefined} aria-expanded={expanded} aria-controls="agent-shortcuts" onClick={()=>setExpanded(v=>!v)}><DesignIcon name="agents"/>Agents <span className="agent-chevron" aria-hidden="true">{expanded?'−':'+'}</span></button>
+    <button data-tour="agents" aria-current={inAgents?'page':undefined} aria-expanded={expanded} aria-controls="agent-shortcuts" title={expanded?'Hide the agent list':'Show the agent list'} onClick={()=>setExpanded(v=>{saveExpanded(!v);return !v;})}><DesignIcon name="agents"/>Agents <span className="agent-chevron" aria-hidden="true">{expanded?'−':'+'}</span></button>
     {expanded && <div id="agent-shortcuts">
       <button className="agent-browse" onClick={onBrowse}>All agents</button>
       {names.length>5&&<label className="agent-sidebar-search"><input aria-label="Search agents in sidebar" type="search" placeholder="Find an agent…" value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==='Escape')setQuery('');}}/></label>}
