@@ -1491,3 +1491,5 @@ Project owners may invite agents already visible through their human-scoped engi
 ### Project entry and navigation
 
 Explicit workspace views on legacy `/onboarding` URLs take precedence over setup and normalize to `/`, preserving project, tab and message parameters. Bare onboarding URLs and setup OAuth returns retain their existing behavior. Chat/Files navigation belongs beneath the project title, outside the details sidebar. The sidebar no longer duplicates Sharing, and long descriptions can be expanded without moving project navigation. Project membership and permission rules are unchanged.
+
+Google login preserves workspace destinations in tab-local session storage for up to ten minutes. After authentication (and any required password change), a root callback restores the original project/channel, section and focused message. Explicit new destinations take precedence; only local workspace paths are accepted. Password login retains its current URL. Membership checks still apply after restoration.

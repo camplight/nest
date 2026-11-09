@@ -1,3 +1,4 @@
+import {rememberWorkspaceLoginReturn, consumeWorkspaceLoginReturn} from './workspace-login-return';
 import {canonicalWorkspaceEntry, isOnboardingEntry} from './workspace-entry';
 import {AgentNavigation, AgentWorkspaceTabs, type AgentTab} from './components/AgentNavigation';
 import {conversationAgent, recentAgentChat, rememberAgentChat} from './agent-conversations';
@@ -688,6 +689,13 @@ export default function App() {
         clearDemoReturnTo();
         window.location.replace(destination);
         return;
+      }
+      if (nextUsername && !me.mustChangePassword) {
+        const workspaceDestination = consumeWorkspaceLoginReturn(window.location.pathname + window.location.search + window.location.hash);
+        if (workspaceDestination) {
+          window.location.replace(workspaceDestination);
+          return;
+        }
       }
       setUsername(nextUsername);
       setUserId(me.id ?? null);
@@ -1533,7 +1541,7 @@ export default function App() {
             <span>Welcome back</span>
             <strong>Sign in to {branding.displayName}</strong>
           </div>
-          <GoogleSignIn apiUrl={apiUrl} onStart={() => { if (demoDestination) rememberDemoReturnTo(demoDestination); }} />
+          <GoogleSignIn apiUrl={apiUrl} onStart={() => { if (demoDestination) rememberDemoReturnTo(demoDestination); else rememberWorkspaceLoginReturn(window.location.pathname + window.location.search + window.location.hash); }} />
           {error ? <div className="notice error" role="alert">{error}</div> : null}
           <label>
             Username

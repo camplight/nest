@@ -173,6 +173,14 @@ try {
       await projectSections.getByRole('button',{name:'Chat',exact:true}).click();
       await teammatePage.getByRole('textbox',{name:'Message',exact:true}).waitFor();
       await teammatePage.reload();await teammatePage.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+      // Simulate the root landing after OAuth with a valid teammate session.
+      // Google itself is not exercised here; verify restoration before loadShell.
+      await teammatePage.evaluate(id=>sessionStorage.setItem('nest-workspace-login-return',JSON.stringify({path:`/?view=projects&project=${id}&tab=files`,expires:Date.now()+60_000})),projectId);
+      await teammatePage.goto('http://127.0.0.1:5298/');
+      await teammatePage.getByRole('heading',{name:'Files shared in chat'}).waitFor();
+      assert.equal(new URL(teammatePage.url()).searchParams.get('project'),projectId);
+      assert.equal(await teammatePage.evaluate(()=>sessionStorage.getItem('nest-workspace-login-return')),null);
+
 
     }finally{await teammateContext.close();}
     // A visible private agent owned by a teammate can be invited without an onboarding-directory entry.
