@@ -164,6 +164,16 @@ try {
       await teammatePage.locator('.project-about').getByText('sarah@example.com',{exact:true}).waitFor();
       assert.equal(await teammatePage.getByRole('button',{name:'Sharing',exact:true}).count(),0);
       assert.equal(await teammatePage.getByRole('button',{name:'Edit project details',exact:true}).count(),0);
+      await teammatePage.goto(`http://127.0.0.1:5298/onboarding?view=projects&project=${projectId}&tab=files`);
+      await teammatePage.getByRole('heading',{name:'Files shared in chat'}).waitFor();
+      assert.equal(new URL(teammatePage.url()).pathname,'/');
+      assert.equal(new URL(teammatePage.url()).searchParams.get('project'),projectId);
+      const projectSections=teammatePage.getByRole('navigation',{name:'Project sections'});
+      assert.equal(await teammatePage.locator('.project-about nav').count(),0);
+      await projectSections.getByRole('button',{name:'Chat',exact:true}).click();
+      await teammatePage.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+      await teammatePage.reload();await teammatePage.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+
     }finally{await teammateContext.close();}
     // A visible private agent owned by a teammate can be invited without an onboarding-directory entry.
     const sarahHeaders={'content-type':'application/json',cookie:teammateLogin.headers.get('set-cookie')!.split(';')[0]};
@@ -252,8 +262,19 @@ try {
     await invitations.waitFor({state:'hidden'});
     await page.locator('.project-about').getByText('Builder',{exact:true}).waitFor();
     assert.equal(new URL(page.url()).searchParams.get('tab'),'chat');
+    assert.equal(await page.getByRole('button',{name:'Sharing and advanced settings',exact:true}).count(),0);
+    assert.equal(await page.locator('.project-about nav').count(),0);
+    const beforeTabs=await sections.boundingBox();
+    const beforeTitle=await page.getByRole('heading',{name:'Website launch',exact:true,level:1}).boundingBox();
+    assert(beforeTitle && beforeTabs && beforeTabs.y>=beforeTitle.y+beforeTitle.height);
+    await page.getByRole('button',{name:'Read full description',exact:true}).click();
+    await page.getByRole('button',{name:'Show less',exact:true}).click();
     await sections.getByRole('button',{name:'Files',exact:true}).click();
     await page.getByRole('heading',{name:'Files shared in chat'}).waitFor();
+    const afterTabs=await sections.boundingBox();
+    assert(beforeTabs&&afterTabs&&Math.abs(beforeTabs.y-afterTabs.y)<2,'Tabs stay in the same project-level position');
+    if(process.env.CI)console.log('PROJECT_LAYOUT_FILES_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
+
     await page.getByRole('link',{name:'brief.txt ↗',exact:true}).waitFor();
     await page.reload();await page.getByRole('heading',{name:'Files shared in chat'}).waitFor();
     assert.equal(new URL(page.url()).searchParams.get('tab'),'files');
@@ -263,12 +284,14 @@ try {
     const sendBounds=await page.getByRole('button',{name:'Send',exact:true}).boundingBox();
     assert(sendBounds && sendBounds.y+sendBounds.height<=1100);
     await page.screenshot({path:join(screenshots,'project-chat.png'),fullPage:true});
+    if(process.env.CI)console.log('PROJECT_LAYOUT_CHAT_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
     await page.setViewportSize({width:390,height:844});
     const mobileSend=await page.getByRole('button',{name:'Send',exact:true}).boundingBox();
     assert(mobileSend && mobileSend.y+mobileSend.height<=844);
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     await page.locator('.project-context-disclosure').evaluate((node:HTMLDetailsElement)=>{node.open=false;});
     await page.screenshot({path:join(screenshots,'project-chat-mobile.png'),fullPage:true});
+    if(process.env.CI)console.log('PROJECT_LAYOUT_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
     await page.setViewportSize({width:1440,height:1100});
     await page.goto(`http://127.0.0.1:5298/?channel=${channelId}`);
     await page.getByRole('navigation',{name:'Project sections'}).waitFor();

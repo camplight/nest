@@ -12,7 +12,7 @@ import {ProjectStart} from './ProjectStart';
 import {ProjectContext} from './ProjectContext';
 import './projects.css';
 
-type Props = {userId:string; participants:ChannelParticipant[]; existingChats: {id:string;name:string;archived:boolean}[]; onChat:(id:string)=>void; projectId: string | null; taskId: string | null; tab: string; agents: Agent[]; onSelect: (project: string | null, task?: string | null, tab?: string) => void; onLoaded: (project: Project) => void; onMenu: () => void; chat: ReactNode; onMembersChanged:()=>Promise<void>; onManage?:()=>void};
+type Props = {userId:string; participants:ChannelParticipant[]; existingChats: {id:string;name:string;archived:boolean}[]; onChat:(id:string)=>void; projectId: string | null; taskId: string | null; tab: string; agents: Agent[]; onSelect: (project: string | null, task?: string | null, tab?: string) => void; onLoaded: (project: Project) => void; onMenu: () => void; chat: ReactNode; onMembersChanged:()=>Promise<void>};
 const statusLabel: Record<Task['status'],string> = {queued:'Ready to send',working:'Awaiting deliverable',needs_review:'Needs review',changes_requested:'Changes requested',done:'Approved'};
 function message(reason: unknown) {
   const text=reason instanceof Error ? reason.message : 'Unable to complete request';
@@ -47,7 +47,7 @@ export function Projects(props: Props) {
   useEffect(() => { if (detail) onLoaded(detail); }, [detail?.id, detail?.channelId, detail?.name, detail?.description, onLoaded]);
   const selected=detail?.tasks.find(t=>t.id===taskId);
   const filteredProjects=projects.filter(project=>`${project.name} ${project.description}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
-  return <section className={`dashboard projects-page${projectId && tab === 'chat' ? ' project-chat-page' : ''}${!projectId && createRequested ? ' project-start-page' : ''}`} aria-label="Projects">
+  return <section className={`dashboard projects-page${projectId ? ' project-detail-page' : ''}${projectId && tab === 'chat' ? ' project-chat-page' : ''}${!projectId && createRequested ? ' project-start-page' : ''}`} aria-label="Projects">
     <WorkspaceTopbar onMenu={onMenu} leading={projectId?<h1 className="workspace-topbar-title" title={detail?.name}>{detail?.name ?? 'Project'}</h1>:undefined} search={<label className="dashboard-search"><DesignIcon name="search"/><input aria-label="Search projects" placeholder="Search…" value={query} onChange={event=>{setQuery(event.target.value);if(projectId||creating)onSelect(null);}}/></label>}/>
 
     <div className="dashboard-content">
@@ -62,6 +62,7 @@ export function Projects(props: Props) {
         {!creating && props.existingChats.length > 0 && <details className="project-existing-chats"><summary>Existing conversations ({props.existingChats.length})</summary><p>These conversations are not linked to a project you own. Your history and shared access are preserved.</p><div className="dashboard-list">{props.existingChats.map(channel=><button className="dashboard-card project-summary" key={channel.id} onClick={()=>props.onChat(channel.id)}>{channel.name}{channel.archived ? ' · Archived' : ''} →</button>)}</div></details>}
       </>}
       {detail && <>
+      <nav className="project-sections" aria-label="Project sections">{[['chat','Chat'],['files','Files']].map(([id,label])=><button type="button" key={id} aria-current={tab===id?'page':undefined} onClick={()=>{setCreating(false);onSelect(detail.id,null,id);}}>{label}</button>)}</nav>
       <div className="project-workspace"><div className="project-main">
         {tab === 'chat' && <div className="project-chat">{chat}</div>}
         {tab === 'files' && <><PublishedArtifacts/><ProjectFiles key={detail.channelId} channelId={detail.channelId} /></>}
@@ -73,7 +74,7 @@ export function Projects(props: Props) {
         {taskId && !selected && <p role="alert">Task not found in this project.</p>}
         {selected && <TaskPanel key={`${selected.id}:${selected.version}`} task={selected} detail={detail} onChanged={task=>setDetail(current=>current ? {...current,tasks:current.tasks.map(t=>t.id===task.id ? task : t)} : current)} onRefresh={()=>setRefresh(n=>n+1)} />}
       </>}
-      </div><ProjectContext key={detail.id} project={detail} participants={props.participants} agents={agents} owner={detail.ownerId===props.userId} onSaved={updated=>setDetail(current=>current?{...current,...updated}:current)} onMembersChanged={props.onMembersChanged} onManage={props.onManage} section={tab} onSection={section=>{setCreating(false);onSelect(detail.id,null,section);}}/></div></>}
+      </div><ProjectContext key={detail.id} project={detail} participants={props.participants} agents={agents} owner={detail.ownerId===props.userId} onSaved={updated=>setDetail(current=>current?{...current,...updated}:current)} onMembersChanged={props.onMembersChanged}/></div></>}
     </div>
   </section>;
 }

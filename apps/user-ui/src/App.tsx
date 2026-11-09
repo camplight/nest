@@ -1,3 +1,4 @@
+import {canonicalWorkspaceEntry, isOnboardingEntry} from './workspace-entry';
 import {AgentNavigation, AgentWorkspaceTabs, type AgentTab} from './components/AgentNavigation';
 import {conversationAgent, recentAgentChat, rememberAgentChat} from './agent-conversations';
 import {QuickTour, tourSeen, rememberTour} from './components/QuickTour';
@@ -326,7 +327,7 @@ export default function App() {
   const threadSnapshot = useMemo<ChannelEventsSnapshot>(() => channelEventsCurrent ? channelSnapshot : {
     channelId: activeChannelId, events: NO_EVENTS, detachedIds: NO_DETACHED, loading: Boolean(activeChannelId), loadingOlder: false, hasOlder: false, error: null
   }, [channelEventsCurrent, channelSnapshot, activeChannelId]);
-  const [view, setView] = useState<"dashboard" | "workspace" | "agents" | "projects" | "community">(() => readLinkedChannelId() ? "workspace" : new URL(window.location.href).searchParams.get("view") === "onboarding" || window.location.pathname === "/onboarding" ? "agents" : new URL(window.location.href).searchParams.get("view") === "agents" ? "agents" : new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : "dashboard");
+  const [view, setView] = useState<"dashboard" | "workspace" | "agents" | "projects" | "community">(() => readLinkedChannelId() ? "workspace" : isOnboardingEntry(new URL(window.location.href)) ? "agents" : new URL(window.location.href).searchParams.get("view") === "agents" ? "agents" : new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : "dashboard");
   const [selectedCommunitySkill, setSelectedCommunitySkill] = useState<string|null>(()=>new URL(window.location.href).searchParams.get("skill"));
   const [projectIndex, setProjectIndex] = useState<Project[]>([]);
   const [projectTab, setProjectTab] = useState(readProjectTab);
@@ -596,6 +597,7 @@ export default function App() {
   function selectProject(project: string | null, task: string | null = null, tab = task ? "tasks" : "chat", replace = false) {
     setFocusedMessage(null);
     const url = new URL(window.location.href);
+    url.pathname = "/";
     url.searchParams.delete('message');
     url.searchParams.delete('request');url.searchParams.delete('assistant');
     url.searchParams.delete('category');
@@ -770,13 +772,15 @@ export default function App() {
           ? activeChannelId
           : null);
       if (linkedChannel?.archivedAt) setShowArchivedChannels(true);
-      const urlView = new URL(window.location.href).searchParams.get("view");
+      const entry = canonicalWorkspaceEntry(new URL(window.location.href));
+      if (entry.href !== window.location.href) window.history.replaceState(null, "", entry);
+      const urlView = entry.searchParams.get("view");
       const returning=userId?consumeConnectionReturn(userId,nextProjects,new URL(window.location.href)):null;
       if(returning){
         const clean=new URL(window.location.href);clean.searchParams.delete('status');clean.searchParams.delete('connected_account_id');window.history.replaceState(null,'',clean);
         selectProject(returning.id,null,'chat',true);
-      } else if (!claimedShareChannelId && !linkedChannelId && (urlView === "onboarding" || window.location.pathname === "/onboarding" || (!urlView && nextOnboarding && !nextOnboarding.setup?.completedAt && (nextOnboarding.setup || (!nextProjects.length && !nextAgents.some(a=>a.ownerHumanId===userId)))))) {
-        const legacySetupLink = urlView === "onboarding" || window.location.pathname === "/onboarding";
+      } else if (!claimedShareChannelId && !linkedChannelId && (isOnboardingEntry(entry) || (!urlView && nextOnboarding && !nextOnboarding.setup?.completedAt && (nextOnboarding.setup || (!nextProjects.length && !nextAgents.some(a=>a.ownerHumanId===userId)))))) {
+        const legacySetupLink = isOnboardingEntry(entry);
         selectAgent(nextOnboarding?.setup?.channelId ? nextOnboarding.setup.name : null, {replace:true,create:legacySetupLink && !nextOnboarding?.setup?.channelId,tab:new URL(window.location.href).searchParams.has('connected_account_id')?'connections':'settings'});
       } else if (!claimedShareChannelId && ["agents", "projects", "community"].includes(new URL(window.location.href).searchParams.get("view") ?? "") && !linkedChannelId) {
         setActiveChannelId(nextProjects.find(p => p.id === new URL(window.location.href).searchParams.get("project"))?.channelId ?? null); setView(new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : "agents");
@@ -1847,7 +1851,7 @@ export default function App() {
         />
       ) : null}
 
-      {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} onManage={activeChannelManageable?()=>setShowChannelManageDialog(true):undefined} /> : view === "agents" ? <Agents tab={agentTab} onTab={tab=>selectAgent(selectedAgent,{tab})} onOpenChat={name=>void openAgentChat(name)} requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
+      {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} /> : view === "agents" ? <Agents tab={agentTab} onTab={tab=>selectAgent(selectedAgent,{tab})} onOpenChat={name=>void openAgentChat(name)} requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
         resumeProject={userId?projectIndex.find(p=>p.id===recentProject(userId)):undefined} channels={visibleChannels} projects={projectIndex} onProject={selectProject} unreadCounts={unreadCounts} onCommunity={selectCommunity}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}
         onSelect={selectChannel} onCreate={() => selectProject(null, null, "new")}
