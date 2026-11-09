@@ -50,13 +50,16 @@ function ago(at: number | null, now: number) {
 type RowProps = {
   chat: LooseChat; index: number; top: number; selected: boolean; hidden: boolean; draggable: boolean; now: number; size: number; highlighted: boolean;
   onOpenChat?(channelId: string): void;
+  /** What a drag of this row carries: every selected chat when this row is one of them, else just this one. */
+  dragIds(channelId: string): string[];
   onToggle(index: number, channelId: string, checked: boolean, range: boolean): void;
   onUnhide(channelId: string): void;
 };
-const Row = memo(function Row({chat, index, top, selected, hidden, draggable, now, size, highlighted, onOpenChat, onToggle, onUnhide}: RowProps) {
+const Row = memo(function Row({chat, index, top, selected, hidden, draggable, now, size, highlighted, onOpenChat, dragIds, onToggle, onUnhide}: RowProps) {
   const start = (event: ReactDragEvent<HTMLLIElement>) => {
-    event.dataTransfer.setData(CHAT_DRAG_TYPE, chat.channelId);
-    event.dataTransfer.setData('text/plain', chat.title);
+    const ids = dragIds(chat.channelId);
+    event.dataTransfer.setData(CHAT_DRAG_TYPE, ids.join('\n'));
+    event.dataTransfer.setData('text/plain', ids.length > 1 ? `${ids.length} chats` : chat.title);
     event.dataTransfer.effectAllowed = 'move';
   };
   const agents = chat.agents.length ? chat.agents.slice(0, 2).join(', ') + (chat.agents.length > 2 ? ` +${chat.agents.length - 2}` : '') : 'No agents';
@@ -97,6 +100,12 @@ export function LoosePile({chats, count, hidden, showHidden, onShowHidden, canPl
   // Selection only counts chats still listed: placed or hidden ones drop out of it.
   const picked = useMemo(() => shown.filter(c => selected.has(c.channelId)).map(c => c.channelId), [shown, selected]);
   useEffect(() => { anchor.current = null; }, [query, needsYou, agent, age, showHidden]);
+  const pickedRef = useRef(picked); pickedRef.current = picked;
+  // Dragging a selected row carries the whole selection (up to the bulk limit); any other row goes alone.
+  const dragIds = useCallback((channelId: string) => {
+    const all = pickedRef.current;
+    return all.includes(channelId) && all.length > 1 && all.length <= MAX_BULK ? all : [channelId];
+  }, []);
 
   useLayoutEffect(() => {
     const element = listRef.current;
@@ -195,7 +204,7 @@ export function LoosePile({chats, count, hidden, showHidden, onShowHidden, canPl
         {shown.length ? <ul style={{height: total}}>
           {shown.slice(first, last).map((chat, i) => <Row key={chat.channelId} chat={chat} index={first + i} top={(first + i) * PILE_ROW_HEIGHT}
             selected={selected.has(chat.channelId)} hidden={hidden.has(chat.channelId)} draggable={canPlace} now={time} size={shown.length}
-            highlighted={highlight?.id === chat.channelId} onOpenChat={onOpenChat}
+            highlighted={highlight?.id === chat.channelId} onOpenChat={onOpenChat} dragIds={dragIds}
             onToggle={toggle} onUnhide={unhide}/>)}
         </ul> : <p className="canvas-pile-empty">{chats.length ? 'No loose chats match.' : 'Every chat you are in is on this canvas.'}</p>}
       </div>

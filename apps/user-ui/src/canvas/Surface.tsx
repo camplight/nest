@@ -1,13 +1,13 @@
 // The infinite canvas: pan and zoom (mouse, trackpad, touch), culling, area drawing and card/area moves.
 // One transformed container holds every mounted item; only items near the viewport mount.
 import {useCallback,useEffect,useLayoutEffect,useMemo,useReducer,useRef,useState,type DragEvent as ReactDragEvent,type MutableRefObject,type PointerEvent as ReactPointerEvent} from 'react';
-import {CARD_HEIGHT,CanvasTint,type BoardCard,type CanvasArea,type CanvasBoard} from '@nest/schemas';
+import {CARD_HEIGHT,CanvasTint,areaFor,type BoardCard,type CanvasArea,type CanvasBoard} from '@nest/schemas';
 import type {BoardOp} from './board-store';
 import {Area,type AreaSummary} from './Area';
 import {Card} from './Card';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {areaSummaries,type CardPulse} from './pulse';
-import {ORIGIN,areaMembers,clampZoom,fit,isCompact,toCanvas,visible,zoomAt,type Point,type Rect,type Size,type View} from './geometry';
+import {ORIGIN,areaMembers,cardCentre,clampZoom,fit,growToFit,isCompact,toCanvas,visible,zoomAt,type Point,type Rect,type Size,type View} from './geometry';
 
 export type SurfaceProps = {
   board: CanvasBoard;
@@ -16,8 +16,8 @@ export type SurfaceProps = {
   /** Live state per channel id; each card gets its own pulse object, stable while unchanged. */
   pulses?: ReadonlyMap<string, CardPulse>;
   onNudge?(channelId: string, agent: string): Promise<void>;
-  /** A loose chat dragged from the pile and dropped here, at this canvas point. */
-  onDropChat?(channelId: string, at: Point): void;
+  /** Loose chats dragged from the pile (one, or every selected row) and dropped here, at this canvas point. */
+  onDropChat?(channelIds: string[], at: Point): void;
   /** Filled in by the surface so its owner can ask where the viewport is. */
   controls?: MutableRefObject<SurfaceControls | null>;
   /** A click (not a drag) on an open card's body. */
@@ -44,7 +44,7 @@ export type SurfaceControls = {
 const REVEAL_MIN_ZOOM = 0.8;
 const REVEAL_MS = 320;
 const prefersReducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-/** The drag data type a pile row carries: the chat's channel id. */
+/** The drag data type a pile row carries: the chat's channel id, or several ids on separate lines. */
 export const CHAT_DRAG_TYPE = 'application/x-nest-chat';
 /** The drag data type a tray or picker face carries: the agent's name. */
 export const AGENT_DRAG_TYPE = 'application/x-nest-agent';
@@ -226,6 +226,8 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   // An agent drag targets the open card under the pointer; anywhere else (locked, unavailable, empty canvas) takes no drop.
   const agentDropRef = useRef(onDropAgent); agentDropRef.current = onDropAgent;
   const [dropId, setDropId] = useState<string | null>(null);
+  /** The area a pile chat would land in if dropped now. */
+  const [chatDropArea, setChatDropArea] = useState<string | null>(null);
   const carriesAgent = (event: ReactDragEvent) => Boolean(agentDropRef.current) && event.dataTransfer.types.includes(AGENT_DRAG_TYPE);
   const openCardAt = (event: ReactDragEvent) => {
     const id = (event.target instanceof Element ? event.target.closest<HTMLElement>('.canvas-card') : null)?.dataset.channelId;
@@ -233,7 +235,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     return card?.access === 'open' ? card : null;
   };
   useEffect(() => {
-    const end = () => setDropId(null);
+    const end = () => { setDropId(null); setChatDropArea(null); };
     window.addEventListener('dragend', end, true);
     return () => window.removeEventListener('dragend', end, true);
   }, []);
@@ -249,6 +251,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     if (!carriesChat(event)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
+    setChatDropArea(areaFor(toCanvas(viewRef.current, local(event)), boardRef.current.areas)?.id ?? null);
   }
   function drop(event: ReactDragEvent<HTMLDivElement>) {
     if (carriesAgent(event)) {
@@ -262,8 +265,9 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     }
     if (!carriesChat(event)) return;
     event.preventDefault();
-    const channelId = event.dataTransfer.getData(CHAT_DRAG_TYPE);
-    if (channelId) dropRef.current?.(channelId, toCanvas(viewRef.current, local(event)));
+    setChatDropArea(null);
+    const channelIds = event.dataTransfer.getData(CHAT_DRAG_TYPE).split('\n').map(id => id.trim()).filter(Boolean);
+    if (channelIds.length) dropRef.current?.(channelIds, toCanvas(viewRef.current, local(event)));
   }
 
   // Wheel: Ctrl/Cmd (and trackpad pinch, which arrives as a ctrlKey wheel) zooms; a plain wheel pans.
@@ -419,7 +423,14 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     const apply = (op: BoardOp) => void applyRef.current(op);
     if (g.mode === 'card') {
       const card = current.cards.find(c => c.channelId === g.id);
-      if (card) apply({kind: 'moveCard', channelId: card.channelId, x: clampCoord(card.x + dx), y: clampCoord(card.y + dy)});
+      if (card) {
+        const moved = {x: clampCoord(card.x + dx), y: clampCoord(card.y + dy), w: card.w, h: heights.current.get(card.channelId) ?? CARD_HEIGHT};
+        apply({kind: 'moveCard', channelId: card.channelId, x: moved.x, y: moved.y});
+        // A card dropped into an area that does not quite hold it grows the area to fit.
+        const target = areaFor(cardCentre(moved), current.areas);
+        const grown = target ? growToFit(target, [moved]) : null;
+        if (target && grown) apply({kind: 'patchArea', areaId: target.id, patch: grown});
+      }
     } else if (g.mode === 'area') {
       const area = current.areas.find(a => a.id === g.id);
       if (area) apply({kind: 'patchArea', areaId: area.id, patch: {x: clampCoord(area.x + dx), y: clampCoord(area.y + dy)}, moveCards: true});
@@ -475,6 +486,14 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   }, [compact, board.cards, board.areas, pulses]);
   const shownCards = useMemo(() => new Set(visible(cardRects, view, size).map(r => r.card.channelId)), [cardRects, view, size]);
   const shownAreas = useMemo(() => new Set(visible(board.areas, view, size).map(a => a.id)), [board.areas, view, size]);
+  // Which area each card sits in (by centre, like the API), for the tinted stripe on cards in an area.
+  const homes = useMemo(() => new Map(board.cards.map(card => [card.channelId, areaFor(cardCentre(card), board.areas)])), [board.cards, board.areas]);
+  const movingCard = preview?.kind === 'card' ? board.cards.find(c => c.channelId === preview.id) : undefined;
+  // The area a dragged card or pile chat would join if dropped now: it lights up while the pointer is over it.
+  const cardTarget = movingCard && preview?.kind === 'card'
+    ? areaFor(cardCentre({x: movingCard.x + preview.dx, y: movingCard.y + preview.dy, w: movingCard.w}), board.areas) : undefined;
+  const targetAreaId = cardTarget !== undefined ? cardTarget?.id ?? null : chatDropArea;
+  const homeOf = (card: BoardCard) => card === movingCard ? cardTarget ?? null : homes.get(card.channelId) ?? null;
   const cardShift = (card: BoardCard) =>
     preview?.kind === 'card' && preview.id === card.channelId ? preview
       : preview?.kind === 'area' && preview.cards.has(card.channelId) ? preview : null;
@@ -500,7 +519,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     onDragStart={event => event.preventDefault()}
     onDragOver={dragOver}
     onDrop={drop}
-    onDragLeave={event => { if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) setDropId(null); }}
+    onDragLeave={event => { if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) { setDropId(null); setChatDropArea(null); } }}
     onLostPointerCapture={event => {
       // Only the surface's own capture counts; a touch target losing its implicit capture to the surface bubbles here too.
       if (event.target === surfaceRef.current && gesture.current?.pointerId === event.pointerId && gesture.current.active) cancel();
@@ -510,11 +529,11 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
         const shift = areaShift(area), resize = preview?.kind === 'resize' && preview.id === area.id ? preview : null;
         if (!shift && !resize && !shownAreas.has(area.id)) return null;
         return <Area key={area.id} area={area} dx={shift?.dx ?? 0} dy={shift?.dy ?? 0} w={resize?.w ?? area.w} h={resize?.h ?? area.h}
-          canEdit={canEdit} compact={compact} summary={summaries?.get(area.id)} onRename={rename} onDelete={remove}/>;
+          canEdit={canEdit} compact={compact} summary={summaries?.get(area.id)} dropTarget={area.id === targetAreaId} onRename={rename} onDelete={remove}/>;
       })}
       {preview?.kind === 'draw' ? <div className="canvas-area-draft" style={{transform: `translate(${preview.rect.x}px, ${preview.rect.y}px)`, width: Math.max(MIN_AREA, preview.rect.w), height: Math.max(MIN_AREA, preview.rect.h)}}/> : null}
       {board.cards.map(card => {
-        const shift = cardShift(card);
+        const shift = cardShift(card), home = homeOf(card);
         if (!shift && !shownCards.has(card.channelId)) return null;
         return <Card key={card.channelId} card={card} draggable={canEdit} dx={shift?.dx ?? 0} dy={shift?.dy ?? 0}
           dragging={preview?.kind === 'card' && preview.id === card.channelId} measure={measure}
@@ -523,7 +542,8 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
           onOpen={onOpenChat ? openCard : undefined} open={card.channelId === openChannelId}
           facesDraggable={Boolean(onRemoveAgent && canManageCard?.(card))}
           draggingFace={preview?.kind === 'face' && preview.id === card.channelId ? preview.agent : null}
-          dropping={dropId === card.channelId} selected={card.channelId === selectedChannelId}/>;
+          dropping={dropId === card.channelId} selected={card.channelId === selectedChannelId}
+          areaTitle={home?.title} areaTint={home?.tint}/>;
       })}
     </div>
     {preview?.kind === 'face' ? <div className={`canvas-face-ghost${preview.away ? ' is-away' : ''}`} aria-hidden="true"

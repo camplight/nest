@@ -2,7 +2,7 @@ import {describe,expect,it} from 'vitest';
 import type {Project} from '@nest/schemas';
 import type {Channel} from '../types';
 import type {CardPulse} from './pulse';
-import {PLACE_GAP,areaAround,clearOfCards,dropPlacement,filterLoose,gridPlacement,looseChats,type LooseChat,type LooseFilter} from './loose';
+import {PLACE_GAP,areaAround,clearOfCards,dropPlacement,filterLoose,gridPlacement,looseChats,slotInArea,slotOutsideAreas,type LooseChat,type LooseFilter} from './loose';
 
 const NOW=Date.UTC(2026,10,8,12);
 const HOUR=3_600_000,DAY=24*HOUR;
@@ -133,5 +133,33 @@ describe('a removed card',()=>{
     expect(ids(['a','b'])).toEqual([]);
     expect(ids(['b'])).toEqual(['a']);
     expect(ids(['b'],['a'])).toEqual([]);
+  });
+});
+
+describe('slotInArea',()=>{
+  const area={x:100,y:100,w:700,h:400};
+  it('takes the first spot under the title bar of an empty area',()=>{
+    expect(slotInArea(area,[])).toEqual({x:132,y:172});
+  });
+  it('skips taken spots row by row, keeping a gap from every card',()=>{
+    expect(slotInArea(area,[{x:132,y:172,w:280}])).toEqual({x:432,y:172});
+    expect(slotInArea(area,[{x:132,y:172,w:280},{x:450,y:180,w:280}])).toEqual({x:132,y:372});
+  });
+  it('uses one column in a narrow area and goes below its last card when it is full',()=>{
+    const narrow={x:0,y:0,w:344,h:300};
+    expect(slotInArea(narrow,[{x:32,y:72,w:280}])).toEqual({x:32,y:272});
+  });
+});
+
+describe('slotOutsideAreas',()=>{
+  const home={x:0,y:0,w:400,h:300};
+  it('goes just right of the area the card leaves',()=>{
+    expect(slotOutsideAreas(home,[home],[])).toEqual({x:400+PLACE_GAP,y:0});
+  });
+  it('steps down past cards and other areas until the card sits in none',()=>{
+    const neighbour={x:450,y:-50,w:400,h:300};
+    const spot=slotOutsideAreas(home,[home,neighbour],[{x:440,y:300,w:280}]);
+    expect(spot.x).toBe(440);
+    expect(spot.y).toBeGreaterThanOrEqual(300+160+PLACE_GAP/2);
   });
 });

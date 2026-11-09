@@ -33,6 +33,9 @@ export type CardProps = {
   dropping?: boolean;
   /** The card the agent tray suggests for. */
   selected?: boolean;
+  /** The area this card sits in (by centre), shown as a stripe in its tint; absent outside areas. */
+  areaTitle?: string;
+  areaTint?: string;
 };
 
 const MAX_FACES = 5;
@@ -144,15 +147,16 @@ function OpenBody({card, pulse, onNudge, facesDraggable, draggingFace}: {
 }
 
 export const Card = memo(function Card({card, draggable, dx, dy, dragging, measure, pulse, onNudge, onRemove, onOpen, open = false,
-  facesDraggable = false, draggingFace = null, dropping = false, selected = false}: CardProps) {
+  facesDraggable = false, draggingFace = null, dropping = false, selected = false, areaTitle, areaTint}: CardProps) {
   const title = cardTitle(card);
   const ref = useCallback((element: HTMLElement | null) => measure(card.channelId, element), [card.channelId, measure]);
   const needs = card.access === 'open' ? pulse?.needsYou.length ?? 0 : 0;
   const opens = card.access === 'open' && onOpen ? onOpen : undefined;
   return <article
     ref={ref}
-    className={`canvas-card${dragging ? ' is-dragging' : ''}${opens ? ' is-openable' : ''}${open ? ' is-open' : ''}${dropping ? ' is-drop-target' : ''}${selected ? ' is-selected' : ''}`}
+    className={`canvas-card${dragging ? ' is-dragging' : ''}${opens ? ' is-openable' : ''}${open ? ' is-open' : ''}${dropping ? ' is-drop-target' : ''}${selected ? ' is-selected' : ''}${areaTitle ? ' in-area' : ''}`}
     data-channel-id={card.channelId}
+    data-tint={areaTitle ? areaTint : undefined}
     data-access={card.access}
     data-drag={draggable ? 'card' : undefined}
     aria-label={`Chat ${title}`}
@@ -165,6 +169,7 @@ export const Card = memo(function Card({card, draggable, dx, dy, dragging, measu
       {opens ? <button type="button" className="canvas-card-open" onClick={() => opens(card.channelId)}>Open chat {title}</button> : null}
       {needs ? <span className="canvas-card-needs" role="img" aria-label={`Needs you: ${needs}`} title="Needs you">{needs}</span> : null}
     </div>
+    {areaTitle ? <p className="canvas-visually-hidden">In area {areaTitle}</p> : null}
     {card.access === 'open' ? <OpenBody card={card} pulse={pulse} onNudge={onNudge} facesDraggable={facesDraggable} draggingFace={draggingFace}/> : null}
     {card.access === 'locked' ? <p className="canvas-card-owner">Owner: {card.ownerLabel}</p> : null}
     {/* Every card can come off the canvas; the chat itself is untouched and an open one returns to the pile. */}

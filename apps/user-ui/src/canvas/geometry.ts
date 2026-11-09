@@ -69,3 +69,23 @@ export function areaMembers(areaId: string, cards: {channelId: string; x: number
   }
   return {areas: nested, cards: moving};
 }
+
+/** Room kept around cards inside an area; the top stays clear of the area's title bar. */
+export const AREA_FIT_PAD = {side: 32, top: 72};
+const MAX_AREA_SIZE = 20_000;
+/**
+ * The area grown (never shrunk) so every rect fits inside it with AREA_FIT_PAD around it,
+ * or null when they already fit. Width and height stay within the API's 20 000 limit.
+ */
+export function growToFit(area: Rect, rects: Rect[], pad = AREA_FIT_PAD): Rect | null {
+  if (!rects.length) return null;
+  const left = Math.min(area.x, ...rects.map(r => r.x - pad.side));
+  const top = Math.min(area.y, ...rects.map(r => r.y - pad.top));
+  const right = Math.max(area.x + area.w, ...rects.map(r => r.x + r.w + pad.side));
+  const bottom = Math.max(area.y + area.h, ...rects.map(r => r.y + r.h + pad.side));
+  if (left === area.x && top === area.y && right === area.x + area.w && bottom === area.y + area.h) return null;
+  return {
+    x: Math.round(left), y: Math.round(top),
+    w: Math.round(Math.min(MAX_AREA_SIZE, right - left)), h: Math.round(Math.min(MAX_AREA_SIZE, bottom - top)),
+  };
+}

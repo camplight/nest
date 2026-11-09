@@ -14,11 +14,13 @@ export type AreaProps = {
   canEdit: boolean;
   compact: boolean;
   summary?: AreaSummary;
+  /** A dragged card or pile chat would land in this area if dropped now. */
+  dropTarget?: boolean;
   onRename(areaId: string, title: string): void;
   onDelete(areaId: string): void;
 };
 
-export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, summary, onRename, onDelete}: AreaProps) {
+export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, summary, dropTarget = false, onRename, onDelete}: AreaProps) {
   const [editing, setEditing] = useState(false);
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -57,7 +59,7 @@ export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, su
   }
 
   return <section
-    className="canvas-area"
+    className={`canvas-area${dropTarget ? ' is-drop-target' : ''}`}
     aria-label={`Area ${area.title}`}
     data-area-id={area.id}
     data-tint={area.tint}
@@ -81,5 +83,6 @@ export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, su
     </div>
     {compact ? <p className="canvas-area-summary">{summary ? `${summary.needYou} need you · ${summary.moving} moving` : ''}</p> : null}
     {canEdit ? <div className="canvas-area-resize" data-drag="area-resize" aria-hidden="true"/> : null}
+    {dropTarget ? <p className="canvas-area-drop-hint" aria-hidden="true">Drop into {area.title}</p> : null}
   </section>;
 });

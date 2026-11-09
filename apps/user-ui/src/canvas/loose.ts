@@ -2,7 +2,7 @@
 import {CARD_HEIGHT,DEFAULT_CARD_WIDTH,type Project} from '@nest/schemas';
 import type {Channel,ChannelParticipant} from '../types';
 import type {CardPulse} from './pulse';
-import {overlaps,type Point,type Rect} from './geometry';
+import {AREA_FIT_PAD,overlaps,type Point,type Rect} from './geometry';
 
 export type LooseChat = {channelId: string; projectId: string | null; title: string; participants: ChannelParticipant[]; lastActivityAt: number | null; needsYou: boolean; agents: string[]};
 export type LooseAge = 'any' | 'today' | 'week' | 'older';
@@ -101,4 +101,52 @@ export function clearOfCards(rect: Rect, cards: {x: number; y: number; w: number
     dy = Math.max(...hits.map(card => card.y + card.h)) + gap - rect.y;
   }
   return dy;
+}
+
+/**
+ * Where chats dropped from the pile land: one chat centred on the drop point, or several in the
+ * 3-wide grid centred there, moved down below any existing card it would cover.
+ */
+export function dropLayout(channelIds: string[], at: Point, cards: {x: number; y: number; w: number}[]): {channelId: string; x: number; y: number}[] {
+  if (channelIds.length === 1) return [{channelId: channelIds[0]!, ...dropPlacement(at)}];
+  const first = gridPlacement(channelIds, at);
+  const dy = clearOfCards(first.bounds, cards);
+  return dy ? gridPlacement(channelIds, {x: at.x, y: at.y + dy}).cards : first.cards;
+}
+
+type Placed = {x: number; y: number; w: number};
+/** Room kept around other cards when a card is moved in from the chat header. */
+const SLOT_MARGIN = PLACE_GAP / 2;
+const SLOT_TRIES = 400;
+const takenBy = (cards: Placed[]): Rect[] =>
+  cards.map(card => ({x: card.x - SLOT_MARGIN, y: card.y - SLOT_MARGIN, w: card.w + 2 * SLOT_MARGIN, h: CARD_HEIGHT + 2 * SLOT_MARGIN}));
+
+/**
+ * Where a card moved into an area goes: the first free grid spot under its title bar, row by row,
+ * in as many columns as fit (at least one). Rows continue below the area, which then grows to fit.
+ */
+export function slotInArea(area: Rect, cards: Placed[], w = DEFAULT_CARD_WIDTH): Point {
+  const columns = Math.max(1, Math.floor((area.w - 2 * AREA_FIT_PAD.side - w) / GRID_STEP.x) + 1);
+  const taken = takenBy(cards);
+  const spotAt = (i: number): Point => ({x: area.x + AREA_FIT_PAD.side + (i % columns) * GRID_STEP.x, y: area.y + AREA_FIT_PAD.top + Math.floor(i / columns) * GRID_STEP.y});
+  for (let i = 0; i < SLOT_TRIES; i++) {
+    const spot = spotAt(i);
+    if (!taken.some(rect => overlaps(rect, {...spot, w, h: CARD_HEIGHT}))) return spot;
+  }
+  return spotAt(SLOT_TRIES);
+}
+
+/**
+ * Where a card taken out of an area goes: just right of that area, stepping down (then further
+ * right) until it overlaps no area and no other card.
+ */
+export function slotOutsideAreas(home: Rect, areas: Rect[], cards: Placed[], w = DEFAULT_CARD_WIDTH): Point {
+  const taken = [...takenBy(cards), ...areas];
+  const start = {x: home.x + home.w + PLACE_GAP, y: home.y};
+  const rows = SLOT_TRIES / 4, step = SLOT_MARGIN;
+  for (let i = 0; i < SLOT_TRIES; i++) {
+    const spot = {x: start.x + Math.floor(i / rows) * GRID_STEP.x, y: start.y + (i % rows) * step};
+    if (!taken.some(rect => overlaps(rect, {...spot, w, h: CARD_HEIGHT}))) return spot;
+  }
+  return {x: start.x + 4 * GRID_STEP.x, y: start.y};
 }

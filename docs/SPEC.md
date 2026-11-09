@@ -752,8 +752,25 @@ Phase 1 is built from
    chats in the user UI's visible chat list open; if the open chat leaves that list,
    it closes. Only cards near the viewport are mounted, and below 50% zoom cards
    switch to a compact form. A chat dragged from the pile lands centred on the
-   pointer. "Place on canvas" and "New area from these" put a grid at the viewport
-   centre, moved down below any existing cards it would cover. Search (Ctrl/Cmd+K)
+   pointer; dragging a selected row carries every selected chat (up to 100), which
+   land as a grid centred on the pointer, moved down below any card it would cover.
+   "Place on canvas" and "New area from these" put that grid at the viewport centre.
+   A chat started from the bottom box stays in sight: on a canvas the person can
+   edit it is placed at the viewport centre (moved below any card it would cover),
+   opens in split screen (or the mode of the chat already open) and is centred in
+   view; on a view-only canvas or a phone it opens in focus and stays in the pile.
+   While a card or pile chat is dragged, the area it would join (by its centre)
+   lights up with a "Drop into <area>" label on its top edge. A card in an area
+   carries a stripe in the area's tint, and screen readers hear "In area <area>".
+   A card or chats dropped into an area grow it, never shrink it, so they fit inside
+   with 32 px around them and 72 px above them for the title bar (an ordinary area
+   resize, at most 20 000 px). An editor can also move the open chat from its header:
+   the Area picker puts its card in the first free spot under the chosen area's title
+   bar (the area grows to fit), places a loose chat there directly, or with No area
+   moves the card just outside its area; the view follows the card. On desktop the canvas starts with an icon-only
+   sidebar; the collapse button beside the logo expands it. That choice, the one for
+   every other view (which start expanded) and whether the sidebar's agent list is
+   shown are remembered per browser. Phones keep the full slide-in menu. Search (Ctrl/Cmd+K)
    finds cards, areas, loose chats and canvases; loose chats the person has hidden
    are not searchable unless Show hidden is on. Needs you lists unread mentions and
    tasks waiting for review on chats the person can see.

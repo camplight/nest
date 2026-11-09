@@ -28,7 +28,7 @@
   max-width: 200px;
   cursor: pointer;
   border: 1px solid var(--nest-border);
-  border-radius: 999px;
+  border-radius: 8px;
   padding: 0 12px;
   background: var(--nest-surface);
   color: var(--nest-text);
@@ -101,14 +101,14 @@
   will-change: transform;
 }
 
-/* Areas are rounded nests tinted with a Nest character colour. */
+/* Areas are softly rounded nests tinted with a Nest character colour. */
 .canvas-area {
   --tint: var(--nest-lime);
   position: absolute;
   left: 0;
   top: 0;
   box-sizing: border-box;
-  border-radius: 64px 92px 72px 104px / 84px 64px 96px 72px;
+  border-radius: 18px 24px 20px 26px / 22px 18px 24px 20px;
   background: color-mix(in srgb, var(--tint) 7%, transparent);
   border: 1.5px solid color-mix(in srgb, var(--tint) 22%, transparent);
   box-shadow: inset 0 0 80px color-mix(in srgb, var(--tint) 6%, transparent);
@@ -120,9 +120,9 @@
 :is(.canvas-area, .canvas-phone-area)[data-tint="puff"] { --tint: var(--nest-muted); }
 .canvas-area-bar {
   position: absolute;
-  left: 22px;
-  right: 22px;
-  top: 12px;
+  left: 12px;
+  right: 12px;
+  top: 8px;
   min-height: 44px;
   display: flex;
   align-items: center;
@@ -208,8 +208,8 @@
 }
 .canvas-area-resize {
   position: absolute;
-  right: 18px;
-  bottom: 18px;
+  right: 8px;
+  bottom: 8px;
   width: 22px;
   height: 22px;
   border-right: 2px solid color-mix(in srgb, var(--tint) 55%, transparent);
@@ -222,7 +222,7 @@
   left: 0;
   top: 0;
   box-sizing: border-box;
-  border-radius: 64px 92px 72px 104px / 84px 64px 96px 72px;
+  border-radius: 18px 24px 20px 26px / 22px 18px 24px 20px;
   border: 1.5px dashed color-mix(in srgb, var(--nest-lime) 60%, transparent);
   background: color-mix(in srgb, var(--nest-lime) 6%, transparent);
   pointer-events: none;
@@ -365,7 +365,7 @@
   min-height: 28px;
   padding: 0 12px;
   border: 1px solid var(--nest-border);
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--nest-surface);
   color: var(--nest-text);
   font: 600 12px Inter, sans-serif;
@@ -448,7 +448,7 @@
   gap: 2px;
   padding: 4px;
   border: 1px solid var(--nest-border);
-  border-radius: 14px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--nest-surface) 88%, transparent);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -467,7 +467,7 @@
   min-width: 40px;
   height: 40px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 0 12px;
   background: transparent;
   color: var(--nest-text);
@@ -542,7 +542,7 @@
 .canvas-button {
   min-height: 44px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 8px;
   padding: 0 22px;
   background: var(--nest-forest);
   color: var(--instance-on-primary, #fefefe);
@@ -592,7 +592,7 @@
 }
 .canvas-notice button {
   border: 0;
-  border-radius: 999px;
+  border-radius: 8px;
   padding: 6px 12px;
   background: var(--nest-muted-surface);
   color: var(--nest-text);
@@ -1065,13 +1065,15 @@
 .canvas-chat-bar {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px 12px;
   padding: 10px 12px 10px 20px;
   border-bottom: 1px solid var(--nest-border);
 }
+/* A narrow split-screen chat puts its actions on a second row rather than cutting the title short. */
 .canvas-chat-title {
-  flex: 1;
+  flex: 1 1 220px;
   min-width: 0;
   margin: 0;
   font: 500 16px/1.3 Unbounded, sans-serif;
@@ -1080,16 +1082,35 @@
   text-overflow: ellipsis;
 }
 .canvas-chat-actions {
-  flex: none;
+  flex: 0 1 auto;
+  margin-left: auto;
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
 }
+.canvas-chat-area {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--nest-muted);
+  font: 500 13px/1 Inter, sans-serif;
+}
+.canvas-chat-area select {
+  min-height: 34px;
+  max-width: 180px;
+  border: 1px solid var(--nest-border);
+  border-radius: 8px;
+  padding: 0 28px 0 10px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+  font: inherit;
+  cursor: pointer;
+}
 .canvas-chat-action {
   min-height: 34px;
   border: 1px solid var(--nest-border);
-  border-radius: 999px;
+  border-radius: 8px;
   padding: 0 12px;
   background: var(--nest-surface);
   color: var(--nest-text);
@@ -1283,7 +1304,11 @@
   background: var(--nest-bg);
   color: var(--nest-text);
 }
+.canvas-picker-search {
+  margin: 14px 0 4px;
+}
 .canvas-picker-filters {
+  margin: 6px 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1329,7 +1354,11 @@
   min-height: 32px;
   max-width: 150px;
 }
-.canvas-picker-hint,
+.canvas-picker-hint {
+  margin: 4px 0 16px;
+  color: var(--nest-muted);
+  font-size: 12px;
+}
 .canvas-picker-empty {
   margin: 0;
   color: var(--nest-muted);
@@ -1488,7 +1517,7 @@
 .canvas-share-button {
   min-height: 36px;
   border: 1px solid var(--nest-border);
-  border-radius: 999px;
+  border-radius: 8px;
   padding: 0 14px;
   background: var(--nest-surface);
   color: var(--nest-text);
@@ -1546,7 +1575,7 @@
 .canvas-modal-cancel {
   min-height: 44px;
   border: 1px solid var(--nest-border);
-  border-radius: 999px;
+  border-radius: 8px;
   padding: 0 18px;
   background: transparent;
   color: var(--nest-text);
@@ -1622,7 +1651,7 @@
 .canvas-search-button {
   min-height: 36px;
   border: 1px solid var(--nest-border);
-  border-radius: 999px;
+  border-radius: 8px;
   padding: 0 14px;
   background: var(--nest-surface);
   color: var(--nest-text);
@@ -1988,7 +2017,7 @@ li.canvas-phone-row[data-access] {
   box-sizing: border-box;
   margin: 0 0 8px;
   border: 1px solid var(--nest-border);
-  border-radius: 999px;
+  border-radius: 8px;
   padding: 0 16px;
   background: var(--nest-surface);
   color: var(--nest-text);
@@ -2005,4 +2034,52 @@ li.canvas-phone-row[data-access] {
   width: auto;
   margin: 0 12px 12px;
   transform: none;
+}
+
+/* Area membership: a card in an area carries a stripe in the area's tint. */
+.canvas-card[data-tint="moss"] { --tint: var(--nest-lime); }
+.canvas-card[data-tint="muff"] { --tint: var(--nest-coral); }
+.canvas-card[data-tint="pip"] { --tint: var(--canvas-pip); }
+.canvas-card[data-tint="pom"] { --tint: var(--canvas-amber); }
+.canvas-card[data-tint="puff"] { --tint: var(--nest-muted); }
+.canvas-card.in-area {
+  border-color: color-mix(in srgb, var(--tint) 45%, var(--nest-border));
+  border-top: 4px solid var(--tint);
+}
+
+/* While a card or pile chat is dragged over an area, the area lights up and says where it will land. */
+.canvas-area.is-drop-target {
+  background: color-mix(in srgb, var(--tint) 16%, transparent);
+  border: 2px solid color-mix(in srgb, var(--tint) 80%, transparent);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--tint) 18%, transparent), inset 0 0 80px color-mix(in srgb, var(--tint) 10%, transparent);
+}
+.canvas-area-drop-hint {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: 999px;
+  /* Seated on the area's top edge, so it never covers the cards inside. */
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  pointer-events: none;
+  background: var(--nest-forest);
+  color: #fefefe;
+  font: 600 14px Inter, sans-serif;
+}
+.canvas-world.is-compact .canvas-area-drop-hint { font-size: 28px; padding: 10px 22px; }
+
+.canvas-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }

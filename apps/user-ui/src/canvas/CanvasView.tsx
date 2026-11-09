@@ -1,6 +1,6 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
 import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore,type FormEvent,type ReactNode} from 'react';
-import {CanvasTint,type BoardCard,type Canvas,type NewArea,type Project} from '@nest/schemas';
+import {CARD_HEIGHT,CanvasTint,DEFAULT_CARD_WIDTH,areaFor,type BoardCard,type Canvas,type NewArea,type Project} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
@@ -12,8 +12,8 @@ import {ShareDialog} from './ShareDialog';
 import {createBoardStore} from './board-store';
 import {Surface,type SurfaceControls} from './Surface';
 import {nudgeMessage,type CanvasLive} from './live';
-import {LoosePile} from './LoosePile';
-import {areaAround,clearOfCards,dropPlacement,gridPlacement,looseChats} from './loose';
+import {LoosePile,MAX_BULK} from './LoosePile';
+import {areaAround,clearOfCards,dropLayout,gridPlacement,looseChats,slotInArea,slotOutsideAreas} from './loose';
 import {SPLIT_MAX,SPLIT_MIN,clampSplit,readSplit,splitAt,writeSplit} from './split';
 import {cardTitle} from './Card';
 import {AgentTray} from './AgentTray';
@@ -23,7 +23,7 @@ import {CanvasSearch} from './CanvasSearch';
 import {PHONE_QUERY,PhoneList,usePhoneLayout} from './PhoneList';
 import {searchIndex,type SearchItem} from './search';
 import type {CardPulse} from './pulse';
-import type {Point} from './geometry';
+import {cardCentre,growToFit,type Point} from './geometry';
 import './canvas.css';
 
 export type CanvasHuman = {id?: string; username: string};
@@ -81,6 +81,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const store = useMemo(() => createBoardStore({api: boardApi, now: Date.now, intervalMs: SYNC_INTERVAL_MS}), []);
   // Phones get a list in place of the free canvas.
   const phone = usePhoneLayout();
+  const phoneRef = useRef(phone); phoneRef.current = phone;
   const state = useSyncExternalStore(store.subscribe, store.snapshot);
   // The list is stamped with the view it was read for: a list read before the URL lost its canvas never drives the redirect.
   const [fetched, setFetched] = useState<{key: string; list: Canvas[]} | null>(null);
@@ -165,10 +166,17 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     const area: NewArea | undefined = withArea ? {id: crypto.randomUUID(), title: 'New area', ...areaAround(bounds), tint: TINTS[current.areas.length % TINTS.length]} : undefined;
     return store.apply({kind: 'placeCards', cards: placed, ...(area ? {area} : {})});
   }, [store]);
-  const dropChat = useCallback((channelId: string, at: Point) => {
+  /** Chats dropped from the pile; dropped into an area, that area grows so they all fit inside it. */
+  const dropChat = useCallback((channelIds: string[], at: Point) => {
     const current = store.snapshot().board;
-    if (!current || current.cards.some(card => card.channelId === channelId) || !candidatesRef.current.some(chat => chat.channelId === channelId)) return;
-    void store.apply({kind: 'placeCards', cards: [{channelId, ...clampPoint(dropPlacement(at))}]});
+    if (!current) return;
+    const ids = [...new Set(channelIds)].filter(id => !current.cards.some(card => card.channelId === id) && candidatesRef.current.some(chat => chat.channelId === id)).slice(0, MAX_BULK);
+    if (!ids.length) return;
+    const cards = dropLayout(ids, at, current.cards).map(card => ({...card, ...clampPoint(card)}));
+    void store.apply({kind: 'placeCards', cards});
+    const target = areaFor(at, current.areas);
+    const grown = target ? growToFit(target, cards.map(card => ({...card, w: DEFAULT_CARD_WIDTH, h: CARD_HEIGHT}))) : null;
+    if (target && grown) void store.apply({kind: 'patchArea', areaId: target.id, patch: grown});
   }, [store]);
   const hide = useCallback(async (channelIds: string[], value: boolean) => {
     const result = await setHidden(channelIds, value);
@@ -188,6 +196,11 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const chatShown = Boolean(chat && chatChannelId && chatMode && channels.some(channel => channel.id === chatChannelId));
   const openCard = cards?.find(card => card.channelId === chatChannelId);
   const chatTitle = (openCard?.access === 'open' ? cardTitle(openCard) : null) ?? candidates.find(c => c.channelId === chatChannelId)?.title ?? 'Chat';
+  // The header's Area picker: editors only, on a canvas with areas, for a chat on it or in the pile.
+  const chatArea = board && chatShown && board.canvas.role !== 'view' && board.areas.length && (openCard ? openCard.access === 'open' : candidates.some(c => c.channelId === chatChannelId))
+    ? {areas: board.areas.map(a => ({id: a.id, title: a.title})), current: openCard ? areaFor(cardCentre(openCard), board.areas)?.id ?? null : null,
+      placed: Boolean(openCard), onMove: (areaId: string | null) => void moveToAreaRef.current(chatChannelId!, areaId)}
+    : undefined;
   const modeRef = useRef(chatMode); modeRef.current = chatShown ? chatMode : null;
   // Only chats in App's visible list open: a UI-hidden chat is never loaded or marked seen behind the canvas.
   const visibleRef = useRef(channels); visibleRef.current = channels;
@@ -204,13 +217,6 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   }, [chatChannelId, channels]);
   // A card opens in focus, or replaces the split-screen chat beside the canvas.
   const openFromCard = useCallback((channelId: string) => { setSelectedId(channelId); openRef.current(channelId, modeRef.current ?? 'focus'); }, []);
-  // A sent bottom-box chat lands in the pile only: the box starts over and the canvas stays put.
-  const [dockKey, setDockKey] = useState(0);
-  const refreshRef = useRef(refreshChannels); refreshRef.current = refreshChannels;
-  const created = useCallback(() => {
-    setDockKey(n => n + 1);
-    void refreshRef.current().catch(() => {});
-  }, []);
   // Agents on cards: the selected card leads the tray's suggestions; membership goes through the engine.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   useEffect(() => { setSelectedId(null); }, [canvasId]);
@@ -246,6 +252,53 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     openRef.current(channelId, 'focus');
   }, [store]);
   const openFromPile = useCallback((channelId: string) => openRef.current(channelId, 'focus'), []);
+  /**
+   * A sent bottom-box chat stays in sight: on a canvas this person can edit it is placed at the
+   * centre of the view (clear of other cards) and opens beside the canvas; otherwise it opens in
+   * focus and the pile points at it. The box starts over either way.
+   */
+  const [dockKey, setDockKey] = useState(0);
+  const refreshRef = useRef(refreshChannels); refreshRef.current = refreshChannels;
+  const created = useCallback(async (project: Project) => {
+    setDockKey(n => n + 1);
+    const before = store.snapshot().board?.canvas.id;
+    await refreshRef.current().catch(() => {});
+    const channelId = project.channelId;
+    const board = store.snapshot().board;
+    if (!channelId || !board || board.canvas.id !== before) return;
+    const onBoard = board.cards.some(card => card.channelId === channelId)
+      || (!phoneRef.current && board.canvas.role !== 'view' && await place([channelId], false));
+    // Let App's refreshed chat list reach the canvas before opening the chat from it.
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    if (!onBoard) { jumpTo(channelId); return; }
+    setSelectedId(channelId);
+    openRef.current(channelId, modeRef.current ?? 'split');
+    // Centre the card once the chat beside it has taken its room.
+    requestAnimationFrame(() => requestAnimationFrame(() => controls.current?.reveal({channelId})));
+  }, [store, place, jumpTo]);
+  /**
+   * The open chat's header moves its card into an area (a free spot under the title bar; the area
+   * grows to fit) or, with no area, just outside the one it is in. A loose chat is placed straight
+   * into the area. The view follows the card.
+   */
+  const moveToArea = useCallback(async (channelId: string, areaId: string | null) => {
+    const current = store.snapshot().board;
+    if (!current || current.canvas.role === 'view') return;
+    const card = current.cards.find(c => c.channelId === channelId);
+    const others = current.cards.filter(c => c.channelId !== channelId);
+    const w = card?.w ?? DEFAULT_CARD_WIDTH;
+    const target = areaId ? current.areas.find(a => a.id === areaId) : undefined;
+    const home = card ? areaFor(cardCentre(card), current.areas) : undefined;
+    if (areaId ? !target || target.id === home?.id : !card || !home) return;
+    const spot = clampPoint(target ? slotInArea(target, others, w) : slotOutsideAreas(home!, current.areas, others, w));
+    const saved = card ? store.apply({kind: 'moveCard', channelId, ...spot}) : store.apply({kind: 'placeCards', cards: [{channelId, ...spot}]});
+    const grown = target ? growToFit(target, [{...spot, w, h: CARD_HEIGHT}]) : null;
+    if (target && grown) void store.apply({kind: 'patchArea', areaId: target.id, patch: grown});
+    if (!await saved) return;
+    if (target) setSelectedId(channelId);
+    requestAnimationFrame(() => controls.current?.reveal({channelId}));
+  }, [store]);
+  const moveToAreaRef = useRef(moveToArea); moveToAreaRef.current = moveToArea;
   const [searchOpen, setSearchOpen] = useState(false);
   useEffect(() => { setSearchOpen(false); }, [canvasId]);
   const index = useMemo(() => searchIndex({canvases: canvases ?? [], board, loose}), [canvases, board, loose]);
@@ -410,7 +463,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         </div>
         {body}
       </CanvasMain>
-      {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} title={chatTitle}
+      {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} title={chatTitle} area={chatArea}
         onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
         {chat}
       </CanvasChat> : null}
@@ -440,8 +493,9 @@ const OTHER_DIALOG = '[aria-modal="true"]:not(.canvas-chat), .dialog-backdrop';
  * The open chat: enlarged over a dimmed canvas (focus), or on the right with a draggable divider (split).
  * The header holds Split screen, Open in the regular chat view and Close; the chat itself is App's chat workspace.
  */
-function CanvasChat({channelId, mode, title, onMode, onClose, onOpenRegular, children}: {
-  channelId: string; mode: CanvasChatMode; title: string; onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
+type ChatArea = {areas: {id: string; title: string}[]; current: string | null; placed: boolean; onMove(areaId: string | null): void};
+function CanvasChat({channelId, mode, title, area, onMode, onClose, onOpenRegular, children}: {
+  channelId: string; mode: CanvasChatMode; title: string; area?: ChatArea; onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
 }) {
   const panel = useRef<HTMLElement>(null);
   const [split, setSplit] = useState(readSplit);
@@ -506,6 +560,13 @@ function CanvasChat({channelId, mode, title, onMode, onClose, onOpenRegular, chi
       <header className="canvas-chat-bar">
         <h2 className="canvas-chat-title">{title}</h2>
         <div className="canvas-chat-actions">
+          {area ? <label className="canvas-chat-area">
+            <span>Area</span>
+            <select value={area.current ?? ''} onChange={event => area.onMove(event.target.value || null)}>
+              <option value="" disabled={!area.placed}>{area.placed ? 'No area' : 'Not on this canvas'}</option>
+              {area.areas.map(option => <option key={option.id} value={option.id}>{option.title || 'Untitled area'}</option>)}
+            </select>
+          </label> : null}
           <button type="button" className="canvas-chat-action" aria-pressed={!focus} onClick={() => onMode(focus ? 'split' : 'focus')}>Split screen</button>
           <button type="button" className="canvas-chat-action" onClick={onOpenRegular}>Open in the regular chat view</button>
           <button type="button" className="canvas-chat-action" onClick={onClose}>Close</button>

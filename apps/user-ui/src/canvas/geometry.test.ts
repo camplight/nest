@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import type {CanvasArea} from '@nest/schemas';
-import {MAX_ZOOM,MIN_ZOOM,areaMembers,cardCentre,fit,isCompact,overlaps,toCanvas,toScreen,visible,zoomAt,type View} from './geometry';
+import {MAX_ZOOM,MIN_ZOOM,areaMembers,cardCentre,fit,isCompact,overlaps,toCanvas,toScreen,growToFit,visible,zoomAt,type View} from './geometry';
 
 const area=(id:string,x:number,y:number,w:number,h:number):CanvasArea=>({id,canvasId:'c',title:id,x,y,w,h,tint:'moss',version:0});
 
@@ -89,5 +89,26 @@ describe('overlaps',()=>{
     expect(overlaps(a,{x:10,y:10,w:10,h:10})).toBe(true);
     expect(overlaps(a,{x:100,y:0,w:50,h:50})).toBe(false);
     expect(overlaps(a,{x:0,y:-50,w:50,h:50})).toBe(false);
+  });
+});
+
+describe('growToFit', () => {
+  const area = {x: 0, y: 0, w: 600, h: 400};
+  it('leaves an area alone when the cards already fit with room', () => {
+    expect(growToFit(area, [{x: 100, y: 100, w: 280, h: 160}])).toBeNull();
+    expect(growToFit(area, [])).toBeNull();
+  });
+  it('grows right and down to fit a card hanging over the edge, with side padding', () => {
+    expect(growToFit(area, [{x: 400, y: 300, w: 280, h: 160}])).toEqual({x: 0, y: 0, w: 712, h: 492});
+  });
+  it('grows left and up, keeping the title bar clear above the card', () => {
+    expect(growToFit(area, [{x: -50, y: 20, w: 280, h: 160}])).toEqual({x: -82, y: -52, w: 682, h: 452});
+  });
+  it('fits a whole dropped grid at once and never shrinks', () => {
+    const grid = [{x: 100, y: 100, w: 280, h: 160}, {x: 400, y: 100, w: 280, h: 160}, {x: 700, y: 300, w: 280, h: 160}];
+    expect(growToFit(area, grid)).toEqual({x: 0, y: 0, w: 1012, h: 492});
+  });
+  it('stays within the API size limit', () => {
+    expect(growToFit(area, [{x: 30_000, y: 0, w: 280, h: 160}])!.w).toBe(20_000);
   });
 });
