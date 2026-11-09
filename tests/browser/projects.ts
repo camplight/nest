@@ -181,12 +181,14 @@ try {
       // Google itself is not exercised here; verify restoration before loadShell.
       await teammatePage.evaluate(id=>sessionStorage.setItem('nest-workspace-login-return',JSON.stringify({path:`/?view=projects&project=${id}&tab=files`,expires:Date.now()+60_000})),projectId);
       await teammatePage.goto('http://127.0.0.1:5298/');
+      console.log('OAuth root navigation returned:',teammatePage.url());
       await teammatePage.getByRole('heading',{name:'Files shared in chat'}).waitFor();
+      console.log('OAuth destination is visible');
       assert.equal(new URL(teammatePage.url()).searchParams.get('project'),projectId);
       assert.equal(await teammatePage.evaluate(()=>sessionStorage.getItem('nest-workspace-login-return')),null);
 
 
-    }finally{await teammateContext.close();}
+    }catch(error){console.error("Teammate routing regression failed:",error);throw error;}finally{await teammateContext.close();}
     // A visible private agent owned by a teammate can be invited without an onboarding-directory entry.
     const sarahHeaders={'content-type':'application/json',cookie:teammateLogin.headers.get('set-cookie')!.split(';')[0]};
     const teammateAgent=await product.app.request('/api/agents',{method:'POST',headers:sarahHeaders,body:JSON.stringify({name:'Website Developer',visibility:'PRIVATE',modelId:'test-model',workspacePath:join(dir,'website-developer')})});
