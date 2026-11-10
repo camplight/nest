@@ -141,7 +141,11 @@ export function createCanvasContextStore(db: Database.Database) {
     return (db.prepare('SELECT agent_name AS a FROM product_context_tokens WHERE token_hash=? AND revoked_at IS NULL').get(tokenHash) as { a: string } | undefined)?.a ?? null;
   }
   function markSkillEnabled(agentName: string) {
-    db.prepare('INSERT OR IGNORE INTO product_context_agents(agent_name,skill_enabled_at) VALUES (?,?)').run(agentName, Date.now());
+    db.transaction(() => {
+      if (db.prepare('INSERT OR IGNORE INTO product_context_agents(agent_name,skill_enabled_at) VALUES (?,?)').run(agentName, Date.now()).changes) {
+        audit('skill.enabled', 'system', { agentName });
+      }
+    })();
   }
   function skillEnabled(agentName: string) {
     return !!db.prepare('SELECT 1 FROM product_context_agents WHERE agent_name=?').get(agentName);

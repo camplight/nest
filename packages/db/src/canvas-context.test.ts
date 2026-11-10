@@ -26,8 +26,10 @@ describe('canvas context store', () => {
     expect(() => ctx().setNotes(scope, 'two', 5, 'owner')).toThrow(CanvasConflictError);
     expect(ctx().setNotes(scope, 'two', 1, 'owner').version).toBe(2);
     const audits = store.db.prepare("SELECT payload_json FROM product_audit WHERE type='audit.canvas.context.notes.set'").all() as { payload_json: string }[];
-    expect(audits).toHaveLength(2);
-    expect(audits.join()).not.toContain('two');
+    const payloads = audits.map(a => a.payload_json);
+    const ids = { canvasId: c.id, scope: 'canvas', scopeId: c.id };
+    expect(payloads.map(p => JSON.parse(p))).toEqual([ids, ids]);
+    expect(payloads.join()).not.toMatch(/one|two/);
   });
 
   it('caps files at 50 per scope and 200 MiB per canvas', () => {
@@ -114,5 +116,7 @@ describe('canvas context store', () => {
     expect(ctx().skillEnabled('bot')).toBe(false);
     ctx().markSkillEnabled('bot'); ctx().markSkillEnabled('bot');
     expect(ctx().skillEnabled('bot')).toBe(true);
+    const rows = store.db.prepare("SELECT actor_id, payload_json FROM product_audit WHERE type='audit.canvas.context.skill.enabled'").all();
+    expect(rows).toEqual([{ actor_id: 'system', payload_json: JSON.stringify({ agentName: 'bot' }) }]);
   });
 });
