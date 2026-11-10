@@ -7,13 +7,19 @@ import type { ProductDb } from '@nest/db';
 import { CanvasConflictError, CanvasForbiddenError, CanvasLimitError } from '@nest/db';
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
 import {
-  ContextLinkSchema, ContextNotesSchema, MAX_CONTEXT_BYTES_PER_CANVAS, MAX_CONTEXT_FILE_BYTES, MAX_MESSAGE_ATTACHMENTS,
+  areaFor, CARD_HEIGHT, ContextLinkSchema, ContextNotesSchema, MAX_CONTEXT_BYTES_PER_CANVAS, MAX_CONTEXT_FILE_BYTES, MAX_MESSAGE_ATTACHMENTS,
   type Canvas, type ContextLink, type ContextScope, type ScopeContext,
 } from '@nest/schemas';
 import { ContextFileTooLargeError, removeStored, type ContextFiles } from './context-files';
 
 /** Supplied by Task 4; context routes only accept it for now. */
 export type ContextAgents = { ensureAgents(channelIds: string[]): Promise<void> };
+/** A chat member: a HUMAN participant (identified by username, as in projects) or the engine owner. */
+export function isChatMember(channel: { ownerHumanId?: string | null; participants?: { subscriberType: string; subscriberId: string }[] } | undefined, human: Human) {
+  if (!channel) return false;
+  return channel.ownerHumanId === human.id
+    || Boolean(channel.participants?.some(p => p.subscriberType === 'HUMAN' && p.subscriberId === human.username));
+}
 type Env = { Variables: { human: Human } };
 
 const uuid = z.string().uuid();
@@ -62,7 +68,7 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     return c.json({ error: 'Canvas context is unavailable. Refresh and retry.' }, 500);
   });
 
-  const paths = ['/api/canvases/context-sources', '/api/canvases/:id/context/*', '/api/canvases/:id/areas/:areaId/context/*'];
+  const paths = ['/api/canvases/context-sources', '/api/canvases/:id/cards/:channelId/home', '/api/canvases/:id/context/*', '/api/canvases/:id/areas/:areaId/context/*'];
   const jsonLimit = bodyLimit({ maxSize: JSON_LIMIT, onError: c => c.json({ error: 'Request too large' }, 413) });
   const uploadLimit = bodyLimit({ maxSize: UPLOAD_LIMIT, onError: c => c.json({ error: 'Upload too large' }, 413) });
   const isUpload = (c: Context) => c.req.method === 'POST' && /\/context\/files\/?$/.test(c.req.path);
@@ -250,6 +256,24 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     requireEdit(canvas);
     context.unlink(scope.areaId, param(c, 'sourceAreaId'), c.get('human').id);
     return c.body(null, 204);
+  });
+
+  // "Use this area's context": a chat member moves the chat's home to this canvas and the area under the card.
+  routes.post('/api/canvases/:id/cards/:channelId/home', async c => {
+    const canvas = canvasOf(c);
+    parse(z.object({}).strict(), await body(c));
+    const human = c.get('human');
+    const channelId = c.req.param('channelId');
+    const card = canvases.cards(canvas.id).find(row => row.channelId === channelId);
+    if (!card) throw notFound();
+    const channels = await orgops.humanJson<{ id: string; ownerHumanId?: string | null; participants?: { subscriberType: string; subscriberId: string }[] }[]>(
+      '/api/channels?includeArchived=1', c.req.raw.headers);
+    // A chat the caller cannot see in the engine, or is not part of, may not be given a home by them.
+    if (!isChatMember(channels.find(ch => ch.id === channelId), human)) throw new CanvasForbiddenError('Only members of this chat can change its context');
+    const area = areaFor({ x: card.x + card.w / 2, y: card.y + CARD_HEIGHT / 2 }, canvases.areas(canvas.id));
+    const home = { canvasId: canvas.id, areaId: area?.id ?? null };
+    context.setHome(channelId, home, human.id);
+    return c.json({ home });
   });
 
   app.route('/', routes);

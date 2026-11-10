@@ -6,9 +6,10 @@ import { z } from 'zod';
 import type { ProductDb } from '@nest/db';
 import { CanvasConflictError, CanvasForbiddenError, CanvasLimitError } from '@nest/db';
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
+import { isChatMember } from './canvas-context';
 import { removeStored, type ContextFiles } from './context-files';
 import {
-  DEFAULT_CARD_WIDTH, NewCanvasSchema, CanvasRenameSchema, CanvasSharingSchema, HiddenSchema, NewAreaSchema, AreaPatchSchema, PlaceCardsSchema, CardPatchSchema,
+  areaFor, CARD_HEIGHT, DEFAULT_CARD_WIDTH, homeAfterMove, NewCanvasSchema, CanvasRenameSchema, CanvasSharingSchema, HiddenSchema, NewAreaSchema, AreaPatchSchema, PlaceCardsSchema, CardPatchSchema,
   type BoardCard, type Canvas, type CanvasArea, type CanvasBoard, type CanvasCardRow,
 } from '@nest/schemas';
 
@@ -27,6 +28,7 @@ const uuid = z.string().uuid();
 export function resolveBoard(
   rows: CanvasCardRow[], areas: CanvasArea[], canvas: Canvas, channels: Channel[],
   projectsByChannel: Map<string, { id: string; name: string }>, viewerId: string,
+  homeFor: (row: CanvasCardRow, areaId: string | null) => { isHere: boolean; label: string | null } | null = () => null,
 ): CanvasBoard {
   const visible = new Map(channels.map(ch => [ch.id, ch]));
   const cards = rows.map((row): BoardCard => {
@@ -37,6 +39,7 @@ export function resolveBoard(
       return {
         ...base, access: 'open', title: project?.name ?? ch.name ?? '', ...(ch.kind ? { kind: ch.kind } : {}),
         projectId: project?.id ?? projectId, participants: ch.participants ?? [], archived: Boolean(ch.archivedAt), canManage: Boolean(ch.canManage),
+        home: homeFor(row, areaFor({ x: row.x + row.w / 2, y: row.y + CARD_HEIGHT / 2 }, areas)?.id ?? null),
       };
     }
     return row.placedBy === viewerId ? { ...base, access: 'unavailable' } : { ...base, access: 'locked', ownerLabel };
@@ -179,7 +182,21 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files 
     const canvas = canvases.get(canvasId, human.id);
     if (!canvas) throw notFound();
     const rows = canvases.cards(canvasId);
-    return resolveBoard(rows, canvases.areas(canvasId), canvas, channels, store.projects.byChannels(rows.map(r => r.channelId)), human.id);
+    // Home labels name an area or canvas, so they appear only for viewers who can read the home canvas.
+    const readable = new Map<string, string | null>();
+    const canvasName = (id: string) => {
+      if (!readable.has(id)) readable.set(id, canvases.get(id, human.id)?.name ?? null);
+      return readable.get(id)!;
+    };
+    const areaTitle = (id: string) => (store.db.prepare('SELECT title FROM product_canvas_areas WHERE id=?').get(id) as { title: string } | undefined)?.title;
+    return resolveBoard(rows, canvases.areas(canvasId), canvas, channels, store.projects.byChannels(rows.map(r => r.channelId)), human.id, (row, areaId) => {
+      const home = store.canvasContext.home(row.channelId);
+      if (!home) return null;
+      const isHere = home.canvasId === canvasId && home.areaId === areaId;
+      const name = canvasName(home.canvasId);
+      if (name === null) return { isHere, label: 'another canvas' };
+      return { isHere, label: home.areaId ? areaTitle(home.areaId) ?? name : name };
+    });
   }
   routes.get('/api/canvases/:id/board', async c => {
     const canvas = visible(c);
@@ -211,6 +228,12 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files 
     return c.body(null, 204);
   });
 
+  // The home follows a chat member's placement or move; anyone else leaves it alone.
+  function saveHome(canvasId: string, row: CanvasCardRow, areas: CanvasArea[], channel: Channel | undefined, human: Human) {
+    const area = areaFor({ x: row.x + row.w / 2, y: row.y + CARD_HEIGHT / 2 }, areas);
+    const next = homeAfterMove(store.canvasContext.home(row.channelId), { canvasId, areaId: area?.id ?? null, byMember: isChatMember(channel, human) });
+    if (next) store.canvasContext.setHome(row.channelId, next, human.id);
+  }
   routes.post('/api/canvases/:id/cards', async c => {
     const canvas = visible(c);
     const human = c.get('human');
@@ -226,12 +249,19 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files 
       projectId: projects.get(card.channelId)?.id ?? null,
       ownerLabel: names.get(byId.get(card.channelId)!.ownerHumanId ?? '') ?? 'a teammate',
     })), input.area, human.id);
+    // A member's first placement gives the chat its home; later placements follow the move rule.
+    const areas = canvases.areas(canvas.id);
+    for (const row of canvases.cards(canvas.id)) {
+      if (input.cards.some(card => card.channelId === row.channelId)) saveHome(canvas.id, row, areas, byId.get(row.channelId), human);
+    }
     return c.json(buildBoard(human, c.get('channels'), canvas.id), 201);
   });
   routes.patch('/api/canvases/:id/cards/:channelId', async c => {
     const canvas = visible(c);
     const input = parse(CardPatchSchema, await body(c));
-    const row = canvases.moveCard(canvas.id, c.req.param('channelId'), input, c.get('human').id);
+    const human = c.get('human');
+    const row = canvases.moveCard(canvas.id, c.req.param('channelId'), input, human.id);
+    saveHome(canvas.id, row, canvases.areas(canvas.id), c.get('channels').find(ch => ch.id === row.channelId), human);
     return c.json(forViewer([row], c.get('channels'))[0]);
   });
   routes.delete('/api/canvases/:id/cards/:channelId', c => {

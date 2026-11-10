@@ -230,4 +230,97 @@ describe('canvas board against the unchanged engine', () => {
     expect((await call(owner, 'DELETE', `/api/canvases/${canvasId}/cards/${room}?version=1`)).status).toBe(204);
     expect((await place(owner, [{ channelId: room, x: 0, y: 0 }])).status).toBe(400);
   });
+
+  describe('chat homes', () => {
+    const area = async (cid: string, title: string, x: number, y: number) => {
+      const id = randomUUID();
+      expect((await call(owner, 'POST', `/api/canvases/${cid}/areas`, { id, title, x, y, w: 500, h: 400 })).status).toBe(201);
+      return id;
+    };
+    const second = async (name = 'Second') => {
+      const id = randomUUID();
+      expect((await call(owner, 'POST', '/api/canvases', { id, name })).status).toBe(201);
+      return id;
+    };
+    const cardOf = async (h: Record<string, string>, cid: string, ch: string) =>
+      (await board(h, cid)).cards.find((c: any) => c.channelId === ch);
+    const homeOf = (ch: string) => product.store.canvasContext.home(ch);
+
+    it('sets the home when a chat member places the chat, and labels it for other canvases', async () => {
+      const areaA = await area(canvasId, 'A', 0, 0);
+      expect((await place(owner, [{ channelId: a, x: 50, y: 50 }])).status).toBe(201);
+      expect(homeOf(a)).toEqual({ canvasId, areaId: areaA });
+      expect((await cardOf(owner, canvasId, a)).home).toEqual({ isHere: true, label: 'A' });
+      const other = await second();
+      expect((await call(owner, 'POST', `/api/canvases/${other}/cards`, { cards: [{ channelId: a, x: 0, y: 0 }] })).status).toBe(201);
+      expect(homeOf(a)).toEqual({ canvasId, areaId: areaA });
+      expect((await cardOf(owner, other, a)).home).toEqual({ isHere: false, label: 'A' });
+    });
+
+    it('reports a chat without a home as null', async () => {
+      await place(mate, [{ channelId: b, x: 0, y: 0 }]);
+      // mate is a member, so b has a home; a chat nobody placed has none.
+      const c = await channel(owner, 'Unplaced');
+      const other = await second();
+      await call(owner, 'POST', `/api/canvases/${other}/cards`, { cards: [{ channelId: c, x: 0, y: 0 }] });
+      expect(homeOf(c)).toEqual({ canvasId: other, areaId: null });
+      expect((await cardOf(owner, other, c)).home).toEqual({ isHere: true, label: 'Second' });
+    });
+
+    it('follows a member move but ignores a move by someone outside the chat', async () => {
+      const areaA = await area(canvasId, 'A', 0, 0);
+      const areaB = await area(canvasId, 'B', 1000, 0);
+      await place(owner, [{ channelId: a, x: 50, y: 50 }]);
+      const moved = await call(mate, 'PATCH', `/api/canvases/${canvasId}/cards/${a}`, { x: 1050, y: 50, version: 0 });
+      expect(moved.status).toBe(200);
+      expect(homeOf(a)).toEqual({ canvasId, areaId: areaA });
+      const ownMove = await call(owner, 'PATCH', `/api/canvases/${canvasId}/cards/${a}`, { x: 1100, y: 60, version: 1 });
+      expect(ownMove.status).toBe(200);
+      expect(homeOf(a)).toEqual({ canvasId, areaId: areaB });
+    });
+
+    it('moves the home on request by a chat member only', async () => {
+      const areaA = await area(canvasId, 'A', 0, 0);
+      await place(owner, [{ channelId: a, x: 50, y: 50 }]);
+      const other = await second();
+      const areaC = await area(other, 'C', 0, 0);
+      await call(owner, 'POST', `/api/canvases/${other}/cards`, { cards: [{ channelId: a, x: 20, y: 20 }] });
+      const shared = await call(owner, 'PUT', `/api/canvases/${other}/members`, { visibility: 'shared', members: [{ humanId: mateId, role: 'edit' }], version: (await board(owner, other)).canvas.version });
+      expect(shared.status).toBe(200);
+      const denied = await call(mate, 'POST', `/api/canvases/${other}/cards/${a}/home`, {});
+      expect(denied.status).toBe(403);
+      expect(homeOf(a)).toEqual({ canvasId, areaId: areaA });
+      const ok = await call(owner, 'POST', `/api/canvases/${other}/cards/${a}/home`, {});
+      expect(ok.status).toBe(200);
+      expect(await ok.json()).toEqual({ home: { canvasId: other, areaId: areaC } });
+      expect((await cardOf(owner, canvasId, a)).home).toEqual({ isHere: false, label: 'C' });
+      expect((await cardOf(owner, other, a)).home).toEqual({ isHere: true, label: 'C' });
+    });
+
+    it('does not expose the home of locked cards, and hides the label from viewers who cannot read the home canvas', async () => {
+      await area(canvasId, 'Hidden-Area', 0, 0);
+      await place(owner, [{ channelId: b, x: 50, y: 50 }, { channelId: a, x: 600, y: 600 }]);
+      const lockedText = JSON.stringify((await cardOf(mate, canvasId, a)));
+      expect(lockedText).not.toContain('home');
+      // The home canvas is shared with mate; unshare it and mate keeps a card elsewhere.
+      const mine = randomUUID();
+      expect((await call(mate, 'POST', '/api/canvases', { id: mine, name: 'Mine' })).status).toBe(201);
+      expect((await call(mate, 'POST', `/api/canvases/${mine}/cards`, { cards: [{ channelId: b, x: 0, y: 0 }] })).status).toBe(201);
+      expect((await cardOf(mate, mine, b)).home).toEqual({ isHere: false, label: 'Hidden-Area' });
+      const unshared = await call(owner, 'PUT', `/api/canvases/${canvasId}/members`, { visibility: 'private', members: [], version: (await board(owner, canvasId)).canvas.version });
+      expect(unshared.status).toBe(200);
+      const text = await (await call(mate, 'GET', `/api/canvases/${mine}/board`)).text();
+      expect(text).not.toContain('Hidden-Area');
+      expect((await cardOf(mate, mine, b)).home).toEqual({ isHere: false, label: 'another canvas' });
+    });
+
+    it('falls back to the canvas name when the home area is deleted', async () => {
+      const areaA = await area(canvasId, 'A', 0, 0);
+      await place(owner, [{ channelId: a, x: 50, y: 50 }]);
+      const version = (await board(owner, canvasId)).areas.find((x: any) => x.id === areaA).version;
+      expect((await call(owner, 'DELETE', `/api/canvases/${canvasId}/areas/${areaA}?version=${version}`)).status).toBe(204);
+      expect(homeOf(a)).toEqual({ canvasId, areaId: null });
+      expect((await cardOf(owner, canvasId, a)).home).toEqual({ isHere: true, label: 'Plan' });
+    });
+  });
 });
