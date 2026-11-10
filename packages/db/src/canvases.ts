@@ -157,6 +157,10 @@ export function createCanvasStore(db: Database.Database) {
       access(canvasId, actor, 'edit');
       const changed = db.prepare('DELETE FROM product_canvas_areas WHERE canvas_id=? AND id=? AND version=?').run(canvasId, areaId, version).changes;
       if (!changed) throw new CanvasConflictError(area(canvasId, areaId) ?? null);
+      // Context rows have no foreign key to the area, so they go in this transaction. Disk files are
+      // removed by the API from canvasContext.storageKeysForArea(), which must be read BEFORE this call.
+      db.prepare("DELETE FROM product_canvas_context WHERE scope_kind='area' AND scope_id=?").run(areaId);
+      db.prepare("DELETE FROM product_canvas_context_files WHERE scope_kind='area' AND scope_id=?").run(areaId);
       touch(canvasId);
       audit('audit.canvas.area.removed', actor, { canvasId, areaId });
     })();

@@ -118,8 +118,8 @@ describe('canvas store', () => {
     expect(store.canvases.hidden('b')).toEqual(['c1']);
   });
 
-  it('records migration 011 last', () => {
+  it('records the latest migration last (012)', () => {
     const names = (store.db.prepare('SELECT name FROM product_migrations').all() as { name: string }[]).map(r => r.name);
-    expect(names.at(-1)).toBe('011_canvases');
+    expect(names.at(-1)).toBe('012_canvas_context');
   });
 });
