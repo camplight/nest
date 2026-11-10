@@ -19,6 +19,9 @@ STATE = ROOT / 'operations'
 SOURCE = ROOT / 'source'
 DATA = Path('/var/lib/docker/volumes/nest_nest-data/_data')
 PRODUCT_DATA = Path('/var/lib/docker/volumes/nest_nest-product/_data')
+# Canvas context uploads: NEST_CONTEXT_FILES_DIR's default (.nest-product/context-files) inside the product volume.
+# The product DB's rows name these files, so they are snapshotted and restored together with it.
+CONTEXT_FILES = 'context-files'
 COMPOSE = ['docker', 'compose', '--project-directory', str(ROOT)]
 REPO = 'https://github.com/camplight/nest.git'
 NATIVE_CONFIG = Path('/etc/nest/native.json')
@@ -159,6 +162,7 @@ def execute(job, action, sha=None):
         changed = False
         stopped = False
         product_existed = False
+        files_existed = False
         try:
             if action == 'deploy':
                 if not SOURCE.exists():
@@ -188,6 +192,9 @@ def execute(job, action, sha=None):
                     with closing(sqlite3.connect(str(PRODUCT_DATA / 'nest.sqlite'))) as src, src:
                         with closing(sqlite3.connect(str(backup / 'product.sqlite'))) as dest, dest:
                             src.backup(dest)
+                files_existed = (PRODUCT_DATA / CONTEXT_FILES).is_dir()
+                if files_existed:
+                    shutil.copytree(PRODUCT_DATA / CONTEXT_FILES, backup / CONTEXT_FILES, symlinks=True)
                 # The deployment override is deliberately image-only.
                 override = ROOT / 'compose.override.yaml'
                 original = override.read_text()
@@ -225,6 +232,10 @@ def execute(job, action, sha=None):
                             shutil.copyfile(backup / 'product.sqlite', PRODUCT_DATA / 'nest.sqlite')
                         else:
                             (PRODUCT_DATA / 'nest.sqlite').unlink(missing_ok=True)
+                        # Context files return to the snapshot too, so they match the restored rows.
+                        if files_existed:
+                            shutil.rmtree(PRODUCT_DATA / CONTEXT_FILES, ignore_errors=True)
+                            shutil.copytree(backup / CONTEXT_FILES, PRODUCT_DATA / CONTEXT_FILES, symlinks=True)
                     health()
                     rollback = 'succeeded'
                 except Exception as recovery_error:

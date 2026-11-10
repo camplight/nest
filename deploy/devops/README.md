@@ -33,8 +33,11 @@ Status and logs are under `/opt/nest/operations`, private to root but readable
 through the endpoint. Backups are under `/opt/nest/backups/ops-<id>`.
 
 Builds happen before stopping the service. SQLite is backed up while Nest is
-stopped. Failed starts restore the prior image and both SQLite snapshots; runtime
-workspaces and uploads retain their existing volume contents. Database writes
+stopped. A deploy also copies the canvas context files (`context-files/` in the
+product volume, the default `NEST_CONTEXT_FILES_DIR`) beside the product snapshot,
+because the product DB's rows name them. Failed starts restore the prior image, both
+SQLite snapshots and that context-files copy; runtime workspaces and uploads retain
+their existing volume contents. Database writes
 during a failed deployment's startup window are discarded on rollback. The
 host checks health, branding, both UI routes, and the existing Kibrit demo (anonymous 401 for protected images; byte hash for legacy images and rollback).
 
