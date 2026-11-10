@@ -153,3 +153,31 @@ describe('nudgeMessage',()=>{
       mentions:[{kind:'AGENT',name:'Pip',start:0,end:4}],attachments:[],targetAgentName:'Pip'});
   });
 });
+
+describe('app calls and the clock',()=>{
+  const call=(id:string,type:string,at:number):EventRow=>({id,type,source:'agent:Pom',createdAt:at,channelId:'c1',payload:{tool:'shell_run',args:{command:'node scripts/connections.mjs execute c1 GMAIL_SEND_EMAIL < a.json'},output:'SECRET-BODY'}});
+  function clocked(skew:number){
+    let clock=now+skew;
+    const live=createCanvasLive({fetchJson:(async(url:string)=>url==='/api/mentions'?{items:[]}:[]) as unknown as <T>(url:string)=>Promise<T>,now:()=>clock,frame:cb=>cb()});
+    live.setCards([{channelId:'c1',agentNames:['Pom']}]);
+    return {live,advance:(ms:number)=>{clock+=ms;}};
+  }
+  it('a skewed browser clock does not flip a fresh call to failed',()=>{
+    const {live}=clocked(60*min);
+    live.ingest(call('a1','tool.started',now));
+    expect(live.snapshot().get('c1')!.apps.apps[0]).toMatchObject({app:'gmail',running:true});
+  });
+  it('a running call flips after 10 minutes with no new events, on the refresh recompute',async()=>{
+    const {live,advance}=clocked(-30*min);
+    live.ingest(call('a1','tool.started',now));
+    expect(live.snapshot().get('c1')!.apps.apps[0].running).toBe(true);
+    advance(11*min);
+    await live.refresh();
+    expect(live.snapshot().get('c1')!.apps.apps[0]).toMatchObject({running:false,changes:1});
+  });
+  it('keeps no command or output in the pulse',()=>{
+    const {live}=clocked(0);
+    live.ingest(call('a1','tool.started',now));live.ingest(call('a2','tool.executed',now+1));
+    expect(JSON.stringify([...live.snapshot()])).not.toMatch(/SECRET-BODY|connections\.mjs|a\.json/);
+  });
+});

@@ -26,8 +26,14 @@ const READ_VERBS = new Set('GET LIST FETCH SEARCH FIND READ QUERY DOWNLOAD EXPOR
 const CHANGE_WORDS = new Set('CREATE ADD SEND POST UPDATE PATCH DELETE REMOVE MOVE ARCHIVE REPLY FORWARD UPLOAD SET MERGE CLOSE'.split(' '));
 const GH_READS = new Set('view list status diff checks search'.split(' '));
 const GH_GROUPS = new Set('pr issue api repo run release workflow search gist auth label project status browse codespace cache secret variable ruleset org extension alias config attestation ssh-key gpg-key'.split(' '));
+const CONNECTION_TOKEN = /connections\.mjs\s+execute/g;
 const CONNECTION = /connections\.mjs\s+execute\s+(\S+)\s+([A-Z0-9_]+)/g;
-const GH = /(?<![\w./-])gh\s+([^;&|\n)]*)/g;
+const GH = /(?<![\w./-])gh\s+([^;&|\n\r()`$<>]*)/g;
+/** Every gh token, known subcommand or not: more than one invocation in a command makes it a change. */
+const GH_TOKEN = /(?<![\w./-])gh(?=\s|$)/g;
+/** Command substitution and process substitution can hide a second invocation. */
+const SUBSTITUTION = /`|\$\(|<\(|>\(/;
+const REPO = /^(?:[\w.-]+\/)?[\w.-]+\/[\w.-]+$/;
 
 const composioKind = (slug: string): 'read' | 'change' => {
   const [, verb, ...later] = slug.split('_');
@@ -53,8 +59,15 @@ function parseGh(args: string): Gh {
   }
   const [group, sub] = positional;
   const known = group !== undefined && GH_GROUPS.has(group);
-  const action = positional.slice(0, 2).join(' ');
-  if (group === 'api') return {kind: method === 'GET' || (method === null && !body) ? 'read' : 'change', repo, known, action};
+  repo = repo !== null && REPO.test(repo) ? repo : null;
+  // Only the group and subcommand are kept, never a path, flag or value.
+  if (group === 'api') {
+    const graphql = sub === 'graphql';
+    // A graphql body can arrive on stdin, so it is a read only when explicitly GET.
+    const read = method === 'GET' || (method === null && !body && !graphql);
+    return {kind: read ? 'read' : 'change', repo, known, action: graphql ? 'api graphql' : 'api'};
+  }
+  const action = known && sub !== undefined && /^[a-z][a-z-]*$/.test(sub) ? `${group} ${sub}` : group ?? 'gh';
   const read = group === 'search' || group === 'status' || (sub !== undefined && GH_READS.has(sub));
   return {kind: read ? 'read' : 'change', repo, known, action};
 }
@@ -85,37 +98,42 @@ function commandOf(payload: unknown): string | null {
 }
 
 /** Classifies one tool event, with the key that pairs it to its result. Null for anything that is not an app call. */
-export function inspectToolEvent(event: ToolEvent): Inspected | null {
+export function inspectToolEvent(event: ToolEvent, fallbackAt: number = Date.now()): Inspected | null {
   const phase = PHASES[event.type];
   const channelId = event.channelId;
   if (!phase || !channelId) return null;
   const raw = commandOf(event.payload);
   if (raw === null) return null;
-  const command = raw.replace(/["']/g, '').replace(/\s+/g, ' ').trim();
+  // Invocations are counted on the command as sent (quotes aside), before whitespace or newlines are collapsed.
+  const unquoted = raw.replace(/["']/g, '');
+  const command = unquoted.replace(/\s+/g, ' ').trim();
   const found: {index: number; app: string; appName: string; action: string; kind: 'read' | 'change'; label: string | null}[] = [];
-  for (const match of command.matchAll(CONNECTION)) {
+  for (const match of unquoted.matchAll(CONNECTION)) {
     const slug = match[2], app = slug.split('_')[0].toLowerCase();
     found.push({index: match.index!, app, appName: connectionAppName(app), action: actionName({slug}, app), kind: composioKind(slug), label: null});
   }
-  for (const match of command.matchAll(GH)) {
+  for (const match of unquoted.matchAll(GH)) {
     const gh = parseGh(match[1]);
     if (gh.known) found.push({index: match.index!, app: 'github', appName: connectionAppName('github'), action: gh.action, kind: gh.kind, label: gh.repo});
   }
   if (!found.length) return null;
   found.sort((a, b) => a.index - b.index);
   const first = found[0];
+  // A read only if this is the one app invocation in the command, with no substitution that could hide another.
+  const invocations = (unquoted.match(CONNECTION_TOKEN)?.length ?? 0) + (unquoted.match(GH_TOKEN)?.length ?? 0);
+  const single = invocations === 1 && !SUBSTITUTION.test(unquoted);
   return {
-    id: event.id, channelId, agent: event.source.replace(/^agent:/, ''), at: event.createdAt ?? 0,
+    id: event.id, channelId, agent: event.source.replace(/^agent:/, ''), at: event.createdAt ?? fallbackAt,
     app: first.app, appName: first.appName, action: first.action,
     // One event can chain several calls; a change anywhere makes it a change.
-    kind: found.some(call => call.kind === 'change') ? 'change' : 'read',
+    kind: single && found.every(call => call.kind === 'read') ? 'read' : 'change',
     label: found.find(call => call.label)?.label ?? null,
     phase, key: fingerprint(command),
   };
 }
 
-export function classifyToolEvent(event: ToolEvent): Classified | null {
-  const inspected = inspectToolEvent(event);
+export function classifyToolEvent(event: ToolEvent, fallbackAt?: number): Classified | null {
+  const inspected = inspectToolEvent(event, fallbackAt);
   if (!inspected) return null;
   const {key: _key, ...classified} = inspected;
   return classified;
@@ -124,6 +142,7 @@ export function classifyToolEvent(event: ToolEvent): Classified | null {
 /**
  * Pairs each tool.started with the next tool.executed or tool.failed from the same agent, chat and command
  * (first in, first out). An unpaired start is running for 10 minutes, then counted as failed.
+ * `now` must be on the events' clock (the server's), not the browser's.
  */
 export function foldInspected(items: Inspected[], now: number = Date.now()): AppCall[] {
   const order = {started: 0, executed: 1, failed: 1};
@@ -148,7 +167,7 @@ export function foldInspected(items: Inspected[], now: number = Date.now()): App
 }
 
 export function foldCalls(events: ToolEvent[], now: number = Date.now()): AppCall[] {
-  return foldInspected(events.flatMap(event => inspectToolEvent(event) ?? []), now);
+  return foldInspected(events.flatMap(event => inspectToolEvent(event, now) ?? []), now);
 }
 
 export function summarise(calls: AppCall[]): AppSummary {

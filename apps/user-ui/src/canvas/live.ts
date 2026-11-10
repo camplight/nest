@@ -75,6 +75,12 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
   const signals = new Map<string, Map<string, EventRow>>();
   /** channel → event id → the classified app call. Never the tool's command or output. */
   const appEvents = new Map<string, Map<string, Inspected>>();
+  /**
+   * Engine timestamps are the server's. The browser clock is only used through this offset, which a live
+   * event sets (it was just created) and a seeded one can only raise (so a slow browser clock never runs behind).
+   */
+  let offset = 0;
+  const serverNow = () => now() + offset;
   let cards = new Map<string, string[]>();
   let agents: Agent[] = [];
   let starts: AgentStarts = {};
@@ -101,7 +107,7 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
 
   /** Keeps the app call a tool event is, if it is one; the payload itself is not kept. */
   function storeApp(channelId: string, event: EventRow) {
-    const call = inspectToolEvent(event);
+    const call = inspectToolEvent(event, serverNow());
     if (!call) return;
     let channel = appEvents.get(channelId);
     if (!channel) appEvents.set(channelId, channel = new Map());
@@ -115,7 +121,10 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
   function store(event: EventRow) {
     const channelId = event.channelId;
     if (!channelId) return false;
-    if (event.type.startsWith('tool.')) storeApp(channelId, event);
+    if (event.type.startsWith('tool.')) {
+      if (event.createdAt !== undefined) offset = Math.max(offset, event.createdAt - now());
+      storeApp(channelId, event);
+    }
     if (kindOf(event.type) >= 0) { storeEvent(channelId, event); return true; }
     if (!event.source.startsWith('agent:')) return false;
     const agent = event.source.slice(6);
@@ -126,6 +135,11 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
     return true;
   }
 
+  function foldChannel(id: string) {
+    const items = [...(appEvents.get(id)?.values() ?? [])];
+    return foldInspected(items, Math.max(serverNow(), ...items.map(item => item.at)));
+  }
+
   /** Recomputes the dirty channels (or all of them) and publishes only if a pulse changed. */
   function recompute() {
     const ids = all ? [...cards.keys()] : [...dirty].filter(id => cards.has(id));
@@ -134,7 +148,7 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
     if (!ids.length && !removed.length) return;
     const subset = ids.map(channelId => ({channelId, agentNames: cards.get(channelId)!}));
     const rows = ids.flatMap(id => [...(events.get(id)?.values() ?? []), ...(signals.get(id)?.values() ?? [])]);
-    const apps = new Map<string, AppCall[]>(ids.map(id => [id, foldInspected([...(appEvents.get(id)?.values() ?? [])], now())]));
+    const apps = new Map<string, AppCall[]>(ids.map(id => [id, foldChannel(id)]));
     const fresh = cardPulse({events: rows, agents, starts, mentions, cards: subset, now: now(), apps});
     let next: Map<string, CardPulse> | null = null;
     for (const [id, pulse] of fresh) {
@@ -214,6 +228,8 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
     },
     ingest(event) {
       if (!event?.id) return;
+      // A realtime event was created a moment ago, so its stamp reads the server's clock.
+      if (event.createdAt !== undefined) offset = event.createdAt - now();
       const start = agentLifecycleStart(event);
       if (start) {
         const merged = mergeAgentStarts(starts, {[start.agent]: start.at});

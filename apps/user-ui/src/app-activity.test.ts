@@ -80,6 +80,45 @@ describe('classifyToolEvent: gh', () => {
   });
 });
 
+describe('classifyToolEvent: chains are changes (R14)', () => {
+  const merge = 'gh pr merge 1';
+  it('a second invocation or any substitution makes it a change', () => {
+    for (const command of [
+      'gh pr view 1\ngh pr merge 1',
+      'gh pr view 1\r\ngh pr merge 1',
+      'gh pr view 1 `gh pr merge 1`',
+      'gh pr view 1 $(gh pr merge 1)',
+      'gh pr view 1 <(gh pr merge 1)',
+      'gh issue list --repo a/b\ngh issue close 3',
+      `${conn('GMAIL_FETCH_EMAILS')}\n${merge}`,
+      `${merge}\n${conn('GMAIL_FETCH_EMAILS')}`,
+      `${conn('GMAIL_FETCH_EMAILS')} && ${conn('GMAIL_FETCH_EMAILS')}`,
+      'gh pr view 1 $(echo hi)',
+    ]) expect(kind(command), command).toBe('change');
+  });
+  it('a lone read stays a read', () => {
+    expect(kind('gh pr view 1')).toBe('read');
+    expect(kind(`cd w && ${conn('GMAIL_FETCH_EMAILS')}`)).toBe('read');
+  });
+});
+
+describe('classifyToolEvent: gh api', () => {
+  it('stores only api, never a path, flag or value', () => {
+    const call = classifyToolEvent(ev('gh api repos/x/y/issues --jq .token -R acme/web'))!;
+    expect(call.action).toBe('api');
+    expect(JSON.stringify(call)).not.toMatch(/repos\/|\.token/);
+    expect(call.label).toBe('acme/web');
+    expect(classifyToolEvent(ev('gh api repos/x/y/issues --jq .token'))!.label).toBeNull();
+  });
+  it('graphql is a change unless GET', () => {
+    expect(classifyToolEvent(ev('gh api graphql'))).toMatchObject({kind: 'change', action: 'api graphql'});
+    expect(kind('gh api graphql -X GET')).toBe('read');
+  });
+  it('keeps no odd label', () => {
+    expect(classifyToolEvent(ev('gh pr view 1 -R $TOKEN'))!.label).toBeNull();
+  });
+});
+
 describe('classifyToolEvent: everything else', () => {
   it('ignores non-app commands and other tools', () => {
     expect(classifyToolEvent(ev('ls -la'))).toBeNull();
@@ -158,6 +197,14 @@ describe('foldCalls', () => {
   it('keeps no command text or output', () => {
     const calls = foldCalls([ev(send, 'tool.started', {}, {createdAt: 1}), ev(send, 'tool.executed', {output: 'SECRET-BODY'}, {createdAt: 2})], 3);
     expect(JSON.stringify(calls)).not.toMatch(/SECRET-BODY|args\.json|connections\.mjs/);
+  });
+});
+
+describe('foldCalls clocks', () => {
+  const send = conn('GMAIL_SEND_EMAIL');
+  it('a missing createdAt counts as the reference time, not epoch', () => {
+    const e = {...ev(send, 'tool.started'), createdAt: undefined};
+    expect(foldCalls([e], 5_000_000)[0]).toMatchObject({state: 'running', at: 5_000_000});
   });
 });
 
