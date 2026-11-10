@@ -165,7 +165,8 @@ await runChatTest('canvas context: notes, files, links, used by, view-only and n
   await openCanvas(page,base,brand);
   const source=await openAreaContext(page,'Brand kit');
   await source.getByText('Used by Launch',{exact:true}).waitFor();
-  assert.equal(await source.getByText(WARNING,{exact:true}).count(),0,'no chat in Brand kit, so no warning');
+  // Launch, which holds the chat, uses Brand kit: that chat's agents read it too.
+  await source.getByText(WARNING,{exact:true}).waitFor();
 
   // No wake-ups: notes, a file and links posted nothing to the chat.
   assert.equal(await chatEvents(h),events,'context edits never reach the chat');
@@ -316,4 +317,74 @@ await runChatTest('canvas homes: labels, Use this area\'s context and the drop w
   await call(h,'POST',`/api/canvases/${study}/cards`,{cards:[{channelId:chat,x:40,y:100}]});
   assert.deepEqual((await homeOf(h,study))!.home,{isHere:true,label:'Study'});
   assert.equal(await chatEvents(h),events,'homes and warnings never reach the chat');
+},{canvas:true});
+
+await runChatTest('canvas context: canvas notes warn on a drop, linked chats warn in the panel, an unavailable home says so',async h=>{
+  const {page,base}=h, chat=h.project.channelId;
+  const board=(await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Board'})).id;
+  const empty=crypto.randomUUID();
+  await call(h,'POST',`/api/canvases/${board}/areas`,{id:empty,title:'Empty',x:0,y:0,w:420,h:320});
+  await call(h,'PUT',`/api/canvases/${board}/context`,{notes:'Synthetic canvas notes.',version:0});
+  const events=await chatEvents(h);
+  await openCanvas(page,base,board);
+  await page.locator('.canvas-context-button.has-context').waitFor();
+  const notice=page.locator('.canvas-notice');
+
+  // I1: a first placement outside every area, on a canvas with notes, warns (the area under it has none).
+  const pile=page.getByRole('complementary',{name:'Loose chats',exact:true});
+  await pile.waitFor();
+  const surface=(await page.locator('.canvas-surface').boundingBox())!, beside=(await areaOf(page,'Empty').boundingBox())!;
+  await pile.locator('.canvas-pile-row').filter({hasText:'Synthetic chat project'}).first()
+    .dragTo(page.locator('.canvas-surface'),{targetPosition:{x:beside.x+beside.width+160-surface.x,y:beside.y+beside.height/2-surface.y}});
+  await notice.getByText(WARNING,{exact:true}).waitFor();
+  assert.deepEqual((await homeOf(h,board))!.home,{isHere:true,label:'Board'});
+  await notice.getByRole('button',{name:'Undo',exact:true}).click();
+  await page.locator(`.canvas-card[data-channel-id="${chat}"]`).waitFor({state:'detached'});
+  // A move within the home canvas into an area without context brings nothing new: no warning.
+  await call(h,'POST',`/api/canvases/${board}/cards`,{cards:[{channelId:chat,x:40,y:380}]});
+  await openCanvas(page,base,board);
+  await page.locator('.canvas-context-button.has-context').waitFor();
+  await page.locator(`.canvas-card[data-channel-id="${chat}"]`).waitFor();
+  const moved=page.waitForResponse(response=>response.request().method()==='PATCH'&&new URL(response.url()).pathname===`/api/canvases/${board}/cards/${chat}`);
+  await dragCardInto(page,chat,'Empty');
+  assert.equal((await moved).status(),200);
+  assert.deepEqual((await homeOf(h,board))!.home,{isHere:true,label:'Empty'});
+  assert.equal(await notice.getByText(WARNING,{exact:true}).count(),0,'the canvas context was already this chat\'s');
+
+  // Smaller item 3: an area used by an area that holds a chat warns in its panel, with no card of its own.
+  const library=(await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Library'})).id;
+  const sources=crypto.randomUUID();
+  await call(h,'POST',`/api/canvases/${library}/areas`,{id:sources,title:'Sources',x:0,y:0,w:420,h:320});
+  await openCanvas(page,base,library);
+  let panel=await openAreaContext(page,'Sources');
+  await panel.getByRole('textbox',{name:'Notes',exact:true}).waitFor();
+  assert.equal(await panel.getByText(WARNING,{exact:true}).count(),0,'no chat reads Sources yet');
+  await panel.getByRole('button',{name:'Close',exact:true}).click();
+  await panel.waitFor({state:'detached'});
+  await call(h,'POST',`/api/canvases/${board}/areas/${empty}/context/links`,{sourceAreaId:sources});
+  panel=await openAreaContext(page,'Sources');
+  await panel.getByText(WARNING,{exact:true}).waitFor();
+  await panel.getByRole('button',{name:'Close',exact:true}).click();
+
+  // I2: a teammate in the chat re-homes it on the owner's shared canvas, then loses the canvas.
+  const mate=await h.loginAs('mate');
+  const mateId=(await call<{id:string;username:string}[]>(h,'GET','/api/humans')).find(person=>person.username==='mate')!.id;
+  const share=async(members:{humanId:string;role:string}[])=>{
+    const version=(await call<{id:string;version:number}[]>(h,'GET','/api/canvases')).find(canvas=>canvas.id===board)!.version;
+    await call(h,'PUT',`/api/canvases/${board}/members`,{visibility:members.length?'shared':'private',members,version});
+  };
+  await share([{humanId:mateId,role:'edit'}]);
+  assert.equal(await mate.page.evaluate(async([id,channel])=>(await fetch(`/api/canvases/${id}/cards/${channel}/home`,{method:'POST',headers:{'content-type':'application/json'},body:'{}'})).status,[board,chat] as const),200);
+  await share([]);
+  assert.deepEqual((await homeOf(h,board))!.home,{isHere:false,label:null,available:false});
+  await openCanvas(page,base,board);
+  const card=page.locator(`.canvas-card[data-channel-id="${chat}"]`);
+  await card.getByText('context unavailable',{exact:true}).waitFor();
+  assert.equal(await card.locator('.canvas-context-tag').innerText(),'unavailable');
+  // A member re-homes it: available again, and the label goes.
+  await card.locator('.canvas-card-title').click();
+  await page.locator('.canvas-chat-bar').getByRole('button',{name:"Use this area's context",exact:true}).click();
+  await card.getByText('context unavailable',{exact:true}).waitFor({state:'detached'});
+  assert.deepEqual((await homeOf(h,board))!.home,{isHere:true,label:'Empty'});
+  assert.equal(await chatEvents(h),events,'none of this reaches the chat');
 },{canvas:true});

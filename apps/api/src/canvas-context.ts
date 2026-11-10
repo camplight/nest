@@ -171,13 +171,15 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
 
   function scopeContext(scope: ContextScope, viewerId: string): ScopeContext {
     const saved = context.get(scope);
-    if (scope.kind === 'canvas') return { ...saved, links: [], usedBy: [] };
+    // For the panel's warning: chats whose agents read this scope, wherever their cards are (no chat is named).
+    const inChats = chatsUsing(store, scope).some(channelId => availableHome(store, channelId));
+    if (scope.kind === 'canvas') return { ...saved, links: [], usedBy: [], inChats };
     const links = linksFor(scope.areaId, viewerId);
     const usedBy = context.usedBy(scope.areaId).map(use => ({
       areaId: use.areaId,
       title: canvases.get(use.canvasId, viewerId) ? areaById(store, use.areaId)?.title ?? null : null,
     }));
-    return { ...saved, links, usedBy };
+    return { ...saved, links, usedBy, inChats };
   }
 
   routes.get('/api/canvases/context-sources', c => {

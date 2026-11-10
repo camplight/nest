@@ -127,9 +127,9 @@ describe('canvas context API against the unchanged engine', () => {
       const a1 = await area(owner, a, 'Research');
       const put = await call(owner, 'PUT', `/api/canvases/${a}/areas/${a1}/context`, { notes: 'Ship on Friday', version: 0 });
       expect(put.status).toBe(200);
-      expect(await put.json()).toEqual({ notes: 'Ship on Friday', version: 1, files: [], links: [], usedBy: [] });
+      expect(await put.json()).toEqual({ notes: 'Ship on Friday', version: 1, files: [], links: [], usedBy: [], inChats: false });
       const canvasPut = await call(owner, 'PUT', `/api/canvases/${a}/context`, { notes: 'Whole canvas', version: 0 });
-      expect(await canvasPut.json()).toEqual({ notes: 'Whole canvas', version: 1, files: [], links: [], usedBy: [] });
+      expect(await canvasPut.json()).toEqual({ notes: 'Whole canvas', version: 1, files: [], links: [], usedBy: [], inChats: false });
 
       expect((await call(mate, 'GET', `/api/canvases/${a}/areas/${a1}/context`)).status).toBe(404);
       await share(a, 'view');
@@ -436,6 +436,16 @@ describe('canvas context API against the unchanged engine', () => {
       // A canvas viewer outside the chat learns nothing about who is in it.
       await share(a, 'view');
       expect(await (await readers(mate, a, a1)).json()).toEqual([]);
+
+      // The panel warning's signal: a scope is in chats when a chat's home reads it, including through a link.
+      const inChats = async (path: string) => ((await (await call(owner, 'GET', path)).json()) as { inChats: boolean }).inChats;
+      expect(await inChats(`/api/canvases/${a}/areas/${a1}/context`)).toBe(true);
+      expect(await inChats(`/api/canvases/${a}/context`)).toBe(true);
+      expect(await inChats(`/api/canvases/${a}/areas/${a2}/context`)).toBe(false);
+      expect(await inChats(`/api/canvases/${b}/areas/${b1}/context`)).toBe(false);
+      expect((await call(owner, 'POST', `/api/canvases/${a}/areas/${a1}/context/links`, { sourceAreaId: b1 })).status).toBe(200);
+      expect(await inChats(`/api/canvases/${b}/areas/${b1}/context`)).toBe(true);
+      expect(await inChats(`/api/canvases/${b}/context`)).toBe(false);
     });
   });
 

@@ -2,7 +2,7 @@ import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import type {ScopeContext} from '@nest/schemas';
 import {NOTES_SAVE_DELAY_MS,NotesConflict,createNotesAutosave,type NotesSave} from './notes-autosave';
 
-const stored = (notes: string, version: number): ScopeContext => ({notes, version, files: [], links: [], usedBy: []});
+const stored = (notes: string, version: number): ScopeContext => ({notes, version, files: [], links: [], usedBy: [], inChats: false});
 /** A save the test answers by hand: each call waits until it is resolved or rejected. */
 function manualSave() {
   const calls: {text: string; version: number; resolve(value: ScopeContext): void; reject(error: unknown): void}[] = [];

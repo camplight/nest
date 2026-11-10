@@ -17,6 +17,8 @@ export type ContextLink = { sourceAreaId: string; title: string; canvasName: str
 export type ScopeContext = {
   notes: string; version: number; files: ContextFile[]; links: ContextLink[];
   usedBy: { areaId: string; title: string | null }[];
+  /** Whether any chat's (available) home context includes this scope, including chats homed in areas that link here. */
+  inChats: boolean;
 };
 export type ChatHome = { canvasId: string; areaId: string | null };
 /** One board load's context markers: which scopes hold notes or files, and each area's links (for its `↳` chips). */

@@ -207,8 +207,12 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       if (!after || after.access !== 'open' || !after.home?.isHere) return [];
       const area = areaFor(cardCentre(after), now.areas)?.id;
       const was = before?.access === 'open' ? before.home : null;
-      const sameHome = Boolean(before && was?.isHere && was.label === after.home.label && areaFor(cardCentre(before), prior.areas)?.id === area);
-      return !sameHome && withContext(area) ? [{channelId, before, x: after.x, y: after.y}] : [];
+      // The home was already on this canvas when the card was home before the drop.
+      const wasHere = Boolean(before && was?.isHere);
+      const sameHome = wasHere && was!.label === after.home.label && areaFor(cardCentre(before!), prior.areas)?.id === area;
+      // A home newly on this canvas brings the canvas's own notes and files too, in an area or not.
+      const canvasContext = !wasHere && Boolean(summaryRef.current?.canvas.hasContext);
+      return !sameHome && (canvasContext || withContext(area)) ? [{channelId, before, x: after.x, y: after.y}] : [];
     });
     if (!changed.length) return ok;
     const canvasOfDrop = now.canvas.id;

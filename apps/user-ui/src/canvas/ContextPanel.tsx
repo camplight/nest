@@ -193,7 +193,7 @@ export function ContextPanel({canvasId, scope, title, canEdit, dropped, holdsCha
     </header>
     <div className="canvas-context-body">
       {loadFailed ? <p className="canvas-context-error" role="alert">Could not load this context. Close and try again.</p> : !context ? <p className="canvas-context-muted">Loading…</p> : <>
-        {holdsChat ? <p className="canvas-context-warning">{CONTEXT_WARNING}</p> : null}
+        {holdsChat || context?.inChats ? <p className="canvas-context-warning">{CONTEXT_WARNING}</p> : null}
         {!canEdit ? <p className="canvas-context-muted">You can view this canvas but not change it.</p> : null}
 
         <section className="canvas-context-section">
