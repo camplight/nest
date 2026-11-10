@@ -7,7 +7,7 @@ import type { ProductDb } from '@nest/db';
 import { CanvasConflictError, CanvasForbiddenError, CanvasLimitError } from '@nest/db';
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
 import {
-  ContextLinkSchema, ContextNotesSchema, MAX_CONTEXT_FILE_BYTES, MAX_MESSAGE_ATTACHMENTS,
+  ContextLinkSchema, ContextNotesSchema, MAX_CONTEXT_BYTES_PER_CANVAS, MAX_CONTEXT_FILE_BYTES, MAX_MESSAGE_ATTACHMENTS,
   type Canvas, type ContextLink, type ContextScope, type ScopeContext,
 } from '@nest/schemas';
 import { ContextFileTooLargeError, removeStored, type ContextFiles } from './context-files';
@@ -19,8 +19,10 @@ type Env = { Variables: { human: Human } };
 const uuid = z.string().uuid();
 const MiB = 1024 * 1024;
 const JSON_LIMIT = 64_000;
-// Each multipart part may carry a 20 MiB file plus its part headers.
-const UPLOAD_LIMIT = MAX_MESSAGE_ATTACHMENTS * (MAX_CONTEXT_FILE_BYTES + MiB);
+// parseBody buffers the whole request, so one upload is capped near what a canvas can ever hold
+// (1 MiB covers multipart overhead); the store rejects anything past the canvas limit anyway.
+const MULTIPART_OVERHEAD = MiB;
+const UPLOAD_LIMIT = MAX_CONTEXT_BYTES_PER_CANVAS + MULTIPART_OVERHEAD;
 const DOWNLOAD_HEADERS = {
   'content-type': 'application/octet-stream',
   'x-content-type-options': 'nosniff',
@@ -156,7 +158,16 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     const canvas = canvasOf(c);
     const scope = scopeOf(c, canvas);
     requireEdit(canvas);
-    const form = await c.req.parseBody({ all: true }).catch(() => null);
+    // Refuse before reading the body when it cannot fit in what is left of this canvas's budget.
+    const declared = c.req.header('content-length');
+    if (declared !== undefined && Number(declared) > MAX_CONTEXT_BYTES_PER_CANVAS - context.canvasBytes(canvas.id) + MULTIPART_OVERHEAD) {
+      return c.json({ error: 'Upload too large' }, 413);
+    }
+    // A body-limit overflow while reading stays a 413; only a malformed body becomes 400.
+    const form = await c.req.parseBody({ all: true }).catch(error => {
+      if (error instanceof HTTPException) throw error;
+      return null;
+    });
     if (!form) throw badRequest('Send files as multipart form data');
     const values = Object.values(form).flatMap(value => (Array.isArray(value) ? value : [value]));
     if (!values.length) throw badRequest('Choose at least one file');

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp as createEngine } from '../../../vendor/orgops/apps/api/src/app';
 import { createOrgOpsClient } from '@nest/orgops-client';
-import { MAX_CONTEXT_FILE_BYTES } from '@nest/schemas';
+import { MAX_CONTEXT_BYTES_PER_CANVAS, MAX_CONTEXT_FILE_BYTES } from '@nest/schemas';
 import { createApp } from './app';
 
 describe('canvas context API against the unchanged engine', () => {
@@ -197,6 +197,29 @@ describe('canvas context API against the unchanged engine', () => {
       expect(stored()).toEqual([]);
       expect((await (await call(owner, 'GET', `/api/canvases/${a}/areas/${a1}/context`)).json()).files).toHaveLength(before);
       expect((await upload(owner, path, [])).status).toBe(400);
+    });
+
+    it('answers 413 without reading an upload whose declared size exceeds the canvas budget', async () => {
+      const a = await canvas(owner, 'A');
+      const path = `/api/canvases/${a}/context/files`;
+      const first = await upload(owner, path, [{ name: 'big.bin', content: new Uint8Array(2 * 1024 * 1024) }]);
+      expect(first.status).toBe(201);
+      const kept = stored();
+      const declared = async (length: number) => {
+        const form = new FormData();
+        form.append('file', new File(['tiny'], 'tiny.txt', { type: 'text/plain' }));
+        const body = await new Response(form).arrayBuffer();
+        const contentType = new Response(form).headers.get('content-type')!;
+        return product.app.request(path, { method: 'POST', headers: { cookie: owner.cookie, 'content-type': contentType, 'content-length': String(length) }, body });
+      };
+      // 200 MiB fits under the request cap but not in the 198 MiB (+1 MiB overhead) this canvas has left.
+      for (const length of [MAX_CONTEXT_BYTES_PER_CANVAS, MAX_CONTEXT_BYTES_PER_CANVAS + 2 * 1024 * 1024]) {
+        const res = await declared(length);
+        expect([length, res.status]).toEqual([length, 413]);
+        expect(await res.json()).toEqual({ error: 'Upload too large' });
+      }
+      expect(stored()).toEqual(kept);
+      expect((await (await call(owner, 'GET', `/api/canvases/${a}/context`)).json()).files).toHaveLength(1);
     });
 
     it('records all files of an upload or none of them when a scope limit is hit', async () => {
