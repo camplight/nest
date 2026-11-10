@@ -1488,6 +1488,12 @@ and https://openrouter.ai/z-ai/glm-5.3 .
 
 Project owners may invite agents already visible through their human-scoped engine session, including private agents owned by teammates outside the onboarding directory. The mention picker applies the same rule. Project/channel management checks remain required; agent ownership, private history, credentials and settings are unchanged. The engine rechecks access when subscribing.
 
+### Folded agent conversations
+
+The fold control shows overlapping portraits and names of distinct participating agents, using their configured avatars. At most three portraits are shown, with a +N count for additional agents.
+
+Runs of three or more consecutive agent messages show only the latest reply by default, with a keyboard-accessible control to reveal earlier messages. Human/system messages, day changes and detached-history boundaries split runs. Activity does not count toward the threshold and follows its message. Message links automatically reveal their target; active work remains visible. Folding is local presentation state, resets on channel changes, and does not alter stored events, exports or membership rules.
+
 ### Project entry and navigation
 
 Explicit workspace views on legacy `/onboarding` URLs take precedence over setup and normalize to `/`, preserving project, tab and message parameters. Bare onboarding URLs and setup OAuth returns retain their existing behavior. Chat/Files navigation belongs beneath the project title, outside the details sidebar. The sidebar no longer duplicates Sharing, and long descriptions can be expanded without moving project navigation. Project membership and permission rules are unchanged.
