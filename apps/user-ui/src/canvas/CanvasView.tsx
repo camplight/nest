@@ -179,6 +179,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   }, [cards, candidates, live]);
 
   const [memberNotice, setMemberNotice] = useState<MemberNotice | null>(null);
+  useEffect(() => { setMemberNotice(null); }, [canvasId]);
   const noticeId = useRef(0);
   const say = useCallback((text: string, undo?: () => void) => setMemberNotice({id: ++noticeId.current, text, undo}), []);
   /**
@@ -204,12 +205,20 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       const area = areaFor(cardCentre(after), now.areas)?.id;
       const was = before?.access === 'open' ? before.home : null;
       const sameHome = Boolean(before && was?.isHere && was.label === after.home.label && areaFor(cardCentre(before), prior.areas)?.id === area);
-      return !sameHome && withContext(area) ? [{channelId, before}] : [];
+      return !sameHome && withContext(area) ? [{channelId, before, x: after.x, y: after.y}] : [];
     });
     if (!changed.length) return ok;
+    const canvasOfDrop = now.canvas.id;
     say(CONTEXT_WARNING, () => {
       setMemberNotice(null);
-      for (const {channelId, before} of changed) void store.apply(before ? {kind: 'moveCard', channelId, x: before.x, y: before.y, w: before.w} : {kind: 'removeCard', channelId});
+      // Only on the canvas the drop happened on, and only a card still where the drop left it: a newer move stays.
+      const current = store.snapshot().board;
+      if (!current || current.canvas.id !== canvasOfDrop) return;
+      for (const {channelId, before, x, y} of changed) {
+        const card = current.cards.find(c => c.channelId === channelId);
+        if (!card || card.x !== x || card.y !== y) continue;
+        void store.apply(before ? {kind: 'moveCard', channelId, x: before.x, y: before.y, w: before.w} : {kind: 'removeCard', channelId});
+      }
     });
     return ok;
   }, [store, say]);

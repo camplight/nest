@@ -415,12 +415,12 @@
 /* Semantic zoom: a big title, faces and a needs-you or quiet marker only. */
 .canvas-world.is-compact .canvas-card-status,
 .canvas-world.is-compact .canvas-card-artifacts,
-.canvas-card-home {
-  overflow-wrap: anywhere;
-}
 .canvas-world.is-compact .canvas-card-activity,
 .canvas-world.is-compact .canvas-card-owner {
   display: none;
+}
+.canvas-card-home {
+  overflow-wrap: anywhere;
 }
 /* Compact cards keep Remove from canvas in the Tab order: hidden until it has keyboard focus. */
 .canvas-world.is-compact .canvas-card-actions:not(:focus-within) {

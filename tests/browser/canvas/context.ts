@@ -1,7 +1,7 @@
 // Canvas context (Phase 2 Task 5): the context panel, ↳ link chips and link lines on the real engine, API and WS. Synthetic data.
 import assert from 'node:assert/strict';
 import type {Page} from 'playwright';
-import {runChatTest,type ChatHarness} from '../support/chat-harness';
+import {agentName,runChatTest,type ChatHarness} from '../support/chat-harness';
 
 async function call<T>(h:ChatHarness,method:string,path:string,body?:unknown):Promise<T>{
   const response=await fetch(h.apiUrl+path,{method,headers:{cookie:h.cookie,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
@@ -218,16 +218,33 @@ await runChatTest('canvas homes: labels, Use this area\'s context and the drop w
   await put(`/api/canvases/${plan}/areas/${briefing}/context`,'Synthetic briefing notes.');
   await call(h,'POST',`/api/canvases/${plan}/cards`,{cards:[{channelId:chat,x:40,y:100}]});
   assert.deepEqual((await homeOf(h,plan))!.home,{isHere:true,label:'Launch'});
-  const events=await chatEvents(h);
+  let events=await chatEvents(h);
   await openCanvas(page,base,plan);
   const card=page.locator(`.canvas-card[data-channel-id="${chat}"]`);
   await card.waitFor();
   assert.equal(await card.getByText(/^context from/).count(),0,'a chat in its home area shows no label');
+  const notice=page.locator('.canvas-notice');
+  const study=(await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Study plan'})).id;
+  const studyArea=crypto.randomUUID();
+  await call(h,'POST',`/api/canvases/${study}/areas`,{id:studyArea,title:'Study',x:0,y:0,w:420,h:320});
+
+  // The warning belongs to its canvas: switching away drops the notice, and coming back finds nothing to undo.
+  await dragCardInto(page,chat,'Briefing');
+  await notice.getByText(WARNING,{exact:true}).waitFor();
+  await openCanvas(page,base,study);
+  await notice.getByText(WARNING,{exact:true}).waitFor({state:'detached'});
+  await openCanvas(page,base,plan);
+  assert.equal(await notice.getByText(WARNING,{exact:true}).count(),0);
+  await dragCardInto(page,chat,'Launch');
+  await page.waitForFunction(async([id,channel])=>{
+    const board=await (await fetch(`/api/canvases/${id}/board`,{credentials:'include'})).json() as HomeBoard;
+    return board.cards.find(c=>c.channelId===channel)?.home?.label==='Launch';
+  },[plan,chat] as const);
+  await card.waitFor();
   const before=(await homeOf(h,plan))!;
 
   // A move into an area with notes changes the home: the warning appears, and Undo moves the card back.
   await dragCardInto(page,chat,'Briefing');
-  const notice=page.locator('.canvas-notice');
   await notice.getByText(WARNING,{exact:true}).waitFor();
   assert.deepEqual((await homeOf(h,plan))!.home,{isHere:true,label:'Briefing'});
   await notice.getByRole('button',{name:'Undo',exact:true}).click();
@@ -241,16 +258,29 @@ await runChatTest('canvas homes: labels, Use this area\'s context and the drop w
   assert.equal(await card.getByText(/^context from/).count(),0);
   // A move into an area with no context changes the home but warns about nothing.
   await dragCardInto(page,chat,'Launch');
+  await page.waitForFunction(async([id,channel])=>{
+    const board=await (await fetch(`/api/canvases/${id}/board`,{credentials:'include'})).json() as HomeBoard&{areas:{title:string;x:number;w:number}[]};
+    const found=board.cards.find(c=>c.channelId===channel), zone=board.areas.find(a=>a.title==='Launch')!;
+    return Boolean(found&&found.x+140>=zone.x&&found.x+140<zone.x+zone.w&&found.home?.label==='Launch');
+  },[plan,chat] as const);
   assert.equal(await notice.getByText(WARNING,{exact:true}).count(),0,'no warning when the area has no context');
 
   // The chat on a second canvas: its card says where the context comes from.
-  const study=(await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Study plan'})).id;
-  const studyArea=crypto.randomUUID();
-  await call(h,'POST',`/api/canvases/${study}/areas`,{id:studyArea,title:'Study',x:0,y:0,w:420,h:320});
   await call(h,'POST',`/api/canvases/${study}/cards`,{cards:[{channelId:chat,x:40,y:100}]});
   await openCanvas(page,base,study);
   const second=page.locator(`.canvas-card[data-channel-id="${chat}"]`);
   await second.getByText('context from Launch',{exact:true}).waitFor();
+  // Compact cards (zoomed out) keep only the title and faces: the status line is hidden, home label or not.
+  const trigger=await h.emit('message.created',{text:'Synthetic trigger'},{source:'human:demo-owner'});
+  await h.emit('agent.turn.started',{triggerEventId:trigger.id},{source:`agent:${agentName}`,channelId:chat});
+  events=await chatEvents(h);
+  const status=second.locator('.canvas-card-status');
+  await status.getByText(`${agentName} is working`,{exact:true}).waitFor();
+  for(let i=0;i<4;i++)await page.getByRole('button',{name:'Zoom out',exact:true}).click();
+  await page.getByLabel('Zoom level',{exact:true}).getByText('41%',{exact:true}).waitFor();
+  await status.waitFor({state:'hidden'});
+  for(let i=0;i<4;i++)await page.getByRole('button',{name:'Zoom in',exact:true}).click();
+  await page.getByLabel('Zoom level',{exact:true}).getByText('100%',{exact:true}).waitFor();
   await second.locator('.canvas-card-title').click();
   const header=page.locator('.canvas-chat-bar');
   await header.getByRole('button',{name:"Use this area's context",exact:true}).click();
