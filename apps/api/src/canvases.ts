@@ -292,7 +292,10 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
   });
   routes.delete('/api/canvases/:id/cards/:channelId', c => {
     const canvas = visible(c);
-    canvases.removeCard(canvas.id, c.req.param('channelId'), requiredVersion(c), c.get('human').id);
+    const channelId = c.req.param('channelId');
+    canvases.removeCard(canvas.id, channelId, requiredVersion(c), c.get('human').id);
+    // A chat that leaves its home canvas has no home until it is placed again.
+    if (store.canvasContext.home(channelId)?.canvasId === canvas.id) store.canvasContext.clearHome(channelId, c.get('human').id);
     return c.body(null, 204);
   });
 

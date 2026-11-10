@@ -112,6 +112,14 @@ export function createCanvasContextStore(db: Database.Database) {
       audit('home.set', actor, { channelId, canvasId: value.canvasId, areaId: value.areaId });
     })();
   }
+  // Returns whether a home existed. The caller decides when a chat's home is gone (its card left the home canvas).
+  function clearHome(channelId: string, actor: string) {
+    return db.transaction(() => {
+      const had = db.prepare('DELETE FROM product_chat_home WHERE channel_id=?').run(channelId).changes > 0;
+      if (had) audit('home.cleared', actor, { channelId });
+      return had;
+    })();
+  }
   function homesIn(canvasId: string) {
     const rows = db.prepare('SELECT channel_id AS channelId, canvas_id AS canvasId, area_id AS areaId FROM product_chat_home WHERE canvas_id=? ORDER BY channel_id').all(canvasId) as (ChatHome & { channelId: string })[];
     return new Map(rows.map(r => [r.channelId, { canvasId: r.canvasId, areaId: r.areaId } as ChatHome]));
@@ -161,7 +169,7 @@ export function createCanvasContextStore(db: Database.Database) {
   }
 
   return {
-    get, setNotes, addFile, file, removeFile, canvasBytes, links, link, unlink, usedBy, home, setHome, homesIn,
+    get, setNotes, addFile, file, removeFile, canvasBytes, links, link, unlink, usedBy, home, setHome, clearHome, homesIn,
     storageKeysFor, storageKeysForArea, keyFor, saveKey, revokeKey, agentForKey, markSkillEnabled, skillEnabled,
   };
 }

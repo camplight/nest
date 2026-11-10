@@ -279,6 +279,21 @@ describe('canvas board against the unchanged engine', () => {
       expect(homeOf(a)).toEqual({ canvasId, areaId: areaB });
     });
 
+    it('clears the home when the chat leaves its home canvas, and keeps it when it leaves another', async () => {
+      await area(canvasId, 'A', 0, 0);
+      await place(owner, [{ channelId: a, x: 50, y: 50 }]);
+      const other = await second();
+      await call(owner, 'POST', `/api/canvases/${other}/cards`, { cards: [{ channelId: a, x: 20, y: 20 }] });
+      const onOther = (await cardOf(owner, other, a)).version;
+      expect((await call(owner, 'DELETE', `/api/canvases/${other}/cards/${a}?version=${onOther}`)).status).toBe(204);
+      expect(homeOf(a)).toEqual({ canvasId, areaId: expect.any(String) });
+      const onHome = (await cardOf(owner, canvasId, a)).version;
+      expect((await call(owner, 'DELETE', `/api/canvases/${canvasId}/cards/${a}?version=${onHome}`)).status).toBe(204);
+      expect(homeOf(a)).toBeNull();
+      const audit = product.store.db.prepare("SELECT payload_json FROM product_audit WHERE type='audit.canvas.context.home.cleared'").all();
+      expect(audit).toHaveLength(1);
+    });
+
     it('moves the home on request by a chat member only', async () => {
       const areaA = await area(canvasId, 'A', 0, 0);
       await place(owner, [{ channelId: a, x: 50, y: 50 }]);
