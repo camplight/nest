@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { ProductDb } from '@nest/db';
 import { CanvasConflictError, CanvasForbiddenError, CanvasLimitError } from '@nest/db';
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
+import { removeStored, type ContextFiles } from './context-files';
 import {
   DEFAULT_CARD_WIDTH, NewCanvasSchema, CanvasRenameSchema, CanvasSharingSchema, HiddenSchema, NewAreaSchema, AreaPatchSchema, PlaceCardsSchema, CardPatchSchema,
   type BoardCard, type Canvas, type CanvasArea, type CanvasBoard, type CanvasCardRow,
@@ -54,7 +55,7 @@ function forViewer(rows: CanvasCardRow[], channels: Channel[]) {
   });
 }
 
-export function registerCanvasRoutes(app: Hono, { store, orgops, enabled }: { store: ProductDb; orgops: OrgOpsClient; enabled: boolean }) {
+export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files }: { store: ProductDb; orgops: OrgOpsClient; enabled: boolean; files?: Pick<ContextFiles, 'remove'> }) {
   // `channels` is every chat the engine lists for the caller, archived ones included, read once per request.
   const routes = new Hono<{ Variables: { human: Human; channels: Channel[] } }>();
   const canvases = store.canvases;
@@ -135,11 +136,15 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled }: { st
     const input = parse(CanvasRenameSchema, await body(c));
     return c.json(canvases.rename(canvas.id, input.name, input.version, c.get('human').id));
   });
-  routes.delete('/api/canvases/:id', c => {
+  // Context files are unlinked only after the delete commits; their keys are read before the rows go.
+  const unlinkContext = async (storageKeys: string[]) => { if (files) await removeStored(files, storageKeys); };
+  routes.delete('/api/canvases/:id', async c => {
     const canvas = visible(c);
     const version = Number(c.req.query('version'));
     if (!c.req.query('version') || !Number.isInteger(version) || version < 0) throw new HTTPException(400, { message: 'version is required' });
+    const storageKeys = store.canvasContext.storageKeysFor(canvas.id);
     canvases.remove(canvas.id, version, c.get('human').id);
+    await unlinkContext(storageKeys);
     return c.body(null, 204);
   });
 
@@ -197,9 +202,12 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled }: { st
     const result = canvases.patchArea(canvas.id, c.req.param('areaId'), input, c.get('human').id, { moveCards });
     return c.json({ area: result.area, cards: forViewer(result.cards, c.get('channels')), areas: result.areas });
   });
-  routes.delete('/api/canvases/:id/areas/:areaId', c => {
+  routes.delete('/api/canvases/:id/areas/:areaId', async c => {
     const canvas = visible(c);
-    canvases.removeArea(canvas.id, c.req.param('areaId'), requiredVersion(c), c.get('human').id);
+    const version = requiredVersion(c);
+    const storageKeys = store.canvasContext.storageKeysForArea(c.req.param('areaId'));
+    canvases.removeArea(canvas.id, c.req.param('areaId'), version, c.get('human').id);
+    await unlinkContext(storageKeys);
     return c.body(null, 204);
   });
 

@@ -16,6 +16,8 @@ import { registerOnboardingRoutes, type PersonalAgentConfig } from './onboarding
 import { registerCommunityRoutes } from './community';
 import { registerProjectRoutes } from './projects';
 import { registerCanvasRoutes } from './canvases';
+import { registerCanvasContextRoutes } from './canvas-context';
+import { createContextFiles } from './context-files';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { Hono } from 'hono';
@@ -24,7 +26,7 @@ import { openProductDb, type ProductDb } from '@nest/db';
 import { BrandingSchema } from '@nest/schemas';
 import { createOrgOpsClient, productHeaders, type OrgOpsClient } from '@nest/orgops-client';
 
-export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string; canvasEnabled?: boolean } = {}) {
+export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string; canvasEnabled?: boolean; contextFilesDir?: string } = {}) {
   const store = config.store ?? openProductDb(config.dbPath ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_PRODUCT_DB_PATH ?? '.nest-product/nest.sqlite'));
   const orgops = config.orgops ?? createOrgOpsClient(config.orgopsUrl ?? process.env.ORGOPS_URL ?? 'http://127.0.0.1:8788');
   const app = new Hono();
@@ -81,7 +83,12 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN,
   });
   registerCommunityRoutes(app, {store, orgops});
-  registerCanvasRoutes(app, {store, orgops, enabled: config.canvasEnabled ?? process.env.NEST_ENABLE_CANVAS === '1'});
+  const canvasEnabled = config.canvasEnabled ?? process.env.NEST_ENABLE_CANVAS === '1';
+  // Context files stay out of the engine's files/ tree, which agents' shells can read.
+  const contextFiles = createContextFiles(config.contextFilesDir ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_CONTEXT_FILES_DIR ?? '.nest-product/context-files'));
+  // Before the canvas routes, whose /api/canvases/* catch-all would otherwise answer 404 first.
+  registerCanvasContextRoutes(app, {store, orgops, enabled: canvasEnabled, files: contextFiles});
+  registerCanvasRoutes(app, {store, orgops, enabled: canvasEnabled, files: contextFiles});
   // Unknown product endpoints do not fall through to a privileged service account.
   app.all('/api/branding/*', c => c.json({error: 'Not found'}, 404));
   const proxy = async (c: any) => {
