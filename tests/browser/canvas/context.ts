@@ -208,6 +208,14 @@ async function dragCardInto(page:Page,channelId:string,areaTitle:string){
 }
 type HomeBoard={cards:{channelId:string;x:number;y:number;home?:{isHere:boolean;label:string|null}|null}[]};
 const homeOf=async(h:ChatHarness,canvasId:string)=>(await call<HomeBoard>(h,'GET',`/api/canvases/${canvasId}/board`)).cards.find(card=>card.channelId===h.project.channelId);
+/** Polls the board through the API until the predicate holds (a page-side async predicate would never wait). */
+async function boardUntil(h:ChatHarness,canvasId:string,ok:(board:HomeBoard)=>boolean,what:string){
+  for(let attempt=0;attempt<100;attempt++){
+    if(ok(await call<HomeBoard>(h,'GET',`/api/canvases/${canvasId}/board`)))return;
+    await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  assert.fail(`board never reached: ${what}`);
+}
 
 await runChatTest('canvas homes: labels, Use this area\'s context and the drop warning with Undo',async h=>{
   const {page,base}=h, chat=h.project.channelId;
@@ -238,10 +246,7 @@ await runChatTest('canvas homes: labels, Use this area\'s context and the drop w
   await openCanvas(page,base,plan);
   assert.equal(await notice.getByText(WARNING,{exact:true}).count(),0);
   await dragCardInto(page,chat,'Launch');
-  await page.waitForFunction(async([id,channel])=>{
-    const board=await (await fetch(`/api/canvases/${id}/board`,{credentials:'include'})).json() as HomeBoard;
-    return board.cards.find(c=>c.channelId===channel)?.home?.label==='Launch';
-  },[plan,chat] as const);
+  await boardUntil(h,plan,board=>board.cards.find(c=>c.channelId===chat)?.home?.label==='Launch','home Launch');
   await card.waitFor();
   const before=(await homeOf(h,plan))!;
 
@@ -251,19 +256,15 @@ await runChatTest('canvas homes: labels, Use this area\'s context and the drop w
   assert.deepEqual((await homeOf(h,plan))!.home,{isHere:true,label:'Briefing'});
   await notice.getByRole('button',{name:'Undo',exact:true}).click();
   await notice.getByText(WARNING,{exact:true}).waitFor({state:'detached'});
-  await page.waitForFunction(async([id,channel,x,y])=>{
-    const board=await (await fetch(`/api/canvases/${id}/board`,{credentials:'include'})).json() as HomeBoard;
-    const found=board.cards.find(c=>c.channelId===channel);
-    return found?.x===x&&found?.y===y&&found.home?.label==='Launch';
-  },[plan,chat,before.x,before.y] as const);
+  await boardUntil(h,plan,board=>{
+    const found=board.cards.find(c=>c.channelId===chat);
+    return found?.x===before.x&&found?.y===before.y&&found.home?.label==='Launch';
+  },'card back at its place with home Launch');
   assert.deepEqual((await homeOf(h,plan))!.home,{isHere:true,label:'Launch'},'the home followed the card back');
   assert.equal(await card.getByText(/^context from/).count(),0);
   // A move into an area with no context changes the home but warns about nothing.
   await dragCardInto(page,chat,'Quiet');
-  await page.waitForFunction(async([id,channel])=>{
-    const board=await (await fetch(`/api/canvases/${id}/board`,{credentials:'include'})).json() as HomeBoard;
-    return board.cards.find(c=>c.channelId===channel)?.home?.label==='Quiet';
-  },[plan,chat] as const);
+  await boardUntil(h,plan,board=>board.cards.find(c=>c.channelId===chat)?.home?.label==='Quiet','home Quiet');
   await card.waitFor();
   assert.equal(await notice.getByText(WARNING,{exact:true}).count(),0,'no warning when the area has no context');
 
@@ -309,10 +310,7 @@ await runChatTest('canvas homes: labels, Use this area\'s context and the drop w
   assert.deepEqual((await homeOf(h,plan))!.home,{isHere:true,label:'Briefing'});
   await page.locator('.canvas-notice').getByRole('button',{name:'Undo',exact:true}).click();
   await page.locator(`.canvas-card[data-channel-id="${chat}"]`).waitFor({state:'detached'});
-  await page.waitForFunction(async([id,channel])=>{
-    const board=await (await fetch(`/api/canvases/${id}/board`,{credentials:'include'})).json() as HomeBoard;
-    return !board.cards.some(c=>c.channelId===channel);
-  },[plan,chat] as const);
+  await boardUntil(h,plan,board=>!board.cards.some(c=>c.channelId===chat),'card removed');
   // The home is gone: the next placement homes the chat where it lands, not in Briefing.
   await call(h,'POST',`/api/canvases/${study}/cards`,{cards:[{channelId:chat,x:40,y:100}]});
   assert.deepEqual((await homeOf(h,study))!.home,{isHere:true,label:'Study'});
