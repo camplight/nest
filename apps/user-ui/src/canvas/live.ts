@@ -1,5 +1,6 @@
 // Live card state for the canvas: seeds engine events over HTTP, takes realtime events from App's
 // WebSocket fan-out, and publishes one CardPulse per covered chat (board cards now, loose chats later).
+import {createServerClock, type ServerClock} from '../server-clock';
 import type {MentionNotification, SendMessage} from '@nest/schemas';
 import type {Agent,EventRow} from '../types';
 import {agentLifecycleStart,fetchAgentStarts,mergeAgentStarts,type AgentStarts} from '../chat/lifecycles';
@@ -21,6 +22,8 @@ type FetchJson = <T>(url: string) => Promise<T>;
 export type CanvasLiveOptions = {
   fetchJson: FetchJson;
   now(): number;
+  /** The shared server clock; a private one on `now` when omitted (tests). */
+  clock?: ServerClock;
   /** Schedules one coalesced recompute; requestAnimationFrame by default. */
   frame?(callback: () => void): void;
   intervalMs?: number;
@@ -65,7 +68,7 @@ export function nudgeMessage(channelId: string, name: string, id: string = crypt
 const samePulse = (a: CardPulse | undefined, b: CardPulse) => a !== undefined && JSON.stringify(a) === JSON.stringify(b);
 const sameNames = (a: string[] | undefined, b: string[]) => a !== undefined && a.length === b.length && a.every((name, i) => name === b[i]);
 
-export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS, doc = globalThis.document, win = globalThis.window}: CanvasLiveOptions): CanvasLive {
+export function createCanvasLive({fetchJson, now, clock = createServerClock(now), frame, intervalMs = REFRESH_MS, doc = globalThis.document, win = globalThis.window}: CanvasLiveOptions): CanvasLive {
   const schedule = frame ?? ((callback: () => void) => {
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(callback); else setTimeout(callback, 16);
   });
@@ -75,12 +78,7 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
   const signals = new Map<string, Map<string, EventRow>>();
   /** channel → event id → the classified app call. Never the tool's command or output. */
   const appEvents = new Map<string, Map<string, Inspected>>();
-  /**
-   * Engine timestamps are the server's. The browser clock is only used through this offset, which a live
-   * event sets (it was just created) and a seeded one can only raise (so a slow browser clock never runs behind).
-   */
-  let offset = 0;
-  const serverNow = () => now() + offset;
+  const serverNow = () => clock.serverNow();
   let cards = new Map<string, string[]>();
   let agents: Agent[] = [];
   let starts: AgentStarts = {};
@@ -122,7 +120,7 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
     const channelId = event.channelId;
     if (!channelId) return false;
     if (event.type.startsWith('tool.')) {
-      if (event.createdAt !== undefined) offset = Math.max(offset, event.createdAt - now());
+      if (event.createdAt !== undefined) clock.noteServerTime(event.createdAt);
       storeApp(channelId, event);
     }
     if (kindOf(event.type) >= 0) { storeEvent(channelId, event); return true; }
@@ -229,7 +227,7 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
     ingest(event) {
       if (!event?.id) return;
       // A realtime event was created a moment ago, so its stamp reads the server's clock.
-      if (event.createdAt !== undefined) offset = event.createdAt - now();
+      if (event.createdAt !== undefined) clock.noteServerTime(event.createdAt, {fresh: true});
       const start = agentLifecycleStart(event);
       if (start) {
         const merged = mergeAgentStarts(starts, {[start.agent]: start.at});

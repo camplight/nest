@@ -9,6 +9,10 @@ export function activity(event:EventRow):{title:string;tone:ActivityTone;icon:Ac
   const call=appCall(event);
   return call?{...base,title:`${call.agent} · ${call.appName} · ${call.action} · ${call.kind==='read'?'read':'changed'}`}:base;
 }
+function toolName(event:EventRow):string{
+  const tool=(event.payload as {tool?:unknown}|undefined)?.tool;
+  return typeof tool==='string'?tool:'Tool';
+}
 /** The app call a tool event is, if any. Classification is fail-safe: anything uncertain is a change. */
 function appCall(event:EventRow):Classified|null{
   return event.type.startsWith('tool.')?classifyToolEvent(event):null;
@@ -36,7 +40,7 @@ function baseActivity(event:EventRow):{title:string;tone:ActivityTone;icon:Activ
 export function activityDetails(event:EventRow){
   // App calls show tool, time, agent, read or change and the label only; never the command, arguments or output.
   const call=appCall(event);
-  if(call)return JSON.stringify({tool:'shell_run',time:event.createdAt===undefined?null:new Date(event.createdAt).toISOString(),agent:call.agent,kind:call.kind,label:call.label},null,2);
+  if(call)return JSON.stringify({tool:toolName(event),time:event.createdAt===undefined?null:new Date(event.createdAt).toISOString(),agent:call.agent,kind:call.kind,label:call.label},null,2);
   // Preserve the entire recorded payload, including process output and tool arguments.
   return JSON.stringify({event:event.type,source:event.source,payload:event.payload},null,2);
 }

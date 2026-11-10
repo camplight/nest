@@ -1,4 +1,5 @@
 import { apiUrl } from "./config";
+import { serverClock } from "./server-clock";
 
 const API_HEADERS = { "content-type": "application/json" };
 
@@ -12,6 +13,7 @@ export class ApiError extends Error {
 
 export async function apiFetch(path: string, init?: RequestInit) {
   const res = await fetch(apiUrl(path), { credentials: "include", ...init });
+  serverClock.noteResponseDate(res);
   if (!res.ok) {
     const text = await res.text();
     throw new ApiError(text || `Request failed: ${res.status}`, res.status);

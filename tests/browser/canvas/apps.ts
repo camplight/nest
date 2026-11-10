@@ -134,3 +134,18 @@ await runChatTest('chat apps bar: a phone keeps the composer on screen',async h=
   const width=await bar.evaluate(el=>({scroll:el.scrollWidth,client:el.clientWidth}));
   assert.ok(width.scroll<=width.client,'the bar does not scroll sideways');
 },{canvas:true,viewport:{width:375,height:700},hasTouch:true});
+
+await runChatTest('chat apps bar: the regular chat view, without the canvas flag',async h=>{
+  const {page}=h;
+  const bar=page.getByRole('region',{name:'Apps here',exact:true});
+  assert.equal(await bar.count(),0,'no bar before any app call');
+  await h.emit('tool.executed',{tool:'shell_run',args:{command:'node scripts/connections.mjs execute c1 GMAIL_FETCH_EMAILS < a.json'}});
+  await h.emit('tool.executed',{tool:'shell_run',args:{command:'node scripts/connections.mjs execute c1 GMAIL_SEND_EMAIL < a.json'}});
+  await bar.getByText('1 reads · 1 changes outside Nest',{exact:true}).waitFor();
+  await bar.locator('[title="Gmail: 1 reads · 1 changes"]').waitFor();
+  assert.equal(await bar.getByText('Codex and Claude Code agents',{exact:false}).count(),0);
+  // A reload seeds the bar from the chat's history.
+  await page.reload();
+  await bar.getByText('1 reads · 1 changes outside Nest',{exact:true}).waitFor();
+  assert.ok(!(await page.evaluate(()=>document.body.innerHTML)).includes('a.json'));
+});

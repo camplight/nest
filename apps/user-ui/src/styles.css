@@ -1780,8 +1780,10 @@ button {
 .apps-here-chip .connection-app-logo svg { width:14px; height:14px; }
 .apps-here-name { font-weight:500; }
 .apps-here-count { min-width:1.2em; text-align:center; font-variant-numeric:tabular-nums; color:var(--nest-muted); }
-.apps-here-chip.is-live { border-color:var(--nest-forest); }
-.apps-here-chip.is-live::after { content:""; position:absolute; top:-3px; right:-3px; width:7px; height:7px; border-radius:50%; background:var(--nest-forest); box-shadow:0 0 0 2px var(--nest-surface); }
+.apps-here-chip.is-live { border-color:#1f7f6c; }
+:root[data-theme="dark"] .apps-here-chip.is-live { border-color:#4fc3a8; }
+.apps-here-chip.is-live::after { content:""; position:absolute; top:-3px; right:-3px; width:7px; height:7px; border-radius:50%; background:#1f7f6c; box-shadow:0 0 0 2px var(--nest-surface); }
+:root[data-theme="dark"] .apps-here-chip.is-live::after { background:#4fc3a8; }
 .apps-here-total { color:var(--nest-muted); }
 .apps-here-limit { flex-basis:100%; margin:0; color:var(--nest-muted); }
 @media (prefers-reduced-motion: no-preference) { .apps-here-chip.is-live::after { animation:apps-here-pulse 1.6s ease-in-out infinite; } }

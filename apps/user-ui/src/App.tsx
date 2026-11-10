@@ -29,6 +29,8 @@ import { CanvasView, type CanvasChatMode } from "./canvas/CanvasView";
 import { outsideFileDropTargets } from "./components/file-drop";
 import { canvasAvailability } from "./canvas/api";
 import { usePhoneLayout } from "./canvas/PhoneList";
+import { unseenAppAgents } from "./chat/wrapped";
+import { serverClock } from "./server-clock";
 import { createCanvasLive, type CanvasLive } from "./canvas/live";
 import type { Project } from "@nest/schemas";
 import { Projects } from "./Projects";
@@ -354,7 +356,7 @@ export default function App() {
   const chatVisibleRef = useRef(false);
   // One live card store per session; CanvasView starts and stops its refresh.
   const canvasLiveRef = useRef<CanvasLive | null>(null);
-  canvasLiveRef.current ??= createCanvasLive({ fetchJson: apiJson, now: Date.now });
+  canvasLiveRef.current ??= createCanvasLive({ fetchJson: apiJson, now: Date.now, clock: serverClock });
   const canvasViewRef = useRef(false);
   canvasViewRef.current = view === "canvas";
   // A chat open over or beside the canvas is as visible as the workspace one: live events, seen and unread follow it.
@@ -571,7 +573,7 @@ export default function App() {
   const isSearchingChannels = Boolean(channelQuery.trim());
   const activeChannelManageable = canManageUserChannel(activeChannel, userId);
   const activeChannelCanPost = activeChannel ? activeChannel.canPost !== false : false;
-  const wrappedParticipants = (activeChannel?.participants ?? []).filter(p => p.subscriberType === "AGENT" && agents.some(agent => agent.name === p.subscriberId && agent.mode === "WRAPPED")).map(p => p.subscriberId);
+  const wrappedParticipants = useMemo(() => unseenAppAgents(activeChannel?.participants, agents), [activeChannel?.participants, agents]);
   const activeConversationName = activeChannel ? projectIndex.find(project => project.channelId === activeChannel.id)?.name ?? channelLabel(activeChannel, username) : "";
   const mentionProject=projectIndex.find(project=>project.channelId===activeChannelId);
   const canInviteMention=activeChannelManageable&&(!mentionProject||mentionProject.ownerId===userId);
@@ -954,6 +956,8 @@ export default function App() {
     if (!event.id) return;
     const core = channelEventsRef.current;
     core.observeLifecycle(event);
+    // A realtime tool event was created a moment ago: it reads the server's clock, in either direction.
+    if (event.type.startsWith("tool.") && event.createdAt !== undefined) serverClock.noteServerTime(event.createdAt, { fresh: true });
     // Before the duplicate check: a status republish of a turn event still updates the card pulse.
     if (canvasViewRef.current) canvasLiveRef.current?.ingest(event);
     // Only a first sighting counts for unread and nest-message; a status republish just updates the store.

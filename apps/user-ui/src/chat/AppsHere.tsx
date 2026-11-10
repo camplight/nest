@@ -1,6 +1,7 @@
 // "Apps here": which outside apps this chat's agents used, and how many calls read or changed something there.
 // Works from the chat's engine tool.* events in the browser; Nest keeps no copy. Only app names and counts are shown.
-import {useEffect,useMemo,useRef,useState} from 'react';
+import {useEffect,useMemo,useState} from 'react';
+import {serverClock,type ServerClock} from '../server-clock';
 import {foldCalls,summarise,type AppCall} from '../app-activity';
 import {IntegrationLogo} from '../components/IntegrationLogo';
 import type {EventRow} from '../types';
@@ -27,23 +28,30 @@ export function AppsHere({calls,wrappedAgents}:{calls:AppCall[];wrappedAgents:st
  </section>;
 }
 
+/** What the loaded tool events teach the clock: history can only raise the offset. */
+export function noteToolTimes(tools:EventRow[],clock:ServerClock):void{
+ const newest=tools.reduce((latest,event)=>Math.max(latest,event.createdAt??0),0);
+ if(newest)clock.noteServerTime(newest);
+}
+/** The calls at server time `now`: a call still running 10 minutes on turns failed, even with no new events. */
+export function chatCalls(tools:EventRow[],now:number):AppCall[]{
+ return foldCalls(tools,now);
+}
+
 /**
- * The bar for a chat's loaded events (history pages plus live ones). Engine timestamps are the server's, so the
- * browser clock is used only through an offset that can only be raised by what the events show; a timer re-folds
- * so a call that never finished turns failed after 10 minutes even when the chat is quiet.
+ * The bar for a chat's loaded events (history pages plus live ones). Time is the shared server clock; a timer
+ * re-reads it while any call is running, so a call that never finished turns failed after 10 minutes in a quiet chat.
  */
-export function ChatAppsHere({events,wrappedAgents}:{events:EventRow[];wrappedAgents:string[]}):JSX.Element|null{
+export function ChatAppsHere({events,wrappedAgents,clock=serverClock}:{events:EventRow[];wrappedAgents:string[];clock?:ServerClock}):JSX.Element|null{
  const tools=useMemo(()=>events.filter(event=>event.type.startsWith('tool.')),[events]);
- const [tick,setTick]=useState(0);
- const offset=useRef(0);
- const newest=useMemo(()=>tools.reduce((latest,event)=>Math.max(latest,event.createdAt??0),0),[tools]);
- if(newest)offset.current=Math.max(offset.current,newest-Date.now());
- const live=tools.some(event=>event.type==='tool.started');
+ const [now,setNow]=useState(()=>clock.serverNow());
+ useEffect(()=>{noteToolTimes(tools,clock);setNow(clock.serverNow());},[tools,clock]);
+ const calls=useMemo(()=>chatCalls(tools,now),[tools,now]);
+ const running=calls.some(call=>call.state==='running');
  useEffect(()=>{
-  if(!live)return;
-  const timer=setInterval(()=>setTick(value=>value+1),TICK_MS);
+  if(!running)return;
+  const timer=setInterval(()=>setNow(clock.serverNow()),TICK_MS);
   return()=>clearInterval(timer);
- },[live]);
- const calls=useMemo(()=>foldCalls(tools,Date.now()+offset.current),[tools,tick]);
+ },[running,clock]);
  return <AppsHere calls={calls} wrappedAgents={wrappedAgents}/>;
 }
