@@ -688,3 +688,9 @@ and https://openrouter.ai/z-ai/glm-5.3 .
 ### Trusted invitations for visible agents
 
 Project owners may invite agents already visible through their human-scoped engine session, including private agents owned by teammates outside the onboarding directory. The mention picker applies the same rule. Project/channel management checks remain required; agent ownership, private history, credentials and settings are unchanged. The engine rechecks access when subscribing.
+
+### Project entry and navigation
+
+Explicit workspace views on legacy `/onboarding` URLs take precedence over setup and normalize to `/`, preserving project, tab and message parameters. Bare onboarding URLs and setup OAuth returns retain their existing behavior. Chat/Files navigation belongs beneath the project title, outside the details sidebar. The sidebar no longer duplicates Sharing, and long descriptions can be expanded without moving project navigation. Project membership and permission rules are unchanged.
+
+Google login preserves workspace destinations in tab-local session storage for up to ten minutes. After authentication (and any required password change), a root callback restores the original project/channel, section and focused message. Explicit new destinations take precedence; only local workspace paths are accepted. Password login retains its current URL. Membership checks still apply after restoration.
