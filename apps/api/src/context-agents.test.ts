@@ -408,6 +408,90 @@ describe('agent context keys and reads against the unchanged engine', () => {
       expect(JSON.stringify(product.store.db.prepare('SELECT * FROM product_audit').all())).not.toContain('nest_context_');
     });
 
+    describe('a move never creates a home (R19)', () => {
+      const homeOf = (channelId: string) => product.store.canvasContext.home(channelId);
+      const boardOf = async (canvasId: string) => (await call(owner, 'GET', `/api/canvases/${canvasId}/board`)).json();
+      const move = async (canvasId: string, channelId: string, x: number, y: number) => {
+        const version = (await boardOf(canvasId)).cards.find((card: any) => card.channelId === channelId).version;
+        const res = await call(owner, 'PATCH', `/api/canvases/${canvasId}/cards/${channelId}`, { x, y, version });
+        expect(res.status).toBe(200);
+        return res.json();
+      };
+      // A private canvas of the owner's, with notes on the canvas and in an area, that the chat is also placed on.
+      async function privateBoard(channelId: string) {
+        const y = await canvas('Private board');
+        const p = await area(y, 'Private area');
+        await notes(`/api/canvases/${y}/context`, 'Private canvas notes');
+        await notes(`/api/canvases/${y}/areas/${p}/context`, 'Private P notes');
+        await place(y, channelId, 600, 600);
+        return { y, p };
+      }
+      const expectNoContext = async (key: string, channelId: string) => {
+        const res = await read(key, channelId);
+        expect(res.status).toBe(200);
+        const text = await res.text();
+        expect(JSON.parse(text)).toEqual({ canvas: null, area: null, linked: [] });
+        expect(text).not.toContain('Private');
+      };
+
+      it('after the home canvas is deleted, a member moving the card on a private canvas sets no home', async () => {
+        const launch = await chat('Launch', ['Pip']);
+        const x = await canvas('Roadmap');
+        await area(x, 'Alpha');
+        await place(x, launch);
+        await notes(`/api/canvases/${x}/context`, 'Canvas notes');
+        const key = (await secretOf('Pip'))!;
+        expect(key).toMatch(KEY);
+        const { y } = await privateBoard(launch);
+        expect(homeOf(launch)).toMatchObject({ canvasId: x });
+
+        const version = ((await (await call(owner, 'GET', '/api/canvases')).json()) as { id: string; version: number }[]).find(c => c.id === x)!.version;
+        expect((await call(owner, 'DELETE', `/api/canvases/${x}?version=${version}`)).status).toBe(204);
+        expect(homeOf(launch)).toBeNull();
+
+        const moved = await move(y, launch, 10, 10);
+        expect(homeOf(launch)).toBeNull();
+        expect(moved.home).toBeNull();
+        await expectNoContext(key, launch);
+      });
+
+      it('after the card leaves its home canvas, a move elsewhere sets no home but a placement does', async () => {
+        const launch = await chat('Launch', ['Pip']);
+        const x = await canvas('Roadmap');
+        await place(x, launch);
+        await notes(`/api/canvases/${x}/context`, 'Canvas notes');
+        const key = (await secretOf('Pip'))!;
+        const { y } = await privateBoard(launch);
+        const onHome = (await boardOf(x)).cards.find((card: any) => card.channelId === launch).version;
+        expect((await call(owner, 'DELETE', `/api/canvases/${x}/cards/${launch}?version=${onHome}`)).status).toBe(204);
+        expect(homeOf(launch)).toBeNull();
+
+        await move(y, launch, 10, 10);
+        expect(homeOf(launch)).toBeNull();
+        await expectNoContext(key, launch);
+
+        // A placement on another canvas is a first placement, so it sets the home there.
+        const z = await canvas('Fresh');
+        const f = await area(z, 'Fresh area');
+        await place(z, launch);
+        expect(homeOf(launch)).toEqual({ canvasId: z, areaId: f });
+      });
+
+      it('a card with no home row (placed before migration 012) gets none from a move', async () => {
+        const launch = await chat('Launch', ['Pip']);
+        const x = await canvas('Roadmap');
+        await area(x, 'Alpha');
+        await notes(`/api/canvases/${x}/context`, 'Canvas notes');
+        await place(x, launch);
+        const key = (await secretOf('Pip'))!;
+        product.store.db.prepare('DELETE FROM product_chat_home WHERE channel_id=?').run(launch);
+
+        await move(x, launch, 20, 20);
+        expect(homeOf(launch)).toBeNull();
+        await expectNoContext(key, launch);
+      });
+    });
+
     it('rate-limits each key to 60 requests a minute', async () => {
       const launch = await chat('Launch', ['Pip']);
       const x = await canvas('Roadmap');

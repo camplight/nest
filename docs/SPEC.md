@@ -844,8 +844,12 @@ Everything is behind `NEST_ENABLE_CANVAS=1`; with the flag off the new routes an
 3. A chat's home. A chat's first placement on any canvas by one of its human members
    sets its home: that canvas plus the area under the card's centre (or none). On the
    home canvas the home area follows the card when a chat member moves it; a move by
-   someone outside the chat leaves the home alone. Removing the card from its home
-   canvas clears the home, and the next member placement sets a new one. Dropping a
+   someone outside the chat leaves the home alone. Only a placement (a card newly put
+   on a canvas with `POST …/cards`) can give a chat with no home its first home; a
+   move never does. A chat has no home after its home canvas is deleted, after its
+   card is removed from the home canvas, or when it was placed before migration 012;
+   moving its card anywhere leaves it without one until a member places it on another
+   canvas or uses "Use this area's context". Dropping a
    card onto an area with context shows "Everyone in these chats, including their
    agents, can see this." with Undo. Context other canvases hold for a chat placed
    there is never read by its agents; only the home counts.

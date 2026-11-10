@@ -27,10 +27,15 @@ export type ContextSummary = {
 /** An agent in a chat homed in an area, and whether it can read context there. */
 export type ContextReader = { agentName: string; state: 'ready' | 'wrapped' | 'unconfigured' };
 
-/** The new home after a card move, or null when the home stays as it is. */
-export function homeAfterMove(current: ChatHome | null, move: { canvasId: string; areaId: string | null; byMember: boolean }): ChatHome | null {
+/**
+ * The new home after a card placement or move, or null when the home stays as it is. Only a member's
+ * placement (`placement: true`) can give a homeless chat its first home; a move never creates one (R19).
+ */
+export function homeAfterMove(
+  current: ChatHome | null, move: { canvasId: string; areaId: string | null; byMember: boolean; placement: boolean },
+): ChatHome | null {
   if (!move.byMember) return null;
-  if (!current) return { canvasId: move.canvasId, areaId: move.areaId };
+  if (!current) return move.placement ? { canvasId: move.canvasId, areaId: move.areaId } : null;
   if (current.canvasId !== move.canvasId) return null;
   return { canvasId: move.canvasId, areaId: move.areaId };
 }

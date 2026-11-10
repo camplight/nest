@@ -244,11 +244,12 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
     return c.body(null, 204);
   });
 
-  // The home follows a chat member's placement or move; anyone else leaves it alone. Returns whether it changed.
-  function saveHome(canvasId: string, row: CanvasCardRow, areas: CanvasArea[], channel: Channel | undefined, human: Human) {
+  // The home follows a chat member's placement or move; anyone else leaves it alone. Only a placement can
+  // give a homeless chat a home (R19). Returns whether it changed.
+  function saveHome(canvasId: string, row: CanvasCardRow, areas: CanvasArea[], channel: Channel | undefined, human: Human, placement: boolean) {
     const area = areaFor({ x: row.x + row.w / 2, y: row.y + CARD_HEIGHT / 2 }, areas);
     const current = store.canvasContext.home(row.channelId);
-    const next = homeAfterMove(current, { canvasId, areaId: area?.id ?? null, byMember: isChatMember(channel, human) });
+    const next = homeAfterMove(current, { canvasId, areaId: area?.id ?? null, byMember: isChatMember(channel, human), placement });
     if (next) store.canvasContext.setHome(row.channelId, next, human.id);
     return Boolean(next) && (next!.canvasId !== current?.canvasId || next!.areaId !== current?.areaId);
   }
@@ -271,6 +272,8 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
     const byId = new Map(c.get('channels').filter(ch => !ch.archivedAt).map(ch => [ch.id, ch]));
     if (input.cards.some(card => !byId.has(card.channelId))) throw new HTTPException(400, { message: 'Some chats are not available to you' });
     const projects = store.projects.byChannels(input.cards.map(card => card.channelId));
+    // Cards already on this canvas are not placed again, so only the new ones count as a placement.
+    const before = new Set(canvases.cards(canvas.id).map(row => row.channelId));
     const names = new Map((await people(c.req.raw.headers)).map(h => [h.id, h.username]));
     canvases.placeCards(canvas.id, input.cards.map(card => ({
       channelId: card.channelId, x: card.x, y: card.y, w: card.w ?? DEFAULT_CARD_WIDTH,
@@ -280,7 +283,8 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
     // A member's first placement gives the chat its home; later placements follow the move rule.
     const areas = canvases.areas(canvas.id);
     const changed = canvases.cards(canvas.id)
-      .filter(row => input.cards.some(card => card.channelId === row.channelId) && saveHome(canvas.id, row, areas, byId.get(row.channelId), human))
+      .filter(row => input.cards.some(card => card.channelId === row.channelId)
+        && saveHome(canvas.id, row, areas, byId.get(row.channelId), human, !before.has(row.channelId)))
       .map(row => row.channelId);
     await homesChanged(changed);
     return c.json(buildBoard(human, c.get('channels'), canvas.id), 201);
@@ -290,7 +294,7 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
     const input = parse(CardPatchSchema, await body(c));
     const human = c.get('human');
     const row = canvases.moveCard(canvas.id, c.req.param('channelId'), input, human.id);
-    if (saveHome(canvas.id, row, canvases.areas(canvas.id), c.get('channels').find(ch => ch.id === row.channelId), human)) await homesChanged([row.channelId]);
+    if (saveHome(canvas.id, row, canvases.areas(canvas.id), c.get('channels').find(ch => ch.id === row.channelId), human, false)) await homesChanged([row.channelId]);
     // The move may have changed the chat's home, so the answer carries the card's current home label.
     const moved = forViewer([row], c.get('channels'))[0];
     const open = c.get('channels').some(ch => ch.id === row.channelId);
