@@ -24,6 +24,16 @@ async function engineHasPip(h:ChatHarness,channelId:string,expected:boolean){
   }
   assert.equal(has,expected,`engine lists ${agentName} as an AGENT participant: ${expected}`);
 }
+/** The picker's rows, once they settle on exactly these agent names (order ignored). */
+async function expectRows(rows:Locator,names:string[]){
+  let seen:string[]=[];
+  for(let attempt=0;attempt<50;attempt++){
+    seen=(await rows.evaluateAll(list=>list.map(row=>row.getAttribute('data-agent')??''))).sort();
+    if(seen.join('\n')===names.join('\n'))return;
+    await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  assert.deepEqual(seen,names);
+}
 async function canvasWith(h:ChatHarness,cards:{channelId:string;x:number;y:number}[],areas:{title:string;x:number;y:number;w:number;h:number}[]=[]){
   const {id}=await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Agents board'});
   await call(h,'POST',`/api/canvases/${id}/cards`,{cards});
@@ -112,10 +122,20 @@ await runChatTest('canvas agents: All agents finds Pip, filters by owner and are
   await rows.first().waitFor();
   assert.equal(await rows.count(),30,'the picker lists every agent');
 
-  // The engine gives only private agents an owner: these 30 public agents are all the team's.
-  await picker.getByRole('radio',{name:'Yours',exact:true}).check();
-  await picker.getByText('No agents match.',{exact:true}).waitFor();
-  await picker.getByRole('radio',{name:'Team',exact:true}).check();
+  // The engine makes the creating human an agent's owner, public or private, so the owner filters
+  // follow the engine's ownerHumanId; the side with no agents says so.
+  const agents=await call<{name:string;ownerHumanId:string|null}[]>(h,'GET','/api/agents');
+  const me=agents.find(agent=>agent.name==='Helper 01')!.ownerHumanId;
+  assert.ok(me,'the creating human owns the agents it created');
+  const yours=agents.filter(agent=>agent.ownerHumanId===me).map(agent=>agent.name).sort();
+  const team=agents.filter(agent=>agent.ownerHumanId!==me).map(agent=>agent.name).sort();
+  assert.ok(yours.includes('Helper 01'),'agents this human created are yours');
+  for(const [label,names] of [['Yours',yours],['Team',team]] as const){
+    await picker.getByRole('radio',{name:label,exact:true}).check();
+    await expectRows(rows,names);
+    if(!names.length)await picker.getByText('No agents match.',{exact:true}).waitFor();
+  }
+  await picker.getByRole('radio',{name:'All',exact:true}).check();
   assert.equal(await rows.count(),30);
 
   await picker.getByLabel('Area',{exact:true}).selectOption({label:'Review'});
