@@ -817,8 +817,18 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    agents have been set up). Types are in `packages/schemas/src/canvas-context.ts`.
    Context files are stored under `NEST_CONTEXT_FILES_DIR` (default
    `.nest-product/context-files`), never in the engine's `files/` tree, which agents'
-   shells can read. Back that directory up together with the product DB snapshot;
-   the DB rows alone do not restore the files.
+   shells can read through the engine's tools. Back that directory up together with
+   the product DB snapshot; the DB rows alone do not restore the files. The DevOps
+   controller (`deploy/devops/nest-ops.py`) copies it next to the product snapshot on
+   each deploy and restores it on rollback.
+
+   Confinement limit: every per-chat rule here (home, home availability, links,
+   membership, keys) is enforced at Nest's HTTP layer only. The default deployment
+   runs the API, the engine and the runner in one container (or on one host) with no
+   OS sandbox, so a native agent's shell can read the product DB and `context-files/`
+   directly and bypass those checks. Until agents run on separate runner hosts (the
+   design's decision), treat everything in context as readable by any agent that runs
+   on the same host as Nest.
 
 2. Context routes (signed-in people; read needs access to the canvas, writes need
    `edit`; no engine event is created):
@@ -853,17 +863,22 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    move never does. A chat has no home after its home canvas is deleted, after its
    card is removed from the home canvas, or when it was placed before migration 012;
    moving its card anywhere leaves it without one until a member places it on another
-   canvas or uses "Use this area's context". A home is unavailable while the person
-   who set it (the member whose placement, move or "Use this area's context" last set
-   it) cannot read its canvas, the same rule as a link's linker: agents then read
+   canvas or uses "Use this area's context". A move or placement that newly makes this
+   canvas a chat's home warns ("Everyone in these chats, including their agents, can
+   see this.", with Undo) when the canvas has notes or files, even outside any area,
+   or the area under the card has context; a move within the home canvas warns only
+   for the new area's context. The context panel shows the same warning when a card
+   is in the scope, or when any chat's available home reads it, including chats homed
+   in areas that link to this area (`inChats` on the context read).
+
+   A home is unavailable while the person who set it (the member whose placement,
+   move or "Use this area's context" last set it) cannot read its canvas, the same rule as a link's linker: agents then read
    `{canvas:null, area:null, linked:[]}` for the chat, its home's files answer 404,
    the area's readers leave it out, and the board gives the card
    `home: {isHere:false, label:null, available:false}`, shown as "context unavailable"
    with the link's `unavailable` tag. It is checked on every read, with no cache, and a
    member re-homing the chat (a move on the home canvas or "Use this area's context")
-   makes it available again. Dropping a
-   card onto an area with context shows "Everyone in these chats, including their
-   agents, can see this." with Undo. Context other canvases hold for a chat placed
+   makes it available again. Context other canvases hold for a chat placed
    there is never read by its agents; only the home counts.
 
 4. Agent keys and the skill. The first time a native agent is in a chat whose home
@@ -871,7 +886,11 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    stores only its sha256, installs the key as the agent's private engine secret
    `NEST_CONTEXT_TOKEN` (`POST /api/secrets`, `scopeType:'private'`) and adds
    `nest-context` to the agent's `enabledSkills` (`PATCH /api/agents/:name`), both
-   with Nest's service token. A failed setup revokes the key and retries later.
+   with Nest's service token. A failed setup revokes the key and retries a minute
+   later; `audit.canvas.context.agent_setup_failed` is written once when an agent
+   moves into the failed state, not on each retry, and again only after a success.
+   A context write or home change waits at most about 2 seconds for setup, then
+   answers while setup finishes in the background.
    Wrapped agents (Codex, Claude Code) get no key because their harness does not
    load engine skills; the panel says
    "<name> can't read context yet (wrapped agent)." The skill is `skills/nest-context`
