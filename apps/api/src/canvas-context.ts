@@ -8,13 +8,17 @@ import { CanvasConflictError, CanvasForbiddenError, CanvasLimitError } from '@ne
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
 import {
   areaFor, CARD_HEIGHT, ContextLinkSchema, ContextNotesSchema, MAX_CONTEXT_BYTES_PER_CANVAS, MAX_CONTEXT_FILE_BYTES, MAX_MESSAGE_ATTACHMENTS,
-  type Canvas, type ContextFile, type ContextLink, type ContextScope, type ScopeContext,
+  type Canvas, type ContextFile, type ContextLink, type ContextReader, type ContextScope, type ContextSummary, type ScopeContext,
 } from '@nest/schemas';
 import { ContextFileTooLargeError, removeStored, type ContextFiles } from './context-files';
 
 /** Agent setup (see context-agents.ts): context writes and home changes call `ensureAgents` for the chats they affect. */
 export type ContextAgents = {
+  /** False when Nest has no engine service token, so no agent can be given a context key. */
+  configured: boolean;
   ensureAgents(channelIds: string[]): Promise<void>;
+  /** The agents in these chats and whether each can read context. */
+  readers(channelIds: string[]): Promise<ContextReader[]>;
   /** Chats among these (already loaded) channels that still have an agent to set up; answers without calling the engine. */
   pending(channels: { id: string; archivedAt?: number | null; participants?: { subscriberType: string; subscriberId: string }[]; metadata?: unknown }[]): string[];
 };
@@ -25,6 +29,7 @@ export function isChatMember(channel: { ownerHumanId?: string | null; participan
     || Boolean(channel.participants?.some(p => p.subscriberType === 'HUMAN' && p.subscriberId === human.username));
 }
 type Env = { Variables: { human: Human } };
+type ViewerChannel = { id: string; participants?: { subscriberType: string; subscriberId: string }[] };
 
 const uuid = z.string().uuid();
 const MiB = 1024 * 1024;
@@ -148,13 +153,17 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     }
   };
 
+  // A source area is named only to viewers who can read its canvas.
+  const linksFor = (areaId: string, viewerId: string) => linkSources(store, areaId).map(({ sourceAreaId, source, available }): ContextLink => {
+    const readable = canvases.get(source.canvasId, viewerId);
+    return { sourceAreaId, title: readable ? source.title : 'Unavailable area', canvasName: readable ? readable.name : null, available };
+  });
+  const filled = (scope: ContextScope) => { const saved = context.get(scope); return saved.notes.length > 0 || saved.files.length > 0; };
+
   function scopeContext(scope: ContextScope, viewerId: string): ScopeContext {
     const saved = context.get(scope);
     if (scope.kind === 'canvas') return { ...saved, links: [], usedBy: [] };
-    const links = linkSources(store, scope.areaId).map(({ sourceAreaId, source, available }): ContextLink => {
-      const readable = canvases.get(source.canvasId, viewerId);
-      return { sourceAreaId, title: readable ? source.title : 'Unavailable area', canvasName: readable ? readable.name : null, available };
-    });
+    const links = linksFor(scope.areaId, viewerId);
     const usedBy = context.usedBy(scope.areaId).map(use => ({
       areaId: use.areaId,
       title: canvases.get(use.canvasId, viewerId) ? areaById(store, use.areaId)?.title ?? null : null,
@@ -251,6 +260,21 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     return c.body(null, 204);
   };
 
+  // The board's chips and context dots in one request, rather than one context read per area.
+  routes.get('/api/canvases/:id/context/summary', c => {
+    const canvas = canvasOf(c);
+    const viewerId = c.get('human').id;
+    const summary: ContextSummary = {
+      areas: canvases.areas(canvas.id).map(area => ({
+        areaId: area.id,
+        hasContext: filled({ kind: 'area', canvasId: canvas.id, areaId: area.id }),
+        links: linksFor(area.id, viewerId).map(({ sourceAreaId, title, available }) => ({ sourceAreaId, title, available })),
+      })),
+      canvas: { hasContext: filled({ kind: 'canvas', canvasId: canvas.id }) },
+    };
+    return c.json(summary);
+  });
+
   routes.get('/api/canvases/:id/context', read);
   routes.put('/api/canvases/:id/context', writeNotes);
   routes.post('/api/canvases/:id/context/files', uploadFiles);
@@ -267,6 +291,21 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
   routes.put('/api/canvases/:id/areas/:areaId/context', writeNotes);
   routes.post('/api/canvases/:id/areas/:areaId/context/files', uploadFiles);
   routes.delete('/api/canvases/:id/areas/:areaId/context/files/:fileId', deleteFile);
+
+  // Who can read this area's context: the agents in the chats homed here that the viewer can see in the engine.
+  routes.get('/api/canvases/:id/areas/:areaId/context/readers', async c => {
+    const canvas = canvasOf(c);
+    const scope = scopeOf(c, canvas) as Extract<ContextScope, { kind: 'area' }>;
+    const homed = [...context.homesIn(canvas.id)].filter(([, home]) => home.areaId === scope.areaId).map(([channelId]) => channelId);
+    if (!homed.length) return c.json([]);
+    const visible = new Map((await orgops.humanJson<ViewerChannel[]>('/api/channels', c.req.raw.headers)).map(channel => [channel.id, channel]));
+    const channelIds = homed.filter(id => visible.has(id));
+    if (agents?.configured) return c.json(await agents.readers(channelIds));
+    // Without agent setup nobody can be given a key: every agent in these chats is unconfigured.
+    const names = [...new Set(channelIds.flatMap(id => (visible.get(id)?.participants ?? [])
+      .filter(p => p.subscriberType === 'AGENT').map(p => p.subscriberId)))].sort();
+    return c.json(names.map((agentName): ContextReader => ({ agentName, state: 'unconfigured' })));
+  });
 
   routes.post('/api/canvases/:id/areas/:areaId/context/links', async c => {
     const canvas = canvasOf(c);

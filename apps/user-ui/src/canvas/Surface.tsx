@@ -3,7 +3,7 @@
 import {useCallback,useEffect,useLayoutEffect,useMemo,useReducer,useRef,useState,type DragEvent as ReactDragEvent,type MutableRefObject,type PointerEvent as ReactPointerEvent} from 'react';
 import {CARD_HEIGHT,CanvasTint,areaFor,type BoardCard,type CanvasArea,type CanvasBoard} from '@nest/schemas';
 import type {BoardOp} from './board-store';
-import {Area,type AreaSummary} from './Area';
+import {Area,type AreaContext,type AreaSummary} from './Area';
 import {Card} from './Card';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {areaSummaries,type CardPulse} from './pulse';
@@ -33,6 +33,10 @@ export type SurfaceProps = {
   /** A press on a card selects it (the agent tray suggests for the selected card). */
   onSelectCard?(channelId: string): void;
   selectedChannelId?: string | null;
+  /** Each area's context markers (dot and `↳` chips), from one summary request per board load. */
+  areaContext?: ReadonlyMap<string, AreaContext>;
+  /** Opens an area's context panel. */
+  onAreaContext?(areaId: string): void;
 };
 export type SurfaceControls = {
   /** The canvas point at the centre of the viewport. */
@@ -89,7 +93,7 @@ const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + b.y) / 2});
 
 export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null,
-  onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null}: SurfaceProps) {
+  onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
   // Without a known human the view is not remembered, so it can never land under another person's key.
   const key = humanId ? viewKey(humanId, board.canvas.id) : null;
@@ -458,6 +462,13 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     void applyRef.current({kind: 'deleteArea', areaId});
   }, []);
 
+  // A hovered or focused `↳` chip draws a dotted line to its source area when that area is on this canvas.
+  const [linkHover, setLinkHover] = useState<{from: string; to: string} | null>(null);
+  const hoverLink = useCallback((areaId: string, sourceAreaId: string | null) =>
+    setLinkHover(current => sourceAreaId ? {from: areaId, to: sourceAreaId} : current?.from === areaId ? null : current), []);
+  const areaContextRef = useRef(onAreaContext); areaContextRef.current = onAreaContext;
+  const openAreaContext = useCallback((areaId: string) => areaContextRef.current?.(areaId), []);
+
   const nudgeRef = useRef(onNudge); nudgeRef.current = onNudge;
   const nudge = useCallback(async (channelId: string, agent: string) => { await nudgeRef.current?.(channelId, agent); }, []);
   const openRef = useRef(onOpenChat); openRef.current = onOpenChat;
@@ -500,6 +511,10 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   const areaShift = (area: CanvasArea) =>
     preview?.kind === 'area' && (preview.id === area.id || preview.areas.has(area.id)) ? preview : null;
 
+  // A removed link draws nothing, even when its chip went away under the pointer.
+  const linked = linkHover && areaContext?.get(linkHover.from)?.links.some(l => l.sourceAreaId === linkHover.to);
+  const linkFrom = linked ? board.areas.find(a => a.id === linkHover.from) : undefined;
+  const linkTo = linkHover ? board.areas.find(a => a.id === linkHover.to) : undefined;
   const tile = TWIG_TILE * view.zoom;
   const classes = ['canvas-surface', tool === 'area' ? 'is-drawing' : '', spaceHeld ? 'is-panning-key' : '', preview ? 'is-gesturing' : ''].filter(Boolean).join(' ');
   return <div
@@ -529,8 +544,10 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
         const shift = areaShift(area), resize = preview?.kind === 'resize' && preview.id === area.id ? preview : null;
         if (!shift && !resize && !shownAreas.has(area.id)) return null;
         return <Area key={area.id} area={area} dx={shift?.dx ?? 0} dy={shift?.dy ?? 0} w={resize?.w ?? area.w} h={resize?.h ?? area.h}
-          canEdit={canEdit} compact={compact} summary={summaries?.get(area.id)} dropTarget={area.id === targetAreaId} onRename={rename} onDelete={remove}/>;
+          canEdit={canEdit} compact={compact} summary={summaries?.get(area.id)} dropTarget={area.id === targetAreaId} onRename={rename} onDelete={remove}
+          context={areaContext?.get(area.id)} onContext={onAreaContext ? openAreaContext : undefined} onLinkHover={hoverLink}/>;
       })}
+      {linkFrom && linkTo ? <ContextLine from={linkFrom} to={linkTo}/> : null}
       {preview?.kind === 'draw' ? <div className="canvas-area-draft" style={{transform: `translate(${preview.rect.x}px, ${preview.rect.y}px)`, width: Math.max(MIN_AREA, preview.rect.w), height: Math.max(MIN_AREA, preview.rect.h)}}/> : null}
       {board.cards.map(card => {
         const shift = cardShift(card), home = homeOf(card);
@@ -564,4 +581,18 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       <button type="button" className="canvas-fit" onClick={fitAll}>Fit</button>
     </div>
   </div>;
+}
+
+/** The dotted line from an area's title bar to the area whose context it uses, bowed so it reads as a link, not an edge. */
+function ContextLine({from, to}: {from: Rect; to: Rect}) {
+  const a = {x: from.x + Math.min(from.w / 2, 160), y: from.y + 30}, b = {x: to.x + Math.min(to.w / 2, 160), y: to.y + 30};
+  const lift = Math.max(60, Math.hypot(b.x - a.x, b.y - a.y) / 4);
+  // Side by side: arch over the top. Stacked: bow out to the right.
+  const control = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y)
+    ? {x: (a.x + b.x) / 2, y: Math.min(a.y, b.y) - lift}
+    : {x: Math.max(a.x, b.x) + lift, y: (a.y + b.y) / 2};
+  return <svg className="canvas-context-lines" aria-hidden="true" width="1" height="1">
+    <path className="canvas-context-line" d={`M ${a.x} ${a.y} Q ${control.x} ${control.y} ${b.x} ${b.y}`}/>
+    <circle className="canvas-context-line-end" cx={b.x} cy={b.y} r="5"/>
+  </svg>;
 }

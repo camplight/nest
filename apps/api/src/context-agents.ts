@@ -4,7 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import type { ProductDb } from '@nest/db';
 import type { OrgOpsClient } from '@nest/orgops-client';
-import type { ContextScope } from '@nest/schemas';
+import type { ContextReader, ContextScope } from '@nest/schemas';
 import { attachment, DOWNLOAD_HEADERS, linkSources, type ContextAgents } from './canvas-context';
 import type { ContextFiles } from './context-files';
 
@@ -21,7 +21,6 @@ const FAILED_RETRY_MS = 60_000;
 type Participant = { subscriberType: string; subscriberId: string };
 type EngineChannel = { id: string; archivedAt?: number | null; participants?: Participant[]; metadata?: unknown };
 type EngineAgent = { name: string; mode?: string; enabledSkills?: string[] };
-export type ContextReader = { agentName: string; state: 'ready' | 'wrapped' | 'unconfigured' };
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 /**
@@ -243,6 +242,6 @@ export function createContextAgents({ store, orgops, engineToken }: { store: Pro
     app.route('/', routes);
   }
 
-  return { ensureAgents, pending, readers, registerRoutes };
+  return { configured: Boolean(engineToken), ensureAgents, pending, readers, registerRoutes };
 }
 export type ContextAgentsService = ReturnType<typeof createContextAgents>;

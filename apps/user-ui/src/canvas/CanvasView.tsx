@@ -1,6 +1,6 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
 import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore,type FormEvent,type ReactNode} from 'react';
-import {CARD_HEIGHT,CanvasTint,DEFAULT_CARD_WIDTH,areaFor,type BoardCard,type Canvas,type NewArea,type Project} from '@nest/schemas';
+import {CARD_HEIGHT,CanvasTint,DEFAULT_CARD_WIDTH,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
@@ -24,6 +24,9 @@ import {PHONE_QUERY,PhoneList,usePhoneLayout} from './PhoneList';
 import {searchIndex,type SearchItem} from './search';
 import type {CardPulse} from './pulse';
 import {cardCentre,growToFit,type Point} from './geometry';
+import type {AreaContext} from './Area';
+import {ContextPanel} from './ContextPanel';
+import {getContextSummary,type PanelScope} from './context-api';
 import './canvas.css';
 
 export type CanvasHuman = {id?: string; username: string};
@@ -120,6 +123,28 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   }, [canvasId, store]);
 
   const board = state.canvasId === canvasId ? state.board : null;
+
+  // Context: one summary per board load feeds every area's dot and `↳` chips; the panel re-reads it after an edit.
+  const [summary, setSummary] = useState<{canvasId: string; summary: ContextSummary} | null>(null);
+  const summaryCanvas = useRef(canvasId); summaryCanvas.current = canvasId;
+  // A board load joins a read already under way for the same canvas (StrictMode runs effects twice); an edit always re-reads.
+  const summaryRead = useRef<{id: string} | null>(null);
+  const loadSummary = useCallback((id: string, joinRunning = false) => {
+    if (joinRunning && summaryRead.current?.id === id) return;
+    const read = {id};
+    summaryRead.current = read;
+    getContextSummary(id)
+      .then(next => { if (summaryCanvas.current === id && summaryRead.current === read) setSummary({canvasId: id, summary: next}); })
+      .catch(() => {})
+      .finally(() => { if (summaryRead.current === read) summaryRead.current = null; });
+  }, []);
+  useEffect(() => { if (canvasId) loadSummary(canvasId, true); }, [canvasId, loadSummary]);
+  const contextSummary = summary?.canvasId === canvasId ? summary.summary : null;
+  const areaContext = useMemo(() => new Map<string, AreaContext>((contextSummary?.areas ?? []).map(({areaId, ...rest}) => [areaId, rest])), [contextSummary]);
+  const [panel, setPanel] = useState<PanelScope | null>(null);
+  useEffect(() => { setPanel(null); }, [canvasId]);
+  const areaGone = Boolean(panel?.kind === 'area' && board && !board.areas.some(a => a.id === panel.areaId));
+  useEffect(() => { if (areaGone) setPanel(null); }, [areaGone]);
   const pulses = useSyncExternalStore(live.subscribe, live.snapshot);
   // Live state refreshes only while the canvas view is mounted.
   useEffect(() => { live.start(); return () => live.stop(); }, [live]);
@@ -190,7 +215,9 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   }, [humanId]);
   // Split screen folds the pile so the canvas keeps its room; opening it there lasts until split screen ends.
   const [splitPile, setSplitPile] = useState(false);
-  useEffect(() => { if (chatMode !== 'split') setSplitPile(false); }, [chatMode]);
+  const panelOpen = Boolean(panel && board);
+  const besideCanvas = panelOpen || chatMode === 'split';
+  useEffect(() => { if (!besideCanvas) setSplitPile(false); }, [besideCanvas]);
 
   // One chat at a time, and only one this person can read: never a locked or unavailable card's.
   const chatShown = Boolean(chat && chatChannelId && chatMode && channels.some(channel => channel.id === chatChannelId));
@@ -215,6 +242,14 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     // Before App's first channel read the list is empty; App's own load closes an unreadable chat from the URL.
     if (listed.current || channels.length) { listed.current = false; closeRef.current({replace: true}); }
   }, [chatChannelId, channels]);
+  // The context panel and an open chat share the side slot: opening a chat closes the panel.
+  useEffect(() => { if (chatChannelId) setPanel(null); }, [chatChannelId]);
+  const chatShownRef = useRef(chatShown); chatShownRef.current = chatShown;
+  const openPanel = useCallback((scope: PanelScope) => {
+    if (chatShownRef.current) closeRef.current();
+    setPanel(scope);
+  }, []);
+  const openAreaContext = useCallback((areaId: string) => openPanel({kind: 'area', areaId}), [openPanel]);
   // A card opens in focus, or replaces the split-screen chat beside the canvas.
   const openFromCard = useCallback((channelId: string) => { setSelectedId(channelId); openRef.current(channelId, modeRef.current ?? 'focus'); }, []);
   // Agents on cards: the selected card leads the tray's suggestions; membership goes through the engine.
@@ -412,7 +447,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     body = <div className="canvas-phone-stage">
       <PhoneList key={board.canvas.id} board={board} pulses={pulses} loose={phoneLoose} titles={titles} projects={projects}
         onOpenChat={openFromPile} openChannelId={chatShown ? chatChannelId : null}/>
-      {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" onCreated={created} fileDrop={!chatShown}/></div> : null}
+      {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" onCreated={created} fileDrop={!chatShown && !panelOpen}/></div> : null}
     </div>;
   } else {
     // Keyed by canvas so the saved view, gestures and measured card heights start fresh per canvas.
@@ -421,14 +456,15 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       <div className="canvas-stage">
         <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={store.apply} pulses={pulses} onNudge={sendNudge}
           onDropChat={canPlace ? dropChat : undefined} controls={controls} onOpenChat={openFromCard} openChannelId={chatShown ? chatChannelId : null}
-          onDropAgent={dropAgent} onRemoveAgent={removeAgent} canManageCard={manageable} onSelectCard={setSelectedId} selectedChannelId={selected?.channelId ?? null}/>
+          onDropAgent={dropAgent} onRemoveAgent={removeAgent} canManageCard={manageable} onSelectCard={setSelectedId} selectedChannelId={selected?.channelId ?? null}
+          areaContext={areaContext} onAreaContext={openAreaContext}/>
         <AgentTray tray={tray} suggestedFor={selected ? cardTitle(selected) : null} agents={agents} humanId={humanId} cards={board.cards} areas={board.areas}/>
-        {/* While a chat is open, dropped files go to that chat only. */}
-        {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" onCreated={created} fileDrop={!chatShown}/></div> : null}
+        {/* While a chat or the context panel is open, dropped files go there only. */}
+        {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" onCreated={created} fileDrop={!chatShown && !panelOpen}/></div> : null}
       </div>
       <LoosePile chats={loose} count={looseCount} hidden={hidden} showHidden={showHidden} onShowHidden={setShowHidden}
-        canPlace={canPlace} onPlace={place} onHide={hide} open={chatShown && chatMode === 'split' ? splitPile : pileOpen}
-        onOpen={chatShown && chatMode === 'split' ? setSplitPile : openPile} now={Date.now}
+        canPlace={canPlace} onPlace={place} onHide={hide} open={(chatShown && chatMode === 'split') || panelOpen ? splitPile : pileOpen}
+        onOpen={(chatShown && chatMode === 'split') || panelOpen ? setSplitPile : openPile} now={Date.now}
         onOpenChat={openFromPile} highlight={highlight}/>
     </>;
   }
@@ -443,10 +479,12 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       <CanvasSwitcher canvases={canvases ?? []} current={current} open={switcherOpen} onOpenChange={setSwitcherOpen}
         onSelect={id => onSelectCanvas(id)} onCreate={createNew} onRename={rename} onDelete={remove}/>
       {board && board.canvas.role === 'owner' ? <button type="button" className="canvas-share-button" onClick={() => setSharing(true)}>Share</button> : null}
+      {board ? <button type="button" className={`canvas-share-button canvas-context-button${contextSummary?.canvas.hasContext ? ' has-context' : ''}`}
+        aria-pressed={panel?.kind === 'canvas'} onClick={() => panel?.kind === 'canvas' ? setPanel(null) : openPanel({kind: 'canvas'})}>Canvas context</button> : null}
       {ownerName ? <span className="canvas-shared-by">Shared by {ownerName}</span> : null}
     </div> : undefined}/>
     {searchOpen && canvasId ? <CanvasSearch items={index} onClose={() => setSearchOpen(false)} onChoose={choose}/> : null}
-    <div className={`canvas-body${chatShown ? ` has-chat is-${chatMode}` : ''}`}>
+    <div className={`canvas-body${chatShown ? ` has-chat is-${chatMode}` : panelOpen ? ' has-context' : ''}`}>
       {sharing && board && board.canvas.role === 'owner' ? <ShareDialog canvasId={board.canvas.id} ownerId={board.canvas.ownerId} humans={humans}
         version={canvasVersion} freshVersion={freshVersion} onSaved={() => { void store.refresh({force: true}); void reloadList().catch(() => {}); }} onClose={() => setSharing(false)}/> : null}
       <CanvasMain inert={chatShown && chatMode === 'focus'}>
@@ -467,6 +505,10 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
         {chat}
       </CanvasChat> : null}
+      {!chatShown && panel && board ? <ContextPanel key={`${board.canvas.id}:${panel.kind === 'area' ? panel.areaId : 'canvas'}`} canvasId={board.canvas.id} scope={panel}
+        title={panel.kind === 'area' ? board.areas.find(a => a.id === panel.areaId)?.title : undefined}
+        canEdit={board.canvas.role !== 'view'} holdsChat={panel.kind === 'canvas' ? board.cards.length > 0 : board.cards.some(card => areaFor(cardCentre(card), board.areas)?.id === panel.areaId)}
+        onChanged={() => loadSummary(board.canvas.id)} onClose={() => setPanel(null)}/> : null}
     </div>
   </section>;
 }

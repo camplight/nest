@@ -19,6 +19,13 @@ export type ScopeContext = {
   usedBy: { areaId: string; title: string | null }[];
 };
 export type ChatHome = { canvasId: string; areaId: string | null };
+/** One board load's context markers: which scopes hold notes or files, and each area's links (for its `↳` chips). */
+export type ContextSummary = {
+  areas: { areaId: string; hasContext: boolean; links: { sourceAreaId: string; title: string; available: boolean }[] }[];
+  canvas: { hasContext: boolean };
+};
+/** An agent in a chat homed in an area, and whether it can read context there. */
+export type ContextReader = { agentName: string; state: 'ready' | 'wrapped' | 'unconfigured' };
 
 /** The new home after a card move, or null when the home stays as it is. */
 export function homeAfterMove(current: ChatHome | null, move: { canvasId: string; areaId: string | null; byMember: boolean }): ChatHome | null {

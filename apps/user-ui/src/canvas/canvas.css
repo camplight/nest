@@ -614,6 +614,8 @@
   .canvas-view .canvas-heading {
     grid-area: title;
     min-width: 0;
+    flex-wrap: wrap;
+    row-gap: 8px;
   }
   .canvas-name {
     font-size: 18px;
@@ -2082,4 +2084,329 @@ li.canvas-phone-row[data-access] {
   clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
+}
+
+/* Context (Phase 2): the side panel, the area dot, `↳` link chips and the dotted link line. */
+.canvas-body.has-context .canvas-main {
+  min-width: 40%;
+}
+.canvas-context {
+  position: relative;
+  flex: none;
+  width: min(440px, 45%);
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--nest-border);
+  background: var(--nest-surface);
+  color: var(--nest-text);
+}
+.canvas-context.is-dropping {
+  outline: 2px dashed var(--nest-lime);
+  outline-offset: -8px;
+}
+.canvas-context-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 20px;
+  border-bottom: 1px solid var(--nest-border);
+}
+.canvas-context-heading {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.canvas-context-heading h2 {
+  margin: 0;
+  font: 500 16px/1.3 Unbounded, sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.canvas-context-eyebrow {
+  color: var(--nest-muted);
+  font: 600 12px/1.2 Inter, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.canvas-context-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 24px;
+  padding: 16px 20px 24px;
+}
+.canvas-context-warning {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--canvas-amber) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--canvas-amber) 35%, transparent);
+  color: var(--nest-text);
+  font: 500 14px/1.4 Inter, sans-serif;
+}
+.canvas-context-section {
+  display: grid;
+  gap: 10px;
+}
+.canvas-context-section h3 {
+  margin: 0;
+  font: 600 14px/1.3 Inter, sans-serif;
+}
+.canvas-context-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 34px;
+}
+.canvas-context-status {
+  color: var(--nest-muted);
+  font-size: 13px;
+}
+.canvas-context-notes {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  border: 1px solid var(--nest-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+  font: 400 14px/1.5 Inter, sans-serif;
+}
+.canvas-context-notes:focus-visible {
+  outline: 2px solid var(--nest-lime);
+  outline-offset: 1px;
+}
+.canvas-context-notes[readonly] {
+  background: var(--nest-muted-surface);
+}
+.canvas-context-conflict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--nest-coral) 12%, transparent);
+  font-size: 14px;
+}
+.canvas-context-error {
+  margin: 0;
+  color: var(--canvas-alert);
+  font-size: 14px;
+}
+.canvas-context-muted {
+  margin: 0;
+  color: var(--nest-muted);
+  font-size: 13px;
+}
+.canvas-context-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.canvas-context-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--nest-border);
+  border-radius: 8px;
+  font-size: 14px;
+}
+.canvas-context-readers li {
+  border: 0;
+  padding: 0;
+  min-height: 28px;
+}
+.canvas-context-file a {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--nest-text);
+}
+.canvas-context-file .canvas-context-muted {
+  white-space: nowrap;
+}
+.canvas-context-remove {
+  margin-left: auto;
+  min-height: 32px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--nest-muted);
+  font: 500 13px/1 Inter, sans-serif;
+  cursor: pointer;
+}
+.canvas-context-remove:hover {
+  background: var(--nest-muted-surface);
+  color: var(--nest-text);
+}
+.canvas-context-tag {
+  color: var(--canvas-alert);
+  font: 600 12px/1 Inter, sans-serif;
+}
+.canvas-context-link.is-unavailable .canvas-context-chip {
+  opacity: .7;
+  text-decoration: line-through;
+}
+.canvas-context-picker {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--nest-border);
+  border-radius: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.canvas-context-picker-group {
+  display: grid;
+  gap: 4px;
+}
+.canvas-context-picker button {
+  display: grid;
+  gap: 2px;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--nest-text);
+  text-align: left;
+  cursor: pointer;
+}
+.canvas-context-picker button:hover,
+.canvas-context-picker button:focus-visible {
+  background: var(--nest-muted-surface);
+}
+.canvas-context-picker-title {
+  display: block;
+  font: 500 14px/1.3 Inter, sans-serif;
+}
+.canvas-context-picker-canvas {
+  display: block;
+  color: var(--nest-muted);
+  font-size: 12px;
+}
+.canvas-context-used {
+  margin: 0;
+  color: var(--nest-muted);
+  font-size: 14px;
+}
+.canvas-context .composer-attachments {
+  max-height: none;
+}
+/* The top-bar button: a dot when the canvas itself has notes or files. */
+.canvas-context-button {
+  white-space: nowrap;
+}
+.canvas-context-button[aria-pressed="true"] {
+  border-color: var(--nest-forest);
+}
+:root[data-theme="dark"] .canvas-context-button[aria-pressed="true"] {
+  border-color: var(--nest-lime);
+}
+.canvas-context-button.has-context::after,
+.canvas-area-context-dot {
+  content: "";
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--canvas-pip);
+}
+.canvas-context-button.has-context::after {
+  margin-left: 8px;
+  vertical-align: middle;
+}
+/* Chips on the area bar: buttons, so a press never starts an area drag. */
+.canvas-context-chips {
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  overflow: hidden;
+}
+.canvas-context-chip {
+  flex: none;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 13px/1 Inter, sans-serif;
+}
+.canvas-context-chips .canvas-context-chip {
+  min-height: 30px;
+  border: 1px solid color-mix(in srgb, var(--tint) 35%, var(--nest-border));
+  border-radius: 8px;
+  padding: 0 10px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+  cursor: pointer;
+}
+.canvas-context-chips .canvas-context-chip:hover,
+.canvas-context-chips .canvas-context-chip:focus-visible {
+  background: var(--nest-muted-surface);
+}
+.canvas-context-chips .canvas-context-chip.is-unavailable {
+  color: var(--nest-muted);
+}
+.canvas-world.is-compact .canvas-context-chips {
+  display: none;
+}
+.canvas-context-lines {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.canvas-context-line {
+  fill: none;
+  stroke: var(--nest-forest);
+  stroke-width: 2.5;
+  stroke-dasharray: 1 9;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.canvas-context-line-end {
+  fill: var(--nest-forest);
+}
+:root[data-theme="dark"] .canvas-context-line {
+  stroke: var(--nest-lime);
+}
+:root[data-theme="dark"] .canvas-context-line-end {
+  fill: var(--nest-lime);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .canvas-context-line {
+    animation: canvas-context-dash 1.2s linear infinite;
+  }
+}
+@keyframes canvas-context-dash {
+  to { stroke-dashoffset: -20; }
+}
+@media (max-width: 760px) {
+  /* Phones have no room beside the canvas: the panel fills the body. */
+  .canvas-context {
+    position: absolute;
+    inset: 0;
+    z-index: 21;
+    width: auto;
+    border: 0;
+  }
 }

@@ -1,9 +1,11 @@
 // An area ("nest") on the surface: inline rename, a title bar to move it, a corner to resize it and a menu.
 import {memo,useEffect,useRef,useState,type KeyboardEvent} from 'react';
-import type {CanvasArea} from '@nest/schemas';
+import type {CanvasArea,ContextSummary} from '@nest/schemas';
 
 /** Counts for the compact summary line. Task 6 supplies them from live card state. */
 export type AreaSummary = {needYou: number; moving: number};
+/** The area's context markers from the board's context summary. */
+export type AreaContext = Omit<ContextSummary['areas'][number], 'areaId'>;
 export type AreaProps = {
   area: CanvasArea;
   /** Drag and resize previews in canvas units. */
@@ -18,9 +20,15 @@ export type AreaProps = {
   dropTarget?: boolean;
   onRename(areaId: string, title: string): void;
   onDelete(areaId: string): void;
+  /** Notes or files here (a dot), and the areas whose context this one uses (`↳` chips). */
+  context?: AreaContext;
+  /** Opens this area's context panel; offered to viewers too, read-only. */
+  onContext?(areaId: string): void;
+  /** A link chip is hovered or focused (sourceAreaId), or no longer is (null). */
+  onLinkHover?(areaId: string, sourceAreaId: string | null): void;
 };
 
-export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, summary, dropTarget = false, onRename, onDelete}: AreaProps) {
+export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, summary, dropTarget = false, onRename, onDelete, context, onContext, onLinkHover}: AreaProps) {
   const [editing, setEditing] = useState(false);
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -69,15 +77,28 @@ export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, su
         ? <input className="canvas-area-input" aria-label="Area title" defaultValue={area.title} maxLength={120} autoFocus
             onFocus={event => event.currentTarget.select()} onKeyDown={key} onBlur={event => commit(event.currentTarget.value)}/>
         : <h3 className="canvas-area-title" onDoubleClick={canEdit ? edit : undefined}>{area.title}</h3>}
-      {canEdit ? <div className="canvas-area-menu" ref={menuRef}
+      {context?.hasContext ? <span className="canvas-area-context-dot" role="img" aria-label="Has context" title="This area has notes or files"/> : null}
+      {context?.links.length ? <div className="canvas-context-chips">
+        {context.links.map(link => <button key={link.sourceAreaId} type="button" className={`canvas-context-chip${link.available ? '' : ' is-unavailable'}`}
+          title={link.available ? `Uses context from ${link.title}` : `${link.title} is unavailable`}
+          onClick={() => onContext?.(area.id)}
+          onPointerEnter={() => onLinkHover?.(area.id, link.sourceAreaId)} onPointerLeave={() => onLinkHover?.(area.id, null)}
+          onFocus={() => onLinkHover?.(area.id, link.sourceAreaId)} onBlur={() => onLinkHover?.(area.id, null)}>
+          ↳ {link.title}{link.available ? null : <span className="canvas-context-tag"> unavailable</span>}
+        </button>)}
+      </div> : null}
+      {canEdit || onContext ? <div className="canvas-area-menu" ref={menuRef}
         onBlur={event => { if (!menuRef.current?.contains(event.relatedTarget as Node | null)) setMenu(false); }}>
         <button ref={triggerRef} type="button" className="canvas-area-more" aria-label="Area options" aria-expanded={menu} aria-controls={menu ? menuId : undefined}
           onClick={() => setMenu(open => !open)}>
           <span aria-hidden="true">⋯</span>
         </button>
         {menu ? <div id={menuId} className="canvas-menu">
-          <button type="button" onClick={() => { setMenu(false); edit(); }}>Rename area</button>
-          <button type="button" onClick={() => { setMenu(false); onDelete(area.id); }}>Delete area</button>
+          {onContext ? <button type="button" onClick={() => { setMenu(false); onContext(area.id); }}>Context…</button> : null}
+          {canEdit ? <>
+            <button type="button" onClick={() => { setMenu(false); edit(); }}>Rename area</button>
+            <button type="button" onClick={() => { setMenu(false); onDelete(area.id); }}>Delete area</button>
+          </> : null}
         </div> : null}
       </div> : null}
     </div>

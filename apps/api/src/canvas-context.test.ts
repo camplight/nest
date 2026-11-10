@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -28,12 +28,14 @@ describe('canvas context API against the unchanged engine', () => {
   const stored = () => (existsSync(filesDir) ? readdirSync(filesDir) : []);
   let before: number | null = null;
 
-  async function boot(canvasEnabled: boolean) {
+  // `engineToken: ''` boots a server whose agents cannot be given context keys (no service token configured).
+  async function boot(canvasEnabled: boolean, engineToken?: string) {
+    vi.stubEnv('ORGOPS_MASTER_KEY', Buffer.alloc(32, 99).toString('base64'));
     dir = mkdtempSync(join(tmpdir(), 'nest-canvas-context-test-'));
     filesDir = join(dir, 'context-files');
-    engine = createEngine({ dbPath: join(dir, 'engine.sqlite'), dataDir: dir, adminUser: 'owner', adminPass: 'password', runnerToken: 'runner-secret' });
+    engine = createEngine({ dbPath: join(dir, 'engine.sqlite'), dataDir: dir, projectRoot: dir, adminUser: 'owner', adminPass: 'password', runnerToken: 'runner-secret' });
     const client = createOrgOpsClient('http://engine', (async (url, init) => engine.app.fetch(new Request(url, init))) as typeof fetch);
-    product = createApp({ orgops: client, dbPath: join(dir, 'product.sqlite'), canvasEnabled, contextFilesDir: filesDir });
+    product = createApp({ orgops: client, dbPath: join(dir, 'product.sqlite'), canvasEnabled, contextFilesDir: filesDir, ...(engineToken === undefined ? {} : { connectionEngineToken: engineToken }) });
     const login = async (username: string, password: string) => {
       const r = await call(json, 'POST', '/api/auth/login', { username, password });
       return { ...json, cookie: r.headers.get('set-cookie')!.split(';')[0] };
@@ -49,6 +51,7 @@ describe('canvas context API against the unchanged engine', () => {
   afterEach(async () => {
     if (before !== null) expect(await engineEvents()).toBe(before);
     before = null;
+    vi.unstubAllEnvs();
     product.store.close(); engine.db.close(); rmSync(dir, { recursive: true, force: true });
   });
 
@@ -70,6 +73,22 @@ describe('canvas context API against the unchanged engine', () => {
     expect((await call(owner, 'PUT', `/api/canvases/${canvasId}/members`, body)).status).toBe(200);
   }
 
+  async function chat(name: string, agentNames: string[]) {
+    const id = (await (await call(owner, 'POST', '/api/channels', { name, visibility: 'PRIVATE' })).json()).id as string;
+    for (const subscriberId of agentNames) expect((await call(owner, 'POST', `/api/channels/${id}/subscribe`, { subscriberType: 'AGENT', subscriberId })).status).toBe(200);
+    return id;
+  }
+  async function agent(name: string, mode?: 'WRAPPED') {
+    const res = await call(owner, 'POST', '/api/agents', {
+      name, modelId: mode ? 'wrapped:none' : 'test', workspacePath: join(dir, name), desiredState: 'STOPPED',
+      ...(mode ? { mode, assignedRunnerId: 'fixture-runner' } : {}),
+    });
+    expect(res.status, await res.clone().text()).toBe(201);
+  }
+  // Areas are 400 × 300 at the origin, so a card at (10, 10) sits inside and its first placement homes the chat there.
+  const place = async (canvasId: string, channelId: string, x = 10, y = 10) =>
+    expect((await call(owner, 'POST', `/api/canvases/${canvasId}/cards`, { cards: [{ channelId, x, y }] })).status).toBe(201);
+
   describe('flag off', () => {
     beforeEach(() => boot(false));
     it('hides every context route', async () => {
@@ -85,6 +104,8 @@ describe('canvas context API against the unchanged engine', () => {
         ['DELETE', `/api/canvases/${id}/areas/${areaId}/context/files/${fileId}`],
         ['POST', `/api/canvases/${id}/areas/${areaId}/context/links`, { sourceAreaId: randomUUID() }],
         ['DELETE', `/api/canvases/${id}/areas/${areaId}/context/links/${randomUUID()}`],
+        ['GET', `/api/canvases/${id}/context/summary`],
+        ['GET', `/api/canvases/${id}/areas/${areaId}/context/readers`],
       ];
       for (const [method, path, body] of paths) expect([method, path, (await call(owner, method, path, body)).status]).toEqual([method, path, 404]);
       expect((await upload(owner, `/api/canvases/${id}/context/files`, [{ name: 'a.txt', content: 'a' }])).status).toBe(404);
@@ -330,6 +351,119 @@ describe('canvas context API against the unchanged engine', () => {
 
       expect((await call(owner, 'DELETE', `/api/canvases/${a}?version=${await version(a)}`)).status).toBe(204);
       expect(stored()).toEqual([]);
+    });
+
+    it("summarises every area's context and links for the board in one request", async () => {
+      const a = await canvas(owner, 'A');
+      const a1 = await area(owner, a, 'Notes area');
+      const a2 = await area(owner, a, 'Files area');
+      const a3 = await area(owner, a, 'Linking area');
+      const b = await canvas(owner, 'B');
+      const b1 = await area(owner, b, 'Brand kit');
+      const summary = async (h: Record<string, string>, canvasId = a) => {
+        const res = await call(h, 'GET', `/api/canvases/${canvasId}/context/summary`);
+        expect(res.status).toBe(200);
+        expect(res.headers.get('cache-control')).toBe('no-store');
+        const body = await res.json();
+        // Links made in the same millisecond list by source id, so compare them by id too.
+        const byId = (rows: { areaId?: string; sourceAreaId?: string }[]) => [...rows].sort((x, y) => (x.areaId ?? x.sourceAreaId)!.localeCompare((y.areaId ?? y.sourceAreaId)!));
+        return { ...body, areas: byId(body.areas).map((row: any) => ({ ...row, links: byId(row.links) })) };
+      };
+      const sorted = <T extends { areaId: string }>(rows: T[]) => [...rows].sort((x, y) => x.areaId.localeCompare(y.areaId));
+      expect(await summary(owner)).toEqual({
+        canvas: { hasContext: false },
+        areas: sorted([a1, a2, a3].map(areaId => ({ areaId, hasContext: false, links: [] }))),
+      });
+
+      expect((await call(owner, 'PUT', `/api/canvases/${a}/areas/${a1}/context`, { notes: 'Ship on Friday', version: 0 })).status).toBe(200);
+      expect((await upload(owner, `/api/canvases/${a}/areas/${a2}/context/files`, [{ name: 'brief.txt', content: 'brief' }])).status).toBe(201);
+      expect((await call(owner, 'PUT', `/api/canvases/${a}/context`, { notes: 'Whole canvas', version: 0 })).status).toBe(200);
+      expect((await call(owner, 'POST', `/api/canvases/${a}/areas/${a3}/context/links`, { sourceAreaId: a1 })).status).toBe(200);
+      expect((await call(owner, 'POST', `/api/canvases/${a}/areas/${a3}/context/links`, { sourceAreaId: b1 })).status).toBe(200);
+      expect(await summary(owner)).toEqual({
+        canvas: { hasContext: true },
+        areas: sorted([
+          { areaId: a1, hasContext: true, links: [] },
+          { areaId: a2, hasContext: true, links: [] },
+          // A link alone is not this area's own context.
+          { areaId: a3, hasContext: false, links: [
+            { sourceAreaId: a1, title: 'Notes area', available: true },
+            { sourceAreaId: b1, title: 'Brand kit', available: true },
+          ].sort((x, y) => x.sourceAreaId.localeCompare(y.sourceAreaId)) },
+        ]),
+      });
+      // Emptied notes no longer count.
+      expect((await call(owner, 'PUT', `/api/canvases/${a}/context`, { notes: '', version: 1 })).status).toBe(200);
+      expect((await summary(owner)).canvas).toEqual({ hasContext: false });
+
+      // A viewer never learns the title of an area on a canvas they cannot read.
+      expect((await call(mate, 'GET', `/api/canvases/${a}/context/summary`)).status).toBe(404);
+      await share(a, 'view');
+      expect((await summary(mate)).areas.find((row: { areaId: string }) => row.areaId === a3).links).toEqual([
+        { sourceAreaId: a1, title: 'Notes area', available: true },
+        { sourceAreaId: b1, title: 'Unavailable area', available: true },
+      ].sort((x, y) => x.sourceAreaId.localeCompare(y.sourceAreaId)));
+      expect(await summary(owner, b)).toEqual({ canvas: { hasContext: false }, areas: [{ areaId: b1, hasContext: false, links: [] }] });
+    });
+
+    it('lists no readers for an area on another canvas or with no chats, and unconfigured agents on a server without a service token', async () => {
+      await call(owner, 'POST', '/api/runners/register', { existingRunnerId: 'fixture-runner', displayName: 'Fixture' });
+      await agent('Pip');
+      const launch = await chat('Launch', ['Pip']);
+      const a = await canvas(owner, 'A');
+      const a1 = await area(owner, a, 'A1');
+      // Away from A1, so the card's first placement homes the chat in A1 only.
+      const a2 = randomUUID();
+      expect((await call(owner, 'POST', `/api/canvases/${a}/areas`, { id: a2, title: 'A2', x: 1000, y: 0, w: 400, h: 300 })).status).toBe(201);
+      const b = await canvas(owner, 'B');
+      const b1 = await area(owner, b, 'B1');
+      await place(a, launch);
+      before = await engineEvents();
+      const readers = (h: Record<string, string>, canvasId: string, areaId: string) => call(h, 'GET', `/api/canvases/${canvasId}/areas/${areaId}/context/readers`);
+
+      expect((await readers(owner, a, b1)).status).toBe(404);
+      expect((await readers(owner, a, randomUUID())).status).toBe(404);
+      expect((await readers(mate, a, a1)).status).toBe(404);
+      const res = await readers(owner, a, a1);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('cache-control')).toBe('no-store');
+      expect(product.store.canvasContext.home(launch)).toEqual({ canvasId: a, areaId: a1 });
+      expect(await res.json()).toEqual([{ agentName: 'Pip', state: 'unconfigured' }]);
+      expect(await (await readers(owner, a, a2)).json()).toEqual([]);
+      // Context in the area changes nothing: this server cannot give Pip a key.
+      expect((await call(owner, 'PUT', `/api/canvases/${a}/areas/${a1}/context`, { notes: 'Ship on Friday', version: 0 })).status).toBe(200);
+      expect(await (await readers(owner, a, a1)).json()).toEqual([{ agentName: 'Pip', state: 'unconfigured' }]);
+      // A canvas viewer outside the chat learns nothing about who is in it.
+      await share(a, 'view');
+      expect(await (await readers(mate, a, a1)).json()).toEqual([]);
+    });
+  });
+
+  describe('flag on with a service token', () => {
+    beforeEach(() => boot(true, 'runner-secret'));
+
+    it("reports which agents in the area's chats can read its context", async () => {
+      await call(owner, 'POST', '/api/runners/register', { existingRunnerId: 'fixture-runner', displayName: 'Fixture' });
+      await agent('Pip');
+      await agent('Wren', 'WRAPPED');
+      const launch = await chat('Launch', ['Pip', 'Wren']);
+      const a = await canvas(owner, 'A');
+      const a1 = await area(owner, a, 'A1');
+      await place(a, launch);
+      const readers = async () => {
+        const res = await call(owner, 'GET', `/api/canvases/${a}/areas/${a1}/context/readers`);
+        expect(res.status).toBe(200);
+        return [...await res.json()].sort((x: { agentName: string }, y: { agentName: string }) => x.agentName.localeCompare(y.agentName));
+      };
+      // Setting up an agent's key writes engine secrets and skills (and their events); the chat itself stays quiet.
+      before = null;
+      const chatEvents = async () => ((await (await call(owner, 'GET', `/api/events?channelId=${launch}&limit=1000`)).json()) as unknown[]).length;
+      const quiet = await chatEvents();
+      // No context yet, so Pip has no key.
+      expect(await readers()).toEqual([{ agentName: 'Pip', state: 'unconfigured' }, { agentName: 'Wren', state: 'wrapped' }]);
+      expect((await call(owner, 'PUT', `/api/canvases/${a}/areas/${a1}/context`, { notes: 'Ship on Friday', version: 0 })).status).toBe(200);
+      expect(await readers()).toEqual([{ agentName: 'Pip', state: 'ready' }, { agentName: 'Wren', state: 'wrapped' }]);
+      expect(await chatEvents()).toBe(quiet);
     });
   });
 });
