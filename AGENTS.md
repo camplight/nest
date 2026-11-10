@@ -51,6 +51,7 @@ adapter/engine boundary rather than mocking away the ownership separation.
 ## State and compatibility
 
 - `.nest-product/nest.sqlite`: Nest product state.
+- `.nest-product/context-files/`: canvas context uploads (`NEST_CONTEXT_FILES_DIR`); back up with the product DB.
 - `.nest-data/nest.sqlite`: engine state (legacy location kept intentionally).
 - `.nest-data/engine/skills`: writable runtime skill copies.
 - `files/`: uploads. All runtime directories are gitignored.

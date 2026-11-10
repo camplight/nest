@@ -566,13 +566,27 @@ CI runs `npm run test:ui:canvas` (desktop, tablet and phone, with a 150-card,
 30-agent scale check). Pull request: to be added by the operator. Not deployed.
 
 Deferred to later phases, as the design sets out: links between chats, forks,
-context notes and files, schedules and triggers, app activity, per-chat agent setup,
+schedules and triggers, per-chat agent setup,
 sandboxes and repos. Needs you covers unread mentions and tasks waiting for review
 only; approvals, picks and missed runs arrive with Phases 3 and 4. Inviting agents
 on the canvas works by drag only, with no keyboard or touch route yet. Moving cards
 and areas is by pointer or touch drag only; a keyboard route to move them is
 deferred too. Loose chats the person has hidden are not searchable with Ctrl/Cmd+K
 unless Show hidden is on.
+
+## Switchyard canvas — Phase 2 implemented on the branch
+
+Areas and canvases hold notes, files and links to other areas' context, which agents
+in the chats homed there read on demand through the `nest-context` skill. Files
+dropped on a card go into that chat's reply box, voice notes can be recorded and
+transcribed, and cards and chats show which apps agents used and whether each use
+read or changed something outside Nest. Still behind `NEST_ENABLE_CANVAS=1`; Nest
+stores context in migration `012_canvas_context.sql` and its files under
+`.nest-product/context-files`. Behaviour and routes:
+[SPEC.md, Switchyard canvas (Phase 2)](SPEC.md#switchyard-canvas-phase-2). Plan:
+[Phase 2 plan](superpowers/plans/2026-11-09-switchyard-canvas-phase2.md). Implemented
+on `feat/switchyard-canvas`; not yet deployed. App counts cover the loaded history
+only, and Codex and Claude Code agents neither read context nor show app use.
 
 ## First-visit visual orientation
 

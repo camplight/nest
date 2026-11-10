@@ -796,6 +796,117 @@ Phase 1 is built from
    with 30 agents: fitted to one area, fewer than 60 cards are mounted, a scripted
    2 second pan averages at least 30 frames a second, and Fit shows every area.
 
+## Switchyard canvas (Phase 2)
+
+Phase 2 adds shared context, dropped files, voice notes and app visibility to the
+flagged canvas. Design: section 8 of
+[the Switchyard design](superpowers/specs/2026-11-08-switchyard-canvas-design.md);
+plan: [the Phase 2 plan](superpowers/plans/2026-11-09-switchyard-canvas-phase2.md).
+Everything is behind `NEST_ENABLE_CANVAS=1`; with the flag off the new routes answer
+404 and the new UI is absent.
+
+1. Data. Migration `012_canvas_context.sql` adds `product_canvas_context` (notes per
+   canvas or area, with a version), `product_canvas_context_files` (name, type, size
+   and storage key of each file), `product_area_context_refs` (links between areas),
+   `product_chat_home` (each chat's home canvas and area), `product_context_tokens`
+   (agent context keys, stored only as sha256) and `product_context_agents` (which
+   agents have been set up). Types are in `packages/schemas/src/canvas-context.ts`.
+   Context files are stored under `NEST_CONTEXT_FILES_DIR` (default
+   `.nest-product/context-files`), never in the engine's `files/` tree, which agents'
+   shells can read. Back that directory up together with the product DB snapshot;
+   the DB rows alone do not restore the files.
+
+2. Context routes (signed-in people; read needs access to the canvas, writes need
+   `edit`; no engine event is created):
+   - `GET|PUT /api/canvases/:id/context` and `GET|PUT /api/canvases/:id/areas/:areaId/context`
+     (notes, with the version they were based on; a stale version answers 409)
+   - `POST …/context/files` (multipart), `GET …/context/files/:fileId` and
+     `DELETE …/context/files/:fileId`, for the canvas and for each area
+   - `POST /api/canvases/:id/areas/:areaId/context/links` and
+     `DELETE …/context/links/:sourceAreaId` (use another area's context)
+   - `GET /api/canvases/context-sources` (areas the person can link to)
+   - `GET /api/canvases/:id/context/summary` (which areas have context, for the chips)
+   - `GET /api/canvases/:id/areas/:areaId/context/readers` (agents in the chats homed
+     on the area and whether each can read it: `ready`, `unconfigured` or wrapped)
+   - `POST /api/canvases/:id/cards/:channelId/home` ("Use this area's context"; chat
+     members only)
+
+   Limits, each rejected with 400: notes 20,000 characters per scope, 20 files per
+   upload request, 20 MiB per file, 50 files per scope, 200 MiB of context files per
+   canvas, 10 linked areas per area. A single upload request is capped at the
+   canvas's 200 MiB limit plus 1 MiB, and one that cannot fit the canvas's remaining
+   space is refused early with 413. Links are one level deep: a linked area's own
+   links are never followed. A link shows `unavailable`, and agents stop reading it
+   at once, when the person who made it loses access to the source canvas.
+
+3. A chat's home. A chat's first placement on any canvas by one of its human members
+   sets its home: that canvas plus the area under the card's centre (or none). On the
+   home canvas the home area follows the card when a chat member moves it; a move by
+   someone outside the chat leaves the home alone. Removing the card from its home
+   canvas clears the home, and the next member placement sets a new one. Dropping a
+   card onto an area with context shows "Everyone in these chats, including their
+   agents, can see this." with Undo. Context other canvases hold for a chat placed
+   there is never read by its agents; only the home counts.
+
+4. Agent keys and the skill. The first time a native agent is in a chat whose home
+   has context, Nest creates a context key (`nest_context_` plus 64 hex characters),
+   stores only its sha256, installs the key as the agent's private engine secret
+   `NEST_CONTEXT_TOKEN` (`POST /api/secrets`, `scopeType:'private'`) and adds
+   `nest-context` to the agent's `enabledSkills` (`PATCH /api/agents/:name`), both
+   with Nest's service token. A failed setup revokes the key and retries later. Wrapped agents (Codex, Claude Code)
+   get no key because their harness does not load engine skills; the panel says
+   "<name> can't read context yet (wrapped agent)." The skill is `skills/nest-context`
+   (`scripts/context.mjs read CHANNEL_ID`, `file CHANNEL_ID FILE_ID`).
+   - `GET /api/context/agent?channelId=` and `GET /api/context/agent/files/:fileId?channelId=`
+     take `Authorization: Bearer nest_context_…` and never cookies. They return 401
+     for a missing or revoked key, 403 when the engine does not list the agent in
+     that chat, 429 above 60 requests a minute per key, and 404 with the flag off.
+     They never fall through to the engine proxy and send `Cache-Control: no-store`.
+   - Membership is checked through the engine, with the service token, on every
+     read; nothing is cached. An agent that is only projected through federation
+     metadata is not a member, and one that is both subscribed and listed in that
+     metadata is denied. A read returns the chat's home context only: canvas notes
+     and files, the home area's notes and files, and areas linked to it.
+
+5. Context edits never create engine events and never wake an agent. The only
+   engine writes in Phase 2 are the key setup above, `POST /api/messages` for files
+   dropped on a card and `POST /api/files` for uploads and voice notes. Dropping files
+   on a card opens the chat in split screen and queues them in its reply box. They are
+   sent automatically when every upload finishes, but only if the box had no draft or
+   queued files and the drop did not hit the 20-file cap; typing or removing a file
+   cancels the send and leaves the files queued.
+
+6. App activity. Nest stores none. The browser derives it from the chat's engine
+   `tool.*` events that the viewer can already read, so retention is the engine's
+   and only people who can read the chat see it. A pure classifier
+   (`apps/user-ui/src/app-activity.ts`) turns a call into app, action, read or
+   change, and label. Apps are connected-app calls (`connections.mjs execute`) and
+   `gh`; other shell commands are not apps. Only exact read verbs count as reads.
+   The classifier is fail-safe: anything ambiguous is a change, including unknown
+   tools, more than one app invocation in a command, command substitution, pipes
+   into a shell, `eval` or `xargs`, and indirect names. Commands and outputs are
+   never shown for app calls; the label is the action name, or the repo for `gh`.
+   Running and failed calls are counted. Cards show the apps used, and the chat's
+   "Apps here" bar shows "N reads · M changes outside Nest" for the loaded history
+   only, so long chats under-report until older pages load. A call still running
+   after 10 minutes counts as failed; that window uses a server clock taken from
+   response `Date` headers and realtime events, not the browser clock. Wrapped agents
+   report no `tool.*` events, so their app use is not shown, and the chat says so.
+
+7. Voice notes. The reply box and bottom box record with `MediaRecorder`, as
+   `audio/webm` or, where unsupported, `audio/mp4` (`Voice note.webm` or
+   `Voice note.m4a`), for at most 5 minutes. The audio goes only through
+   `POST /api/files` and the engine's `POST /api/voice/transcribe`. The transcript
+   fills the draft and the audio is attached. If transcription is off or fails, the
+   audio is still attached and a message says so. Cancelling at any stage discards
+   the recording, transcript and attachment.
+
+8. Checks. `apps/api/src/canvas-context.test.ts`, `context-files.test.ts` and
+   `context-agents.test.ts` run against real Nest-to-OrgOps handlers with temporary
+   databases. The `context.ts`, `files-voice.ts` and `apps.ts` suites run under
+   `npm run test:ui:canvas`. Only the transcription result is stubbed in the voice
+   suite, because the harness has no speech model.
+
 ## Private Community catalog
 
 Nest owns reusable package metadata, immutable releases, package bytes and scoped
