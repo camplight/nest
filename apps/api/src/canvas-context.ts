@@ -8,7 +8,7 @@ import { CanvasConflictError, CanvasForbiddenError, CanvasLimitError } from '@ne
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
 import {
   areaFor, CARD_HEIGHT, ContextLinkSchema, ContextNotesSchema, MAX_CONTEXT_BYTES_PER_CANVAS, MAX_CONTEXT_FILE_BYTES, MAX_MESSAGE_ATTACHMENTS,
-  type Canvas, type ContextLink, type ContextScope, type ScopeContext,
+  type Canvas, type ContextFile, type ContextLink, type ContextScope, type ScopeContext,
 } from '@nest/schemas';
 import { ContextFileTooLargeError, removeStored, type ContextFiles } from './context-files';
 
@@ -16,7 +16,7 @@ import { ContextFileTooLargeError, removeStored, type ContextFiles } from './con
 export type ContextAgents = {
   ensureAgents(channelIds: string[]): Promise<void>;
   /** Chats among these (already loaded) channels that still have an agent to set up; answers without calling the engine. */
-  pending(channels: { id: string; archivedAt?: number | null; participants?: { subscriberType: string; subscriberId: string }[] }[]): string[];
+  pending(channels: { id: string; archivedAt?: number | null; participants?: { subscriberType: string; subscriberId: string }[]; metadata?: unknown }[]): string[];
 };
 /** A chat member: a HUMAN participant (identified by username, as in projects) or the engine owner. */
 export function isChatMember(channel: { ownerHumanId?: string | null; participants?: { subscriberType: string; subscriberId: string }[] } | undefined, human: Human) {
@@ -137,8 +137,16 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     return { kind: 'area', canvasId: canvas.id, areaId };
   }
   const requireEdit = (canvas: Canvas) => { if (canvas.role === 'view') throw new CanvasForbiddenError(); };
-  // Agents in the affected chats get their context key once there is something to read; this never throws.
-  const setUpAgents = async (scope: ContextScope) => { if (agents) await agents.ensureAgents(chatsUsing(store, scope)); };
+  // Agents in the affected chats get their context key once there is something to read. Runs after the
+  // write has committed and never throws, so it cannot turn a saved write into a failure.
+  const setUpAgents = async (channelIds: () => string[]) => {
+    if (!agents) return;
+    try {
+      await agents.ensureAgents(channelIds());
+    } catch (error) {
+      console.error('Context agent setup failed:', (error as Error).name);
+    }
+  };
 
   function scopeContext(scope: ContextScope, viewerId: string): ScopeContext {
     const saved = context.get(scope);
@@ -176,7 +184,7 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
       if (error instanceof CanvasConflictError) return c.json({ error: 'Context changed', current: scopeContext(scope, human.id) }, 409);
       throw error;
     }
-    await setUpAgents(scope);
+    await setUpAgents(() => chatsUsing(store, scope));
     return c.json(scopeContext(scope, human.id));
   };
 
@@ -205,23 +213,25 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     if (parts.some(part => part.size > MAX_CONTEXT_FILE_BYTES)) throw badRequest('Each file can be at most 20 MiB');
     const human = c.get('human');
     const saved: { part: File; storageKey: string; size: number }[] = [];
+    let rows: ContextFile[];
     try {
       for (const part of parts) saved.push({ part, ...(await files.save(part, { maxBytes: MAX_CONTEXT_FILE_BYTES })) });
       // One transaction: either every file of the request is recorded or none is.
-      const rows = store.db.transaction(() => {
+      rows = store.db.transaction(() => {
         // The canvas or area may have been deleted while the files were being written.
         if (!canvases.get(canvas.id, human.id) || (scope.kind === 'area' && !canvases.areas(canvas.id).some(a => a.id === scope.areaId))) throw notFound();
         return saved.map(s => context.addFile(scope, {
           id: randomUUID(), name: fileName(s.part.name), mime: mimeType(s.part.type), size: s.size, storageKey: s.storageKey,
         }, human.id));
       })();
-      await setUpAgents(scope);
-      return c.json(rows, 201);
     } catch (error) {
       await Promise.all(saved.map(s => files.remove(s.storageKey).catch(() => undefined)));
       if (error instanceof ContextFileTooLargeError) throw badRequest('Each file can be at most 20 MiB');
       throw error;
     }
+    // Outside the cleanup above: the rows are committed, so their files must stay.
+    await setUpAgents(() => chatsUsing(store, scope));
+    return c.json(rows, 201);
   };
 
   // A file id answers only within its own canvas (and, for area paths, its own area).
@@ -269,7 +279,7 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     const source = areaById(store, sourceAreaId);
     if (!source || !canvases.get(source.canvasId, human.id)) throw notFound();
     context.link(scope.areaId, sourceAreaId, human.id);
-    await setUpAgents(scope);
+    await setUpAgents(() => chatsUsing(store, scope));
     return c.json(scopeContext(scope, human.id));
   });
   routes.delete('/api/canvases/:id/areas/:areaId/context/links/:sourceAreaId', c => {
@@ -295,7 +305,7 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     const area = areaFor({ x: card.x + card.w / 2, y: card.y + CARD_HEIGHT / 2 }, canvases.areas(canvas.id));
     const home = { canvasId: canvas.id, areaId: area?.id ?? null };
     context.setHome(channelId, home, human.id);
-    if (agents) await agents.ensureAgents([channelId]);
+    await setUpAgents(() => [channelId]);
     return c.json({ home });
   });
 

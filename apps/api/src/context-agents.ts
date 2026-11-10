@@ -19,13 +19,32 @@ const WRAPPED_RETRY_MS = 10 * 60_000;
 const FAILED_RETRY_MS = 60_000;
 
 type Participant = { subscriberType: string; subscriberId: string };
-type EngineChannel = { id: string; archivedAt?: number | null; participants?: Participant[] };
+type EngineChannel = { id: string; archivedAt?: number | null; participants?: Participant[]; metadata?: unknown };
 type EngineAgent = { name: string; mode?: string; enabledSkills?: string[] };
 export type ContextReader = { agentName: string; state: 'ready' | 'wrapped' | 'unconfigured' };
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
-const agentsIn = (channel?: EngineChannel) =>
-  [...new Set((channel?.participants ?? []).filter(p => p.subscriberType === 'AGENT').map(p => p.subscriberId))];
+/**
+ * Agents the engine lists in `metadata.federation.participants`. Any chat creator or manager can write
+ * that list unchecked, and the engine merges it into `participants`, so these names prove nothing.
+ * Mirrors the engine's projectedParticipantsFromMetadata (trimmed id, trimmed upper-case type).
+ */
+function projectedAgents(metadata: unknown) {
+  const object = (value: unknown) => (value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null);
+  const listed = object(object(metadata)?.federation)?.participants;
+  return new Set((Array.isArray(listed) ? listed : []).flatMap(entry => {
+    const item = object(entry) ?? {};
+    const type = String(item.subscriberType ?? '').trim().toUpperCase();
+    const id = String(item.subscriberId ?? '').trim();
+    return type === 'AGENT' && id ? [id] : [];
+  }));
+}
+/** Agents subscribed to the chat. Fails closed: a name also projected through metadata never counts. */
+const agentsIn = (channel?: EngineChannel) => {
+  const projected = projectedAgents(channel?.metadata);
+  return [...new Set((channel?.participants ?? [])
+    .filter(p => p.subscriberType === 'AGENT' && !projected.has(p.subscriberId)).map(p => p.subscriberId))];
+};
 
 /**
  * Agent context keys. Each native agent in a chat whose home has context gets its own key: Nest keeps

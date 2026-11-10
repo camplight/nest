@@ -210,6 +210,63 @@ describe('agent context keys and reads against the unchanged engine', () => {
       expect((await download(key, launch, alphaFile.id)).status).toBe(401);
     });
 
+    it('counts a posted message as a chat event, so the unchanged-count checks can fail (Review Focus 4 control)', async () => {
+      const launch = await chat('Launch', []);
+      const before = await chatEvents(launch);
+      const sent = await call(owner, 'POST', '/api/messages', { id: randomUUID(), channelId: launch, text: 'Hello', mentions: [], attachments: [] });
+      expect(sent.status, await sent.clone().text()).toBe(201);
+      expect(await chatEvents(launch)).toBeGreaterThan(before);
+    });
+
+    it('sets up agents when a chat gets a home whose context already exists', async () => {
+      const launch = await chat('Launch', ['Pip']);
+      const x = await canvas('Roadmap');
+      const a = await area(x, 'Alpha');
+      await notes(`/api/canvases/${x}/areas/${a}/context`, 'Alpha notes');
+      expect(allKeys('Pip')).toBe(0);
+      const before = await chatEvents(launch);
+      await place(x, launch);
+      expect(await chatEvents(launch)).toBe(before);
+      expect(activeKeys('Pip')).toBe(1);
+      const key = (await secretOf('Pip'))!;
+      expect(key).toMatch(KEY);
+      expect(await (await read(key, launch)).json()).toMatchObject({ area: { title: 'Alpha', notes: 'Alpha notes' } });
+    });
+
+    it('fails closed on agents only projected through chat metadata', async () => {
+      const real = await chat('Real', ['Pip']);
+      const projected = { federation: { participants: [{ subscriberType: 'agent', subscriberId: ' Pip ' }, { subscriberType: 'AGENT', subscriberId: 'Pom' }, { subscriberType: 'AGENT', subscriberId: 'Ghost' }] } };
+      const created = await call(owner, 'POST', '/api/channels', { name: 'Projected', visibility: 'PRIVATE', metadata: projected });
+      expect(created.status, await created.clone().text()).toBeLessThan(300);
+      const forged = (await created.json()).id as string;
+      // The engine lists the projected agents as participants, though none is subscribed.
+      const listed = (await (await call(owner, 'GET', '/api/channels')).json()).find((ch: any) => ch.id === forged);
+      expect(listed.participants).toEqual(expect.arrayContaining([{ subscriberType: 'AGENT', subscriberId: 'Pip' }, { subscriberType: 'AGENT', subscriberId: 'Pom' }]));
+
+      const x = await canvas('Roadmap');
+      await place(x, real);
+      await place(x, forged, 500, 500);
+      await notes(`/api/canvases/${x}/context`, 'Canvas notes');
+      expect((await call(owner, 'GET', `/api/canvases/${x}/board`)).status).toBe(200);
+      await new Promise(resolve => setTimeout(resolve, 20));
+      // Pip is set up through the real chat only; projected-only agents get nothing and nothing is audited.
+      expect(activeKeys('Pip')).toBe(1);
+      expect(allKeys('Pom')).toBe(0);
+      expect(allKeys('Ghost')).toBe(0);
+      expect(await secretOf('Pom')).toBeUndefined();
+      expect(product.store.db.prepare("SELECT COUNT(*) AS n FROM product_audit WHERE type='audit.canvas.context.agent_setup_failed'").get()).toEqual({ n: 0 });
+      expect(await product.contextAgents.readers([forged])).toEqual([]);
+
+      const key = (await secretOf('Pip'))!;
+      expect((await read(key, real)).status).toBe(200);
+      const denied = await read(key, forged);
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toEqual({ error: 'This agent is not in that chat' });
+      // Projection does not count even alongside a real subscription.
+      expect((await call(owner, 'POST', `/api/channels/${forged}/subscribe`, { subscriberType: 'AGENT', subscriberId: 'Pip' })).status).toBe(200);
+      expect((await read(key, forged)).status).toBe(403);
+    });
+
     it('never returns a private canvas the chat was also placed on (Review Focus 1)', async () => {
       const launch = await chat('Launch', ['Pip']);
       const x = await canvas('Roadmap');

@@ -205,10 +205,14 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
     const board = buildBoard(c.get('human'), c.get('channels'), canvas.id);
     if (agents) {
       // Polled every few seconds: decide from the channel list already loaded, so a settled board makes
-      // no engine calls, and never make the read wait for agent setup (ensureAgents never throws).
-      const open = new Set(board.cards.filter(card => card.access === 'open').map(card => card.channelId));
-      const pending = agents.pending(c.get('channels').filter(ch => open.has(ch.id)));
-      if (pending.length) void agents.ensureAgents(pending);
+      // no engine calls, and never make the read wait for (or fail on) agent setup.
+      try {
+        const open = new Set(board.cards.filter(card => card.access === 'open').map(card => card.channelId));
+        const pending = agents.pending(c.get('channels').filter(ch => open.has(ch.id)));
+        if (pending.length) void agents.ensureAgents(pending).catch(() => undefined);
+      } catch (error) {
+        console.error('Context agent setup failed:', (error as Error).name);
+      }
     }
     const etag = c.req.query('etag');
     if (etag && etag === board.etag) return c.json({ unchanged: true });
@@ -245,8 +249,16 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
     if (next) store.canvasContext.setHome(row.channelId, next, human.id);
     return Boolean(next) && (next!.canvasId !== current?.canvasId || next!.areaId !== current?.areaId);
   }
-  // A new home may bring context with it, so the chat's agents are set up before answering.
-  const homesChanged = async (channelIds: string[]) => { if (agents && channelIds.length) await agents.ensureAgents(channelIds); };
+  // A new home may bring context with it, so the chat's agents are set up before answering. The home is
+  // already saved, so a setup problem is logged by name only and never fails the request.
+  const homesChanged = async (channelIds: string[]) => {
+    if (!agents || !channelIds.length) return;
+    try {
+      await agents.ensureAgents(channelIds);
+    } catch (error) {
+      console.error('Context agent setup failed:', (error as Error).name);
+    }
+  };
   routes.post('/api/canvases/:id/cards', async c => {
     const canvas = visible(c);
     const human = c.get('human');
