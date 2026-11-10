@@ -26,6 +26,7 @@ import {apiUrl} from './config';
 import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
 import { Community } from "./Community";
 import { CanvasView, type CanvasChatMode } from "./canvas/CanvasView";
+import { outsideFileDropTargets } from "./canvas/Surface";
 import { canvasAvailability } from "./canvas/api";
 import { usePhoneLayout } from "./canvas/PhoneList";
 import { createCanvasLive, type CanvasLive } from "./canvas/live";
@@ -586,6 +587,16 @@ export default function App() {
     onInvite: inviteMention,
     onAskAssistant: askAssistant,
   });
+  // Files dropped on a canvas card wait here until that chat is the active one and its draft is loaded, then queue and send themselves.
+  const [chatFiles,setChatFiles]=useState<{channelId:string;files:File[]}|null>(null);
+  useEffect(()=>{
+    if(!chatFiles)return;
+    if(view!=="canvas"||canvasChat.channelId!==chatFiles.channelId){setChatFiles(null);return;}
+    if(activeChannelId!==chatFiles.channelId||!composerSession.ready||composerSession.sending)return;
+    setChatFiles(null);
+    if(!activeChannelCanPost||activeChannel?.archivedAt){setError(activeChannel?.archivedAt?"Restore this conversation before attaching files.":"This conversation is read-only.");return;}
+    composerSession.uploadFiles(chatFiles.files,{autoSend:true});
+  },[chatFiles,view,canvasChat.channelId,activeChannelId,composerSession.ready,composerSession.sending]);
   async function inviteMention(candidate:import('./mentions').MentionCandidate){
     const channelId=activeChannelId,ownerId=userId;
     if(!channelId||!ownerId||!canInviteMention||!activeChannelCanPost||activeChannel?.archivedAt||candidate.inviteBlockedReason)throw Error('Invitation unavailable');
@@ -1709,7 +1720,7 @@ export default function App() {
   }
 
   const chatWorkspace = <section className={`workspace${view === "workspace" ? " standalone-workspace" : ""}`}>
-        <ChatFileDrop scope={`${userId??''}:${activeChannelId??''}`} onFiles={files=>composerRef.current?.enqueueFiles(files)} disabledReason={!activeChannel?'Choose a conversation before attaching files.':activeChannel.archivedAt?'Restore this conversation before attaching files.':!activeChannelCanPost?'This conversation is read-only.':sending?'Wait for this message to finish sending.':undefined}/>
+        <ChatFileDrop scope={`${userId??''}:${activeChannelId??''}`} accept={outsideFileDropTargets} onFiles={files=>composerRef.current?.enqueueFiles(files)} disabledReason={!activeChannel?'Choose a conversation before attaching files.':activeChannel.archivedAt?'Restore this conversation before attaching files.':!activeChannelCanPost?'This conversation is read-only.':sending?'Wait for this message to finish sending.':undefined}/>
         {view === "workspace" && <WorkspaceTopbar
           onMenu={() => setMobileSidebarOpen(true)}
           search={<label className="dashboard-search"><DesignIcon name="search" /><input
@@ -1954,6 +1965,7 @@ export default function App() {
         chat={chatWorkspace} chatChannelId={canvasChat.channelId} chatMode={canvasChat.mode}
         onOpenChat={(channelId, mode) => openCanvasChat(channelId, mode, { replace: channelId === canvasChat.channelId })} onCloseChat={options => openCanvasChat(null, null, options)}
         onOpenRegular={channelId => selectChannel(channelId)} live={canvasLiveRef.current}
+        onChatFiles={(channelId, files) => setChatFiles(current => ({ channelId, files: current?.channelId === channelId ? [...current.files, ...files] : files }))}
         refreshChannels={async () => {
           // Projects first, so a new project chat shows in the pile under its project name.
           setProjectIndex(await apiJson<Project[]>("/api/projects"));

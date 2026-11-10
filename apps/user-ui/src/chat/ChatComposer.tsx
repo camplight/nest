@@ -11,7 +11,7 @@ import {
   useRef,
   useState
 } from "react";
-import type {SelectedMention} from '@nest/schemas';
+import {MAX_MESSAGE_ATTACHMENTS,type SelectedMention} from '@nest/schemas';
 import {useAttachments,restoreAttachments,type UploadedAttachment} from '../attachments';
 import {ChatAttachments} from '../components/ChatAttachments';
 import {useMentionPicker} from "../components/useMentionPicker";
@@ -24,7 +24,7 @@ import {quoteMarkdown,replyExcerpt} from './quote';
 import type {ReplyTarget} from './quote-types';
 import type {CommandContext} from './commands';
 
-export type ChatComposerHandle={insertText(text:string):void;enqueueFiles(files:File[]):void;setReplyTarget(target:ReplyTarget|null,quotedText?:string):void;focus():void};
+export type ChatComposerHandle={insertText(text:string):void;enqueueFiles(files:File[],options?:{autoSend?:boolean}):void;setReplyTarget(target:ReplyTarget|null,quotedText?:string):void;focus():void};
 export type ComposerSessionOptions={
   userId:string|null;channel:Channel|null;canPost:boolean;
   // onSent may return a promise; the send stays in progress until it settles (the classic post-send refresh).
@@ -63,7 +63,9 @@ export function useComposerSession(options:ComposerSessionOptions){
   const [draftScope,setDraftScope]=useState<{owner:string;channel:string}|null>(null);
   const [draftStored,setDraftStored]=useState(true);
   const draft=draftState.text;
-  function setDraft(text:string){setDraftState(current=>({text,mentions:reconcileMentions(current.text,text,current.mentions)}));}
+  // Files dropped on a canvas card send themselves once every upload is done. Typing or removing a file first cancels that.
+  const [autoSend,setAutoSend]=useState(false);
+  function setDraft(text:string){setAutoSend(false);setDraftState(current=>({text,mentions:reconcileMentions(current.text,text,current.mentions)}));}
   function chooseMention(text:string,mention:SelectedMention){setDraftState(current=>({text,mentions:[...reconcileMentions(current.text,text,current.mentions),mention]}));}
   // The quote-reply target (spec 7.3): stored with the draft, sent as replyTo and part of the send fingerprint.
   const [replyTo,setReplyTo]=useState<ReplyTarget|null>(null);
@@ -104,8 +106,12 @@ export function useComposerSession(options:ComposerSessionOptions){
     setDraftStored(saveChatDraft(userId,activeChannelId,{...draftState,attachments:readyAttachments.map(({fileId,name,mime,size})=>({fileId,name,mime,size})),...(sendRequestRef.current?{request:sendRequestRef.current}:{}),...(replyTo?{replyTo}:{})}));
   },[draftState,replyTo,pendingAttachments,draftScope,userId,activeChannelId]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    return send();
+  }
+  async function send() {
+    setAutoSend(false);
     if (!activeChannelId || activeChannel?.archivedAt || !activeChannelCanPost) return;
     if (uploadingAttachmentCount > 0 || hasAttachmentErrors || mentions.inviting || sending) return;
     const trimmedText = draft.trim();
@@ -142,10 +148,23 @@ export function useComposerSession(options:ComposerSessionOptions){
     }
   }
 
-  function uploadFiles(files: File[]) {
+  function uploadFiles(files: File[], options?: {autoSend?: boolean}) {
     if(!activeChannel || activeChannel.archivedAt || !activeChannelCanPost || sending)return;
+    // Only a bare drop sends itself: not on top of a message being written or files already queued, and not when some
+    // files were cut for the 20-file limit (the person should see that notice before anything goes out). More files
+    // dropped during an auto-send's uploads simply join it.
+    const room=MAX_MESSAGE_ATTACHMENTS-pendingAttachments.length;
+    if(options?.autoSend&&files.length>0&&files.length<=room&&(autoSend||(!draft.trim()&&pendingAttachments.length===0)))setAutoSend(true);
+    else if(options?.autoSend)setAutoSend(false);
     enqueueFiles(files);
   }
+  function removeAttachment(localId:string){setAutoSend(false);setPendingAttachments(items=>items.filter(item=>item.localId!==localId));}
+  useEffect(()=>{setAutoSend(false);},[activeChannelId]);
+  useEffect(()=>{
+    if(!autoSend||sending)return;
+    if(hasAttachmentErrors){setAutoSend(false);return;}
+    if(uploadingAttachmentCount===0&&readyAttachments.length>0&&!mentions.inviting)void send();
+  },[autoSend,sending,hasAttachmentErrors,uploadingAttachmentCount,readyAttachments.length]);
 
   // Appended after a blank line when the draft has text (the demo panel's "Request changes").
   function insertText(text:string){setDraftState(current=>{const next=current.text+(current.text?'\n\n':'')+text;return {text:next,mentions:reconcileMentions(current.text,next,current.mentions)};});}
@@ -163,10 +182,12 @@ export function useComposerSession(options:ComposerSessionOptions){
   }
 
   return {
+    // The channel's saved draft is loaded: files queued before that would be replaced by it.
+    ready:Boolean(activeChannelId&&draftScope?.channel===activeChannelId&&draftScope.owner===userId),
     channel:activeChannel,channelId:activeChannelId,canPost:activeChannelCanPost,composerTextareaRef,
     draft,draftState,draftStored,setDraft,chooseMention,sending,disabled,mentions,
     pendingAttachments,setPendingAttachments,attachmentError,uploadingAttachmentCount,readyAttachments,hasAttachmentErrors,
-    handleSubmit,uploadFiles,insertText,bindCommands,replyTo,setReplyTarget,
+    handleSubmit,uploadFiles,removeAttachment,insertText,bindCommands,replyTo,setReplyTarget,
   };
 }
 
@@ -255,7 +276,7 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
               <XIcon aria-hidden="true" className="size-3.5"/>
             </button>
           </div>}
-          <ChatAttachments items={pendingAttachments} error={attachmentError} disabled={sending} onRemove={id=>setPendingAttachments(items=>items.filter(item=>item.localId!==id))}/>
+          <ChatAttachments items={pendingAttachments} error={attachmentError} disabled={sending} onRemove={session.removeAttachment}/>
           <div className="mention-input">
           {mentions.popup}
           <textarea

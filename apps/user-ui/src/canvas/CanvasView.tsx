@@ -10,7 +10,7 @@ import {boardApi,createCanvas,setCardHome,deleteCanvas,getHidden,isCanvasGone,li
 import {CanvasSwitcher} from './CanvasSwitcher';
 import {ShareDialog} from './ShareDialog';
 import {createBoardStore,type BoardOp} from './board-store';
-import {Surface,type SurfaceControls} from './Surface';
+import {Surface,outsideFileDropTargets,type FileDropTarget,type SurfaceControls} from './Surface';
 import {nudgeMessage,type CanvasLive} from './live';
 import {LoosePile,MAX_BULK} from './LoosePile';
 import {areaAround,clearOfCards,dropLayout,gridPlacement,looseChats,slotInArea,slotOutsideAreas} from './loose';
@@ -49,6 +49,8 @@ export type CanvasViewProps = {
   /** `replace` closes without a new history entry, as when the open chat leaves the visible list. */
   onCloseChat(options?: {replace?: boolean}): void;
   onOpenRegular(channelId: string): void;
+  /** Files dropped on a card: App queues them in that chat's reply box and sends them once uploaded. The chat is already open. */
+  onChatFiles(channelId: string, files: File[]): void;
   live: CanvasLive;
   /** Re-reads App's channel and project lists without navigating, so a chat started here shows in the pile. */
   refreshChannels(): Promise<void>;
@@ -80,7 +82,7 @@ async function sendNudge(channelId: string, agent: string) {
   await apiJson('/api/messages', {method: 'POST', headers: getApiHeaders(), body: JSON.stringify(nudgeMessage(channelId, agent))});
 }
 
-export function CanvasView({canvasId, humanId, username, humans, channels, projects, agents, onSelectCanvas, onMenu, chat, chatChannelId, chatMode, onOpenChat, onCloseChat, onOpenRegular, live, refreshChannels, onChannels}: CanvasViewProps) {
+export function CanvasView({canvasId, humanId, username, humans, channels, projects, agents, onSelectCanvas, onMenu, chat, chatChannelId, chatMode, onOpenChat, onCloseChat, onOpenRegular, onChatFiles, live, refreshChannels, onChannels}: CanvasViewProps) {
   const store = useMemo(() => createBoardStore({api: boardApi, now: Date.now, intervalMs: SYNC_INTERVAL_MS}), []);
   // Phones get a list in place of the free canvas.
   const phone = usePhoneLayout();
@@ -308,6 +310,24 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     if (chatShownRef.current) closeRef.current();
     setPanel(scope);
   }, []);
+  // Files on a card go to that chat, in split screen unless a chat is already open. Files on an area go to its context panel (editors only).
+  const [areaFiles, setAreaFiles] = useState<{id: number; areaId: string; files: File[]} | null>(null);
+  const roleRef = useRef(board?.canvas.role); roleRef.current = board?.canvas.role;
+  const chatFilesRef = useRef(onChatFiles); chatFilesRef.current = onChatFiles;
+  const dropFiles = useCallback((target: FileDropTarget, files: File[]) => {
+    if (target.kind === 'card') {
+      if (!visibleRef.current.some(channel => channel.id === target.channelId)) return;
+      setSelectedId(target.channelId);
+      openRef.current(target.channelId, modeRef.current ?? 'split');
+      chatFilesRef.current(target.channelId, files);
+      return;
+    }
+    if (roleRef.current === 'view') return;
+    openPanel({kind: 'area', areaId: target.areaId});
+    setAreaFiles(current => ({id: (current?.id ?? 0) + 1, areaId: target.areaId, files}));
+  }, [openPanel]);
+  // Files wait only for their own panel: once it closes or moves to another area they are gone.
+  useEffect(() => { if (areaFiles && !(panel?.kind === 'area' && panel.areaId === areaFiles.areaId)) setAreaFiles(null); }, [panel, areaFiles]);
   const openAreaContext = useCallback((areaId: string) => openPanel({kind: 'area', areaId}), [openPanel]);
   // A card opens in focus, or replaces the split-screen chat beside the canvas.
   const openFromCard = useCallback((channelId: string) => { setSelectedId(channelId); openRef.current(channelId, modeRef.current ?? 'focus'); }, []);
@@ -503,7 +523,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     body = <div className="canvas-phone-stage">
       <PhoneList key={board.canvas.id} board={board} pulses={pulses} loose={phoneLoose} titles={titles} projects={projects}
         onOpenChat={openFromPile} openChannelId={chatShown ? chatChannelId : null}/>
-      {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" onCreated={created} fileDrop={!chatShown && !panelOpen}/></div> : null}
+      {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" onCreated={created} fileDrop={!chatShown && !panelOpen} fileDropAccept={outsideFileDropTargets}/></div> : null}
     </div>;
   } else {
     // Keyed by canvas so the saved view, gestures and measured card heights start fresh per canvas.
@@ -513,10 +533,10 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={applyTracked} pulses={pulses} onNudge={sendNudge}
           onDropChat={canPlace ? dropChat : undefined} controls={controls} onOpenChat={openFromCard} openChannelId={chatShown ? chatChannelId : null}
           onDropAgent={dropAgent} onRemoveAgent={removeAgent} canManageCard={manageable} onSelectCard={setSelectedId} selectedChannelId={selected?.channelId ?? null}
-          areaContext={areaContext} onAreaContext={openAreaContext}/>
+          areaContext={areaContext} onAreaContext={openAreaContext} onDropFiles={dropFiles}/>
         <AgentTray tray={tray} suggestedFor={selected ? cardTitle(selected) : null} agents={agents} humanId={humanId} cards={board.cards} areas={board.areas}/>
         {/* While a chat or the context panel is open, dropped files go there only. */}
-        {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" onCreated={created} fileDrop={!chatShown && !panelOpen}/></div> : null}
+        {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" onCreated={created} fileDrop={!chatShown && !panelOpen} fileDropAccept={outsideFileDropTargets}/></div> : null}
       </div>
       <LoosePile chats={loose} count={looseCount} hidden={hidden} showHidden={showHidden} onShowHidden={setShowHidden}
         canPlace={canPlace} onPlace={place} onHide={hide} open={(chatShown && chatMode === 'split') || panelOpen ? splitPile : pileOpen}
@@ -563,7 +583,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       </CanvasChat> : null}
       {!chatShown && panel && board ? <ContextPanel key={`${board.canvas.id}:${panel.kind === 'area' ? panel.areaId : 'canvas'}`} canvasId={board.canvas.id} scope={panel}
         title={panel.kind === 'area' ? board.areas.find(a => a.id === panel.areaId)?.title : undefined}
-        canEdit={board.canvas.role !== 'view'} holdsChat={panel.kind === 'canvas' ? board.cards.length > 0 : board.cards.some(card => areaFor(cardCentre(card), board.areas)?.id === panel.areaId)}
+        canEdit={board.canvas.role !== 'view'} dropped={areaFiles?.areaId === (panel.kind === 'area' ? panel.areaId : null) ? areaFiles : null} holdsChat={panel.kind === 'canvas' ? board.cards.length > 0 : board.cards.some(card => areaFor(cardCentre(card), board.areas)?.id === panel.areaId)}
         onChanged={() => loadSummary(board.canvas.id)} onClose={() => setPanel(null)}/> : null}
     </div>
   </section>;

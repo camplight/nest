@@ -19,6 +19,8 @@ export type ContextPanelProps = {
   title?: string;
   /** False for view-only members: everything shows, nothing changes. */
   canEdit: boolean;
+  /** Files dropped on this area from the canvas: uploaded through the Files section once the panel has loaded. A new id is a new drop. */
+  dropped?: {id: number; files: File[]} | null;
   /** The scope holds a chat card, so its people and agents can see this context. */
   holdsChat: boolean;
   /** Notes emptied or filled, files or links changed: the board's chips and dots need a fresh summary. */
@@ -28,7 +30,7 @@ export type ContextPanelProps = {
 
 const carriesFiles = (event: DragEvent) => Array.from(event.dataTransfer.types).includes('Files');
 
-export function ContextPanel({canvasId, scope, title, canEdit, holdsChat, onChanged, onClose}: ContextPanelProps) {
+export function ContextPanel({canvasId, scope, title, canEdit, dropped, holdsChat, onChanged, onClose}: ContextPanelProps) {
   const areaId = scope.kind === 'area' ? scope.areaId : null;
   const [context, setContext] = useState<ScopeContext | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -116,6 +118,13 @@ export function ContextPanel({canvasId, scope, title, canEdit, holdsChat, onChan
       if (mounted.current) setFileError(`Could not remove ${name}. ${errorText(error, 'Try again.')}`);
     }
   }
+  // Dropped on the canvas: waits for the context to load, because an upload that finished first would have no list to join.
+  const handledDrop = useRef(0);
+  useEffect(() => {
+    if (!dropped || !context || dropped.id === handledDrop.current) return;
+    handledDrop.current = dropped.id;
+    addFiles(dropped.files);
+  }, [dropped, context]);
   function drop(event: DragEvent) {
     if (!canEdit || !carriesFiles(event)) return;
     event.preventDefault();

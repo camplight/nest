@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import type {Locator,Page} from 'playwright';
 import {agentName,runChatTest,type ChatHarness} from '../support/chat-harness';
+import {dropFile} from './drop';
 
 async function call<T>(h:ChatHarness,method:string,path:string,body?:unknown):Promise<T>{
   const response=await fetch(h.apiUrl+path,{method,headers:{cookie:h.cookie,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
@@ -35,12 +36,6 @@ async function drag(page:Page,from:{x:number;y:number},to:{x:number;y:number}){
   await page.mouse.move(to.x,to.y,{steps:4});
   await page.mouse.up();
 }
-async function dropFile(page:Page,target:string,name:string){
-  const data=await page.evaluateHandle(name=>{const data=new DataTransfer();data.items.add(new File(['synthetic bytes: '+name],name,{type:'text/plain'}));return data;},name);
-  await page.locator(target).first().dispatchEvent('drop',{dataTransfer:data});
-  await data.dispose();
-}
-
 await runChatTest('canvas chat: focus, send, reload, realtime, split screen, file drops, Space and Escape',async h=>{
   const {page,base}=h;
   const chatId=await standaloneChat(h,'Synthetic canvas chat');

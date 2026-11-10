@@ -9,19 +9,23 @@ function carriesFiles(event:DragEvent){
 /**
  * Mounted only on chat screens; the window target includes navigation and panels.
  * `enabled={false}` stops listening, so another drop target on the same screen (an open canvas chat) gets the files alone.
+ * `accept` lets an element on the screen (a canvas card or area) take its own drops: a drag over a target it refuses is left alone,
+ * with no overlay, and the element's handlers get the drop.
  */
-export function ChatFileDrop({scope,onFiles,disabledReason,enabled=true}:{scope:string;onFiles:(files:File[])=>void;disabledReason?:string;enabled?:boolean}){
-  const latest=useRef({onFiles,disabledReason});latest.current={onFiles,disabledReason};
+export function ChatFileDrop({scope,onFiles,disabledReason,enabled=true,accept}:{scope:string;onFiles:(files:File[])=>void;disabledReason?:string;enabled?:boolean;accept?:(target:EventTarget|null)=>boolean}){
+  const latest=useRef({onFiles,disabledReason,accept});latest.current={onFiles,disabledReason,accept};
   const [dragging,setDragging]=useState(false),[notice,setNotice]=useState<string|null>(null);
   useEffect(()=>{
     let depth=0;setDragging(false);setNotice(null);
     if(!enabled)return;
     const reset=()=>{depth=0;setDragging(false);};
-    function enter(event:DragEvent){if(!carriesFiles(event))return;event.preventDefault();depth++;setDragging(true);}
-    function over(event:DragEvent){if(!carriesFiles(event))return;event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect=latest.current.disabledReason?'none':'copy';setDragging(true);}
+    const refused=(event:DragEvent)=>latest.current.accept?!latest.current.accept(event.target):false;
+    function enter(event:DragEvent){if(!carriesFiles(event))return;if(refused(event)){reset();return;}event.preventDefault();depth++;setDragging(true);}
+    function over(event:DragEvent){if(!carriesFiles(event))return;if(refused(event)){reset();return;}event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect=latest.current.disabledReason?'none':'copy';setDragging(true);}
     function leave(event:DragEvent){if(!carriesFiles(event))return;depth=Math.max(0,depth-1);if(depth===0)reset();}
     function drop(event:DragEvent){
       if(!carriesFiles(event))return;
+      if(refused(event)){reset();return;}
       event.preventDefault();event.stopPropagation();reset();
       if(latest.current.disabledReason){setNotice(latest.current.disabledReason);return;}
       const entries=Array.from(event.dataTransfer!.items).filter(item=>item.kind==='file');
