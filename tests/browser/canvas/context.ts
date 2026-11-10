@@ -23,6 +23,12 @@ async function openAreaContext(page:Page,title:string){
   return panel;
 }
 const WARNING='Everyone in these chats, including their agents, can see this.';
+/** The focused element, described for assertions. */
+const focused=(page:Page)=>page.evaluate(()=>{
+  const el=document.activeElement as HTMLElement|null;
+  return {tag:el?.tagName??'',text:el?.textContent?.trim()??'',label:el?.getAttribute('aria-label')??'',area:el?.closest<HTMLElement>('[data-area-id]')?.getAttribute('aria-label')??'',inPanel:Boolean(el?.closest('.canvas-context'))};
+});
+const notesValue=(page:Page,value:string)=>page.waitForFunction(v=>(document.querySelector('.canvas-context textarea') as HTMLTextAreaElement|null)?.value===v,value);
 
 await runChatTest('canvas context: notes, files, links, used by, view-only and no wake-ups',async h=>{
   const {page,base}=h;
@@ -47,6 +53,8 @@ await runChatTest('canvas context: notes, files, links, used by, view-only and n
   await page.getByRole('button',{name:'Canvas context',exact:true}).click();
   const canvasPanel=page.getByRole('complementary',{name:'Canvas context',exact:true});
   await canvasPanel.waitFor();
+  // Focus moves into the panel, onto its heading.
+  assert.deepEqual(await focused(page).then(f=>[f.tag,f.text,f.inPanel]),['H2','Canvas context',true]);
   await canvasPanel.getByText(WARNING,{exact:true}).waitFor();
   const saved=page.waitForResponse(response=>response.request().method()==='PUT'&&new URL(response.url()).pathname===`/api/canvases/${roadmap}/context`);
   await canvasPanel.getByRole('textbox',{name:'Notes',exact:true}).fill('Launch on Friday. Keep the copy short.');
@@ -69,7 +77,43 @@ await runChatTest('canvas context: notes, files, links, used by, view-only and n
   await reloadedPanel.getByRole('button',{name:'Load their version',exact:true}).click();
   assert.equal(await reloaded.inputValue(),'Launch moved to Monday.');
   await reloadedPanel.getByText('Someone else changed these notes.',{exact:true}).waitFor({state:'detached'});
-  await page.getByRole('complementary',{name:'Canvas context',exact:true}).getByRole('button',{name:'Close',exact:true}).click();
+
+  // Closing within the 800 ms autosave window still saves what was typed.
+  const puts:string[]=[];
+  const countPut=(request:import('playwright').Request)=>{if(request.method()==='PUT'&&new URL(request.url()).pathname===`/api/canvases/${roadmap}/context`)puts.push(request.url());};
+  page.on('request',countPut);
+  const flushed=page.waitForResponse(response=>response.request().method()==='PUT'&&new URL(response.url()).pathname===`/api/canvases/${roadmap}/context`);
+  await reloaded.fill('Launch moved to Monday. Bring the deck.');
+  assert.equal(puts.length,0,'no save before the autosave delay');
+  await reloadedPanel.getByRole('button',{name:'Close',exact:true}).click();
+  assert.equal((await flushed).status(),200);
+  page.off('request',countPut);
+  await reloadedPanel.waitFor({state:'detached'});
+  // Focus returns to the button that opened the panel.
+  assert.deepEqual(await focused(page).then(f=>[f.tag,f.text]),['BUTTON','Canvas context']);
+  await page.reload();
+  await page.locator('.canvas-surface .canvas-world').waitFor({state:'attached'});
+  await page.getByRole('button',{name:'Canvas context',exact:true}).click();
+  await notesValue(page,'Launch moved to Monday. Bring the deck.');
+
+  // A reload inside the window: the leaving page sends the save with keepalive.
+  await reloaded.fill('Launch moved to Monday. Bring the deck and the brief.');
+  await page.reload();
+  await page.locator('.canvas-surface .canvas-world').waitFor({state:'attached'});
+  await page.getByRole('button',{name:'Canvas context',exact:true}).click();
+  await notesValue(page,'Launch moved to Monday. Bring the deck and the brief.');
+  // Escape closes the panel and gives focus back to its opener.
+  await reloadedPanel.getByRole('heading',{name:'Canvas context',exact:true}).waitFor();
+  await page.keyboard.press('Escape');
+  await reloadedPanel.waitFor({state:'detached'});
+  assert.deepEqual(await focused(page).then(f=>[f.tag,f.text]),['BUTTON','Canvas context']);
+
+  // The area panel: focus on its heading, and Escape returns it to the area's options button.
+  const first=await openAreaContext(page,'Launch');
+  assert.deepEqual(await focused(page).then(f=>[f.tag,f.text,f.inPanel]),['H2','Launch',true]);
+  await page.keyboard.press('Escape');
+  await first.waitFor({state:'detached'});
+  assert.deepEqual(await focused(page).then(f=>[f.label,f.area]),['Area options','Area Launch']);
 
   // Area context: the warning (Launch holds the harness chat), then an upload with progress.
   const panel=await openAreaContext(page,'Launch');
@@ -136,7 +180,7 @@ await runChatTest('canvas context: notes, files, links, used by, view-only and n
   const theirs=mate.page.getByRole('complementary',{name:'Canvas context',exact:true});
   const notes=theirs.getByRole('textbox',{name:'Notes',exact:true});
   await notes.waitFor();
-  await mate.page.waitForFunction(()=>(document.querySelector('.canvas-context textarea') as HTMLTextAreaElement|null)?.value==='Launch moved to Monday.');
+  await notesValue(mate.page,'Launch moved to Monday. Bring the deck and the brief.');
   assert.equal(await notes.getAttribute('readonly'),'','the notes are read-only');
   assert.equal(await theirs.getByRole('button',{name:'Add files',exact:true}).count(),0);
   await theirs.getByRole('button',{name:'Close',exact:true}).click();

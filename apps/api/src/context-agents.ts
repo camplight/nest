@@ -153,14 +153,22 @@ export function createContextAgents({ store, orgops, engineToken }: { store: Pro
     ? channels.filter(ch => !ch.archivedAt && agentsIn(ch).some(waiting) && hasContext(ch.id)).map(ch => ch.id)
     : []);
 
-  /** The agents in these chats and whether each can read context. Throws when the engine is unavailable. */
+  /**
+   * The agents in these chats and whether each can read context. Throws when the engine is unavailable.
+   * A native agent without a key is still `ready` while none of its chats here has context: the first
+   * context write sets it up (and waits for that). Without a key once there is context, setup failed.
+   */
   async function readers(channelIds: string[]): Promise<ContextReader[]> {
     if (!engineToken) return [];
     const channels = await liveChannels();
-    const names = [...new Set(channelIds.flatMap(id => agentsIn(channels.get(id))))].sort();
+    const ids = [...new Set(channelIds)].filter(id => channels.has(id));
+    const filled = new Set(ids.filter(hasContext));
+    const names = [...new Set(ids.flatMap(id => agentsIn(channels.get(id))))].sort();
     return Promise.all(names.map(async (agentName): Promise<ContextReader> => {
       const found = await agent(agentName);
-      return { agentName, state: found?.mode === 'WRAPPED' ? 'wrapped' : ready(agentName) ? 'ready' : 'unconfigured' };
+      if (found?.mode === 'WRAPPED') return { agentName, state: 'wrapped' };
+      const setUpFailed = !ready(agentName) && ids.some(id => filled.has(id) && agentsIn(channels.get(id)).includes(agentName));
+      return { agentName, state: setUpFailed ? 'unconfigured' : 'ready' };
     }));
   }
 

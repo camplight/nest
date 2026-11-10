@@ -2,18 +2,12 @@
 import type {ContextFile,ContextReader,ContextSummary,ScopeContext} from '@nest/schemas';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 import {apiUrl} from '../config';
+import {NotesConflict} from './notes-autosave';
 
 /** The canvas itself, or one of its areas. */
 export type PanelScope = {kind: 'canvas'} | {kind: 'area'; areaId: string};
 export type ContextSource = {canvasId: string; canvasName: string; areaId: string; title: string};
 
-/** A notes write lost to someone else's: `current` is what is stored now. */
-export class NotesConflict extends Error {
-  constructor(readonly current: ScopeContext) {
-    super('Context changed');
-    this.name = 'NotesConflict';
-  }
-}
 
 const canvasPath = (canvasId: string) => `/api/canvases/${encodeURIComponent(canvasId)}`;
 export const scopePath = (canvasId: string, scope: PanelScope) =>
@@ -39,6 +33,13 @@ export async function putNotes(canvasId: string, scope: PanelScope, notes: strin
     }
     throw error;
   }
+}
+
+/** A notes save sent as the page goes away: keepalive lets it finish after unload. Best effort, nothing to report. */
+export function putNotesKeepalive(canvasId: string, scope: PanelScope, notes: string, version: number) {
+  try {
+    void fetch(apiUrl(scopePath(canvasId, scope)), {method: 'PUT', keepalive: true, credentials: 'include', headers: getApiHeaders(), body: JSON.stringify({notes, version})}).catch(() => {});
+  } catch { /* A body over the keepalive limit (64 KB) throws; the unmount save may still reach it. */ }
 }
 
 /** One file per request, through XMLHttpRequest for upload progress; a non-2xx answer rejects with its text. */

@@ -5,13 +5,12 @@ import {MAX_LINKS_PER_AREA,type ContextReader,type ScopeContext} from '@nest/sch
 import {formatAttachmentSize,type PendingAttachment} from '../attachments';
 import {ChatAttachments} from '../components/ChatAttachments';
 import {
-  NotesConflict,addContextLink,contextFileHref,deleteContextFile,errorText,getContext,getContextReaders,getContextSources,
-  putNotes,removeContextLink,uploadContextFile,type ContextSource,type PanelScope,
+  addContextLink,contextFileHref,deleteContextFile,errorText,getContext,getContextReaders,getContextSources,
+  putNotes,putNotesKeepalive,removeContextLink,uploadContextFile,type ContextSource,type PanelScope,
 } from './context-api';
+import {useNotesAutosave} from './notes-autosave';
 
 export const CONTEXT_WARNING = 'Everyone in these chats, including their agents, can see this.';
-/** Notes save this long after typing stops. */
-export const NOTES_SAVE_DELAY_MS = 800;
 
 export type ContextPanelProps = {
   canvasId: string;
@@ -26,7 +25,6 @@ export type ContextPanelProps = {
   onChanged?(): void;
   onClose(): void;
 };
-type NotesStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 const carriesFiles = (event: DragEvent) => Array.from(event.dataTransfer.types).includes('Files');
 
@@ -34,9 +32,6 @@ export function ContextPanel({canvasId, scope, title, canEdit, holdsChat, onChan
   const areaId = scope.kind === 'area' ? scope.areaId : null;
   const [context, setContext] = useState<ScopeContext | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
-  const [notes, setNotes] = useState('');
-  const [status, setStatus] = useState<NotesStatus>('idle');
-  const [conflict, setConflict] = useState<ScopeContext | null>(null);
   const [uploads, setUploads] = useState<PendingAttachment[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
   const [dropping, setDropping] = useState(false);
@@ -51,94 +46,47 @@ export function ContextPanel({canvasId, scope, title, canEdit, holdsChat, onChan
   const changed = () => changedRef.current?.();
   const fileInput = useRef<HTMLInputElement>(null);
 
-  // Notes state shared by the debounce, the save chain and the unmount flush.
-  const text = useRef('');
-  const version = useRef(0);
-  const savedText = useRef('');
-  const dirty = useRef(false);
-  const inConflict = useRef(false);
-  const saving = useRef(false);
-  const queued = useRef(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
   const loadReaders = useCallback(() => {
     if (!areaId) return;
     getContextReaders(canvasId, areaId).then(rows => { if (mounted.current) setReaders(rows); }).catch(() => {});
   }, [canvasId, areaId]);
+
+  // Notes: saved 800 ms after typing stops, on close, and (keepalive) when the page goes away.
+  const {text: notes, status, conflict, notes: autosave} = useNotesAutosave({
+    save: (text, version) => putNotes(canvasId, scope, text, version),
+    keep: (text, version) => putNotesKeepalive(canvasId, scope, text, version),
+    onSaved: ({wasEmpty, next}) => { if (wasEmpty !== (next.notes.length === 0)) { changed(); loadReaders(); } },
+  });
 
   useEffect(() => {
     let current = true;
     getContext(canvasId, scope).then(loaded => {
       if (!current) return;
       setContext(loaded);
-      setNotes(loaded.notes);
-      text.current = savedText.current = loaded.notes;
-      version.current = loaded.version;
+      autosave.load(loaded.notes, loaded.version);
     }).catch(() => { if (current) setLoadFailed(true); });
     loadReaders();
     return () => { current = false; };
     // The panel is keyed by scope, so it loads once.
   }, []);
 
-  const save = useCallback(async () => {
-    clearTimeout(timer.current);
-    if (!dirty.current || inConflict.current) return;
-    if (saving.current) { queued.current = true; return; }
-    saving.current = true;
-    dirty.current = false;
-    const sent = text.current;
-    const wasEmpty = savedText.current.length === 0;
-    if (mounted.current) setStatus('saving');
-    try {
-      const next = await putNotes(canvasId, scope, sent, version.current);
-      version.current = next.version;
-      savedText.current = next.notes;
-      if (mounted.current) {
-        // Keep whatever was typed while this save was in flight.
-        setContext(next);
-        if (!dirty.current) setStatus('saved');
-      }
-      if (wasEmpty !== (next.notes.length === 0)) { changed(); loadReaders(); }
-    } catch (error) {
-      if (error instanceof NotesConflict) {
-        inConflict.current = true;
-        dirty.current = true;
-        if (mounted.current) { setConflict(error.current); setStatus('idle'); }
-      } else {
-        dirty.current = true;
-        if (mounted.current) setStatus('error');
-      }
-    } finally {
-      saving.current = false;
-      if (queued.current) { queued.current = false; void save(); }
-    }
-  }, [canvasId, scope, loadReaders]);
-  const saveRef = useRef(save); saveRef.current = save;
-
-  // Closing the panel (or switching scope) saves what was typed straight away.
-  useEffect(() => () => { clearTimeout(timer.current); if (dirty.current && !inConflict.current) void saveRef.current(); }, []);
-
-  function type(value: string) {
-    setNotes(value);
-    text.current = value;
-    dirty.current = value !== savedText.current || saving.current;
-    if (inConflict.current) return;
-    setStatus('idle');
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => void saveRef.current(), NOTES_SAVE_DELAY_MS);
-  }
-  function loadTheirs() {
-    if (!conflict) return;
-    clearTimeout(timer.current);
-    inConflict.current = false;
-    dirty.current = false;
-    version.current = conflict.version;
-    text.current = savedText.current = conflict.notes;
-    setNotes(conflict.notes);
-    setContext(conflict);
-    setConflict(null);
-    setStatus('idle');
-  }
+  // Focus moves to the heading on open. On close it returns to the opener: the Canvas context button, or the
+  // area's options button (its Context… item is gone with the menu), else the canvas.
+  const panelRef = useRef<HTMLElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+    headingRef.current?.focus({preventScroll: true});
+    return () => {
+      const view = panelRef.current?.closest<HTMLElement>('.canvas-view') ?? document;
+      const opener = areaId
+        ? view.querySelector<HTMLElement>(`.canvas-area[data-area-id="${CSS.escape(areaId)}"] .canvas-area-more`)
+        : view.querySelector<HTMLElement>('.canvas-context-button');
+      const target = [previous, opener, view.querySelector<HTMLElement>('.canvas-surface')].find(element => element?.isConnected);
+      // A chat opening in this slot takes focus itself, after this cleanup.
+      target?.focus({preventScroll: true});
+    };
+  }, []);
 
   function addFiles(files: File[]) {
     if (!canEdit || !files.length) return;
@@ -188,7 +136,8 @@ export function ContextPanel({canvasId, scope, title, canEdit, holdsChat, onChan
       changed();
       loadReaders();
       if (!mounted.current) return;
-      setContext(current => current && {...next, notes: current.notes, version: current.version});
+      // Only the links change here; an upload that finished meanwhile stays listed.
+      setContext(current => current && {...current, links: next.links, usedBy: next.usedBy});
       setPicker(false);
     } catch (error) {
       if (mounted.current) setLinkError(errorText(error, 'Could not use that area. Try again.'));
@@ -216,14 +165,20 @@ export function ContextPanel({canvasId, scope, title, canEdit, holdsChat, onChan
   const hiddenUses = usedBy.length - usedByNames.length;
   const unconfigured = readers?.some(reader => reader.state === 'unconfigured');
 
-  return <aside className={`canvas-context${dropping ? ' is-dropping' : ''}`} aria-label={label}
+  return <aside ref={panelRef} className={`canvas-context${dropping ? ' is-dropping' : ''}`} aria-label={label}
+    // Escape folds the area picker first, then closes the panel.
+    onKeyDown={event => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      if (picker) setPicker(false); else onClose();
+    }}
     onDragOver={event => { if (canEdit && carriesFiles(event)) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDropping(true); } }}
     onDragLeave={event => { if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) setDropping(false); }}
     onDrop={drop}>
     <header className="canvas-context-bar">
       <div className="canvas-context-heading">
         {scope.kind === 'area' ? <span className="canvas-context-eyebrow">Context</span> : null}
-        <h2>{heading}</h2>
+        <h2 ref={headingRef} tabIndex={-1}>{heading}</h2>
       </div>
       <button type="button" className="canvas-chat-action" onClick={onClose}>Close</button>
     </header>
@@ -240,15 +195,15 @@ export function ContextPanel({canvasId, scope, title, canEdit, holdsChat, onChan
             </span> : null}
           </div>
           <textarea className="canvas-context-notes" aria-label="Notes" value={notes} readOnly={!canEdit} maxLength={20_000}
-            placeholder={canEdit ? 'What should everyone here know?' : ''} onChange={event => type(event.target.value)}
-            onBlur={() => { if (canEdit) void save(); }}/>
+            placeholder={canEdit ? 'What should everyone here know?' : ''} onChange={event => autosave.type(event.target.value)}
+            onBlur={() => { if (canEdit) void autosave.flush(); }}/>
           {conflict ? <div className="canvas-context-conflict" role="alert">
             <span>Someone else changed these notes.</span>
-            <button type="button" className="canvas-chat-action" onClick={loadTheirs}>Load their version</button>
+            <button type="button" className="canvas-chat-action" onClick={autosave.loadTheirs}>Load their version</button>
           </div> : null}
           {status === 'error' ? <div className="canvas-context-conflict" role="alert">
             <span>Could not save the notes.</span>
-            <button type="button" className="canvas-chat-action" onClick={() => void save()}>Try again</button>
+            <button type="button" className="canvas-chat-action" onClick={() => void autosave.retry()}>Try again</button>
           </div> : null}
         </section>
 

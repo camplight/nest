@@ -2410,3 +2410,11 @@ li.canvas-phone-row[data-access] {
     border: 0;
   }
 }
+.canvas-context-heading h2:focus {
+  outline: none;
+}
+.canvas-context-heading h2:focus-visible {
+  outline: 2px solid var(--nest-lime);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

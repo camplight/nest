@@ -459,10 +459,15 @@ describe('canvas context API against the unchanged engine', () => {
       before = null;
       const chatEvents = async () => ((await (await call(owner, 'GET', `/api/events?channelId=${launch}&limit=1000`)).json()) as unknown[]).length;
       const quiet = await chatEvents();
-      // No context yet, so Pip has no key.
-      expect(await readers()).toEqual([{ agentName: 'Pip', state: 'unconfigured' }, { agentName: 'Wren', state: 'wrapped' }]);
-      expect((await call(owner, 'PUT', `/api/canvases/${a}/areas/${a1}/context`, { notes: 'Ship on Friday', version: 0 })).status).toBe(200);
+      // No context yet, so Pip has no key; the first write sets Pip up before it answers, so Pip reads as ready (R8).
+      expect(product.store.canvasContext.keyFor('Pip')).toBeFalsy();
       expect(await readers()).toEqual([{ agentName: 'Pip', state: 'ready' }, { agentName: 'Wren', state: 'wrapped' }]);
+      expect((await call(owner, 'PUT', `/api/canvases/${a}/areas/${a1}/context`, { notes: 'Ship on Friday', version: 0 })).status).toBe(200);
+      expect(product.store.canvasContext.keyFor('Pip')).toBeTruthy();
+      expect(await readers()).toEqual([{ agentName: 'Pip', state: 'ready' }, { agentName: 'Wren', state: 'wrapped' }]);
+      // A key lost once the home has context means setup failed: unconfigured.
+      product.store.db.prepare('DELETE FROM product_context_agents').run();
+      expect(await readers()).toEqual([{ agentName: 'Pip', state: 'unconfigured' }, { agentName: 'Wren', state: 'wrapped' }]);
       expect(await chatEvents()).toBe(quiet);
     });
   });
