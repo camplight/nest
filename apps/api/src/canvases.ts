@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { ProductDb } from '@nest/db';
 import { CanvasConflictError, CanvasForbiddenError, CanvasLimitError } from '@nest/db';
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
-import { isChatMember, type ContextAgents } from './canvas-context';
+import { availableHome, isChatMember, type ContextAgents } from './canvas-context';
 import { removeStored, type ContextFiles } from './context-files';
 import {
   areaFor, CARD_HEIGHT, DEFAULT_CARD_WIDTH, homeAfterMove, NewCanvasSchema, CanvasRenameSchema, CanvasSharingSchema, HiddenSchema, NewAreaSchema, AreaPatchSchema, PlaceCardsSchema, CardPatchSchema,
@@ -191,6 +191,8 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
     return (row: CanvasCardRow, areaId: string | null) => {
       const home = store.canvasContext.home(row.channelId);
       if (!home) return null;
+      // Its setter lost the home canvas: nothing is read from it until a member re-homes the chat (R21).
+      if (!availableHome(store, row.channelId)) return { isHere: false, label: null, available: false as const };
       const isHere = home.canvasId === canvasId && home.areaId === areaId;
       const name = canvasName(home.canvasId);
       if (name === null) return { isHere, label: 'another canvas' };

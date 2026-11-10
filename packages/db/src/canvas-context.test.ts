@@ -99,6 +99,10 @@ describe('canvas context store', () => {
     const a = mkArea(c.id);
     ctx().setHome('ch', { canvasId: c.id, areaId: a.id }, 'owner');
     expect(ctx().homesIn(c.id).get('ch')).toEqual({ canvasId: c.id, areaId: a.id });
+    expect(ctx().homeEntry('ch')).toEqual({ canvasId: c.id, areaId: a.id, setBy: 'owner' });
+    ctx().setHome('ch', { canvasId: c.id, areaId: a.id }, 'mate');
+    expect(ctx().homeEntry('ch')).toEqual({ canvasId: c.id, areaId: a.id, setBy: 'mate' });
+    expect(ctx().homeEntry('none')).toBeNull();
   });
 
   it('round-trips a context key by hash and revokes the previous key on rotation', () => {

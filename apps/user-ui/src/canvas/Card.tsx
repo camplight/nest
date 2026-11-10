@@ -187,6 +187,8 @@ export const Card = memo(function Card({card, draggable, dx, dy, dragging, measu
     </div>
     {areaTitle ? <p className="canvas-visually-hidden">In area {areaTitle}</p> : null}
     {card.access === 'open' && card.home && !card.home.isHere && card.home.label ? <p className="canvas-card-home">context from {card.home.label}</p> : null}
+    {/* The home's setter can no longer read its canvas, so agents read nothing from it; same tag as an unavailable link. */}
+    {card.access === 'open' && card.home?.available === false ? <p className="canvas-card-home" title="Agents in this chat read no context until a member uses an area's context again">context <span className="canvas-context-tag">unavailable</span></p> : null}
     {card.access === 'open' ? <OpenBody card={card} pulse={pulse} onNudge={onNudge} facesDraggable={facesDraggable} draggingFace={draggingFace}/> : null}
     {card.access === 'locked' ? <p className="canvas-card-owner">Owner: {card.ownerLabel}</p> : null}
     {/* Every card can come off the canvas; the chat itself is untouched and an open one returns to the pile. */}

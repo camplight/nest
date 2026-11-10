@@ -70,7 +70,7 @@ export function areaFor(point: { x: number; y: number }, areas: CanvasArea[]): C
  */
 type BoardCardBase = Omit<CanvasCardRow, 'ownerLabel' | 'projectId'>;
 export type BoardCard = BoardCardBase & (
-  | { access: 'open'; title: string; kind?: string; projectId: string | null; participants: { subscriberType: string; subscriberId: string }[]; archived: boolean; canManage: boolean; home?: { isHere: boolean; label: string | null } | null }
+  | { access: 'open'; title: string; kind?: string; projectId: string | null; participants: { subscriberType: string; subscriberId: string }[]; archived: boolean; canManage: boolean; home?: { isHere: boolean; label: string | null; available?: false } | null }
   | { access: 'locked'; ownerLabel: string }
   | { access: 'unavailable' }
 );

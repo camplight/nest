@@ -8,7 +8,7 @@ import { CanvasConflictError, CanvasForbiddenError, CanvasLimitError } from '@ne
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
 import {
   areaFor, CARD_HEIGHT, ContextLinkSchema, ContextNotesSchema, MAX_CONTEXT_BYTES_PER_CANVAS, MAX_CONTEXT_FILE_BYTES, MAX_MESSAGE_ATTACHMENTS,
-  type Canvas, type ContextFile, type ContextLink, type ContextReader, type ContextScope, type ContextSummary, type ScopeContext,
+  type Canvas, type ChatHome, type ContextFile, type ContextLink, type ContextReader, type ContextScope, type ContextSummary, type ScopeContext,
 } from '@nest/schemas';
 import { ContextFileTooLargeError, removeStored, type ContextFiles } from './context-files';
 
@@ -60,6 +60,15 @@ export function linkSources(store: ProductDb, areaId: string) {
     if (!source) return [];
     return [{ ...link, source, available: Boolean(store.canvases.get(source.canvasId, link.linkedBy)) }];
   });
+}
+/**
+ * A chat's home while it is available: the person who set it must still be able to read its canvas, as with a
+ * link's linker (R21). Losing that access makes the home unavailable at once; a member re-homing it restores it.
+ */
+export function availableHome(store: ProductDb, channelId: string): ChatHome | null {
+  const entry = store.canvasContext.homeEntry(channelId);
+  if (!entry || !store.canvases.get(entry.canvasId, entry.setBy)) return null;
+  return { canvasId: entry.canvasId, areaId: entry.areaId };
 }
 /** Chats whose home context includes this scope: homes on the canvas, or in the area or an area that links to it. */
 export function chatsUsing(store: ProductDb, scope: ContextScope) {
@@ -296,7 +305,8 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
   routes.get('/api/canvases/:id/areas/:areaId/context/readers', async c => {
     const canvas = canvasOf(c);
     const scope = scopeOf(c, canvas) as Extract<ContextScope, { kind: 'area' }>;
-    const homed = [...context.homesIn(canvas.id)].filter(([, home]) => home.areaId === scope.areaId).map(([channelId]) => channelId);
+    // An unavailable home (its setter lost the canvas) gives its agents nothing to read here.
+    const homed = [...context.homesIn(canvas.id)].filter(([channelId, home]) => home.areaId === scope.areaId && availableHome(store, channelId)).map(([channelId]) => channelId);
     if (!homed.length) return c.json([]);
     const visible = new Map((await orgops.humanJson<ViewerChannel[]>('/api/channels', c.req.raw.headers)).map(channel => [channel.id, channel]));
     const channelIds = homed.filter(id => visible.has(id));

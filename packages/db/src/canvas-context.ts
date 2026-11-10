@@ -104,6 +104,10 @@ export function createCanvasContextStore(db: Database.Database) {
   function home(channelId: string): ChatHome | null {
     return (db.prepare('SELECT canvas_id AS canvasId, area_id AS areaId FROM product_chat_home WHERE channel_id=?').get(channelId) as ChatHome | undefined) ?? null;
   }
+  /** The home with the person who set it: a home is usable only while they can read its canvas (R21). */
+  function homeEntry(channelId: string): (ChatHome & { setBy: string }) | null {
+    return (db.prepare('SELECT canvas_id AS canvasId, area_id AS areaId, set_by AS setBy FROM product_chat_home WHERE channel_id=?').get(channelId) as (ChatHome & { setBy: string }) | undefined) ?? null;
+  }
   function setHome(channelId: string, value: ChatHome, actor: string) {
     db.transaction(() => {
       db.prepare(`INSERT INTO product_chat_home(channel_id,canvas_id,area_id,set_by,set_at) VALUES (?,?,?,?,?)
@@ -169,7 +173,7 @@ export function createCanvasContextStore(db: Database.Database) {
   }
 
   return {
-    get, setNotes, addFile, file, removeFile, canvasBytes, links, link, unlink, usedBy, home, setHome, clearHome, homesIn,
+    get, setNotes, addFile, file, removeFile, canvasBytes, links, link, unlink, usedBy, home, homeEntry, setHome, clearHome, homesIn,
     storageKeysFor, storageKeysForArea, keyFor, saveKey, revokeKey, agentForKey, markSkillEnabled, skillEnabled,
   };
 }

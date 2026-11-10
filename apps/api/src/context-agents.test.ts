@@ -408,6 +408,48 @@ describe('agent context keys and reads against the unchanged engine', () => {
       expect(JSON.stringify(product.store.db.prepare('SELECT * FROM product_audit').all())).not.toContain('nest_context_');
     });
 
+    it('treats a home as unavailable while the person who set it cannot read its canvas (R21)', async () => {
+      const launch = await chat('Launch', ['Pip']);
+      expect((await call(owner, 'POST', `/api/channels/${launch}/subscribe`, { subscriberType: 'HUMAN', subscriberId: 'mate' })).status).toBe(200);
+      const x = await canvas('Roadmap');
+      const a = await area(x, 'Alpha');
+      await share(x, 'edit');
+      // The editor, a chat member, places the chat on the owner's canvas: the home is set by the editor.
+      expect((await call(mate, 'POST', `/api/canvases/${x}/cards`, { cards: [{ channelId: launch, x: 10, y: 10 }] })).status).toBe(201);
+      expect(product.store.canvasContext.home(launch)).toEqual({ canvasId: x, areaId: a });
+      await notes(`/api/canvases/${x}/areas/${a}/context`, 'Alpha notes');
+      await notes(`/api/canvases/${x}/context`, 'Canvas notes');
+      const areaFile = await upload(`/api/canvases/${x}/areas/${a}/context/files`, 'brief.txt', 'alpha brief');
+      const canvasFile = await upload(`/api/canvases/${x}/context/files`, 'plan.txt', 'canvas plan');
+      const key = (await secretOf('Pip'))!;
+      expect(key).toMatch(KEY);
+      expect(await (await read(key, launch)).json()).toMatchObject({ canvas: { notes: 'Canvas notes' }, area: { notes: 'Alpha notes' } });
+      expect((await download(key, launch, areaFile.id)).status).toBe(200);
+      const homeCard = async () => (await (await call(owner, 'GET', `/api/canvases/${x}/board`)).json()).cards.find((card: any) => card.channelId === launch).home;
+      const readers = async () => (await call(owner, 'GET', `/api/canvases/${x}/areas/${a}/context/readers`)).json();
+      expect(await homeCard()).toEqual({ isHere: true, label: 'Alpha' });
+      expect(await readers()).toEqual([{ agentName: 'Pip', state: 'ready' }]);
+
+      // The owner makes the canvas private: the editor who set the home can no longer read it.
+      await share(x, null);
+      const res = await read(key, launch);
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(JSON.parse(text)).toEqual({ canvas: null, area: null, linked: [] });
+      for (const secret of ['Alpha', 'Roadmap', 'notes', 'brief.txt', 'plan.txt']) expect(text).not.toContain(secret);
+      expect((await download(key, launch, areaFile.id)).status).toBe(404);
+      expect((await download(key, launch, canvasFile.id)).status).toBe(404);
+      expect(await homeCard()).toEqual({ isHere: false, label: null, available: false });
+      expect(await readers()).toEqual([]);
+
+      // Another member re-homes the chat there: available again.
+      expect((await call(owner, 'POST', `/api/canvases/${x}/cards/${launch}/home`, {})).status).toBe(200);
+      expect(await (await read(key, launch)).json()).toMatchObject({ canvas: { notes: 'Canvas notes' }, area: { title: 'Alpha', notes: 'Alpha notes' } });
+      expect(await (await download(key, launch, areaFile.id)).text()).toBe('alpha brief');
+      expect(await homeCard()).toEqual({ isHere: true, label: 'Alpha' });
+      expect(await readers()).toEqual([{ agentName: 'Pip', state: 'ready' }]);
+    });
+
     describe('a move never creates a home (R19)', () => {
       const homeOf = (channelId: string) => product.store.canvasContext.home(channelId);
       const boardOf = async (canvasId: string) => (await call(owner, 'GET', `/api/canvases/${canvasId}/board`)).json();

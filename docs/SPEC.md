@@ -853,7 +853,15 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    move never does. A chat has no home after its home canvas is deleted, after its
    card is removed from the home canvas, or when it was placed before migration 012;
    moving its card anywhere leaves it without one until a member places it on another
-   canvas or uses "Use this area's context". Dropping a
+   canvas or uses "Use this area's context". A home is unavailable while the person
+   who set it (the member whose placement, move or "Use this area's context" last set
+   it) cannot read its canvas, the same rule as a link's linker: agents then read
+   `{canvas:null, area:null, linked:[]}` for the chat, its home's files answer 404,
+   the area's readers leave it out, and the board gives the card
+   `home: {isHere:false, label:null, available:false}`, shown as "context unavailable"
+   with the link's `unavailable` tag. It is checked on every read, with no cache, and a
+   member re-homing the chat (a move on the home canvas or "Use this area's context")
+   makes it available again. Dropping a
    card onto an area with context shows "Everyone in these chats, including their
    agents, can see this." with Undo. Context other canvases hold for a chat placed
    there is never read by its agents; only the home counts.

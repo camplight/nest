@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { ProductDb } from '@nest/db';
 import type { OrgOpsClient } from '@nest/orgops-client';
 import type { ContextReader, ContextScope } from '@nest/schemas';
-import { attachment, DOWNLOAD_HEADERS, linkSources, type ContextAgents } from './canvas-context';
+import { attachment, availableHome, DOWNLOAD_HEADERS, linkSources, type ContextAgents } from './canvas-context';
 import type { ContextFiles } from './context-files';
 
 export const CONTEXT_SKILL = 'nest-context';
@@ -75,8 +75,10 @@ export function createContextAgents({ store, orgops, engineToken }: { store: Pro
   }
   const agent = (name: string) => serviceJson<EngineAgent>(`/api/agents/${encodeURIComponent(name)}`);
 
+  // Every home read goes through availableHome: an unavailable home has no context to read (R21).
+  const homeOf = (channelId: string) => availableHome(store, channelId);
   function hasContext(channelId: string) {
-    const home = context.home(channelId);
+    const home = homeOf(channelId);
     if (!home) return false;
     const filled = (scope: ContextScope) => { const saved = context.get(scope); return saved.notes.length > 0 || saved.files.length > 0; };
     if (filled({ kind: 'canvas', canvasId: home.canvasId })) return true;
@@ -174,7 +176,7 @@ export function createContextAgents({ store, orgops, engineToken }: { store: Pro
 
   /** What an agent may read for a chat: the chat's home canvas, home area and its available links (one level). */
   function homeContext(channelId: string) {
-    const home = context.home(channelId);
+    const home = homeOf(channelId);
     if (!home) return { canvas: null, area: null, linked: [] };
     const read = (scope: ContextScope) => { const { notes, files } = context.get(scope); return { notes, files }; };
     const canvasName = (store.db.prepare('SELECT name FROM product_canvases WHERE id=?').get(home.canvasId) as { name: string } | undefined)?.name ?? '';
@@ -188,7 +190,7 @@ export function createContextAgents({ store, orgops, engineToken }: { store: Pro
     };
   }
   function readableFile(channelId: string, fileId: string) {
-    const home = context.home(channelId);
+    const home = homeOf(channelId);
     const stored = z.string().uuid().safeParse(fileId).success ? context.file(fileId) : null;
     if (!home || !stored) return null;
     if (stored.scope.kind === 'canvas') return stored.scope.canvasId === home.canvasId ? stored : null;
