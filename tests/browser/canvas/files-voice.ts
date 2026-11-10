@@ -308,9 +308,11 @@ await runChatTest('canvas files: on a view-only canvas an area drop does nothing
 // Voice notes. The harness has no speech model, so the transcription answer (and only that) is stubbed; recording uses
 // Chromium's fake microphone, and /api/files and message sending are real.
 const TRANSCRIPT='Plan the spring launch';
-async function stubVoice(page:Page){
+async function stubVoice(page:Page,delayMs=0){
+  const requests={transcribe:0};
   await page.route('**/api/voice/config',route=>route.fulfill({json:{transcription:{enabled:true,modelId:'stub'}}}));
-  await page.route('**/api/voice/transcribe',route=>route.fulfill({json:{text:TRANSCRIPT,modelId:'stub'}}));
+  await page.route('**/api/voice/transcribe',async route=>{requests.transcribe++;if(delayMs)await quiet(delayMs);await route.fulfill({json:{text:TRANSCRIPT,modelId:'stub'}}).catch(()=>undefined);});
+  return requests;
 }
 /** Records about two seconds and stops, inside `scope`. */
 async function recordNote(scope:import('playwright').Locator,page:Page){
@@ -328,6 +330,8 @@ await runChatTest('canvas voice: a note in the bottom box becomes an editable tr
   await page.goto(`${base}/?view=canvas&canvas=${id}`);
   const box=dock(page).getByRole('textbox',{name:'Message',exact:true});
   await box.waitFor();
+  const allMessages=()=>call<Message[]>(h,'GET','/api/events?type=message.created&limit=500');
+  const baseline=(await allMessages()).length,channelsBefore=(await call<unknown[]>(h,'GET','/api/channels')).length;
   await recordNote(dock(page),page);
   await page.waitForFunction(()=>(document.querySelector('.project-start-dock textarea') as HTMLTextAreaElement|null)?.value==='Plan the spring launch');
   await dock(page).locator('.composer-attachments').getByText('Voice note.webm').first().waitFor();
@@ -335,7 +339,8 @@ await runChatTest('canvas voice: a note in the bottom box becomes an editable tr
 
   // Nothing is sent until Send, and the person can edit first.
   await quiet(500);
-  assert.equal((await messages(h,h.project.channelId)).filter(m=>m.payload?.attachments?.length).length,0);
+  assert.equal((await allMessages()).length,baseline,'no message was created');
+  assert.equal((await call<unknown[]>(h,'GET','/api/channels')).length,channelsBefore,'and no chat');
   await box.fill('Plan the spring launch with Sam');
   await dock(page).getByRole('button',{name:'Send',exact:true}).click();
   let found:Message|undefined;
@@ -377,4 +382,46 @@ await runChatTest('canvas voice: the same flow works in an open chat, Cancel dis
   const sent=await messageWith(h,chatId,['Voice note.webm']);
   assert.equal(sent.payload?.text,'Plan the spring launch, edited');
   assert.equal((await humanMessages(h,chatId)).length,1);
+},{canvas:true,fakeMedia:true});
+
+await runChatTest('canvas voice: a note never follows the person into another chat',async h=>{
+  const {page,base}=h;
+  const transcribed=await stubVoice(page,1500);
+  const first=await standaloneChat(h,'Synthetic voice A'),second=await standaloneChat(h,'Synthetic voice B');
+  const {id}=await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Voice switch'});
+  await call(h,'POST',`/api/canvases/${id}/cards`,{cards:[{channelId:first,x:120,y:120},{channelId:second,x:520,y:120}]});
+  await page.goto(`${base}/?view=canvas&canvas=${id}`);
+  await cardAt(page,first).waitFor();
+  const chat=await splitOpen(page,first);
+  const open=async(channelId:string)=>{
+    await cardAt(page,channelId).locator('.canvas-card-title').click();
+    await page.waitForFunction(c=>new URL(location.href).searchParams.get('chat')===c,channelId);
+  };
+  const clean=async(where='')=>{
+    assert.equal(await chat.locator('.composer-attachments').count(),0,'no audio attached '+where);
+    assert.equal(await chat.getByRole('textbox',{name:'Message',exact:true}).inputValue(),'','no transcript '+where);
+  };
+
+  // Recording in A, then B opens: the recording is dropped, the mic is idle and B stays clean.
+  await chat.getByRole('button',{name:'Record a voice note',exact:true}).click();
+  await chat.getByRole('button',{name:/^Stop recording/}).waitFor();
+  await open(second);
+  await chat.getByRole('button',{name:'Record a voice note',exact:true}).waitFor();
+  assert.equal(await chat.getByRole('button',{name:/^Stop recording/}).count(),0);
+  await quiet(700);
+  await clean('in B first');
+  assert.equal(transcribed.transcribe,0,'nothing was transcribed');
+
+  // Stopped in A and attached, transcript still pending, then B opens: the audio leaves A too.
+  await open(first);
+  await recordNote(chat,page);
+  await chat.locator('.composer-attachments').getByText('Voice note.webm').first().waitFor();
+  await open(second);
+  await quiet(2200);
+  await clean('in B');
+  await chat.getByRole('button',{name:'Record a voice note',exact:true}).waitFor();
+  await open(first);
+  await quiet(300);
+  await clean('back in A');
+  assert.equal((await humanMessages(h,first)).length+(await humanMessages(h,second)).length,0,'nothing was sent');
 },{canvas:true,fakeMedia:true});

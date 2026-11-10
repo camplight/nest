@@ -9,6 +9,7 @@ import {ProjectCreateForm} from './ProjectCreateForm';
 import {useMentionPicker} from './components/useMentionPicker';
 import {reconcileMentions} from './mentions';
 import {useVoiceNote} from './voice/useVoiceNote';
+import {voiceCapError} from './voice/voice-note';
 import {VoiceButton,VoiceStatus} from './voice/VoiceButton';
 
 type Draft={id:string;messageId:string;ownerId:string;text:string;mentions:SelectedMention[];submitted:boolean;attachments?:SendMessage['attachments'];metadata?:{name:string;description:string};channelId?:string;assistant?:string|null;assistantDismissed?:boolean};
@@ -68,11 +69,14 @@ export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=tr
     void apiJson<{members:ProjectMemberOption[];personalAgent:ProjectMemberOption|null}>('/api/projects/members',{signal:controller.signal}).then(value=>{if(!controller.signal.aborted){setRoster(value.members);setDraft(current=>current.submitted||current.assistantDismissed||!!current.assistant?current:{...current,assistant:value.personalAgent?.subscriberId??null});}}).catch(()=>{if(!controller.signal.aborted)setRosterError(true);}).finally(()=>{if(!controller.signal.aborted)setRosterReady(true);});
     return()=>controller.abort();
   },[refresh]);
+  const attachmentsRef=useRef(attachments);attachmentsRef.current=attachments;
   const locked=busy||draft.submitted;
   // The transcript is appended to the text like typed words; the audio joins the attached files.
   const voice=useVoiceNote({
     onTranscript:text=>setDraft(current=>{const next=current.text+(current.text?'\n\n':'')+text;return {...current,text:next,mentions:reconcileMentions(current.text,next,current.mentions)};}),
-    onAudio:audio=>setAttachments(items=>items.length>=MAX_MESSAGE_ATTACHMENTS?items:[...items,{localId:audio.fileId,name:audio.name,mime:audio.mime,size:audio.size,status:'ready',uploaded:{...audio,localId:audio.fileId}}])
+    attachRoom:()=>attachmentsRef.current.length>=MAX_MESSAGE_ATTACHMENTS?{ok:false,error:voiceCapError(MAX_MESSAGE_ATTACHMENTS)}:{ok:true},
+    onDiscard:fileId=>setAttachments(items=>items.filter(item=>item.localId!==fileId)),
+    onAudio:audio=>setAttachments(items=>[...items,{localId:audio.fileId,name:audio.name,mime:audio.mime,size:audio.size,status:'ready',uploaded:{...audio,localId:audio.fileId}}])
   });
   const recipients=[...new Map(draft.mentions.map(mention=>[mention.kind+':'+mention.name,mention])).values()];
   const picker=useMentionPicker({value:draft.text,onChange:text=>setDraft(current=>({...current,text,mentions:reconcileMentions(current.text,text,current.mentions)})),onChoose:(text,mention)=>setDraft(current=>({...current,text,mentions:[...reconcileMentions(current.text,text,current.mentions),mention]})),textareaRef,candidates:roster.map(member=>({id:member.subscriberType+':'+member.subscriberId,name:member.subscriberId,kind:member.subscriberType==='AGENT'?'Agent':'Person',inConversation:false})),channelId:'new-project',disabled:locked,projectDraft:true,variant:variant==='dock'?'chat':'default'});

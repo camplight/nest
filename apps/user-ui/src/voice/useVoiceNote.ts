@@ -11,15 +11,17 @@ export const canRecordVoice=()=>typeof MediaRecorder!=='undefined'&&typeof navig
  * Records a voice note for a composer. The audio goes through POST /api/files and POST /api/voice/transcribe only.
  * `onAudio` adds it to the composer's attachment list; `onTranscript` puts the text into the draft, where it can be edited.
  */
-export function useVoiceNote({onTranscript,onAudio}:{onTranscript(text:string):void;onAudio(audio:VoiceAudio):void}){
-  const latest=useRef({onTranscript,onAudio});latest.current={onTranscript,onAudio};
+export function useVoiceNote({onTranscript,onAudio,onDiscard,attachRoom}:{onTranscript(text:string):void;onAudio(audio:VoiceAudio):void;onDiscard(fileId:string):void;attachRoom():ReturnType<VoiceDeps['attachRoom']>}){
+  const latest=useRef({onTranscript,onAudio,onDiscard,attachRoom});latest.current={onTranscript,onAudio,onDiscard,attachRoom};
   const [note]=useState(()=>createVoiceNote({
     getUserMedia:()=>navigator.mediaDevices.getUserMedia({audio:true}),
     Recorder:(typeof MediaRecorder!=='undefined'?MediaRecorder:undefined) as unknown as VoiceDeps['Recorder'],
     upload:async file=>{const body=new FormData();body.append('file',file,file.name);return (await postFile(body,()=>undefined)).id;},
     transcriptionEnabled:async()=>(await apiJson<VoiceConfig>('/api/voice/config')).transcription.enabled,
     transcribe:async fileId=>(await apiJson<{text:string}>('/api/voice/transcribe',{method:'POST',headers:getApiHeaders(),body:JSON.stringify({fileId})})).text,
+    attachRoom:()=>latest.current.attachRoom(),
     onAudio:audio=>latest.current.onAudio(audio),
+    onDiscard:fileId=>latest.current.onDiscard(fileId),
     onTranscript:text=>latest.current.onTranscript(text),
   }));
   const snapshot=useSyncExternalStore(note.subscribe,note.snapshot);

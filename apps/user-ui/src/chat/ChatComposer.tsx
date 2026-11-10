@@ -24,6 +24,7 @@ import {quoteMarkdown,replyExcerpt} from './quote';
 import type {ReplyTarget} from './quote-types';
 import type {CommandContext} from './commands';
 import {useVoiceNote} from '../voice/useVoiceNote';
+import {voiceCapError} from '../voice/voice-note';
 import {VoiceButton,VoiceStatus} from '../voice/VoiceButton';
 
 export type ChatComposerHandle={insertText(text:string):void;enqueueFiles(files:File[]):void;setReplyTarget(target:ReplyTarget|null,quotedText?:string):void;focus():void};
@@ -189,7 +190,7 @@ export function useComposerSession(options:ComposerSessionOptions){
   return {
     // The channel's saved draft is loaded: files queued before that would be replaced by it.
     ready:Boolean(activeChannelId&&draftScope?.channel===activeChannelId&&draftScope.owner===userId),
-    channel:activeChannel,channelId:activeChannelId,canPost:activeChannelCanPost,composerTextareaRef,
+    userId,channel:activeChannel,channelId:activeChannelId,canPost:activeChannelCanPost,composerTextareaRef,
     draft,draftState,draftStored,setDraft,chooseMention,sending,disabled,mentions,
     pendingAttachments,setPendingAttachments,attachmentError,uploadingAttachmentCount,readyAttachments,hasAttachmentErrors,
     handleSubmit,uploadFiles,removeAttachment,insertText,bindCommands,replyTo,setReplyTarget,
@@ -202,10 +203,27 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
     pendingAttachments,setPendingAttachments,attachmentError,uploadingAttachmentCount,readyAttachments,hasAttachmentErrors,uploadFiles,mentions}=session;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // The transcript goes into the draft like typed text (it cancels a pending file auto-send); the audio joins the attachments.
+  const attachedRef=useRef(pendingAttachments);attachedRef.current=pendingAttachments;
+  // The chat each voice note was attached in: the composer is shared by every chat, so a note cancelled after a switch
+  // must be taken out of the chat it was added to (its stored draft), not the one now open.
+  const audioChat=useRef(new Map<string,string>());
   const voice=useVoiceNote({
     onTranscript:session.insertText,
-    onAudio:audio=>setPendingAttachments(items=>items.length>=MAX_MESSAGE_ATTACHMENTS?items:[...items,{localId:audio.fileId,name:audio.name,mime:audio.mime,size:audio.size,status:'ready',uploaded:{...audio,localId:audio.fileId}}])
+    attachRoom:()=>attachedRef.current.length>=MAX_MESSAGE_ATTACHMENTS?{ok:false,error:voiceCapError(MAX_MESSAGE_ATTACHMENTS)}:{ok:true},
+    onAudio:audio=>{
+      if(activeChannelId)audioChat.current.set(audio.fileId,activeChannelId);
+      setPendingAttachments(items=>[...items,{localId:audio.fileId,name:audio.name,mime:audio.mime,size:audio.size,status:'ready',uploaded:{...audio,localId:audio.fileId}}]);
+    },
+    onDiscard:fileId=>{
+      const home=audioChat.current.get(fileId);audioChat.current.delete(fileId);
+      // The stored draft of the chat it was added in always loses it; the open list only when that chat is still open.
+      if(session.userId&&home){const saved=loadChatDraft(session.userId,home);saveChatDraft(session.userId,home,{...saved,attachments:saved.attachments.filter(file=>file.fileId!==fileId)});}
+      if(!home||home===activeChannelId)setPendingAttachments(items=>items.filter(item=>item.localId!==fileId));
+    }
   });
+  // Another chat opened: a voice note being recorded or processed belongs to the one it began in. Release the mic and drop it.
+  useEffect(()=>{voice.cancel();},[activeChannelId]);
+
   useLayoutEffect(()=>{session.bindCommands({inProject:props.inProject,openInvite:props.openInvite,openFiles:props.openFiles});});
   const draftRecipients=[...new Map(draftState.mentions.map(m=>[m.kind+':'+m.name,m])).values()];
 

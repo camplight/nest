@@ -14,8 +14,8 @@ class FakeRecorder {
   stop(){
     if(this.state==='inactive')throw new Error('InvalidStateError');
     this.state='inactive';this.stops++;
-    this.ondataavailable?.({data:new Blob(['audio-bytes'],{type:this.mimeType})});
-    this.onstop?.();
+    // Like a browser: the data and the stop event arrive after stop() returns.
+    setTimeout(()=>{this.ondataavailable?.({data:new Blob(['audio-bytes'],{type:this.mimeType})});this.onstop?.();},0);
   }
 }
 const track=()=>({stop:vi.fn()});
@@ -29,7 +29,7 @@ function setup(overrides:Partial<VoiceDeps>={}){
     upload:vi.fn(async(file:File)=>{log.push(`upload ${file.name} ${file.type}`);return 'file-1';}),
     transcriptionEnabled:vi.fn(async()=>true),
     transcribe:vi.fn(async()=>'Plan the spring launch'),
-    onAudio:vi.fn(),onTranscript:vi.fn(),
+    attachRoom:vi.fn((): {ok:true}|{ok:false;error:string}=>({ok:true})),onAudio:vi.fn(),onDiscard:vi.fn(),onTranscript:vi.fn(),
     ...overrides,
   } satisfies VoiceDeps;
   const note=createVoiceNote(deps);
@@ -74,7 +74,7 @@ describe('createVoiceNote',()=>{
     await vi.advanceTimersByTimeAsync((MAX_VOICE_SECONDS-1)*1000);
     expect(snap(note).state).toBe('recording');
     await vi.advanceTimersByTimeAsync(1000);
-    await flush();
+    await vi.advanceTimersByTimeAsync(1);await flush();
     expect(FakeRecorder.last?.stops).toBe(1);
     expect(deps.upload).toHaveBeenCalledTimes(1);
     expect(deps.onTranscript).toHaveBeenCalled();
@@ -152,5 +152,67 @@ describe('createVoiceNote',()=>{
     expect(late.stop).toHaveBeenCalled();
     expect(snap(note).state).toBe('idle');
     expect(deps.upload).not.toHaveBeenCalled();
+  });
+
+  it('a second Stop while stopping is a no-op and the recording is kept',async()=>{
+    const {deps,note}=setup();
+    await note.start();
+    note.stop();note.stop();
+    await flush();
+    expect(FakeRecorder.last?.stops).toBe(1);
+    expect(deps.onAudio).toHaveBeenCalledTimes(1);
+    expect(deps.onTranscript).toHaveBeenCalledWith('Plan the spring launch');
+    expect(snap(note).state).toBe('idle');
+  });
+
+  it('the 300 s auto-stop racing a manual Stop stops once',async()=>{
+    const {deps,note}=setup();
+    await note.start();
+    await vi.advanceTimersByTimeAsync((MAX_VOICE_SECONDS-1)*1000+999);
+    note.stop();
+    await vi.advanceTimersByTimeAsync(5000);await flush();
+    expect(FakeRecorder.last?.stops).toBe(1);
+    expect(deps.upload).toHaveBeenCalledTimes(1);
+    expect(snap(note).error).toBeNull();
+  });
+
+  it('cancel during transcription takes the audio back off and inserts no transcript',async()=>{
+    let release:(text:string)=>void=()=>undefined;
+    const {deps,note}=setup({transcribe:vi.fn(()=>new Promise<string>(resolve=>{release=resolve;}))});
+    await note.start();note.stop();await flush();
+    expect(snap(note).state).toBe('transcribing');
+    expect(deps.onAudio).toHaveBeenCalledTimes(1);
+    note.cancel();
+    release('late words');await flush();
+    expect(deps.onDiscard).toHaveBeenCalledWith('file-1');
+    expect(deps.onTranscript).not.toHaveBeenCalled();
+    expect(snap(note).state).toBe('idle');
+  });
+
+  it('unmounting during transcription takes the audio back off and inserts no transcript',async()=>{
+    let release:(text:string)=>void=()=>undefined;
+    const {deps,note}=setup({transcribe:vi.fn(()=>new Promise<string>(resolve=>{release=resolve;}))});
+    await note.start();note.stop();await flush();
+    note.destroy();
+    release('late words');await flush();
+    expect(deps.onDiscard).toHaveBeenCalledWith('file-1');
+    expect(deps.onTranscript).not.toHaveBeenCalled();
+  });
+
+  it('a finished note, or one whose transcription failed or is off, keeps its audio when later cancelled',async()=>{
+    const done=setup();
+    await done.note.start();done.note.stop();await flush();done.note.cancel();
+    expect(done.deps.onDiscard).not.toHaveBeenCalled();
+    const failed=setup({transcribe:vi.fn(async()=>{throw new Error('x');})});
+    await failed.note.start();failed.note.stop();await flush();failed.note.cancel();
+    expect(failed.deps.onDiscard).not.toHaveBeenCalled();
+  });
+
+  it('shows the cap error instead of dropping the audio when the attachment list is full',async()=>{
+    const {deps,note}=setup({attachRoom:vi.fn(()=>({ok:false as const,error:'You can attach up to 20 files. 1 file was not added.'}))});
+    await note.start();note.stop();await flush();
+    expect(deps.upload).not.toHaveBeenCalled();
+    expect(deps.onAudio).not.toHaveBeenCalled();
+    expect(snap(note)).toMatchObject({state:'error',error:'You can attach up to 20 files. 1 file was not added.'});
   });
 });

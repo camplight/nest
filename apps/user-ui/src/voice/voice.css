@@ -2,7 +2,7 @@
 .voice-note-button.is-recording { color: var(--nest-coral, #c2410c) !important; }
 .voice-note-button.is-recording svg { animation: voice-note-pulse 1.2s ease-in-out infinite; }
 .voice-note-status { margin: 0; color: var(--nest-muted); font-size: 12px; }
-.voice-note-status:empty { display: none; }
+.voice-note-status:empty { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .voice-note-status.is-recording { color: var(--nest-text); }
 .voice-note-error { margin: 0; padding: 6px 10px; border-radius: 8px; background: var(--nest-muted-surface); color: var(--canvas-alert, #a63016); font-size: 12px; font-weight: 500; }
 :root[data-theme="dark"] .voice-note-error { color: var(--nest-coral, #ff8a70); }
