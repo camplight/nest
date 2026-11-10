@@ -21,7 +21,7 @@ export function formatAttachmentSize(size?:number){
  * POST /api/files through XMLHttpRequest for upload progress, with apiFetch's contract: the apiUrl() URL, credentials
  * included, and a non-2xx answer thrown as Error(responseText || 'Request failed: <status>').
  */
-function postFile(body:FormData,onProgress:(fraction:number)=>void){
+export function postFile(body:FormData,onProgress:(fraction:number)=>void){
   return new Promise<{id:string}>((resolve,reject)=>{
     const request=new XMLHttpRequest();
     request.open('POST',apiUrl('/api/files'));

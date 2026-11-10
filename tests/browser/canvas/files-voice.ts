@@ -304,3 +304,77 @@ await runChatTest('canvas files: on a view-only canvas an area drop does nothing
   await dropFile(theirs,`.canvas-card[data-channel-id="${h.project.channelId}"]`,'viewer.txt');
   await messageWith(h,h.project.channelId,['viewer.txt']);
 },{canvas:true});
+
+// Voice notes. The harness has no speech model, so the transcription answer (and only that) is stubbed; recording uses
+// Chromium's fake microphone, and /api/files and message sending are real.
+const TRANSCRIPT='Plan the spring launch';
+async function stubVoice(page:Page){
+  await page.route('**/api/voice/config',route=>route.fulfill({json:{transcription:{enabled:true,modelId:'stub'}}}));
+  await page.route('**/api/voice/transcribe',route=>route.fulfill({json:{text:TRANSCRIPT,modelId:'stub'}}));
+}
+/** Records about two seconds and stops, inside `scope`. */
+async function recordNote(scope:import('playwright').Locator,page:Page){
+  await scope.getByRole('button',{name:'Record a voice note',exact:true}).click();
+  const stop=scope.getByRole('button',{name:/^Stop recording \(\d:\d\d\)$/});
+  await stop.waitFor();
+  await quiet(2100);
+  await stop.click();
+}
+
+await runChatTest('canvas voice: a note in the bottom box becomes an editable transcript and one audio attachment',async h=>{
+  const {page,base}=h;
+  await stubVoice(page);
+  const {id}=await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Voice dock'});
+  await page.goto(`${base}/?view=canvas&canvas=${id}`);
+  const box=dock(page).getByRole('textbox',{name:'Message',exact:true});
+  await box.waitFor();
+  await recordNote(dock(page),page);
+  await page.waitForFunction(()=>(document.querySelector('.project-start-dock textarea') as HTMLTextAreaElement|null)?.value==='Plan the spring launch');
+  await dock(page).locator('.composer-attachments').getByText('Voice note.webm').first().waitFor();
+  assert.equal(await dock(page).getByRole('button',{name:'Record a voice note',exact:true}).count(),1,'the mic is back');
+
+  // Nothing is sent until Send, and the person can edit first.
+  await quiet(500);
+  assert.equal((await messages(h,h.project.channelId)).filter(m=>m.payload?.attachments?.length).length,0);
+  await box.fill('Plan the spring launch with Sam');
+  await dock(page).getByRole('button',{name:'Send',exact:true}).click();
+  let found:Message|undefined;
+  for(let attempt=0;attempt<100&&!found;attempt++){
+    const all=await call<Message[]>(h,'GET','/api/events?type=message.created&order=desc&limit=50');
+    found=all.find(m=>m.payload?.text==='Plan the spring launch with Sam');
+    if(!found)await quiet(100);
+  }
+  assert.ok(found,'the new chat has the edited text');
+  assert.deepEqual((found.payload?.attachments??[]).map(a=>a.name),['Voice note.webm']);
+},{canvas:true,fakeMedia:true});
+
+await runChatTest('canvas voice: the same flow works in an open chat, Cancel discards, and the chat header has Huddle',async h=>{
+  const {page,base}=h;
+  await stubVoice(page);
+  const chatId=await standaloneChat(h,'Synthetic voice chat');
+  const {id}=await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Voice chat'});
+  await call(h,'POST',`/api/canvases/${id}/cards`,{cards:[{channelId:chatId,x:120,y:120}]});
+  await page.goto(`${base}/?view=canvas&canvas=${id}`);
+  await cardAt(page,chatId).waitFor();
+  const chat=await splitOpen(page,chatId);
+  await chat.getByRole('button',{name:'Huddle',exact:true}).waitFor();
+  const box=chat.getByRole('textbox',{name:'Message',exact:true});
+
+  // Cancel: nothing is attached or inserted, and the status clears.
+  await chat.getByRole('button',{name:'Record a voice note',exact:true}).click();
+  await chat.getByRole('button',{name:/^Stop recording/}).waitFor();
+  await chat.getByRole('button',{name:'Cancel recording',exact:true}).click();
+  await chat.getByRole('button',{name:'Record a voice note',exact:true}).waitFor();
+  await quiet(500);
+  assert.equal(await chat.locator('.composer-attachments').count(),0);
+  assert.equal(await box.inputValue(),'');
+
+  await recordNote(chat,page);
+  await page.waitForFunction(()=>(document.querySelector('.canvas-chat textarea') as HTMLTextAreaElement|null)?.value==='Plan the spring launch');
+  await chat.locator('.composer-attachments').getByText('Voice note.webm').first().waitFor();
+  await box.fill('Plan the spring launch, edited');
+  await chat.getByRole('button',{name:'Send',exact:true}).click();
+  const sent=await messageWith(h,chatId,['Voice note.webm']);
+  assert.equal(sent.payload?.text,'Plan the spring launch, edited');
+  assert.equal((await humanMessages(h,chatId)).length,1);
+},{canvas:true,fakeMedia:true});

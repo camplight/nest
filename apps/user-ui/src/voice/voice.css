@@ -1,0 +1,10 @@
+.voice-note-group { display: inline-flex; align-items: center; gap: 4px; }
+.voice-note-button.is-recording { color: var(--nest-coral, #c2410c) !important; }
+.voice-note-button.is-recording svg { animation: voice-note-pulse 1.2s ease-in-out infinite; }
+.voice-note-status { margin: 0; color: var(--nest-muted); font-size: 12px; }
+.voice-note-status:empty { display: none; }
+.voice-note-status.is-recording { color: var(--nest-text); }
+.voice-note-error { margin: 0; padding: 6px 10px; border-radius: 8px; background: var(--nest-muted-surface); color: var(--canvas-alert, #a63016); font-size: 12px; font-weight: 500; }
+:root[data-theme="dark"] .voice-note-error { color: var(--nest-coral, #ff8a70); }
+@keyframes voice-note-pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .voice-note-button.is-recording svg { animation: none; } }

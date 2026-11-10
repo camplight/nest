@@ -23,6 +23,8 @@ import type {Channel} from "../types";
 import {quoteMarkdown,replyExcerpt} from './quote';
 import type {ReplyTarget} from './quote-types';
 import type {CommandContext} from './commands';
+import {useVoiceNote} from '../voice/useVoiceNote';
+import {VoiceButton,VoiceStatus} from '../voice/VoiceButton';
 
 export type ChatComposerHandle={insertText(text:string):void;enqueueFiles(files:File[]):void;setReplyTarget(target:ReplyTarget|null,quotedText?:string):void;focus():void};
 export type ComposerSessionOptions={
@@ -199,6 +201,11 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
   const {channel:activeChannel,channelId:activeChannelId,canPost:activeChannelCanPost,composerTextareaRef,draft,draftState,draftStored,setDraft,sending,
     pendingAttachments,setPendingAttachments,attachmentError,uploadingAttachmentCount,readyAttachments,hasAttachmentErrors,uploadFiles,mentions}=session;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // The transcript goes into the draft like typed text (it cancels a pending file auto-send); the audio joins the attachments.
+  const voice=useVoiceNote({
+    onTranscript:session.insertText,
+    onAudio:audio=>setPendingAttachments(items=>items.length>=MAX_MESSAGE_ATTACHMENTS?items:[...items,{localId:audio.fileId,name:audio.name,mime:audio.mime,size:audio.size,status:'ready',uploaded:{...audio,localId:audio.fileId}}])
+  });
   useLayoutEffect(()=>{session.bindCommands({inProject:props.inProject,openInvite:props.openInvite,openFiles:props.openFiles});});
   const draftRecipients=[...new Map(draftState.mentions.map(m=>[m.kind+':'+m.name,m])).values()];
 
@@ -279,6 +286,7 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
               <XIcon aria-hidden="true" className="size-3.5"/>
             </button>
           </div>}
+          <VoiceStatus voice={voice}/>
           <ChatAttachments items={pendingAttachments} error={attachmentError} disabled={sending} onRemove={session.removeAttachment}/>
           <div className="mention-input">
           {mentions.popup}
@@ -326,6 +334,7 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg>
               Attach files
             </button>
+            <VoiceButton voice={voice} variant="composer" disabled={!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending}/>
             <button
               className="composer-send"
               disabled={

@@ -8,6 +8,8 @@ import {apiJson,getApiHeaders} from './api';
 import {ProjectCreateForm} from './ProjectCreateForm';
 import {useMentionPicker} from './components/useMentionPicker';
 import {reconcileMentions} from './mentions';
+import {useVoiceNote} from './voice/useVoiceNote';
+import {VoiceButton,VoiceStatus} from './voice/VoiceButton';
 
 type Draft={id:string;messageId:string;ownerId:string;text:string;mentions:SelectedMention[];submitted:boolean;attachments?:SendMessage['attachments'];metadata?:{name:string;description:string};channelId?:string;assistant?:string|null;assistantDismissed?:boolean};
 const legacyStorageKey='nest-new-project-chat';
@@ -67,6 +69,11 @@ export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=tr
     return()=>controller.abort();
   },[refresh]);
   const locked=busy||draft.submitted;
+  // The transcript is appended to the text like typed words; the audio joins the attached files.
+  const voice=useVoiceNote({
+    onTranscript:text=>setDraft(current=>{const next=current.text+(current.text?'\n\n':'')+text;return {...current,text:next,mentions:reconcileMentions(current.text,next,current.mentions)};}),
+    onAudio:audio=>setAttachments(items=>items.length>=MAX_MESSAGE_ATTACHMENTS?items:[...items,{localId:audio.fileId,name:audio.name,mime:audio.mime,size:audio.size,status:'ready',uploaded:{...audio,localId:audio.fileId}}])
+  });
   const recipients=[...new Map(draft.mentions.map(mention=>[mention.kind+':'+mention.name,mention])).values()];
   const picker=useMentionPicker({value:draft.text,onChange:text=>setDraft(current=>({...current,text,mentions:reconcileMentions(current.text,text,current.mentions)})),onChoose:(text,mention)=>setDraft(current=>({...current,text,mentions:[...reconcileMentions(current.text,text,current.mentions),mention]})),textareaRef,candidates:roster.map(member=>({id:member.subscriberType+':'+member.subscriberId,name:member.subscriberId,kind:member.subscriberType==='AGENT'?'Agent':'Person',inConversation:false})),channelId:'new-project',disabled:locked,projectDraft:true,variant:variant==='dock'?'chat':'default'});
   async function submit(event:FormEvent) {
@@ -91,6 +98,7 @@ export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=tr
   const notices=<>
     {!stored&&<p role="status">Draft storage is unavailable. Keep this tab open until you send.</p>}
     {rosterError&&<p role="alert">We couldn’t load your team. You can still start on your own. <button type="button" className="project-inline-action" disabled={locked} onClick={()=>setRefresh(n=>n+1)}>Try again</button></p>}
+    <VoiceStatus voice={voice}/>
     <ChatAttachments items={attachments} error={attachmentError} disabled={locked} onRemove={id=>setAttachments(items=>items.filter(item=>item.localId!==id))}/>
     {failed&&<p role="alert">Remove failed uploads before sending. You can attach them again to retry.</p>}
   </>;
@@ -108,6 +116,7 @@ export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=tr
       {fileInput}
       <div className="project-start-dock-row">
         <button type="button" className="project-start-dock-attach" aria-label="Attach files" title="Attach files" disabled={locked} onClick={()=>fileInputRef.current?.click()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21 11-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg></button>
+        <VoiceButton voice={voice} variant="dock" disabled={locked}/>
         <div className="mention-input">{picker.popup}<textarea ref={textareaRef} {...picker.textareaProps} aria-label="Message" placeholder="Start a new chat. Type @ to bring someone in." value={draft.text} maxLength={32000} rows={1} disabled={locked} onChange={onTextChange} onKeyDown={onTextKey}/></div>
         <button className="canvas-button project-start-dock-send" disabled={!canSend}>{busy?'Starting…':draft.submitted?'Retry send':'Send'}</button>
       </div>
@@ -123,7 +132,7 @@ export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=tr
       {draft.assistant&&<div className="project-start-assistant"><span><strong>{draft.assistant}</strong> will join and help you get started.</span><button type="button" className="project-inline-action" disabled={locked} onClick={()=>setDraft(current=>({...current,assistant:null,assistantDismissed:true}))}>Start without my agent</button><small>Your agent can use its granted apps here, including when you are absent. Other participants may request actions and see results.</small></div>}
       {recipients.length>0&&<p className="project-start-recipients">Joining: {recipients.map(m=>m.name).join(', ')}</p>}
       {errorNotice}
-      <div className="project-start-footer"><span>Type @ to add people or agents.</span><div><button type="button" className="dashboard-action" disabled={locked} onClick={()=>fileInputRef.current?.click()}>Attach files</button>{onCancel&&<button type="button" className="dashboard-action" disabled={busy} onClick={onCancel}>Cancel</button>}<button className="dashboard-action project-primary" disabled={!canSend}>{busy?'Starting…':draft.submitted?'Retry send':'Send'}</button></div></div>
+      <div className="project-start-footer"><span>Type @ to add people or agents.</span><div><button type="button" className="dashboard-action" disabled={locked} onClick={()=>fileInputRef.current?.click()}>Attach files</button><VoiceButton voice={voice} variant="page" disabled={locked}/>{onCancel&&<button type="button" className="dashboard-action" disabled={busy} onClick={onCancel}>Cancel</button>}<button className="dashboard-action project-primary" disabled={!canSend}>{busy?'Starting…':draft.submitted?'Retry send':'Send'}</button></div></div>
     </form>
   </section>;
 }
