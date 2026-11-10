@@ -22,7 +22,7 @@ export function registerAgentManagementRoutes(app:Hono,{orgops,store,config}:{or
     const settings=config??fail(503,'Agent management is not configured');
     const token=authorization?.startsWith('Bearer ')?authorization.slice(7):'';
     const claims=verifyManagementCapability(token,settings.engineToken,settings.agentName)??fail(401,'Agent management capability is missing or revoked');
-    const engine=orgops.agentManagement(settings.engineToken);
+    const engine=orgops.agentManagement(settings.engineToken,settings.agentName);
     const current=await engine.context(claims);
     const {manager,channel,event}=current;
     const owner=current.humans?.find(h=>event?.source===`human:${h.username}`);
@@ -37,6 +37,7 @@ export function registerAgentManagementRoutes(app:Hono,{orgops,store,config}:{or
   }
   async function context(authorization:string|undefined) {
     const ctx=await requestContext(authorization);
+    if(ctx.manager.agentRole!=='SYSTEM')fail(403,'Agent creation requires an operator to grant the configured manager the SYSTEM role');
     const model={reference:defaultModelReference(ctx.settings.defaultModelId,ctx.models)??fail(503,'No enabled default model is configured')};
     // Execution context is required for creation, not for project membership.
     const assignedRunner=ctx.runners?.find(r=>r.id===ctx.manager.assignedRunnerId&&r.online)??fail(503,'The manager’s runner is unavailable');

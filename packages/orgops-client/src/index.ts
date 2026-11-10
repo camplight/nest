@@ -169,9 +169,9 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     if(!model)throw Error('Project naming model unavailable');
     return {text:event.payload.text,model:model.reference};
   }
-  function agentManagement(serviceToken: string) {
+  function agentManagement(serviceToken: string, sourceAgentName?: string) {
     if (!serviceToken) throw Error('Agent management is not configured');
-    const headers = {'x-orgops-runner-token':serviceToken};
+    const headers = {'x-orgops-runner-token':serviceToken,...(sourceAgentName?{'x-orgops-agent-name':sourceAgentName}:{})};
     async function read<T>(path:string):Promise<T|null> {
       const response = await request(path,{headers});
       if (response.status === 404) return null;
@@ -201,4 +201,4 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
 }
 export type OrgOpsClient = ReturnType<typeof createOrgOpsClient>;
 
-export type ManagedEngineAgent = {id:string;name:string;mode:string;ownerHumanId:string|null;visibility:string;assignedRunnerId:string|null;workspacePath:string;modelId:string;description:string;systemInstructions:string;allowOutsideWorkspace:boolean;allowOwnerHumanSecrets:boolean};
+export type ManagedEngineAgent = {agentRole?:'STANDARD'|'SYSTEM';id:string;name:string;mode:string;ownerHumanId:string|null;visibility:string;assignedRunnerId:string|null;workspacePath:string;modelId:string;description:string;systemInstructions:string;allowOutsideWorkspace:boolean;allowOwnerHumanSecrets:boolean};
