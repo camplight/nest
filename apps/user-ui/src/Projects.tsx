@@ -12,7 +12,7 @@ import {ProjectStart} from './ProjectStart';
 import {ProjectContext} from './ProjectContext';
 import './projects.css';
 
-type Props = {userId:string; participants:ChannelParticipant[]; existingChats: {id:string;name:string;archived:boolean}[]; onChat:(id:string)=>void; projectId: string | null; taskId: string | null; tab: string; agents: Agent[]; onSelect: (project: string | null, task?: string | null, tab?: string) => void; onLoaded: (project: Project) => void; onMenu: () => void; chat: ReactNode; onMembersChanged:()=>Promise<void>; onManage?:()=>void};
+type Props = {userId:string; participants:ChannelParticipant[]; existingChats: {id:string;name:string;archived:boolean}[]; onChat:(id:string)=>void; projectId: string | null; taskId: string | null; tab: string; agents: Agent[]; onSelect: (project: string | null, task?: string | null, tab?: string) => void; onLoaded: (project: Project) => void; onMenu: () => void; chat: ReactNode; onMembersChanged:()=>Promise<void>; onManage?:()=>void; voice?:boolean};
 const statusLabel: Record<Task['status'],string> = {queued:'Ready to send',working:'Awaiting deliverable',needs_review:'Needs review',changes_requested:'Changes requested',done:'Approved'};
 function message(reason: unknown) {
   const text=reason instanceof Error ? reason.message : 'Unable to complete request';
@@ -55,7 +55,7 @@ export function Projects(props: Props) {
       {error && <div className="notice error" role="alert">{error} <button onClick={()=>setRefresh(n=>n+1)}>Refresh</button></div>}
       {loading && <p role="status">Loading projects…</p>}
       {!projectId && <>
-        {creating && props.userId && <ProjectStart key={props.userId} ownerId={props.userId} onCreated={p=>{onLoaded(p);onSelect(p.id);}} onCancel={()=>{setCreating(false);onSelect(null);requestAnimationFrame(()=>createTrigger.current?.focus());}} />}
+        {creating && props.userId && <ProjectStart key={props.userId} ownerId={props.userId} voice={props.voice} onCreated={p=>{onLoaded(p);onSelect(p.id);}} onCancel={()=>{setCreating(false);onSelect(null);requestAnimationFrame(()=>createTrigger.current?.focus());}} />}
         {!creating&&<div className="project-grid">{filteredProjects.map(project=><button className="dashboard-card project-summary" key={project.id} onClick={()=>onSelect(project.id)}><h2>{project.name}</h2><p>{project.description || 'Open the conversation and work with your team.'}</p><span>Open project →</span></button>)}</div>}
         {!creating && !loading && !error && projects.length>0 && !filteredProjects.length && <div className="dashboard-card dashboard-empty"><h2>No matching projects</h2><p>Try a different project name or description.</p></div>}
         {!loading && !error && !projects.length && !creating && <div className="dashboard-card dashboard-empty"><h2>Your next project starts here</h2><p>Start a conversation and bring your team in with @mentions.</p></div>}

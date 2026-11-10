@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {activity,activityDetails,activeAgentProgress} from './activity';
+import {activity,activityDetails,activeAgentProgress,appRedaction} from './activity';
 import type {EventRow} from './types';
 const event=(type:string,payload:unknown)=>({id:'fixture',type,payload,source:'agent:Demo',createdAt:1,channelId:'demo'} as EventRow);
 describe('activity status meaning',()=>{
@@ -20,23 +20,67 @@ describe('activity status meaning',()=>{
 describe('app calls in the timeline',()=>{
  const call=(command:string,type='tool.executed')=>({...event(type,{tool:'shell_run',args:{command},output:'SECRET-OUT'}),source:'agent:Pip'});
  const send=call('node scripts/connections.mjs execute c1 GMAIL_SEND_EMAIL < a.json');
+ // The canvas flag on: the timeline is given what it knows about app calls in the loaded events.
+ const on=appRedaction([]);
  it('names the agent, app, action and whether it read or changed',()=>{
-  expect(activity(send).title).toBe('Pip · Gmail · Send email · changed');
-  expect(activity(call('node scripts/connections.mjs execute c1 GMAIL_FETCH_EMAILS < a.json')).title).toBe('Pip · Gmail · Fetch emails · read');
+  expect(activity(send,on).title).toBe('Pip · Gmail · Send email · changed');
+  expect(activity(call('node scripts/connections.mjs execute c1 GMAIL_FETCH_EMAILS < a.json'),on).title).toBe('Pip · Gmail · Fetch emails · read');
  });
  it('keeps the tone of the event phase',()=>{
-  expect(activity(call('gh pr view 1 -R acme/web','tool.failed')).tone).toBe('danger');
+  expect(activity(call('gh pr view 1 -R acme/web','tool.failed'),on).tone).toBe('danger');
  });
  it('shows only tool, time, agent, kind and label in the details',()=>{
-  const text=activityDetails(send);
+  const text=activityDetails(send,on);
   expect(JSON.parse(text)).toEqual({tool:'shell_run',time:'1970-01-01T00:00:00.001Z',agent:'Pip',kind:'change',label:null});
   for(const leak of ['a.json','connections.mjs','SECRET-OUT','args','output'])expect(text).not.toContain(leak);
-  expect(JSON.parse(activityDetails(call('gh pr view 1 -R acme/web'))).label).toBe('acme/web');
+  expect(JSON.parse(activityDetails(call('gh pr view 1 -R acme/web'),on)).label).toBe('acme/web');
  });
  it('leaves other tools and shell commands as they were',()=>{
   const ls=call('ls -la');
-  expect(activity(ls).title).toBe('shell_run completed');
-  expect(JSON.parse(activityDetails(ls)).payload.args.command).toBe('ls -la');
+  expect(activity(ls,on).title).toBe('shell_run completed');
+  expect(JSON.parse(activityDetails(ls,on)).payload.args.command).toBe('ls -la');
+ });
+ it('renders exactly as before Phase 2 with the canvas flag off (R20)',()=>{
+  expect(activity(send).title).toBe('shell_run completed');
+  expect(activity(send,null).title).toBe('shell_run completed');
+  expect(JSON.parse(activityDetails(send))).toEqual({event:send.type,source:send.source,payload:send.payload});
+  expect(JSON.parse(activityDetails(send,null))).toEqual({event:send.type,source:send.source,payload:send.payload});
+ });
+});
+
+describe('app processes in the timeline (R22)',()=>{
+ const meta={ownerAgentName:'Pip',targetAgentName:'Pip'};
+ const proc=(type:string,id:string,payload:Record<string,unknown>)=>({...event(type,{...payload,...meta}),id,source:'system:process-runner'});
+ const started=(processId:string,cmd:string)=>proc('process.started',`start-${processId}`,{processId,cmd,executionMode:'SYNC'});
+ const output=(processId:string,text:string)=>proc('process.output',`out-${processId}`,{processId,seq:1,stream:'STDOUT',text});
+ const exited=(processId:string)=>proc('process.exited',`exit-${processId}`,{processId,exitCode:0,signal:null,timedOut:false});
+ const send='node scripts/connections.mjs execute c1 GMAIL_SEND_EMAIL < a.json';
+ const rows=[started('p1',send),output('p1','SECRET-OUT'),exited('p1'),started('p2','ls -la'),output('p2','plain listing'),exited('p2'),started('p3','gh pr view 5 -R acme/web'),output('p3','PR body')];
+ const on=appRedaction(rows);
+ it('redacts the start, output and end of a process whose command is an app call, like its tool event',()=>{
+  for(const row of rows.slice(0,3)){
+   const text=activityDetails(row,on);
+   expect(JSON.parse(text)).toEqual({event:row.type,time:'1970-01-01T00:00:00.001Z',agent:'Pip',kind:'change',label:null});
+   for(const leak of ['a.json','connections.mjs','SECRET-OUT','cmd','text'])expect(text).not.toContain(leak);
+  }
+  expect(JSON.parse(activityDetails(rows[6],on))).toEqual({event:'process.started',time:'1970-01-01T00:00:00.001Z',agent:'Pip',kind:'read',label:'acme/web'});
+  expect(activityDetails(rows[7],on)).not.toContain('PR body');
+ });
+ it('keeps the plain titles, which never name the command',()=>{
+  expect(activity(rows[0],on).title).toBe('Agent process started');
+  expect(activity(rows[1],on).title).toBe('Agent output');
+ });
+ it('leaves other processes as they were',()=>{
+  for(const row of rows.slice(3,6))expect(JSON.parse(activityDetails(row,on))).toEqual({event:row.type,source:row.source,payload:row.payload});
+ });
+ it('hides output whose process start is not loaded, since its command is unknown',()=>{
+  const orphan=output('p9','MAYBE-SECRET');
+  const text=activityDetails(orphan,appRedaction([orphan]));
+  expect(text).not.toContain('MAYBE-SECRET');
+  expect(JSON.parse(text)).toMatchObject({event:'process.output',agent:'Pip'});
+ });
+ it('shows every payload as before with the canvas flag off (R20)',()=>{
+  for(const row of rows)expect(JSON.parse(activityDetails(row))).toEqual({event:row.type,source:row.source,payload:row.payload});
  });
 });
 

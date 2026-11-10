@@ -804,6 +804,10 @@ flagged canvas. Design: section 8 of
 plan: [the Phase 2 plan](superpowers/plans/2026-11-09-switchyard-canvas-phase2.md).
 Everything is behind `NEST_ENABLE_CANVAS=1`; with the flag off the new routes answer
 404 to signed-in people (sign-in checks still answer first) and the new UI is absent.
+That includes the regular chat and Projects views: with the flag off there is no voice
+note button, no "Apps here" bar, no wrapped-agent line, and the chat timeline's activity
+titles and details are exactly as before Phase 2. The browser reads the flag once from
+`GET /api/canvases/availability`; until it answers, those features stay off.
 
 1. Data. Migration `012_canvas_context.sql` adds `product_canvas_context` (notes per
    canvas or area, with a version), `product_canvas_context_files` (name, type, size
@@ -894,6 +898,13 @@ Everything is behind `NEST_ENABLE_CANVAS=1`; with the flag off the new routes an
    tools, more than one app invocation in a command, command substitution, pipes
    into a shell, `eval` or `xargs`, and indirect names. Commands and outputs are
    never shown for app calls; the label is the action name, or the repo for `gh`.
+   Every `shell_run` also produces `process.started` (with the command),
+   `process.output` (with the output) and `process.exited` events that share a
+   `processId`. When the started command classifies as an app call (the same
+   classifier), the details of all three show only event, time, agent, read or change
+   and label, as the tool event's do. A `process.output` whose start is not in the
+   loaded history shows no text until older messages load, since it may belong to an
+   app call.
    Running and failed calls are counted. Cards show the apps used, and the chat's
    "Apps here" bar shows "N reads · M changes outside Nest" for the loaded history
    only, so long chats under-report until older pages load. A call still running

@@ -2,6 +2,7 @@
 // stay the source of truth: assistant-ui gets one message per timeline item and never owns, edits or sends anything.
 import {createContext,useCallback,useContext,useEffect,useImperativeHandle,useLayoutEffect,useMemo,useRef,useState,type ReactNode,type Ref} from 'react';
 import {ArrowDownIcon} from 'lucide-react';
+import {appRedaction,type AppRedaction} from '../activity';
 import {AgentActivity} from '../components/AgentActivity';
 import {AgentAvatar} from '../components/AgentAvatar';
 import type {Agent,EventRow} from '../types';
@@ -28,12 +29,14 @@ export type ChatThreadProps={
  focusedMessageId:string|null;isConversationEmpty:boolean;
  onPreviewDemo(path:string):void;onQuote(target:ReplyTarget,quotedText:string):void;footer?:ReactNode;headerActions?:ReactNode;
  channelLabel:string;wrappedAgents?:string[];onFocusMessage(eventId:string):void;handle?:Ref<ChatThreadHandle>;
+ /** Phase 2 app activity (canvas flag): the Apps here bar, the wrapped-agent line and app-call titles and redaction. */
+ appActivity?:boolean;
 };
 // What the page may ask of the thread: after a send it follows the new message down (the viewport is the thread's own).
 export type ChatThreadHandle={scrollToBottom():void};
 type MessageItem=Extract<TimelineItem,{kind:'message'}>;
 type ActivityItem=Extract<TimelineItem,{kind:'activity'}>;
-type ThreadView={byId:ReadonlyMap<string,TimelineItem>;turns:readonly WorkingTurn[];props:ChatThreadProps;focused(eventId:string):void};
+type ThreadView={byId:ReadonlyMap<string,TimelineItem>;turns:readonly WorkingTurn[];props:ChatThreadProps;apps:AppRedaction|null;focused(eventId:string):void};
 
 // Ported from classic isMessagesPanelNearBottom.
 const NEAR_BOTTOM_PX=80;
@@ -131,7 +134,7 @@ function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;pr
    <MessageBody item={item} channelId={props.snapshot.channelId??''} core={props.core} onPreviewDemo={props.onPreviewDemo}
     onFocusMessage={props.onFocusMessage} onQuote={quote}
     activity={activity&&<div data-aui-quote-selectable="false" className={ACTIVITY_IN_MESSAGE}>
-     <AgentActivity events={activity.events} tone={activity.tone} formatTime={formatTime}/>
+     <AgentActivity events={activity.events} tone={activity.tone} formatTime={formatTime} apps={view.apps}/>
     </div>}/>
   </div>
  </article>;
@@ -158,7 +161,7 @@ function ThreadItem(){
     <MessageShell item={item} previous={previous} view={view} spacing={spaceAfter(item,next)}/>):
    attachesTo(previous,item)?null:
    <div data-aui-quote-selectable="false" className={cn(ACTIVITY_SLOT,spaceAfter(item,next))}>
-    <AgentActivity events={item.events} tone={item.tone} formatTime={formatTime}/>
+    <AgentActivity events={item.events} tone={item.tone} formatTime={formatTime} apps={view.apps}/>
    </div>}
   {view.turns.filter(turn=>turn.triggerEventId===item.id||(!next&&!view.byId.has(turn.triggerEventId))).map(turn=>
    <WorkingRow key={turn.agent} turn={turn} activityUnavailable={view.props.snapshot.activityUnavailable}
@@ -210,7 +213,9 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  // A deep-link focus is pending until it scrolled into view and the reader then scrolled themselves (spec 8.5).
  const focusedRef=useRef<string|null>(null);
  const focused=useCallback((eventId:string)=>{focusedRef.current=eventId;},[]);
- const view=useMemo<ThreadView>(()=>({byId:new Map(items.map(item=>[item.id,item])),turns,props,focused}),[items,turns,props,focused]);
+ // App calls and their processes are linked across the whole loaded window, not one activity group.
+ const apps=useMemo(()=>props.appActivity?appRedaction(snapshot.events):null,[props.appActivity,snapshot.events]);
+ const view=useMemo<ThreadView>(()=>({byId:new Map(items.map(item=>[item.id,item])),turns,props,apps,focused}),[items,turns,props,apps,focused]);
  const runtime=useExternalStoreRuntime({
   messages:items,convertMessage:toThreadMessage,isRunning:false,onNew:NO_ERROR,
   hasEarlier:snapshot.hasOlder,onLoadEarlier:()=>core.loadOlder(),
@@ -286,7 +291,7 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
   <div className="nest-chat relative flex min-h-0 flex-1 flex-col">
    {/* Keep Sharing and Huddle reachable on mobile. Export stays hidden at the existing mobile breakpoint. */}
    <div className="chat-header-actions flex shrink-0 flex-wrap items-center justify-end gap-3 px-3 pb-2 empty:hidden">{props.headerActions}<span className="max-[761px]:hidden"><ExportButton items={items} channelLabel={props.channelLabel}/></span></div>
-   <ChatAppsHere events={snapshot.events} wrappedAgents={props.wrappedAgents??NO_AGENTS}/>
+   {props.appActivity&&<ChatAppsHere events={snapshot.events} wrappedAgents={props.wrappedAgents??NO_AGENTS}/>}
    <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
     <ThreadPrimitive.Viewport ref={panelRef} turnAnchor="bottom" autoScroll={!focusPending} scrollToBottomOnInitialize={!focusedMessageId}
      onScroll={onScroll} className={cn('messages-panel gap-0 px-1 pt-1 pb-4 sm:ps-2 sm:pe-3',(empty||props.isConversationEmpty)&&'messages-panel-empty')}>

@@ -99,13 +99,15 @@ function commandOf(payload: unknown): string | null {
   return text && text.length <= 20_000 ? text : null;
 }
 
-/** Classifies one tool event, with the key that pairs it to its result. Null for anything that is not an app call. */
-export function inspectToolEvent(event: ToolEvent, fallbackAt: number = Date.now()): Inspected | null {
-  const phase = PHASES[event.type];
-  const channelId = event.channelId;
-  if (!phase || !channelId) return null;
-  const raw = commandOf(event.payload);
-  if (raw === null) return null;
+/** What one command does outside Nest, if it is an app call: the shared core of every classification. */
+export type CommandCall = Pick<Classified, 'app' | 'appName' | 'action' | 'kind' | 'label'> & {key: string};
+
+/**
+ * Classifies a raw shell command, with a key that pairs equal commands without keeping their text.
+ * Null for anything that is not an app call. Used for tool events and for the process events they start.
+ */
+export function classifyCommand(raw: string): CommandCall | null {
+  if (raw.length > 20_000) return null;
   // Invocations are counted on the command as sent (quotes aside), before whitespace or newlines are collapsed.
   const unquoted = raw.replace(/["']/g, '');
   const command = unquoted.replace(/\s+/g, ' ').trim();
@@ -125,13 +127,24 @@ export function inspectToolEvent(event: ToolEvent, fallbackAt: number = Date.now
   const invocations = (unquoted.match(CONNECTION_TOKEN)?.length ?? 0) + (unquoted.match(GH_TOKEN)?.length ?? 0);
   const single = invocations === 1 && !SUBSTITUTION.test(unquoted) && !INDIRECT.some(pattern => pattern.test(raw) || pattern.test(unquoted));
   return {
-    id: event.id, channelId, agent: event.source.replace(/^agent:/, ''), at: event.createdAt ?? fallbackAt,
     app: first.app, appName: first.appName, action: first.action,
-    // One event can chain several calls; a change anywhere makes it a change.
+    // One command can chain several calls; a change anywhere makes it a change.
     kind: single && found.every(call => call.kind === 'read') ? 'read' : 'change',
     label: found.find(call => call.label)?.label ?? null,
-    phase, key: fingerprint(command),
+    key: fingerprint(command),
   };
+}
+
+/** Classifies one tool event, with the key that pairs it to its result. Null for anything that is not an app call. */
+export function inspectToolEvent(event: ToolEvent, fallbackAt: number = Date.now()): Inspected | null {
+  const phase = PHASES[event.type];
+  const channelId = event.channelId;
+  if (!phase || !channelId) return null;
+  const raw = commandOf(event.payload);
+  if (raw === null) return null;
+  const call = classifyCommand(raw);
+  if (!call) return null;
+  return {id: event.id, channelId, agent: event.source.replace(/^agent:/, ''), at: event.createdAt ?? fallbackAt, ...call, phase};
 }
 
 export function classifyToolEvent(event: ToolEvent, fallbackAt?: number): Classified | null {

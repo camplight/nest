@@ -526,7 +526,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     body = <div className="canvas-phone-stage">
       <PhoneList key={board.canvas.id} board={board} pulses={pulses} loose={phoneLoose} titles={titles} projects={projects}
         onOpenChat={openFromPile} openChannelId={chatShown ? chatChannelId : null}/>
-      {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" onCreated={created} fileDrop={!chatShown && !panelOpen} fileDropAccept={outsideFileDropTargets}/></div> : null}
+      {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!chatShown && !panelOpen} fileDropAccept={outsideFileDropTargets}/></div> : null}
     </div>;
   } else {
     // Keyed by canvas so the saved view, gestures and measured card heights start fresh per canvas.
@@ -539,7 +539,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
           areaContext={areaContext} onAreaContext={openAreaContext} onDropFiles={dropFiles}/>
         <AgentTray tray={tray} suggestedFor={selected ? cardTitle(selected) : null} agents={agents} humanId={humanId} cards={board.cards} areas={board.areas}/>
         {/* While a chat or the context panel is open, dropped files go there only. */}
-        {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" onCreated={created} fileDrop={!chatShown && !panelOpen} fileDropAccept={outsideFileDropTargets}/></div> : null}
+        {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!chatShown && !panelOpen} fileDropAccept={outsideFileDropTargets}/></div> : null}
       </div>
       <LoosePile chats={loose} count={looseCount} hidden={hidden} showHidden={showHidden} onShowHidden={setShowHidden}
         canPlace={canPlace} onPlace={place} onHide={hide} open={(chatShown && chatMode === 'split') || panelOpen ? splitPile : pileOpen}

@@ -41,7 +41,7 @@ function pendingLegacy(ownerId:string) {
   try{const saved=JSON.parse(sessionStorage.getItem('nest-new-project')??'null');return saved&&(!saved.ownerId||saved.ownerId===ownerId)&&(saved.submitted===true||!saved.ownerId)&&NewProjectSchema.shape.id.safeParse(saved.id).success;}catch{return false;}
 }
 function message(error:unknown){const text=error instanceof Error?error.message:'Could not start your project. Retry to finish.';try{return JSON.parse(text).error??text;}catch{return text;}}
-export function ProjectStart(props:{ownerId:string;onCreated:(project:Project)=>void;onCancel:()=>void}) {
+export function ProjectStart(props:{ownerId:string;onCreated:(project:Project)=>void;onCancel:()=>void;voice?:boolean}) {
   const [legacy]=useState(()=>pendingLegacy(props.ownerId));
   return legacy?<><p className="notice">Finish your previous project setup before starting another.</p><ProjectCreateForm {...props}/></>:<StartChat {...props}/>;
 }
@@ -49,8 +49,9 @@ export function ProjectStart(props:{ownerId:string;onCreated:(project:Project)=>
  * Chat-first project creation. `page` is the Projects page composer. `dock` is the canvas bottom box: one row
  * with no intro or Cancel. It shares the page's draft, and its parent decides what happens after `onCreated`.
  * `fileDrop={false}` leaves window-wide file drops to another target, such as a chat open on the canvas.
+ * `voice` shows voice notes (Phase 2, canvas flag); without it there is no mic.
  */
-export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=true,fileDropAccept}:{ownerId:string;onCreated:(project:Project)=>void;onCancel?:()=>void;variant?:'page'|'dock';fileDrop?:boolean;fileDropAccept?:(target:EventTarget|null)=>boolean}) {
+export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=true,fileDropAccept,voice:voiceOn=false}:{ownerId:string;onCreated:(project:Project)=>void;onCancel?:()=>void;variant?:'page'|'dock';fileDrop?:boolean;fileDropAccept?:(target:EventTarget|null)=>boolean;voice?:boolean}) {
   const [draft,setDraft]=useState(()=>restore(ownerId));
   const {attachments,setAttachments,uploadFiles,error:attachmentError}=useAttachments(ownerId+':'+draft.id,restoreAttachments(draft.attachments??[]));
   const readyFiles=attachments.flatMap(item=>item.uploaded&&item.status==='ready'?[{fileId:item.uploaded.fileId,name:item.uploaded.name,mime:item.uploaded.mime,size:item.uploaded.size}]:[]);
@@ -102,7 +103,7 @@ export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=tr
   const notices=<>
     {!stored&&<p role="status">Draft storage is unavailable. Keep this tab open until you send.</p>}
     {rosterError&&<p role="alert">We couldn’t load your team. You can still start on your own. <button type="button" className="project-inline-action" disabled={locked} onClick={()=>setRefresh(n=>n+1)}>Try again</button></p>}
-    <VoiceStatus voice={voice}/>
+    {voiceOn&&<VoiceStatus voice={voice}/>}
     <ChatAttachments items={attachments} error={attachmentError} disabled={locked} onRemove={id=>setAttachments(items=>items.filter(item=>item.localId!==id))}/>
     {failed&&<p role="alert">Remove failed uploads before sending. You can attach them again to retry.</p>}
   </>;
@@ -120,7 +121,7 @@ export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=tr
       {fileInput}
       <div className="project-start-dock-row">
         <button type="button" className="project-start-dock-attach" aria-label="Attach files" title="Attach files" disabled={locked} onClick={()=>fileInputRef.current?.click()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21 11-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg></button>
-        <VoiceButton voice={voice} variant="dock" disabled={locked}/>
+        {voiceOn&&<VoiceButton voice={voice} variant="dock" disabled={locked}/>}
         <div className="mention-input">{picker.popup}<textarea ref={textareaRef} {...picker.textareaProps} aria-label="Message" placeholder="Start a new chat. Type @ to bring someone in." value={draft.text} maxLength={32000} rows={1} disabled={locked} onChange={onTextChange} onKeyDown={onTextKey}/></div>
         <button className="canvas-button project-start-dock-send" disabled={!canSend}>{busy?'Starting…':draft.submitted?'Retry send':'Send'}</button>
       </div>
@@ -136,7 +137,7 @@ export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=tr
       {draft.assistant&&<div className="project-start-assistant"><span><strong>{draft.assistant}</strong> will join and help you get started.</span><button type="button" className="project-inline-action" disabled={locked} onClick={()=>setDraft(current=>({...current,assistant:null,assistantDismissed:true}))}>Start without my agent</button><small>Your agent can use its granted apps here, including when you are absent. Other participants may request actions and see results.</small></div>}
       {recipients.length>0&&<p className="project-start-recipients">Joining: {recipients.map(m=>m.name).join(', ')}</p>}
       {errorNotice}
-      <div className="project-start-footer"><span>Type @ to add people or agents.</span><div><button type="button" className="dashboard-action" disabled={locked} onClick={()=>fileInputRef.current?.click()}>Attach files</button><VoiceButton voice={voice} variant="page" disabled={locked}/>{onCancel&&<button type="button" className="dashboard-action" disabled={busy} onClick={onCancel}>Cancel</button>}<button className="dashboard-action project-primary" disabled={!canSend}>{busy?'Starting…':draft.submitted?'Retry send':'Send'}</button></div></div>
+      <div className="project-start-footer"><span>Type @ to add people or agents.</span><div><button type="button" className="dashboard-action" disabled={locked} onClick={()=>fileInputRef.current?.click()}>Attach files</button>{voiceOn&&<VoiceButton voice={voice} variant="page" disabled={locked}/>}{onCancel&&<button type="button" className="dashboard-action" disabled={busy} onClick={onCancel}>Cancel</button>}<button className="dashboard-action project-primary" disabled={!canSend}>{busy?'Starting…':draft.submitted?'Retry send':'Send'}</button></div></div>
     </form>
   </section>;
 }

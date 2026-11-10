@@ -1,7 +1,7 @@
 import {useId,useState,type MouseEvent,type FocusEvent} from 'react';
 import {createPortal} from 'react-dom';
 import type {EventRow} from '../types';
-import {activity,activityDetails,type ActivityIcon} from '../activity';
+import {activity,activityDetails,type ActivityIcon,type AppRedaction} from '../activity';
 
 function ActivityIconView({name}:{name:ActivityIcon}){
   const paths:Record<ActivityIcon,React.ReactNode>={
@@ -16,7 +16,8 @@ function ActivityIconView({name}:{name:ActivityIcon}){
   };
   return <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
-export function AgentActivity({events,tone,formatTime}:{events:EventRow[];tone:'agent'|'system';formatTime:(time?:number)=>string}){
+/** `apps` names and redacts app calls (canvas flag on); null shows every event as before Phase 2. */
+export function AgentActivity({events,tone,formatTime,apps=null}:{events:EventRow[];tone:'agent'|'system';formatTime:(time?:number)=>string;apps?:AppRedaction|null}){
   const id=useId();
   const [selected,setSelected]=useState<string|null>(null);
   const [tooltip,setTooltip]=useState<{event:EventRow;x:number;y:number;below:boolean}|null>(null);
@@ -27,7 +28,7 @@ export function AgentActivity({events,tone,formatTime}:{events:EventRow[];tone:'
   }
   return <article className={`trace-group trace-group-${tone}`} aria-label="Agent activity">
     <div className="trace-chips" role="group" aria-label="Agent activity events">{events.map(event=>{
-      const info=activity(event),active=selected===event.id;
+      const info=activity(event,apps),active=selected===event.id;
       return <button type="button" key={event.id} className={`trace-chip trace-chip-${info.tone}${active?' trace-chip-active':''}`}
         aria-label={info.title} aria-expanded={active} aria-controls={active?`${id}-detail`:undefined} aria-describedby={tooltip?.event.id===event.id?`${id}-label`:undefined}
         onMouseEnter={e=>showLabel(e,event)} onMouseLeave={()=>setTooltip(null)} onFocus={e=>showLabel(e,event)} onBlur={()=>setTooltip(null)}
@@ -36,9 +37,9 @@ export function AgentActivity({events,tone,formatTime}:{events:EventRow[];tone:'
       </button>;
     })}</div>
     {current&&<div className="trace-detail-card" id={`${id}-detail`} key={current.id}>
-      <div className="trace-detail-meta"><strong>{activity(current).title}</strong><span>{formatTime(current.createdAt)}</span></div>
-      <details><summary>Details</summary><pre>{activityDetails(current)}</pre></details>
+      <div className="trace-detail-meta"><strong>{activity(current,apps).title}</strong><span>{formatTime(current.createdAt)}</span></div>
+      <details><summary>Details</summary><pre>{activityDetails(current,apps)}</pre></details>
     </div>}
-    {tooltip&&createPortal(<div id={`${id}-label`} role="tooltip" className={`trace-tooltip${tooltip.below?' trace-tooltip-below':''}`} style={{left:tooltip.x,top:tooltip.y}}>{activity(tooltip.event).title}<span>{formatTime(tooltip.event.createdAt)}</span></div>,document.body)}
+    {tooltip&&createPortal(<div id={`${id}-label`} role="tooltip" className={`trace-tooltip${tooltip.below?' trace-tooltip-below':''}`} style={{left:tooltip.x,top:tooltip.y}}>{activity(tooltip.event,apps).title}<span>{formatTime(tooltip.event.createdAt)}</span></div>,document.body)}
   </article>;
 }

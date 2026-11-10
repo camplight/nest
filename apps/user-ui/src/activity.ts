@@ -1,10 +1,53 @@
 import type {EventRow} from './types';
-import {classifyToolEvent,type Classified} from './app-activity';
+import {classifyCommand,classifyToolEvent,type Classified} from './app-activity';
 export type ActivityTone='neutral'|'success'|'danger'|'muted';
 export type ActivityIcon='thinking'|'check'|'error'|'terminal'|'output'|'tool'|'context'|'progress';
+/** What a process event's command did outside Nest, when it was an app call. */
+type ProcessCall={agent:string;kind:'read'|'change';label:string|null};
+/**
+ * App calls in a chat's loaded events, for naming and redacting them in the timeline (Phase 2, behind the canvas
+ * flag). Null means the flag is off: titles and details are exactly as before Phase 2.
+ */
+export type AppRedaction={calls:ReadonlyMap<string,ProcessCall>;started:ReadonlySet<string>};
+const record=(payload:unknown):Record<string,unknown>=>payload&&typeof payload==='object'&&!Array.isArray(payload)?payload as Record<string,unknown>:{};
+const processIdOf=(event:EventRow)=>{const id=record(event.payload).processId;return typeof id==='string'&&id?id:null;};
+/** The agent a process belongs to: the engine names it in the payload (the source is the process runner). */
+function processAgent(event:EventRow){
+  const p=record(event.payload);
+  return typeof p.ownerAgentName==='string'?p.ownerAgentName:typeof p.targetAgentName==='string'?p.targetAgentName:event.source.replace(/^agent:/,'');
+}
+/** The app call a process.started event's own command is, if any (the same classifier as tool events). */
+function startedCall(event:EventRow):ProcessCall|null{
+  if(event.type!=='process.started')return null;
+  const cmd=record(event.payload).cmd;
+  const call=typeof cmd==='string'?classifyCommand(cmd):null;
+  return call?{agent:processAgent(event),kind:call.kind,label:call.label}:null;
+}
+/** Every `shell_run` also emits process.started (its command), process.output (its output) and process.exited, by processId. */
+export function appRedaction(events:EventRow[]):AppRedaction{
+  const calls=new Map<string,ProcessCall>(),started=new Set<string>();
+  for(const event of events){
+    const id=event.type==='process.started'?processIdOf(event):null;
+    if(!id)continue;
+    started.add(id);
+    const call=startedCall(event);
+    if(call)calls.set(id,call);
+  }
+  return {calls,started};
+}
+const PROCESS_TYPES=new Set(['process.started','process.output','process.exited']);
+/** The app call behind a process event: its own command, or the start that shares its processId. */
+function processCall(event:EventRow,apps:AppRedaction):ProcessCall|null{
+  if(!PROCESS_TYPES.has(event.type))return null;
+  const own=startedCall(event);
+  if(own)return own;
+  const id=processIdOf(event);
+  return id?apps.calls.get(id)??null:null;
+}
 /** Status describes this event, never the outcome of the whole conversation. */
-export function activity(event:EventRow):{title:string;tone:ActivityTone;icon:ActivityIcon}{
+export function activity(event:EventRow,apps:AppRedaction|null=null):{title:string;tone:ActivityTone;icon:ActivityIcon}{
   const base=baseActivity(event);
+  if(!apps)return base;
   // An app call is named for what it did outside Nest, never for its command.
   const call=appCall(event);
   return call?{...base,title:`${call.agent} · ${call.appName} · ${call.action} · ${call.kind==='read'?'read':'changed'}`}:base;
@@ -37,10 +80,17 @@ function baseActivity(event:EventRow):{title:string;tone:ActivityTone;icon:Activ
     default:return {title:'Agent progress',tone:'neutral',icon:'progress'};
   }
 }
-export function activityDetails(event:EventRow){
+export function activityDetails(event:EventRow,apps:AppRedaction|null=null){
   // App calls show tool, time, agent, read or change and the label only; never the command, arguments or output.
-  const call=appCall(event);
-  if(call)return JSON.stringify({tool:toolName(event),time:event.createdAt===undefined?null:new Date(event.createdAt).toISOString(),agent:call.agent,kind:call.kind,label:call.label},null,2);
+  const time=event.createdAt===undefined?null:new Date(event.createdAt).toISOString();
+  const call=apps?appCall(event):null;
+  if(call)return JSON.stringify({tool:toolName(event),time,agent:call.agent,kind:call.kind,label:call.label},null,2);
+  // The process events of an app call are redacted the same way. Output whose start is not loaded may belong to one,
+  // so its text stays hidden until the start is (it shows once older messages load).
+  const processed=apps?processCall(event,apps):null;
+  if(processed)return JSON.stringify({event:event.type,time,agent:processed.agent,kind:processed.kind,label:processed.label},null,2);
+  if(apps&&event.type==='process.output'&&!apps.started.has(processIdOf(event)??''))
+    return JSON.stringify({event:event.type,time,agent:processAgent(event),detail:'Load earlier messages to see this output.'},null,2);
   // Preserve the entire recorded payload, including process output and tool arguments.
   return JSON.stringify({event:event.type,source:event.source,payload:event.payload},null,2);
 }

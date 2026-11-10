@@ -51,6 +51,8 @@ export type ChatComposerProps={
   inProject:boolean;mentionCandidates:MentionCandidate[];canInvite:boolean;
   onInvite(candidate:MentionCandidate):Promise<void>;onAskAssistant(name:string,brief:string):void;
   openInvite():void;openFiles():void;
+  /** Voice notes (Phase 2, canvas flag). Off: no mic and no voice status. */
+  voice?:boolean;
 };
 
 /**
@@ -304,7 +306,7 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
               <XIcon aria-hidden="true" className="size-3.5"/>
             </button>
           </div>}
-          <VoiceStatus voice={voice}/>
+          {props.voice&&<VoiceStatus voice={voice}/>}
           <ChatAttachments items={pendingAttachments} error={attachmentError} disabled={sending} onRemove={session.removeAttachment}/>
           <div className="mention-input">
           {mentions.popup}
@@ -352,7 +354,7 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg>
               Attach files
             </button>
-            <VoiceButton voice={voice} variant="composer" disabled={!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending}/>
+            {props.voice&&<VoiceButton voice={voice} variant="composer" disabled={!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending}/>}
             <button
               className="composer-send"
               disabled={
