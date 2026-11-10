@@ -402,7 +402,8 @@
 }
 .canvas-card-chip:hover { text-decoration: underline; }
 .canvas-card-activity,
-.canvas-card-owner {
+.canvas-card-owner,
+.canvas-card-home {
   margin: 0;
   color: var(--nest-muted);
   font: 400 12px Inter, sans-serif;
@@ -414,6 +415,9 @@
 /* Semantic zoom: a big title, faces and a needs-you or quiet marker only. */
 .canvas-world.is-compact .canvas-card-status,
 .canvas-world.is-compact .canvas-card-artifacts,
+.canvas-card-home {
+  overflow-wrap: anywhere;
+}
 .canvas-world.is-compact .canvas-card-activity,
 .canvas-world.is-compact .canvas-card-owner {
   display: none;

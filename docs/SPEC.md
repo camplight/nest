@@ -714,7 +714,9 @@ Phase 1 is built from
    - `POST /api/canvases/:id/cards` (up to 100 at once, optionally with a new area;
      a chat already on the canvas keeps its place; it answers the whole board),
      `PATCH /api/canvases/:id/cards/:channelId` (answers the moved card, shaped for
-     this viewer) and `DELETE /api/canvases/:id/cards/:channelId?version=`. Placing
+     this viewer, with its `home` label when the viewer can open the chat) and
+     `DELETE /api/canvases/:id/cards/:channelId?version=` (removing a chat from its
+     home canvas also clears the chat's home). Placing
      needs edit access (403 for a viewer), and every chat must be one the engine
      lists for the person (else 400).
    - `GET /api/canvases/hidden` returns `{channelIds}`. `POST /api/canvases/hidden`

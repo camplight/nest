@@ -194,3 +194,94 @@ await runChatTest('canvas context: notes, files, links, used by, view-only and n
     assert.equal(await theirArea.getByRole('button',{name,exact:true}).count(),0,`no ${name} for a viewer`);
   }
 },{canvas:true});
+
+/** Drags a card by its title until its centre is over the middle of the area, then drops it. */
+async function dragCardInto(page:Page,channelId:string,areaTitle:string){
+  const card=page.locator(`.canvas-card[data-channel-id="${channelId}"]`);
+  const from=(await card.locator('.canvas-card-title').boundingBox())!, body=(await card.boundingBox())!, into=(await areaOf(page,areaTitle).boundingBox())!;
+  const grab={x:from.x+from.width/2,y:from.y+from.height/2}, centre={x:body.x+body.width/2,y:body.y+body.height/2};
+  await page.mouse.move(grab.x,grab.y);
+  await page.mouse.down();
+  await page.mouse.move(into.x+into.width/2+grab.x-centre.x,into.y+into.height/2+grab.y-centre.y,{steps:8});
+  await page.mouse.up();
+}
+type HomeBoard={cards:{channelId:string;x:number;y:number;home?:{isHere:boolean;label:string|null}|null}[]};
+const homeOf=async(h:ChatHarness,canvasId:string)=>(await call<HomeBoard>(h,'GET',`/api/canvases/${canvasId}/board`)).cards.find(card=>card.channelId===h.project.channelId);
+
+await runChatTest('canvas homes: labels, Use this area\'s context and the drop warning with Undo',async h=>{
+  const {page,base}=h, chat=h.project.channelId;
+  const plan=(await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Plan'})).id;
+  const launch=crypto.randomUUID(),briefing=crypto.randomUUID();
+  await call(h,'POST',`/api/canvases/${plan}/areas`,{id:launch,title:'Launch',x:0,y:0,w:420,h:320});
+  await call(h,'POST',`/api/canvases/${plan}/areas`,{id:briefing,title:'Briefing',x:480,y:0,w:420,h:320});
+  const put=async(path:string,notes:string)=>call(h,'PUT',path,{notes,version:(await call<{version:number}>(h,'GET',path)).version});
+  await put(`/api/canvases/${plan}/areas/${briefing}/context`,'Synthetic briefing notes.');
+  await call(h,'POST',`/api/canvases/${plan}/cards`,{cards:[{channelId:chat,x:40,y:100}]});
+  assert.deepEqual((await homeOf(h,plan))!.home,{isHere:true,label:'Launch'});
+  const events=await chatEvents(h);
+  await openCanvas(page,base,plan);
+  const card=page.locator(`.canvas-card[data-channel-id="${chat}"]`);
+  await card.waitFor();
+  assert.equal(await card.getByText(/^context from/).count(),0,'a chat in its home area shows no label');
+  const before=(await homeOf(h,plan))!;
+
+  // A move into an area with notes changes the home: the warning appears, and Undo moves the card back.
+  await dragCardInto(page,chat,'Briefing');
+  const notice=page.locator('.canvas-notice');
+  await notice.getByText(WARNING,{exact:true}).waitFor();
+  assert.deepEqual((await homeOf(h,plan))!.home,{isHere:true,label:'Briefing'});
+  await notice.getByRole('button',{name:'Undo',exact:true}).click();
+  await notice.getByText(WARNING,{exact:true}).waitFor({state:'detached'});
+  await page.waitForFunction(async([id,channel,x,y])=>{
+    const board=await (await fetch(`/api/canvases/${id}/board`,{credentials:'include'})).json() as HomeBoard;
+    const found=board.cards.find(c=>c.channelId===channel);
+    return found?.x===x&&found?.y===y&&found.home?.label==='Launch';
+  },[plan,chat,before.x,before.y] as const);
+  assert.deepEqual((await homeOf(h,plan))!.home,{isHere:true,label:'Launch'},'the home followed the card back');
+  assert.equal(await card.getByText(/^context from/).count(),0);
+  // A move into an area with no context changes the home but warns about nothing.
+  await dragCardInto(page,chat,'Launch');
+  assert.equal(await notice.getByText(WARNING,{exact:true}).count(),0,'no warning when the area has no context');
+
+  // The chat on a second canvas: its card says where the context comes from.
+  const study=(await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Study plan'})).id;
+  const studyArea=crypto.randomUUID();
+  await call(h,'POST',`/api/canvases/${study}/areas`,{id:studyArea,title:'Study',x:0,y:0,w:420,h:320});
+  await call(h,'POST',`/api/canvases/${study}/cards`,{cards:[{channelId:chat,x:40,y:100}]});
+  await openCanvas(page,base,study);
+  const second=page.locator(`.canvas-card[data-channel-id="${chat}"]`);
+  await second.getByText('context from Launch',{exact:true}).waitFor();
+  await second.locator('.canvas-card-title').click();
+  const header=page.locator('.canvas-chat-bar');
+  await header.getByRole('button',{name:"Use this area's context",exact:true}).click();
+  await page.locator('.canvas-notice').getByText("This chat now uses Study's context.",{exact:true}).waitFor();
+  await second.getByText(/^context from/).waitFor({state:'detached'});
+  await header.getByRole('button',{name:"Use this area's context",exact:true}).waitFor({state:'detached'});
+  await openCanvas(page,base,plan);
+  await page.locator(`.canvas-card[data-channel-id="${chat}"]`).getByText('context from Study',{exact:true}).waitFor();
+
+  // A first placement from the pile: the warning appears, and Undo takes the card off again and clears the home.
+  const title=await page.locator(`.canvas-card[data-channel-id="${chat}"] .canvas-card-title`).innerText();
+  for(const canvas of [plan,study]){
+    const row=(await call<HomeBoard>(h,'GET',`/api/canvases/${canvas}/board`)).cards.find(c=>c.channelId===chat)!;
+    await call(h,'DELETE',`/api/canvases/${canvas}/cards/${chat}?version=${(row as unknown as {version:number}).version}`);
+  }
+  await openCanvas(page,base,plan);
+  const pile=page.getByRole('complementary',{name:'Loose chats',exact:true});
+  await pile.waitFor();
+  const surface=(await page.locator('.canvas-surface').boundingBox())!, target=(await areaOf(page,'Briefing').boundingBox())!;
+  await pile.locator('.canvas-pile-row').filter({has:page.getByRole('checkbox',{name:`Select ${title}`,exact:true})})
+    .dragTo(page.locator('.canvas-surface'),{targetPosition:{x:target.x+target.width/2-surface.x,y:target.y+target.height/2-surface.y}});
+  await page.locator('.canvas-notice').getByText(WARNING,{exact:true}).waitFor();
+  assert.deepEqual((await homeOf(h,plan))!.home,{isHere:true,label:'Briefing'});
+  await page.locator('.canvas-notice').getByRole('button',{name:'Undo',exact:true}).click();
+  await page.locator(`.canvas-card[data-channel-id="${chat}"]`).waitFor({state:'detached'});
+  await page.waitForFunction(async([id,channel])=>{
+    const board=await (await fetch(`/api/canvases/${id}/board`,{credentials:'include'})).json() as HomeBoard;
+    return !board.cards.some(c=>c.channelId===channel);
+  },[plan,chat] as const);
+  // The home is gone: the next placement homes the chat where it lands, not in Briefing.
+  await call(h,'POST',`/api/canvases/${study}/cards`,{cards:[{channelId:chat,x:40,y:100}]});
+  assert.deepEqual((await homeOf(h,study))!.home,{isHere:true,label:'Study'});
+  assert.equal(await chatEvents(h),events,'homes and warnings never reach the chat');
+},{canvas:true});

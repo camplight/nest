@@ -6,10 +6,10 @@ import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 import {addChatMember,removeChatMember} from '../chat-members';
 import {StartChat} from '../ProjectStart';
-import {boardApi,createCanvas,deleteCanvas,getHidden,isCanvasGone,listCanvases,renameCanvas,setHidden,withFreshVersion} from './api';
+import {boardApi,createCanvas,setCardHome,deleteCanvas,getHidden,isCanvasGone,listCanvases,renameCanvas,setHidden,withFreshVersion} from './api';
 import {CanvasSwitcher} from './CanvasSwitcher';
 import {ShareDialog} from './ShareDialog';
-import {createBoardStore} from './board-store';
+import {createBoardStore,type BoardOp} from './board-store';
 import {Surface,type SurfaceControls} from './Surface';
 import {nudgeMessage,type CanvasLive} from './live';
 import {LoosePile,MAX_BULK} from './LoosePile';
@@ -25,7 +25,7 @@ import {searchIndex,type SearchItem} from './search';
 import type {CardPulse} from './pulse';
 import {cardCentre,growToFit,type Point} from './geometry';
 import type {AreaContext} from './Area';
-import {ContextPanel} from './ContextPanel';
+import {CONTEXT_WARNING,ContextPanel} from './ContextPanel';
 import {getContextSummary,type PanelScope} from './context-api';
 import './canvas.css';
 
@@ -127,6 +127,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   // Context: one summary per board load feeds every area's dot and `↳` chips; the panel re-reads it after an edit.
   const [summary, setSummary] = useState<{canvasId: string; summary: ContextSummary} | null>(null);
   const summaryCanvas = useRef(canvasId); summaryCanvas.current = canvasId;
+  const summaryRef = useRef<ContextSummary | null>(null);
   // A board load joins a read already under way for the same canvas (StrictMode runs effects twice); an edit always re-reads.
   const summaryRead = useRef<{id: string} | null>(null);
   const loadSummary = useCallback((id: string, joinRunning = false) => {
@@ -140,6 +141,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   }, []);
   useEffect(() => { if (canvasId) loadSummary(canvasId, true); }, [canvasId, loadSummary]);
   const contextSummary = summary?.canvasId === canvasId ? summary.summary : null;
+  summaryRef.current = contextSummary;
   const areaContext = useMemo(() => new Map<string, AreaContext>((contextSummary?.areas ?? []).map(({areaId, ...rest}) => [areaId, rest])), [contextSummary]);
   const [panel, setPanel] = useState<PanelScope | null>(null);
   useEffect(() => { setPanel(null); }, [canvasId]);
@@ -176,6 +178,41 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     ]);
   }, [cards, candidates, live]);
 
+  const [memberNotice, setMemberNotice] = useState<MemberNotice | null>(null);
+  const noticeId = useRef(0);
+  const say = useCallback((text: string, undo?: () => void) => setMemberNotice({id: ++noticeId.current, text, undo}), []);
+  /**
+   * Board writes, plus the drop warning: a move or placement that puts a chat into an area with context AND
+   * changes the chat's home says who can see it, with an Undo. The home comes from the server's answer, so
+   * it is compared before and after rather than guessed. Undo moves a moved card back, or takes a placed card off
+   * (which clears the home again).
+   */
+  const applyTracked = useCallback(async (op: BoardOp) => {
+    if (op.kind !== 'moveCard' && op.kind !== 'placeCards') return store.apply(op);
+    const prior = store.snapshot().board;
+    const ids = op.kind === 'moveCard' ? [op.channelId] : op.cards.map(card => card.channelId);
+    const ok = await store.apply(op);
+    const now = store.snapshot().board;
+    if (!ok || !prior || !now || now.canvas.id !== prior.canvas.id) return ok;
+    const withContext = (areaId: string | undefined) => {
+      const area = summaryRef.current?.areas.find(a => a.areaId === areaId);
+      return Boolean(area && (area.hasContext || area.links.some(link => link.available)));
+    };
+    const changed = ids.flatMap(channelId => {
+      const before = prior.cards.find(card => card.channelId === channelId), after = now.cards.find(card => card.channelId === channelId);
+      if (!after || after.access !== 'open' || !after.home?.isHere) return [];
+      const area = areaFor(cardCentre(after), now.areas)?.id;
+      const was = before?.access === 'open' ? before.home : null;
+      const sameHome = Boolean(before && was?.isHere && was.label === after.home.label && areaFor(cardCentre(before), prior.areas)?.id === area);
+      return !sameHome && withContext(area) ? [{channelId, before}] : [];
+    });
+    if (!changed.length) return ok;
+    say(CONTEXT_WARNING, () => {
+      setMemberNotice(null);
+      for (const {channelId, before} of changed) void store.apply(before ? {kind: 'moveCard', channelId, x: before.x, y: before.y, w: before.w} : {kind: 'removeCard', channelId});
+    });
+    return ok;
+  }, [store, say]);
   const controls = useRef<SurfaceControls | null>(null);
   /**
    * Places the chats in a 3-wide grid at the viewport centre, optionally inside a new area, in one call.
@@ -189,8 +226,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     const dy = clearOfCards(withArea ? areaAround(first.bounds) : first.bounds, current.cards);
     const {cards: placed, bounds} = dy ? gridPlacement(channelIds, clampPoint({x: centre.x, y: centre.y + dy})) : first;
     const area: NewArea | undefined = withArea ? {id: crypto.randomUUID(), title: 'New area', ...areaAround(bounds), tint: TINTS[current.areas.length % TINTS.length]} : undefined;
-    return store.apply({kind: 'placeCards', cards: placed, ...(area ? {area} : {})});
-  }, [store]);
+    return applyTracked({kind: 'placeCards', cards: placed, ...(area ? {area} : {})});
+  }, [store, applyTracked]);
   /** Chats dropped from the pile; dropped into an area, that area grows so they all fit inside it. */
   const dropChat = useCallback((channelIds: string[], at: Point) => {
     const current = store.snapshot().board;
@@ -198,11 +235,11 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     const ids = [...new Set(channelIds)].filter(id => !current.cards.some(card => card.channelId === id) && candidatesRef.current.some(chat => chat.channelId === id)).slice(0, MAX_BULK);
     if (!ids.length) return;
     const cards = dropLayout(ids, at, current.cards).map(card => ({...card, ...clampPoint(card)}));
-    void store.apply({kind: 'placeCards', cards});
+    void applyTracked({kind: 'placeCards', cards});
     const target = areaFor(at, current.areas);
     const grown = target ? growToFit(target, cards.map(card => ({...card, w: DEFAULT_CARD_WIDTH, h: CARD_HEIGHT}))) : null;
     if (target && grown) void store.apply({kind: 'patchArea', areaId: target.id, patch: grown});
-  }, [store]);
+  }, [store, applyTracked]);
   const hide = useCallback(async (channelIds: string[], value: boolean) => {
     const result = await setHidden(channelIds, value);
     setHiddenIds(new Set(result.channelIds));
@@ -227,6 +264,19 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const chatArea = board && chatShown && board.canvas.role !== 'view' && board.areas.length && (openCard ? openCard.access === 'open' : candidates.some(c => c.channelId === chatChannelId))
     ? {areas: board.areas.map(a => ({id: a.id, title: a.title})), current: openCard ? areaFor(cardCentre(openCard), board.areas)?.id ?? null : null,
       placed: Boolean(openCard), onMove: (areaId: string | null) => void moveToAreaRef.current(chatChannelId!, areaId)}
+    : undefined;
+  // "Use this area's context": chat members only, for a card on this canvas that is not the chat's home.
+  const chatMember = openCard?.access === 'open' && (openCard.participants.some(p => p.subscriberType === 'HUMAN' && p.subscriberId === username)
+    || channels.find(channel => channel.id === chatChannelId)?.ownerHumanId === humanId);
+  const useHere = board && chatShown && openCard?.access === 'open' && chatMember && !openCard.home?.isHere
+    ? async () => {
+      const name = areaFor(cardCentre(openCard), board.areas)?.title || board.canvas.name;
+      try {
+        await setCardHome(board.canvas.id, openCard.channelId);
+        await store.refresh({force: true});
+        say(`This chat now uses ${name}'s context.`);
+      } catch { say('Could not change the context. Try again.'); }
+    }
     : undefined;
   const modeRef = useRef(chatMode); modeRef.current = chatShown ? chatMode : null;
   // Only chats in App's visible list open: a UI-hidden chat is never loaded or marked seen behind the canvas.
@@ -326,13 +376,13 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     const home = card ? areaFor(cardCentre(card), current.areas) : undefined;
     if (areaId ? !target || target.id === home?.id : !card || !home) return;
     const spot = clampPoint(target ? slotInArea(target, others, w) : slotOutsideAreas(home!, current.areas, others, w));
-    const saved = card ? store.apply({kind: 'moveCard', channelId, ...spot}) : store.apply({kind: 'placeCards', cards: [{channelId, ...spot}]});
+    const saved = card ? applyTracked({kind: 'moveCard', channelId, ...spot}) : applyTracked({kind: 'placeCards', cards: [{channelId, ...spot}]});
     const grown = target ? growToFit(target, [{...spot, w, h: CARD_HEIGHT}]) : null;
     if (target && grown) void store.apply({kind: 'patchArea', areaId: target.id, patch: grown});
     if (!await saved) return;
     if (target) setSelectedId(channelId);
     requestAnimationFrame(() => controls.current?.reveal({channelId}));
-  }, [store]);
+  }, [store, applyTracked]);
   const moveToAreaRef = useRef(moveToArea); moveToAreaRef.current = moveToArea;
   const [searchOpen, setSearchOpen] = useState(false);
   useEffect(() => { setSearchOpen(false); }, [canvasId]);
@@ -360,9 +410,6 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   // As in the regular chat: the engine's canManage, not archived, and a project chat only for the project's owner.
   const manageable = useCallback((card: BoardCard) => card.access === 'open' && card.canManage && !card.archived
     && (!card.projectId || projects.some(project => project.id === card.projectId && project.ownerId === humanId)), [projects, humanId]);
-  const [memberNotice, setMemberNotice] = useState<MemberNotice | null>(null);
-  const noticeId = useRef(0);
-  const say = useCallback((text: string, undo?: () => void) => setMemberNotice({id: ++noticeId.current, text, undo}), []);
   useEffect(() => {
     if (!memberNotice) return;
     const timer = setTimeout(() => setMemberNotice(current => current?.id === memberNotice.id ? null : current), MEMBER_NOTICE_MS);
@@ -454,7 +501,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     const canPlace = board.canvas.role !== 'view';
     body = <>
       <div className="canvas-stage">
-        <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={store.apply} pulses={pulses} onNudge={sendNudge}
+        <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={applyTracked} pulses={pulses} onNudge={sendNudge}
           onDropChat={canPlace ? dropChat : undefined} controls={controls} onOpenChat={openFromCard} openChannelId={chatShown ? chatChannelId : null}
           onDropAgent={dropAgent} onRemoveAgent={removeAgent} canManageCard={manageable} onSelectCard={setSelectedId} selectedChannelId={selected?.channelId ?? null}
           areaContext={areaContext} onAreaContext={openAreaContext}/>
@@ -501,7 +548,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         </div>
         {body}
       </CanvasMain>
-      {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} title={chatTitle} area={chatArea}
+      {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} title={chatTitle} area={chatArea} onUseHere={useHere}
         onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
         {chat}
       </CanvasChat> : null}
@@ -536,8 +583,8 @@ const OTHER_DIALOG = '[aria-modal="true"]:not(.canvas-chat), .dialog-backdrop';
  * The header holds Split screen, Open in the regular chat view and Close; the chat itself is App's chat workspace.
  */
 type ChatArea = {areas: {id: string; title: string}[]; current: string | null; placed: boolean; onMove(areaId: string | null): void};
-function CanvasChat({channelId, mode, title, area, onMode, onClose, onOpenRegular, children}: {
-  channelId: string; mode: CanvasChatMode; title: string; area?: ChatArea; onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
+function CanvasChat({channelId, mode, title, area, onUseHere, onMode, onClose, onOpenRegular, children}: {
+  channelId: string; mode: CanvasChatMode; title: string; area?: ChatArea; onUseHere?(): Promise<void>; onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
 }) {
   const panel = useRef<HTMLElement>(null);
   const [split, setSplit] = useState(readSplit);
@@ -609,6 +656,7 @@ function CanvasChat({channelId, mode, title, area, onMode, onClose, onOpenRegula
               {area.areas.map(option => <option key={option.id} value={option.id}>{option.title || 'Untitled area'}</option>)}
             </select>
           </label> : null}
+          {onUseHere ? <button type="button" className="canvas-chat-action" onClick={() => void onUseHere()}>Use this area's context</button> : null}
           <button type="button" className="canvas-chat-action" aria-pressed={!focus} onClick={() => onMode(focus ? 'split' : 'focus')}>Split screen</button>
           <button type="button" className="canvas-chat-action" onClick={onOpenRegular}>Open in the regular chat view</button>
           <button type="button" className="canvas-chat-action" onClick={onClose}>Close</button>

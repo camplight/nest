@@ -273,9 +273,11 @@ describe('canvas board against the unchanged engine', () => {
       await place(owner, [{ channelId: a, x: 50, y: 50 }]);
       const moved = await call(mate, 'PATCH', `/api/canvases/${canvasId}/cards/${a}`, { x: 1050, y: 50, version: 0 });
       expect(moved.status).toBe(200);
+      expect(await moved.json()).not.toHaveProperty('home');
       expect(homeOf(a)).toEqual({ canvasId, areaId: areaA });
       const ownMove = await call(owner, 'PATCH', `/api/canvases/${canvasId}/cards/${a}`, { x: 1100, y: 60, version: 1 });
       expect(ownMove.status).toBe(200);
+      expect((await ownMove.json()).home).toEqual({ isHere: true, label: 'B' });
       expect(homeOf(a)).toEqual({ canvasId, areaId: areaB });
     });
 

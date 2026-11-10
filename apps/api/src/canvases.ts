@@ -180,25 +180,28 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
     if (!raw || !Number.isInteger(version) || version < 0) throw new HTTPException(400, { message: 'version is required' });
     return version;
   };
-  function buildBoard(human: Human, channels: Channel[], canvasId: string) {
-    const canvas = canvases.get(canvasId, human.id);
-    if (!canvas) throw notFound();
-    const rows = canvases.cards(canvasId);
-    // Home labels name an area or canvas, so they appear only for viewers who can read the home canvas.
+  // Home labels name an area or canvas, so they appear only for viewers who can read the home canvas.
+  function homeLabels(human: Human, canvasId: string) {
     const readable = new Map<string, string | null>();
     const canvasName = (id: string) => {
       if (!readable.has(id)) readable.set(id, canvases.get(id, human.id)?.name ?? null);
       return readable.get(id)!;
     };
     const areaTitle = (id: string) => (store.db.prepare('SELECT title FROM product_canvas_areas WHERE id=?').get(id) as { title: string } | undefined)?.title;
-    return resolveBoard(rows, canvases.areas(canvasId), canvas, channels, store.projects.byChannels(rows.map(r => r.channelId)), human.id, (row, areaId) => {
+    return (row: CanvasCardRow, areaId: string | null) => {
       const home = store.canvasContext.home(row.channelId);
       if (!home) return null;
       const isHere = home.canvasId === canvasId && home.areaId === areaId;
       const name = canvasName(home.canvasId);
       if (name === null) return { isHere, label: 'another canvas' };
       return { isHere, label: home.areaId ? areaTitle(home.areaId) ?? name : name };
-    });
+    };
+  }
+  function buildBoard(human: Human, channels: Channel[], canvasId: string) {
+    const canvas = canvases.get(canvasId, human.id);
+    if (!canvas) throw notFound();
+    const rows = canvases.cards(canvasId);
+    return resolveBoard(rows, canvases.areas(canvasId), canvas, channels, store.projects.byChannels(rows.map(r => r.channelId)), human.id, homeLabels(human, canvasId));
   }
   routes.get('/api/canvases/:id/board', async c => {
     const canvas = visible(c);
@@ -288,7 +291,11 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
     const human = c.get('human');
     const row = canvases.moveCard(canvas.id, c.req.param('channelId'), input, human.id);
     if (saveHome(canvas.id, row, canvases.areas(canvas.id), c.get('channels').find(ch => ch.id === row.channelId), human)) await homesChanged([row.channelId]);
-    return c.json(forViewer([row], c.get('channels'))[0]);
+    // The move may have changed the chat's home, so the answer carries the card's current home label.
+    const moved = forViewer([row], c.get('channels'))[0];
+    const open = c.get('channels').some(ch => ch.id === row.channelId);
+    const home = open ? homeLabels(human, canvas.id)(row, areaFor({ x: row.x + row.w / 2, y: row.y + CARD_HEIGHT / 2 }, canvases.areas(canvas.id))?.id ?? null) : undefined;
+    return c.json(home === undefined ? moved : { ...moved, home });
   });
   routes.delete('/api/canvases/:id/cards/:channelId', c => {
     const canvas = visible(c);

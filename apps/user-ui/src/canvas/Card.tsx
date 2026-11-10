@@ -170,6 +170,7 @@ export const Card = memo(function Card({card, draggable, dx, dy, dragging, measu
       {needs ? <span className="canvas-card-needs" role="img" aria-label={`Needs you: ${needs}`} title="Needs you">{needs}</span> : null}
     </div>
     {areaTitle ? <p className="canvas-visually-hidden">In area {areaTitle}</p> : null}
+    {card.access === 'open' && card.home && !card.home.isHere && card.home.label ? <p className="canvas-card-home">context from {card.home.label}</p> : null}
     {card.access === 'open' ? <OpenBody card={card} pulse={pulse} onNudge={onNudge} facesDraggable={facesDraggable} draggingFace={draggingFace}/> : null}
     {card.access === 'locked' ? <p className="canvas-card-owner">Owner: {card.ownerLabel}</p> : null}
     {/* Every card can come off the canvas; the chat itself is untouched and an open one returns to the pile. */}

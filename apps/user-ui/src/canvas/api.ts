@@ -1,6 +1,7 @@
 // Typed helpers for the product /api/canvases routes (apps/api/src/canvases.ts).
 import type {AreaPatch,Canvas,CanvasArea,CanvasBoard,CanvasCardRow,CanvasRole,CanvasVisibility,NewArea} from '@nest/schemas';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
+import type {CardRow} from './board-store';
 
 /** A versioned write lost a race: `current` is the stored row (or null when it was deleted). */
 export class CanvasConflict extends Error {
@@ -75,7 +76,9 @@ export const deleteArea = (id: string, areaId: string, version: number) =>
 export const placeCards = (id: string, cards: CardPlacement[], area?: NewArea) =>
   json<CanvasBoard>(`${canvasPath(id)}/cards`, write('POST', area ? {cards, area} : {cards}));
 export const moveCard = (id: string, channelId: string, patch: {x: number; y: number; w?: number; version: number}) =>
-  json<CanvasCardRow>(`${canvasPath(id)}/cards/${encodeURIComponent(channelId)}`, write('PATCH', patch));
+  json<CardRow>(`${canvasPath(id)}/cards/${encodeURIComponent(channelId)}`, write('PATCH', patch));
+export const setCardHome = (id: string, channelId: string) =>
+  json<{home: {canvasId: string; areaId: string | null}}>(`${canvasPath(id)}/cards/${encodeURIComponent(channelId)}/home`, write('POST', {}));
 export const removeCard = (id: string, channelId: string, version: number) =>
   send(`${canvasPath(id)}/cards/${encodeURIComponent(channelId)}?version=${version}`, {method: 'DELETE'});
 

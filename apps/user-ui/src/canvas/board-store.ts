@@ -26,7 +26,9 @@ type StoreOptions = {
   doc?: PageEvents & {visibilityState: DocumentVisibilityState}; win?: PageEvents;
 };
 
-const cardFromRow = (card: BoardCard, row: CanvasCardRow): BoardCard => ({...card, x: row.x, y: row.y, w: row.w, version: row.version});
+/** A move answer also carries the card's home label (the home follows a member's move); other rows leave it as it was. */
+export type CardRow = CanvasCardRow & {home?: Extract<BoardCard, {access: 'open'}>['home']};
+const cardFromRow = (card: BoardCard, row: CardRow): BoardCard => ({...card, x: row.x, y: row.y, w: row.w, version: row.version, ...(row.home !== undefined && card.access === 'open' ? {home: row.home} : {})});
 const cardKey = (channelId: string) => `card:${channelId}`;
 const areaKey = (areaId: string) => `area:${areaId}`;
 
@@ -92,7 +94,7 @@ export function createBoardStore({api, now, intervalMs, doc = globalThis.documen
   // a confirmation takes only the item's new version: its position is the later op's to set.
   const inFlight = new Map<string, number>();
   const later = (key: string) => (inFlight.get(key) ?? 0) > 1;
-  const confirmCard = (card: BoardCard, row: CanvasCardRow): BoardCard => later(cardKey(card.channelId)) ? {...card, version: row.version} : cardFromRow(card, row);
+  const confirmCard = (card: BoardCard, row: CardRow): BoardCard => later(cardKey(card.channelId)) ? {...card, version: row.version, ...(row.home !== undefined && card.access === 'open' ? {home: row.home} : {})} : cardFromRow(card, row);
   const confirmArea = (area: CanvasArea, row: CanvasArea): CanvasArea => later(areaKey(area.id)) ? {...area, version: row.version} : row;
   // A queued delete hides its item at once, so its version lives here until the delete is sent;
   // an earlier write on that item that confirms meanwhile updates it.
