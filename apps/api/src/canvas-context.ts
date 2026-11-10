@@ -17,6 +17,8 @@ export type ContextAgents = {
   /** False when Nest has no engine service token, so no agent can be given a context key. */
   configured: boolean;
   ensureAgents(channelIds: string[]): Promise<void>;
+  /** ensureAgents bounded for a request: waits briefly (about 2 s), then lets setup finish in the background. */
+  settle(channelIds: string[]): Promise<void>;
   /** The agents in these chats and whether each can read context. */
   readers(channelIds: string[]): Promise<ContextReader[]>;
   /** Chats among these (already loaded) channels that still have an agent to set up; answers without calling the engine. */
@@ -152,11 +154,11 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
   }
   const requireEdit = (canvas: Canvas) => { if (canvas.role === 'view') throw new CanvasForbiddenError(); };
   // Agents in the affected chats get their context key once there is something to read. Runs after the
-  // write has committed and never throws, so it cannot turn a saved write into a failure.
+  // write has committed, waits about 2 s at most and never throws, so it cannot turn a saved write into a failure.
   const setUpAgents = async (channelIds: () => string[]) => {
     if (!agents) return;
     try {
-      await agents.ensureAgents(channelIds());
+      await agents.settle(channelIds());
     } catch (error) {
       console.error('Context agent setup failed:', (error as Error).name);
     }

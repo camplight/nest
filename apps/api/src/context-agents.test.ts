@@ -534,6 +534,68 @@ describe('agent context keys and reads against the unchanged engine', () => {
       });
     });
 
+    it('answers a context write within the setup bound while agent setup hangs, and finishes setup later', async () => {
+      const launch = await chat('Launch', ['Pip']);
+      const x = await canvas('Roadmap');
+      await place(x, launch);
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      const slow = createOrgOpsClient('http://engine', (async (url, init) => {
+        if (new URL(String(url)).pathname === '/api/secrets' && init?.method === 'POST') await gate;
+        return engine.app.fetch(new Request(url, init));
+      }) as typeof fetch);
+      const bounded = createApp({ orgops: slow, dbPath: join(dir, 'product.sqlite'), canvasEnabled: true, contextFilesDir: join(dir, 'context-files'), connectionEngineToken: RUNNER, contextSetupWaitMs: 100 });
+      try {
+        const started = Date.now();
+        const res = await bounded.app.request(`/api/canvases/${x}/context`, { method: 'PUT', headers: owner, body: JSON.stringify({ notes: 'Canvas notes', version: 0 }) });
+        expect(res.status).toBe(200);
+        expect(Date.now() - started).toBeLessThan(1500);
+        expect(product.store.canvasContext.skillEnabled('Pip')).toBe(false);
+        // Setup carries on in the background and completes once the engine answers.
+        release();
+        await vi.waitFor(() => expect(product.store.canvasContext.skillEnabled('Pip')).toBe(true));
+        expect(await secretOf('Pip')).toMatch(KEY);
+      } finally {
+        release();
+        bounded.store.close();
+      }
+    });
+
+    it('audits a setup failure once, when an agent moves into the failed state, not on every retry', async () => {
+      const launch = await chat('Launch', ['Pip']);
+      const x = await canvas('Roadmap');
+      await place(x, launch);
+      product.store.canvasContext.setNotes({ kind: 'canvas', canvasId: x }, 'Canvas notes', 0, 'owner');
+      let down = true;
+      const flaky = createOrgOpsClient('http://engine', (async (url, init) => {
+        if (down && new URL(String(url)).pathname === '/api/secrets' && init?.method === 'POST') return Response.json({ error: 'down' }, { status: 503 });
+        return engine.app.fetch(new Request(url, init));
+      }) as typeof fetch);
+      const agents = createContextAgents({ store: product.store, orgops: flaky, engineToken: RUNNER });
+      const failures = () => (product.store.db.prepare("SELECT COUNT(*) AS n FROM product_audit WHERE type='audit.canvas.context.agent_setup_failed'").get() as { n: number }).n;
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        await agents.ensureAgents([launch]);
+        expect(failures()).toBe(1);
+        // The retry a minute later fails again: it was tried (a second key was made and revoked) but not audited again.
+        vi.setSystemTime(Date.now() + 61_000);
+        await agents.ensureAgents([launch]);
+        expect(allKeys('Pip')).toBe(2);
+        expect(failures()).toBe(1);
+        down = false;
+        vi.setSystemTime(Date.now() + 61_000);
+        await agents.ensureAgents([launch]);
+        expect(product.store.canvasContext.skillEnabled('Pip')).toBe(true);
+        // A later failure after a success is a new move into the failed state: audited.
+        product.store.db.prepare('DELETE FROM product_context_agents').run();
+        down = true;
+        await agents.ensureAgents([launch]);
+        expect(failures()).toBe(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('rate-limits each key to 60 requests a minute', async () => {
       const launch = await chat('Launch', ['Pip']);
       const x = await canvas('Roadmap');

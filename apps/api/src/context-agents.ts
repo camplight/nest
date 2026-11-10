@@ -17,6 +17,8 @@ const RATE_WINDOW_MS = 60_000;
 // Agents that cannot be set up right now are left alone for a while, so polled board reads stay quiet.
 const WRAPPED_RETRY_MS = 10 * 60_000;
 const FAILED_RETRY_MS = 60_000;
+/** How long a write waits for agent setup before answering; setup then finishes in the background. */
+export const SETUP_WAIT_MS = 2_000;
 
 type Participant = { subscriberType: string; subscriberId: string };
 type EngineChannel = { id: string; archivedAt?: number | null; participants?: Participant[]; metadata?: unknown };
@@ -51,11 +53,14 @@ const agentsIn = (channel?: EngineChannel) => {
  * adds the `nest-context` skill to the agent. The key is never logged, audited or returned by a route.
  * Agent reads name a chat; membership is checked through the engine on every read.
  */
-export function createContextAgents({ store, orgops, engineToken }: { store: ProductDb; orgops: OrgOpsClient; engineToken?: string }) {
+export function createContextAgents({ store, orgops, engineToken, setupWaitMs = SETUP_WAIT_MS }: {
+  store: ProductDb; orgops: OrgOpsClient; engineToken?: string; setupWaitMs?: number;
+}) {
   const context = store.canvasContext;
   const settingUp = new Map<string, Promise<void>>(); // by agent name
   const inflight = new Map<string, Promise<void>>(); // by channel id
   const retryAfter = new Map<string, number>(); // by agent name
+  const failing = new Set<string>(); // agents whose last setup failed: audited once on the way in
 
   function service(path: string, method = 'GET', body?: unknown) {
     const headers: Record<string, string> = { 'x-orgops-runner-token': engineToken! };
@@ -90,6 +95,9 @@ export function createContextAgents({ store, orgops, engineToken }: { store: Pro
 
   function failed(agentName: string) {
     retryAfter.set(agentName, Date.now() + FAILED_RETRY_MS);
+    // Retries of an agent already failing are not audited again; a failure after a success is.
+    if (failing.has(agentName)) return;
+    failing.add(agentName);
     store.db.prepare('INSERT INTO product_audit(type,actor_id,payload_json,created_at) VALUES (?,?,?,?)')
       .run('audit.canvas.context.agent_setup_failed', 'system', JSON.stringify({ agentName }), Date.now());
   }
@@ -117,6 +125,7 @@ export function createContextAgents({ store, orgops, engineToken }: { store: Pro
         }
         context.markSkillEnabled(agentName);
         retryAfter.delete(agentName);
+        failing.delete(agentName);
       } catch {
         // A key that may not have reached the engine is useless: revoke it so the next attempt starts over.
         if (tokenHash) context.revokeKey(tokenHash);
@@ -149,6 +158,20 @@ export function createContextAgents({ store, orgops, engineToken }: { store: Pro
       }
       await Promise.all(waits);
     } catch { /* Setup is best effort; the next write or board read retries. */ }
+  }
+
+  /**
+   * ensureAgents for a request: waits at most `setupWaitMs`, then answers while setup finishes in the background.
+   * ensureAgents never rejects, so nothing is left unhandled.
+   */
+  async function settle(channelIds: string[]) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const bound = new Promise<void>(resolve => { timer = setTimeout(resolve, setupWaitMs); });
+    try {
+      await Promise.race([ensureAgents(channelIds).catch(() => undefined), bound]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   const pending: ContextAgents['pending'] = channels => (engineToken
@@ -252,6 +275,6 @@ export function createContextAgents({ store, orgops, engineToken }: { store: Pro
     app.route('/', routes);
   }
 
-  return { configured: Boolean(engineToken), ensureAgents, pending, readers, registerRoutes };
+  return { configured: Boolean(engineToken), ensureAgents, settle, pending, readers, registerRoutes };
 }
 export type ContextAgentsService = ReturnType<typeof createContextAgents>;

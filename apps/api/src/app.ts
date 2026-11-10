@@ -27,7 +27,7 @@ import { openProductDb, type ProductDb } from '@nest/db';
 import { BrandingSchema } from '@nest/schemas';
 import { createOrgOpsClient, productHeaders, type OrgOpsClient } from '@nest/orgops-client';
 
-export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string; canvasEnabled?: boolean; contextFilesDir?: string } = {}) {
+export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string; canvasEnabled?: boolean; contextFilesDir?: string; contextSetupWaitMs?: number } = {}) {
   const store = config.store ?? openProductDb(config.dbPath ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_PRODUCT_DB_PATH ?? '.nest-product/nest.sqlite'));
   const orgops = config.orgops ?? createOrgOpsClient(config.orgopsUrl ?? process.env.ORGOPS_URL ?? 'http://127.0.0.1:8788');
   const app = new Hono();
@@ -88,7 +88,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   // Context files stay out of the engine's files/ tree, which agents' shells can read.
   const contextFiles = createContextFiles(config.contextFilesDir ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_CONTEXT_FILES_DIR ?? '.nest-product/context-files'));
   // Agents' context keys and reads; the agent routes sit outside /api/canvases and before the engine proxy.
-  const contextAgents = createContextAgents({store, orgops, engineToken: config.connectionEngineToken ?? process.env.NEST_CONNECTION_METADATA_TOKEN ?? process.env.NEST_RUNNER_TOKEN});
+  const contextAgents = createContextAgents({store, orgops, engineToken: config.connectionEngineToken ?? process.env.NEST_CONNECTION_METADATA_TOKEN ?? process.env.NEST_RUNNER_TOKEN, setupWaitMs: config.contextSetupWaitMs});
   contextAgents.registerRoutes(app, {enabled: canvasEnabled, files: contextFiles});
   // Before the canvas routes, whose /api/canvases/* catch-all would otherwise answer 404 first.
   registerCanvasContextRoutes(app, {store, orgops, enabled: canvasEnabled, files: contextFiles, agents: contextAgents});

@@ -260,7 +260,7 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
   const homesChanged = async (channelIds: string[]) => {
     if (!agents || !channelIds.length) return;
     try {
-      await agents.ensureAgents(channelIds);
+      await agents.settle(channelIds);
     } catch (error) {
       console.error('Context agent setup failed:', (error as Error).name);
     }
