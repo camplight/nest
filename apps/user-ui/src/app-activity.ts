@@ -28,11 +28,13 @@ const GH_READS = new Set('view list status diff checks search'.split(' '));
 const GH_GROUPS = new Set('pr issue api repo run release workflow search gist auth label project status browse codespace cache secret variable ruleset org extension alias config attestation ssh-key gpg-key'.split(' '));
 const CONNECTION_TOKEN = /connections\.mjs\s+execute/g;
 const CONNECTION = /connections\.mjs\s+execute\s+(\S+)\s+([A-Z0-9_]+)/g;
-const GH = /(?<![\w./-])gh\s+([^;&|\n\r()`$<>]*)/g;
+const GH = /(?<![\w.-])gh\s+([^;&|\n\r()`$<>]*)/g;
 /** Every gh token, known subcommand or not: more than one invocation in a command makes it a change. */
-const GH_TOKEN = /(?<![\w./-])gh(?=\s|$)/g;
+const GH_TOKEN = /(?<![\w.-])gh(?=\s|$)/g;
 /** Command substitution and process substitution can hide a second invocation. */
 const SUBSTITUTION = /`|\$\(|<\(|>\(/;
+/** A pipe into a shell or evaluator, `${`, or a variable in command position can run something not visible here. */
+const INDIRECT = [/\|&?\s*(?:\S*\/)?(?:sh|bash|zsh|eval|xargs|source)(?=[\s;&|)]|$)/, /\$\{/, /(?:^|[;&|(\n\r])\s*\$[A-Za-z_]/];
 const REPO = /^(?:[\w.-]+\/)?[\w.-]+\/[\w.-]+$/;
 
 const composioKind = (slug: string): 'read' | 'change' => {
@@ -121,7 +123,7 @@ export function inspectToolEvent(event: ToolEvent, fallbackAt: number = Date.now
   const first = found[0];
   // A read only if this is the one app invocation in the command, with no substitution that could hide another.
   const invocations = (unquoted.match(CONNECTION_TOKEN)?.length ?? 0) + (unquoted.match(GH_TOKEN)?.length ?? 0);
-  const single = invocations === 1 && !SUBSTITUTION.test(unquoted);
+  const single = invocations === 1 && !SUBSTITUTION.test(unquoted) && !INDIRECT.some(pattern => pattern.test(raw) || pattern.test(unquoted));
   return {
     id: event.id, channelId, agent: event.source.replace(/^agent:/, ''), at: event.createdAt ?? fallbackAt,
     app: first.app, appName: first.appName, action: first.action,

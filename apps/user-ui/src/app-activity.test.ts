@@ -62,7 +62,7 @@ describe('classifyToolEvent: gh', () => {
   it('is not fooled by words that merely contain gh', () => {
     expect(classifyToolEvent(ev('gh'))).toBeNull();
     expect(classifyToolEvent(ev('gh frobnicate'))).toBeNull();
-    expect(classifyToolEvent(ev('ls ./gh pr'))).toBeNull();
+    expect(classifyToolEvent(ev('ls ghost pr'))).toBeNull();
   });
   it('gh api: reads only with no method or GET', () => {
     expect(kind('gh api repos/x/y/issues')).toBe('read');
@@ -94,10 +94,23 @@ describe('classifyToolEvent: chains are changes (R14)', () => {
       `${merge}\n${conn('GMAIL_FETCH_EMAILS')}`,
       `${conn('GMAIL_FETCH_EMAILS')} && ${conn('GMAIL_FETCH_EMAILS')}`,
       'gh pr view 1 $(echo hi)',
+      'gh pr view 1 && /usr/bin/gh pr merge 1',
+      'gh pr view 1; /usr/local/bin/gh pr merge 1',
+      'gh pr view 1 | sh',
+      'gh pr view 1 --jq .x | bash',
+      'gh pr view 1 | /bin/zsh',
+      'gh pr view 1 | xargs -n1 echo',
+      'gh pr view 1 | eval',
+      'gh pr view 1; $X pr merge 1',
+      'gh pr view 1 ${X}',
     ]) expect(kind(command), command).toBe('change');
   });
   it('a lone read stays a read', () => {
     expect(kind('gh pr view 1')).toBe('read');
+    expect(kind('gh pr list --json x | jq .')).toBe('read');
+    expect(kind('gh pr view 1 | grep -i shell')).toBe('read');
+    expect(kind('/usr/bin/gh pr merge 1')).toBe('change');
+    expect(kind('/usr/bin/gh pr view 1')).toBe('read');
     expect(kind(`cd w && ${conn('GMAIL_FETCH_EMAILS')}`)).toBe('read');
   });
 });
