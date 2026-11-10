@@ -239,16 +239,19 @@ try{
   await page.goto(base+'/?channel='+other.id);await page.locator('.message-agent .agent-portrait img').waitFor();
   assert((await page.locator('.message-agent .agent-portrait img').getAttribute('src'))?.endsWith('/design/avatars/pom.png'));
   // Three agent messages collapse without changing stored history; links reveal hidden replies.
-  const foldReply=async(text:string)=>{
-   const response=await post('/api/events',{type:'message.created',source:'agent:PuffDemo',channelId:preview.channelId,payload:{text}},{'content-type':'application/json','x-nest-runner-token':'test-runner'});
+  const foldReply=async(text:string,agentName='PuffDemo')=>{
+   const response=await post('/api/events',{type:'message.created',source:'agent:'+agentName,channelId:preview.channelId,payload:{text}},{'content-type':'application/json','x-nest-runner-token':'test-runner'});
    assert.equal(response.status,201);return (await response.json()).id as string;
   };
-  const hiddenReply=await foldReply('The layout review is ready.');
+  const hiddenReply=await foldReply('The layout review is ready.','NestSystem');
   await foldReply('Final recommendation: simplify the homepage and keep the primary action visible.');
   const foldUrl=base+'/?view=projects&project='+preview.id+'&tab=chat';
   await page.setViewportSize({width:1440,height:1000});await page.goto(foldUrl);
   const expand=page.getByRole('button',{name:'Show 2 earlier agent messages',exact:true});
   await expand.waitFor();assert.equal(await expand.getAttribute('aria-expanded'),'false');
+  assert.equal(await expand.locator('.agent-portrait').count(),2,'Repeated agents appear once in the avatar stack');
+  assert((await expand.locator('.agent-portrait img').first().getAttribute('src'))?.endsWith('/design/avatars/pom.png'),'Fold portraits respect configured avatars');
+  assert.equal(await expand.getAttribute('title'),'Participants: PuffDemo, NestSystem');
   assert.equal(await page.getByText('The layout review is ready.',{exact:true}).count(),0);
   await page.getByText('Final recommendation: simplify the homepage and keep the primary action visible.',{exact:true}).waitFor();
   if(process.env.CI)console.log('AGENT_FOLD_DESKTOP_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));

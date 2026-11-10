@@ -14,6 +14,10 @@ describe('agent message folding',()=>{
   expect(folded.controls.get('c')?.fold.messageIds).toEqual(['a','b','c']);
   expect(foldAgentTimeline(items,new Set(['a']),null).items).toEqual(items);
  });
+ it('lists distinct participants in first appearance order, including the latest author',()=>{
+  const items=timeline([message('a'),message('b','agent:B',1),message('c','agent:A',2),message('d','agent:C',3)]);
+  expect(agentFolds(items)[0].agentNames).toEqual(['A','B','C']);
+ });
  it('human and system messages break runs',()=>{
   for(const source of ['human:owner','system:notice']){
    expect(agentFolds(timeline([message('a'),message('b','agent:B',1),message('break',source,2),message('c','agent:C',3)]))).toEqual([]);

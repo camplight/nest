@@ -2,7 +2,7 @@
 // stay the source of truth: assistant-ui gets one message per timeline item and never owns, edits or sends anything.
 import {createContext,useCallback,useContext,useEffect,useImperativeHandle,useLayoutEffect,useMemo,useRef,useState,type ReactNode,type Ref} from 'react';
 import {foldAgentTimeline} from './agent-folds';
-import {ArrowDownIcon} from 'lucide-react';
+import {ArrowDownIcon,ChevronRightIcon} from 'lucide-react';
 import {AgentActivity} from '../components/AgentActivity';
 import {AgentAvatar} from '../components/AgentAvatar';
 import type {Agent,EventRow} from '../types';
@@ -152,9 +152,19 @@ function ThreadItem(){
  const newDay=!previous||dayKey(previous.meta.displayAt)!==dayKey(item.meta.displayAt);
  return <>
   {newDay&&<DaySeparator className="my-4 px-2" label={dayLabel(item.meta.displayAt)}/>}
-  {foldControl&&<Button variant="ghost" size="sm" className="agent-message-fold mb-3 self-start max-w-full whitespace-normal text-start text-muted-foreground"
-   aria-expanded={foldControl.expanded} onClick={()=>view.toggleFold(foldControl.fold.id)}>
-   {foldControl.expanded?'Hide': 'Show'} {foldControl.fold.messageIds.length-1} earlier agent messages
+  {foldControl&&<Button variant="ghost" size="sm" className="agent-message-fold mb-3 h-auto min-h-11 self-start max-w-full gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2 whitespace-normal text-start text-muted-foreground"
+   aria-label={`${foldControl.expanded?'Hide':'Show'} ${foldControl.fold.messageIds.length-1} earlier agent messages`}
+   aria-describedby={`fold-participants-${foldControl.fold.id}`} title={`Participants: ${foldControl.fold.agentNames.join(', ')}`} aria-expanded={foldControl.expanded} onClick={()=>view.toggleFold(foldControl.fold.id)}>
+   <span className="flex shrink-0 -space-x-2" aria-hidden="true">
+    {foldControl.fold.agentNames.slice(0,3).map(name=><span key={name} title={name} className="rounded-full ring-2 ring-background"><AgentAvatar name={name} size={24}/></span>)}
+    {foldControl.fold.agentNames.length>3&&<span className="grid size-6 place-items-center rounded-full bg-muted text-[10px] font-semibold ring-2 ring-background">+{foldControl.fold.agentNames.length-3}</span>}
+   </span>
+   <span className="min-w-0 flex-1">
+    <span className="block truncate text-xs font-medium text-foreground" title={foldControl.fold.agentNames.join(', ')}>{foldControl.fold.agentNames.slice(0,3).join(', ')}{foldControl.fold.agentNames.length>3?` +${foldControl.fold.agentNames.length-3}`:''}</span>
+    <span className="block text-xs">{foldControl.expanded?'Hide': 'Show'} {foldControl.fold.messageIds.length-1} earlier agent messages</span>
+   </span>
+   <span id={`fold-participants-${foldControl.fold.id}`} className="sr-only">Participants: {foldControl.fold.agentNames.join(', ')}</span>
+   <ChevronRightIcon aria-hidden="true" className={cn('size-4 shrink-0',foldControl.expanded&&'rotate-90')}/>
   </Button>}
   {item.kind==='message'?(attachesTo(item,next)?
     <MessageShell item={item} previous={previous} view={view} activity={next as ActivityItem}

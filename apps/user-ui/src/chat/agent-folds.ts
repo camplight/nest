@@ -1,6 +1,6 @@
 import {dayKey,type TimelineItem} from './timeline';
 
-export type AgentFold={id:string;messageIds:string[];hiddenIds:string[];latestId:string};
+export type AgentFold={id:string;messageIds:string[];hiddenIds:string[];latestId:string;agentNames:string[]};
 // Activity belongs to the preceding message. It neither counts toward the
 // threshold nor splits an agent conversation; hidden messages take it with them.
 export function agentFolds(items:readonly TimelineItem[]):AgentFold[]{
@@ -10,7 +10,7 @@ export function agentFolds(items:readonly TimelineItem[]):AgentFold[]{
   const messages=run.filter(item=>item.kind==='message');
   if(messages.length>=3){
    const latest=messages[messages.length-1];
-   folds.push({id:messages[0].id,messageIds:messages.map(item=>item.id),latestId:latest.id,
+   folds.push({id:messages[0].id,messageIds:messages.map(item=>item.id),latestId:latest.id,agentNames:[...new Set(messages.map(item=>item.meta.authorName))],
     hiddenIds:run.slice(0,run.indexOf(latest)).map(item=>item.id)});
   }
   run=[];
