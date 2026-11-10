@@ -803,7 +803,7 @@ flagged canvas. Design: section 8 of
 [the Switchyard design](superpowers/specs/2026-11-08-switchyard-canvas-design.md);
 plan: [the Phase 2 plan](superpowers/plans/2026-11-09-switchyard-canvas-phase2.md).
 Everything is behind `NEST_ENABLE_CANVAS=1`; with the flag off the new routes answer
-404 and the new UI is absent.
+404 to signed-in people (sign-in checks still answer first) and the new UI is absent.
 
 1. Data. Migration `012_canvas_context.sql` adds `product_canvas_context` (notes per
    canvas or area, with a version), `product_canvas_context_files` (name, type, size
@@ -820,8 +820,10 @@ Everything is behind `NEST_ENABLE_CANVAS=1`; with the flag off the new routes an
    `edit`; no engine event is created):
    - `GET|PUT /api/canvases/:id/context` and `GET|PUT /api/canvases/:id/areas/:areaId/context`
      (notes, with the version they were based on; a stale version answers 409)
-   - `POST …/context/files` (multipart), `GET …/context/files/:fileId` and
-     `DELETE …/context/files/:fileId`, for the canvas and for each area
+   - `POST …/context/files` (multipart) and `DELETE …/context/files/:fileId`, for the
+     canvas and for each area
+   - `GET /api/canvases/:id/context/files/:fileId` downloads any context file of the
+     canvas, area files included
    - `POST /api/canvases/:id/areas/:areaId/context/links` and
      `DELETE …/context/links/:sourceAreaId` (use another area's context)
    - `GET /api/canvases/context-sources` (areas the person can link to)
@@ -853,14 +855,16 @@ Everything is behind `NEST_ENABLE_CANVAS=1`; with the flag off the new routes an
    stores only its sha256, installs the key as the agent's private engine secret
    `NEST_CONTEXT_TOKEN` (`POST /api/secrets`, `scopeType:'private'`) and adds
    `nest-context` to the agent's `enabledSkills` (`PATCH /api/agents/:name`), both
-   with Nest's service token. A failed setup revokes the key and retries later. Wrapped agents (Codex, Claude Code)
-   get no key because their harness does not load engine skills; the panel says
+   with Nest's service token. A failed setup revokes the key and retries later.
+   Wrapped agents (Codex, Claude Code) get no key because their harness does not
+   load engine skills; the panel says
    "<name> can't read context yet (wrapped agent)." The skill is `skills/nest-context`
    (`scripts/context.mjs read CHANNEL_ID`, `file CHANNEL_ID FILE_ID`).
    - `GET /api/context/agent?channelId=` and `GET /api/context/agent/files/:fileId?channelId=`
      take `Authorization: Bearer nest_context_…` and never cookies. They return 401
      for a missing or revoked key, 403 when the engine does not list the agent in
-     that chat, 429 above 60 requests a minute per key, and 404 with the flag off.
+     that chat, 429 above 60 requests a minute per key, 400 for a malformed
+     `channelId`, 503 when Nest has no engine service token, and 404 with the flag off.
      They never fall through to the engine proxy and send `Cache-Control: no-store`.
    - Membership is checked through the engine, with the service token, on every
      read; nothing is cached. An agent that is only projected through federation
