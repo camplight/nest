@@ -243,6 +243,8 @@ try{
    const response=await post('/api/events',{type:'message.created',source:'agent:'+agentName,channelId:preview.channelId,payload:{text}},{'content-type':'application/json','x-nest-runner-token':'test-runner'});
    assert.equal(response.status,201);return (await response.json()).id as string;
   };
+  assert.equal((await post('/api/agents',{name:'NestSystem',visibility:'PUBLIC',modelId:'test-model',workspacePath:join(dir,'fold-agent')},headers)).status,201);
+  assert.equal((await post('/api/projects/'+preview.id+'/members',{subscriberType:'AGENT',subscriberId:'NestSystem'},headers)).status,200);
   const hiddenReply=await foldReply('The layout review is ready.','NestSystem');
   await foldReply('Final recommendation: simplify the homepage and keep the primary action visible.');
   const foldUrl=base+'/?view=projects&project='+preview.id+'&tab=chat';
@@ -291,5 +293,5 @@ try{
   assert.equal(uploads,beforeOffScreen,'Other product screens do not intercept file drops');
   assert.deepEqual(errors,[]);
   console.log(`PASS: whole-screen drops, picker, limits, upload failure, draft reload, late-result isolation, file-only project creation, real file bytes, compact activity, configured agent/human chat avatars, long sender names, missing-image fallback and responsive layouts. Uploads: ${uploads}. Screenshots: ${screenshots}`);
- }finally{releaseUpload?.();await browser.close();}
+ }catch(error){console.error('CHAT_BROWSER_FAILURE',error);throw error;}finally{releaseUpload?.();await browser.close();}
 }finally{server.kill('SIGTERM');engine.db.close();product.store.db.close();rmSync(dir,{recursive:true,force:true});}
