@@ -238,6 +238,34 @@ try{
   assert.equal((await post('/api/events',{type:'message.created',source:'agent:PuffDemo',channelId:other.id,payload:{text:'Standalone chat avatar preview'}},{'content-type':'application/json','x-nest-runner-token':'test-runner'})).status,201);
   await page.goto(base+'/?channel='+other.id);await page.locator('.message-agent .agent-portrait img').waitFor();
   assert((await page.locator('.message-agent .agent-portrait img').getAttribute('src'))?.endsWith('/design/avatars/pom.png'));
+  // Three agent messages collapse without changing stored history; links reveal hidden replies.
+  const foldReply=async(text:string)=>{
+   const response=await post('/api/events',{type:'message.created',source:'agent:PuffDemo',channelId:preview.channelId,payload:{text}},{'content-type':'application/json','x-nest-runner-token':'test-runner'});
+   assert.equal(response.status,201);return (await response.json()).id as string;
+  };
+  const hiddenReply=await foldReply('The layout review is ready.');
+  await foldReply('Final recommendation: simplify the homepage and keep the primary action visible.');
+  const foldUrl=base+'/?view=projects&project='+preview.id+'&tab=chat';
+  await page.setViewportSize({width:1440,height:1000});await page.goto(foldUrl);
+  const expand=page.getByRole('button',{name:'Show 2 earlier agent messages',exact:true});
+  await expand.waitFor();assert.equal(await expand.getAttribute('aria-expanded'),'false');
+  assert.equal(await page.getByText('The layout review is ready.',{exact:true}).count(),0);
+  await page.getByText('Final recommendation: simplify the homepage and keep the primary action visible.',{exact:true}).waitFor();
+  if(process.env.CI)console.log('AGENT_FOLD_DESKTOP_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
+  await expand.focus();await page.keyboard.press('Enter');
+  await page.getByText('The layout review is ready.',{exact:true}).waitFor();
+  const collapse=page.getByRole('button',{name:'Hide 2 earlier agent messages',exact:true});
+  assert.equal(await collapse.getAttribute('aria-expanded'),'true');await collapse.click();
+  await expand.waitFor();
+  await page.setViewportSize({width:390,height:844});
+  if(await page.locator('.project-context-disclosure').getAttribute('open')!==null)await page.locator('.project-context-disclosure > summary').click();
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  if(process.env.CI)console.log('AGENT_FOLD_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
+  await page.goto(foldUrl+'&message='+hiddenReply);
+  await page.locator(`[data-message-id="${hiddenReply}"].message-highlight`).waitFor();
+  await page.getByText('The layout review is ready.',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Hide 2 earlier agent messages',exact:true}).click();
+  await expand.waitFor();
   await page.goto(chatUrl);
   // Archive guard: no upload request is made and a reason is visible.
   assert.equal((await post('/api/channels/'+project.channelId+'/archive',{},headers)).status,200);

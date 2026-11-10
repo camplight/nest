@@ -1,6 +1,7 @@
 // The channel thread on assistant-ui (spec 6.2 to 6.5, 6.13 to 6.17, 7.1.2, 7.1.3, 8.1 to 8.5). Our store and converter
 // stay the source of truth: assistant-ui gets one message per timeline item and never owns, edits or sends anything.
 import {createContext,useCallback,useContext,useEffect,useImperativeHandle,useLayoutEffect,useMemo,useRef,useState,type ReactNode,type Ref} from 'react';
+import {foldAgentTimeline} from './agent-folds';
 import {ArrowDownIcon} from 'lucide-react';
 import {AgentActivity} from '../components/AgentActivity';
 import {AgentAvatar} from '../components/AgentAvatar';
@@ -32,7 +33,7 @@ export type ChatThreadProps={
 export type ChatThreadHandle={scrollToBottom():void};
 type MessageItem=Extract<TimelineItem,{kind:'message'}>;
 type ActivityItem=Extract<TimelineItem,{kind:'activity'}>;
-type ThreadView={byId:ReadonlyMap<string,TimelineItem>;turns:readonly WorkingTurn[];props:ChatThreadProps;focused(eventId:string):void};
+type ThreadView={folding:ReturnType<typeof foldAgentTimeline>;toggleFold(id:string):void;byId:ReadonlyMap<string,TimelineItem>;turns:readonly WorkingTurn[];props:ChatThreadProps;focused(eventId:string):void};
 
 // Ported from classic isMessagesPanelNearBottom.
 const NEAR_BOTTOM_PX=80;
@@ -147,9 +148,14 @@ function ThreadItem(){
  const item=view?.byId.get(id);
  if(!view||!item)return null;
  const previous=previousId?view.byId.get(previousId):undefined,next=nextId?view.byId.get(nextId):undefined;
+ const foldControl=view.folding.controls.get(id);
  const newDay=!previous||dayKey(previous.meta.displayAt)!==dayKey(item.meta.displayAt);
  return <>
   {newDay&&<DaySeparator className="my-4 px-2" label={dayLabel(item.meta.displayAt)}/>}
+  {foldControl&&<Button variant="ghost" size="sm" className="agent-message-fold mb-3 self-start max-w-full whitespace-normal text-start text-muted-foreground"
+   aria-expanded={foldControl.expanded} onClick={()=>view.toggleFold(foldControl.fold.id)}>
+   {foldControl.expanded?'Hide': 'Show'} {foldControl.fold.messageIds.length-1} earlier agent messages
+  </Button>}
   {item.kind==='message'?(attachesTo(item,next)?
     <MessageShell item={item} previous={previous} view={view} activity={next as ActivityItem}
      spacing={spaceAfter(next as ActivityItem,afterNextId?view.byId.get(afterNextId):undefined)}/>:
@@ -158,7 +164,7 @@ function ThreadItem(){
    <div data-aui-quote-selectable="false" className={cn(ACTIVITY_SLOT,spaceAfter(item,next))}>
     <AgentActivity events={item.events} tone={item.tone} formatTime={formatTime}/>
    </div>}
-  {view.turns.filter(turn=>turn.triggerEventId===item.id||(!next&&!view.byId.has(turn.triggerEventId))).map(turn=>
+  {view.turns.filter(turn=>(view.folding.redirects.get(turn.triggerEventId)??turn.triggerEventId)===item.id||(!next&&!view.byId.has(turn.triggerEventId)&&!view.folding.redirects.has(turn.triggerEventId))).map(turn=>
    <WorkingRow key={turn.agent} turn={turn} activityUnavailable={view.props.snapshot.activityUnavailable}
     onReview={()=>view.props.onFocusMessage(turn.triggerEventId)}/>)}
   {item.meta.detached&&next&&!next.meta.detached&&<div data-slot="detached-marker" className="my-3 self-center rounded-full bg-muted/70 px-3 py-1 text-xs text-muted-foreground">Earlier messages not loaded</div>}
@@ -208,9 +214,17 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  // A deep-link focus is pending until it scrolled into view and the reader then scrolled themselves (spec 8.5).
  const focusedRef=useRef<string|null>(null);
  const focused=useCallback((eventId:string)=>{focusedRef.current=eventId;},[]);
- const view=useMemo<ThreadView>(()=>({byId:new Map(items.map(item=>[item.id,item])),turns,props,focused}),[items,turns,props,focused]);
+ const [expandedFolds,setExpandedFolds]=useState<ReadonlySet<string>>(new Set());
+ useEffect(()=>setExpandedFolds(new Set()),[snapshot.channelId]);
+ const folding=useMemo(()=>foldAgentTimeline(items,expandedFolds,focusedMessageId),[items,expandedFolds,focusedMessageId]);
+ const toggleFold=useCallback((id:string)=>{
+  const control=[...folding.controls.values()].find(value=>value.fold.id===id);
+  if(control?.expanded&&focusedMessageId&&control.fold.hiddenIds.includes(focusedMessageId))props.onFocusMessage(control.fold.latestId);
+  setExpandedFolds(previous=>{const next=new Set(previous);if(control?.expanded)next.delete(id);else next.add(id);return next;});
+ },[folding,focusedMessageId,props.onFocusMessage]);
+ const view=useMemo<ThreadView>(()=>({byId:new Map(folding.items.map(item=>[item.id,item])),turns,props,focused,folding,toggleFold}),[folding,turns,props,focused,toggleFold]);
  const runtime=useExternalStoreRuntime({
-  messages:items,convertMessage:toThreadMessage,isRunning:false,onNew:NO_ERROR,
+  messages:folding.items,convertMessage:toThreadMessage,isRunning:false,onNew:NO_ERROR,
   hasEarlier:snapshot.hasOlder,onLoadEarlier:()=>core.loadOlder(),
  });
 
