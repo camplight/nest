@@ -571,6 +571,7 @@ export default function App() {
   const isSearchingChannels = Boolean(channelQuery.trim());
   const activeChannelManageable = canManageUserChannel(activeChannel, userId);
   const activeChannelCanPost = activeChannel ? activeChannel.canPost !== false : false;
+  const wrappedParticipants = (activeChannel?.participants ?? []).filter(p => p.subscriberType === "AGENT" && agents.some(agent => agent.name === p.subscriberId && agent.mode === "WRAPPED")).map(p => p.subscriberId);
   const activeConversationName = activeChannel ? projectIndex.find(project => project.channelId === activeChannel.id)?.name ?? channelLabel(activeChannel, username) : "";
   const mentionProject=projectIndex.find(project=>project.channelId===activeChannelId);
   const canInviteMention=activeChannelManageable&&(!mentionProject||mentionProject.ownerId===userId);
@@ -1766,6 +1767,7 @@ export default function App() {
             focusedMessageId={focusedMessage}
             isConversationEmpty={isConversationEmpty}
             channelLabel={activeConversationName}
+            wrappedAgents={wrappedParticipants}
             headerActions={activeChannel && <>
               {activeChannelManageable && <button type="button" className="huddle-launch channel-sharing-launch" aria-haspopup="dialog" aria-expanded={showChannelManageDialog} onClick={() => setShowChannelManageDialog(true)}><Share2 size={17} aria-hidden="true"/>Sharing</button>}
               <HuddleButton key={activeChannel.id} channel={activeChannel} label={activeConversationName} username={username} agents={agents} events={threadSnapshot.events} canPost={activeChannelCanPost}/>

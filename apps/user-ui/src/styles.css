@@ -1769,3 +1769,20 @@ button {
 .mention-popup-chat .mention-at { font-size: 13px; }
 .mention-popup-chat .mention-empty { padding: 12px 8px; }
 .mention-popup-chat .mention-help { margin-top: 4px; padding: 6px 8px 4px; }
+
+/* "Apps here": compact chips under the chat header. Wraps on narrow widths and caps its height so the composer stays in view. */
+.apps-here { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; flex-shrink:0; box-sizing:border-box; max-height:7.5rem; overflow-y:auto; margin:0 12px 8px; padding:6px 10px; border:1px solid var(--nest-border); border-radius:8px; background:var(--nest-muted-surface); color:var(--nest-text); font-size:12px; line-height:1.4; }
+.apps-here-title { font-size:12px; font-weight:600; }
+.apps-here-chips { display:flex; flex-wrap:wrap; gap:6px; margin:0; padding:0; list-style:none; }
+.apps-here-chip { position:relative; display:inline-flex; align-items:center; gap:6px; padding:2px 8px 2px 4px; border:1px solid var(--nest-border); border-radius:8px; background:var(--nest-surface); }
+.apps-here-chip .connection-app-logo { display:inline-grid; place-items:center; width:18px; height:18px; }
+.apps-here-chip .connection-app-logo img { width:15px; height:15px; }
+.apps-here-chip .connection-app-logo svg { width:14px; height:14px; }
+.apps-here-name { font-weight:500; }
+.apps-here-count { min-width:1.2em; text-align:center; font-variant-numeric:tabular-nums; color:var(--nest-muted); }
+.apps-here-chip.is-live { border-color:var(--nest-forest); }
+.apps-here-chip.is-live::after { content:""; position:absolute; top:-3px; right:-3px; width:7px; height:7px; border-radius:50%; background:var(--nest-forest); box-shadow:0 0 0 2px var(--nest-surface); }
+.apps-here-total { color:var(--nest-muted); }
+.apps-here-limit { flex-basis:100%; margin:0; color:var(--nest-muted); }
+@media (prefers-reduced-motion: no-preference) { .apps-here-chip.is-live::after { animation:apps-here-pulse 1.6s ease-in-out infinite; } }
+@keyframes apps-here-pulse { 50% { opacity:.35; } }

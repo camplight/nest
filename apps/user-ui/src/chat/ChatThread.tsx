@@ -7,6 +7,7 @@ import {AgentAvatar} from '../components/AgentAvatar';
 import type {Agent,EventRow} from '../types';
 import {AssistantRuntimeProvider,ThreadPrimitive,useAuiState,useExternalStoreRuntime} from './aui';
 import type {ChannelEventsCore,ChannelEventsSnapshot} from './channel-events';
+import {ChatAppsHere} from './AppsHere';
 import {ExportButton} from './ExportButton';
 import {formatTime} from './format';
 import {MessageActions} from './MessageActions';
@@ -26,7 +27,7 @@ export type ChatThreadProps={
  snapshot:ChannelEventsSnapshot;core:ChannelEventsCore;currentUsername:string;agents:Agent[];
  focusedMessageId:string|null;isConversationEmpty:boolean;
  onPreviewDemo(path:string):void;onQuote(target:ReplyTarget,quotedText:string):void;footer?:ReactNode;headerActions?:ReactNode;
- channelLabel:string;onFocusMessage(eventId:string):void;handle?:Ref<ChatThreadHandle>;
+ channelLabel:string;wrappedAgents?:string[];onFocusMessage(eventId:string):void;handle?:Ref<ChatThreadHandle>;
 };
 // What the page may ask of the thread: after a send it follows the new message down (the viewport is the thread's own).
 export type ChatThreadHandle={scrollToBottom():void};
@@ -38,6 +39,7 @@ type ThreadView={byId:ReadonlyMap<string,TimelineItem>;turns:readonly WorkingTur
 const NEAR_BOTTOM_PX=80;
 const FAR_FROM_BOTTOM_PX=240;
 const AUTO_LOAD_PX=120;
+const NO_AGENTS:string[]=[];
 const NO_ERROR=()=>Promise.reject(new Error('The Nest composer sends messages'));
 
 // Author branch: agents get their portrait, humans their initials, system sources nothing.
@@ -284,6 +286,7 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
   <div className="nest-chat relative flex min-h-0 flex-1 flex-col">
    {/* Keep Sharing and Huddle reachable on mobile. Export stays hidden at the existing mobile breakpoint. */}
    <div className="chat-header-actions flex shrink-0 flex-wrap items-center justify-end gap-3 px-3 pb-2 empty:hidden">{props.headerActions}<span className="max-[761px]:hidden"><ExportButton items={items} channelLabel={props.channelLabel}/></span></div>
+   <ChatAppsHere events={snapshot.events} wrappedAgents={props.wrappedAgents??NO_AGENTS}/>
    <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
     <ThreadPrimitive.Viewport ref={panelRef} turnAnchor="bottom" autoScroll={!focusPending} scrollToBottomOnInitialize={!focusedMessageId}
      onScroll={onScroll} className={cn('messages-panel gap-0 px-1 pt-1 pb-4 sm:ps-2 sm:pe-3',(empty||props.isConversationEmpty)&&'messages-panel-empty')}>

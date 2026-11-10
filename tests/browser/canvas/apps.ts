@@ -81,3 +81,56 @@ await runChatTest('canvas apps: logos, live ring, read/change counts, no command
   const still=await card.locator('.canvas-card-app.is-live').evaluate(el=>getComputedStyle(el,'::after').animationName);
   assert.equal(still,'none','no animation under prefers-reduced-motion');
 },{canvas:true});
+
+await runChatTest('chat apps bar: counts, honest timeline lines without the command, wrapped-agent limit',async h=>{
+  const {page}=h;
+  const bar=page.getByRole('region',{name:'Apps here',exact:true});
+  assert.equal(await bar.count(),0,'no bar before any app call or wrapped agent');
+
+  await h.emit('tool.executed',{tool:'shell_run',args:{command:'node scripts/connections.mjs execute c1 GMAIL_SEND_EMAIL < a.json'},output:'SYNTHETIC-SECRET-BODY'});
+  await h.emit('tool.executed',{tool:'shell_run',args:{command:'node scripts/connections.mjs execute c1 GMAIL_FETCH_EMAILS < a.json'},output:'x'});
+  await h.emit('tool.executed',{tool:'shell_run',args:{command:'gh pr merge 5 -R acme/web'},output:'y'});
+  await bar.waitFor();
+  await bar.getByText('1 reads · 2 changes outside Nest',{exact:true}).waitFor();
+  assert.equal(await bar.getByText('Apps here',{exact:true}).count(),1);
+  await bar.locator('[title="Gmail: 1 reads · 1 changes"]').waitFor();
+  await bar.locator('[title="GitHub: 0 reads · 1 changes"]').waitFor();
+  assert.equal(await bar.locator('img[src$="/gmail.svg"]').count(),1,'the Gmail logo');
+  assert.equal(await bar.getByText('Codex and Claude Code agents',{exact:false}).count(),0,'no limitation line without a wrapped agent');
+
+  // A call still running counts, with a live chip.
+  await h.emit('tool.started',{tool:'shell_run',args:{command:'node scripts/connections.mjs execute c1 SLACK_SEND_MESSAGE < a.json'}});
+  await bar.getByText('1 reads · 3 changes outside Nest',{exact:true}).waitFor();
+  assert.equal(await bar.locator('.apps-here-chip.is-live').count(),1);
+
+  // The timeline line is honest, and its details never show the command or output.
+  const line=page.getByRole('button',{name:'Pip · Gmail · Send email · changed',exact:true});
+  await line.first().click();
+  const detail=page.locator('.trace-detail-card');
+  await detail.getByText('Pip · Gmail · Send email · changed',{exact:true}).waitFor();
+  await detail.locator('summary').click();
+  const shown=await detail.innerText();
+  assert.match(shown,/Send email/);
+  assert.match(shown,/"kind": "change"/);
+  const html=await page.evaluate(()=>document.body.innerHTML);
+  for(const leak of ['a.json','connections.mjs','SYNTHETIC-SECRET-BODY','acme/web'])assert.ok(!html.includes(leak),`${leak} is not in the page`);
+  assert.ok(!shown.includes('a.json'));
+
+  // A wrapped agent in the chat shows the limitation.
+  await h.post('/api/agents',{name:'Wren',icon:'pip',visibility:'PUBLIC',modelId:'wrapped:none',workspacePath:`/tmp/wren-${Date.now()}`,mode:'WRAPPED',assignedRunnerId:'fixture-runner',desiredState:'STOPPED'});
+  await h.post(`/api/channels/${h.project.channelId}/subscribe`,{subscriberType:'AGENT',subscriberId:'Wren'});
+  await page.reload();
+  await bar.getByText("Codex and Claude Code agents only report their messages, so their app use isn't shown here.",{exact:true}).waitFor();
+},{canvas:true});
+
+await runChatTest('chat apps bar: a phone keeps the composer on screen',async h=>{
+  const {page}=h;
+  for(const slug of ['GMAIL_SEND_EMAIL','SLACK_SEND_MESSAGE','TRELLO_CREATE_CARD','MIRO_GET_BOARD','NOTION_UPDATE_PAGE'])await h.emit('tool.executed',{tool:'shell_run',args:{command:`node scripts/connections.mjs execute c1 ${slug} < a.json`}});
+  const bar=page.getByRole('region',{name:'Apps here',exact:true});
+  await bar.waitFor();
+  const box=await page.getByRole('textbox',{name:'Message',exact:true}).boundingBox();
+  const viewport=page.viewportSize()!;
+  assert.ok(box&&box.y+box.height<=viewport.height,'the composer is inside the viewport');
+  const width=await bar.evaluate(el=>({scroll:el.scrollWidth,client:el.clientWidth}));
+  assert.ok(width.scroll<=width.client,'the bar does not scroll sideways');
+},{canvas:true,viewport:{width:375,height:700},hasTouch:true});

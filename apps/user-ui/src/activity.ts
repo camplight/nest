@@ -1,8 +1,19 @@
 import type {EventRow} from './types';
+import {classifyToolEvent,type Classified} from './app-activity';
 export type ActivityTone='neutral'|'success'|'danger'|'muted';
 export type ActivityIcon='thinking'|'check'|'error'|'terminal'|'output'|'tool'|'context'|'progress';
 /** Status describes this event, never the outcome of the whole conversation. */
 export function activity(event:EventRow):{title:string;tone:ActivityTone;icon:ActivityIcon}{
+  const base=baseActivity(event);
+  // An app call is named for what it did outside Nest, never for its command.
+  const call=appCall(event);
+  return call?{...base,title:`${call.agent} · ${call.appName} · ${call.action} · ${call.kind==='read'?'read':'changed'}`}:base;
+}
+/** The app call a tool event is, if any. Classification is fail-safe: anything uncertain is a change. */
+function appCall(event:EventRow):Classified|null{
+  return event.type.startsWith('tool.')?classifyToolEvent(event):null;
+}
+function baseActivity(event:EventRow):{title:string;tone:ActivityTone;icon:ActivityIcon}{
   const p=event.payload&&typeof event.payload==='object'?event.payload as Record<string,unknown>:{};
   const tool=typeof p.tool==='string'?p.tool:'Tool';
   switch(event.type){
@@ -23,6 +34,9 @@ export function activity(event:EventRow):{title:string;tone:ActivityTone;icon:Ac
   }
 }
 export function activityDetails(event:EventRow){
+  // App calls show tool, time, agent, read or change and the label only; never the command, arguments or output.
+  const call=appCall(event);
+  if(call)return JSON.stringify({tool:'shell_run',time:event.createdAt===undefined?null:new Date(event.createdAt).toISOString(),agent:call.agent,kind:call.kind,label:call.label},null,2);
   // Preserve the entire recorded payload, including process output and tool arguments.
   return JSON.stringify({event:event.type,source:event.source,payload:event.payload},null,2);
 }

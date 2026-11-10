@@ -17,6 +17,29 @@ describe('activity status meaning',()=>{
  });
 });
 
+describe('app calls in the timeline',()=>{
+ const call=(command:string,type='tool.executed')=>({...event(type,{tool:'shell_run',args:{command},output:'SECRET-OUT'}),source:'agent:Pip'});
+ const send=call('node scripts/connections.mjs execute c1 GMAIL_SEND_EMAIL < a.json');
+ it('names the agent, app, action and whether it read or changed',()=>{
+  expect(activity(send).title).toBe('Pip · Gmail · Send email · changed');
+  expect(activity(call('node scripts/connections.mjs execute c1 GMAIL_FETCH_EMAILS < a.json')).title).toBe('Pip · Gmail · Fetch emails · read');
+ });
+ it('keeps the tone of the event phase',()=>{
+  expect(activity(call('gh pr view 1 -R acme/web','tool.failed')).tone).toBe('danger');
+ });
+ it('shows only tool, time, agent, kind and label in the details',()=>{
+  const text=activityDetails(send);
+  expect(JSON.parse(text)).toEqual({tool:'shell_run',time:'1970-01-01T00:00:00.001Z',agent:'Pip',kind:'change',label:null});
+  for(const leak of ['a.json','connections.mjs','SECRET-OUT','args','output'])expect(text).not.toContain(leak);
+  expect(JSON.parse(activityDetails(call('gh pr view 1 -R acme/web'))).label).toBe('acme/web');
+ });
+ it('leaves other tools and shell commands as they were',()=>{
+  const ls=call('ls -la');
+  expect(activity(ls).title).toBe('shell_run completed');
+  expect(JSON.parse(activityDetails(ls)).payload.args.command).toBe('ls -la');
+ });
+});
+
 describe('compact wrapped progress',()=>{
  const progress=(id:string,triggerEventId='turn',source='agent:Demo')=>({...event('agent.turn.phase',{phase:'codex-progress',text:'Waiting for checks.',triggerEventId}),id,source});
  it('keeps only the latest update per turn across interleaved human messages',()=>{
