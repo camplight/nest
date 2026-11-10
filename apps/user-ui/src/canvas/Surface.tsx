@@ -5,6 +5,7 @@ import {CARD_HEIGHT,CanvasTint,areaFor,type BoardCard,type CanvasArea,type Canva
 import type {BoardOp} from './board-store';
 import {Area,type AreaContext,type AreaSummary} from './Area';
 import {Card} from './Card';
+import {droppedFiles,outsideFileDropTargets} from '../components/file-drop';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {areaSummaries,type CardPulse} from './pulse';
 import {ORIGIN,areaMembers,cardCentre,clampZoom,fit,growToFit,isCompact,toCanvas,visible,zoomAt,type Point,type Rect,type Size,type View} from './geometry';
@@ -41,19 +42,10 @@ export type SurfaceProps = {
    * Files dropped on an open card or, for editors, on an area. A file drag highlights the card or area under it.
    * Anywhere else on the canvas, file drags are left to the bottom box or the open chat.
    */
-  onDropFiles?(target: FileDropTarget, files: File[]): void;
+  onDropFiles?(target: FileDropTarget, files: File[], folders: boolean): void;
 };
 export type FileDropTarget = {kind: 'card'; channelId: string} | {kind: 'area'; areaId: string};
-/** The elements that take their own file drops. Window-wide drop zones (the bottom box, an open chat) leave these alone. */
-export const FILE_DROP_TARGETS = '.canvas-card, .canvas-area';
-export const outsideFileDropTargets = (target: EventTarget | null) => !(target instanceof Element && target.closest(FILE_DROP_TARGETS));
 const carriesFiles = (event: ReactDragEvent) => event.dataTransfer.types.includes('Files');
-/** Files from a drop, folders left out. Read synchronously: the browser empties the data after the event. */
-function droppedFiles(data: DataTransfer): File[] {
-  const entries = Array.from(data.items).filter(item => item.kind === 'file');
-  if (!entries.length) return Array.from(data.files);
-  return entries.flatMap(item => item.webkitGetAsEntry?.()?.isDirectory ? [] : item.getAsFile() ?? []);
-}
 export type SurfaceControls = {
   /** The canvas point at the centre of the viewport. */
   centre(): Point;
@@ -308,8 +300,8 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       setDropId(null); setChatDropArea(null);
       if (!ownsFiles(event)) return;
       event.preventDefault();
-      const target = fileTargetAt(event), files = droppedFiles(event.dataTransfer);
-      if (target && files.length) filesRef.current?.(target, files);
+      const target = fileTargetAt(event), {files, folders} = droppedFiles(event.dataTransfer);
+      if (target && (files.length || folders)) filesRef.current?.(target, files, folders);
       return;
     }
     if (carriesAgent(event)) {

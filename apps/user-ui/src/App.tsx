@@ -26,7 +26,7 @@ import {apiUrl} from './config';
 import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
 import { Community } from "./Community";
 import { CanvasView, type CanvasChatMode } from "./canvas/CanvasView";
-import { outsideFileDropTargets } from "./canvas/Surface";
+import { outsideFileDropTargets } from "./components/file-drop";
 import { canvasAvailability } from "./canvas/api";
 import { usePhoneLayout } from "./canvas/PhoneList";
 import { createCanvasLive, type CanvasLive } from "./canvas/live";

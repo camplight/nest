@@ -24,7 +24,7 @@ import {quoteMarkdown,replyExcerpt} from './quote';
 import type {ReplyTarget} from './quote-types';
 import type {CommandContext} from './commands';
 
-export type ChatComposerHandle={insertText(text:string):void;enqueueFiles(files:File[],options?:{autoSend?:boolean}):void;setReplyTarget(target:ReplyTarget|null,quotedText?:string):void;focus():void};
+export type ChatComposerHandle={insertText(text:string):void;enqueueFiles(files:File[]):void;setReplyTarget(target:ReplyTarget|null,quotedText?:string):void;focus():void};
 export type ComposerSessionOptions={
   userId:string|null;channel:Channel|null;canPost:boolean;
   // onSent may return a promise; the send stays in progress until it settles (the classic post-send refresh).
@@ -64,9 +64,12 @@ export function useComposerSession(options:ComposerSessionOptions){
   const [draftStored,setDraftStored]=useState(true);
   const draft=draftState.text;
   // Files dropped on a canvas card send themselves once every upload is done. Typing or removing a file first cancels that.
-  const [autoSend,setAutoSend]=useState(false);
-  function setDraft(text:string){setAutoSend(false);setDraftState(current=>({text,mentions:reconcileMentions(current.text,text,current.mentions)}));}
-  function chooseMention(text:string,mention:SelectedMention){setDraftState(current=>({text,mentions:[...reconcileMentions(current.text,text,current.mentions),mention]}));}
+  // The channel it was armed for: a chat switch can never send these files elsewhere.
+  const [autoSend,setAutoSend]=useState<string|null>(null);
+  // Every draft change a person makes (typing, a mention, a quote, inserted text) goes through here and cancels the auto-send.
+  function changeDraft(change:Parameters<typeof setDraftState>[0]){setAutoSend(null);setDraftState(change);}
+  function setDraft(text:string){changeDraft(current=>({text,mentions:reconcileMentions(current.text,text,current.mentions)}));}
+  function chooseMention(text:string,mention:SelectedMention){changeDraft(current=>({text,mentions:[...reconcileMentions(current.text,text,current.mentions),mention]}));}
   // The quote-reply target (spec 7.3): stored with the draft, sent as replyTo and part of the send fingerprint.
   const [replyTo,setReplyTo]=useState<ReplyTarget|null>(null);
   const sendRequestRef=useRef<{fingerprint:string;id:string}|null>(null);
@@ -111,7 +114,7 @@ export function useComposerSession(options:ComposerSessionOptions){
     return send();
   }
   async function send() {
-    setAutoSend(false);
+    setAutoSend(null);
     if (!activeChannelId || activeChannel?.archivedAt || !activeChannelCanPost) return;
     if (uploadingAttachmentCount > 0 || hasAttachmentErrors || mentions.inviting || sending) return;
     const trimmedText = draft.trim();
@@ -154,25 +157,25 @@ export function useComposerSession(options:ComposerSessionOptions){
     // files were cut for the 20-file limit (the person should see that notice before anything goes out). More files
     // dropped during an auto-send's uploads simply join it.
     const room=MAX_MESSAGE_ATTACHMENTS-pendingAttachments.length;
-    if(options?.autoSend&&files.length>0&&files.length<=room&&(autoSend||(!draft.trim()&&pendingAttachments.length===0)))setAutoSend(true);
-    else if(options?.autoSend)setAutoSend(false);
+    if(options?.autoSend&&files.length>0&&files.length<=room&&(autoSend===activeChannelId||(!draft.trim()&&pendingAttachments.length===0)))setAutoSend(activeChannelId);
+    else if(options?.autoSend)setAutoSend(null);
     enqueueFiles(files);
   }
-  function removeAttachment(localId:string){setAutoSend(false);setPendingAttachments(items=>items.filter(item=>item.localId!==localId));}
-  useEffect(()=>{setAutoSend(false);},[activeChannelId]);
+  function removeAttachment(localId:string){setAutoSend(null);setPendingAttachments(items=>items.filter(item=>item.localId!==localId));}
+  useEffect(()=>{setAutoSend(null);},[activeChannelId]);
   useEffect(()=>{
-    if(!autoSend||sending)return;
-    if(hasAttachmentErrors){setAutoSend(false);return;}
+    if(!autoSend||autoSend!==activeChannelId||sending)return;
+    if(hasAttachmentErrors){setAutoSend(null);return;}
     if(uploadingAttachmentCount===0&&readyAttachments.length>0&&!mentions.inviting)void send();
   },[autoSend,sending,hasAttachmentErrors,uploadingAttachmentCount,readyAttachments.length]);
 
   // Appended after a blank line when the draft has text (the demo panel's "Request changes").
-  function insertText(text:string){setDraftState(current=>{const next=current.text+(current.text?'\n\n':'')+text;return {text:next,mentions:reconcileMentions(current.text,next,current.mentions)};});}
+  function insertText(text:string){changeDraft(current=>{const next=current.text+(current.text?'\n\n':'')+text;return {text:next,mentions:reconcileMentions(current.text,next,current.mentions)};});}
 
   // Quote-reply (spec 7.3): the quote goes on top of the text, replacing an earlier one; null cancels and removes the
   // inserted quote while it is still there. The excerpt is cut before it is stored; the reply never adds a mention.
   function setReplyTarget(target:ReplyTarget|null,quotedText?:string){
-    setDraftState(current=>{
+    changeDraft(current=>{
       let next=replyTo?stripQuote(current.text,replyTo.author):current.text;
       if(target)next=quoteMarkdown(target.author,quotedText??target.excerpt)+next;
       return {text:next,mentions:reconcileMentions(current.text,next,current.mentions)};

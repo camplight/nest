@@ -122,6 +122,91 @@ await runChatTest('canvas files: typing or removing a file cancels the auto-send
   assert.equal((await messages(h,chatId)).length,2,'one message for both drops');
 },{canvas:true});
 
+/** Opens `chatId`'s card in split screen and returns its chat panel. */
+async function splitOpen(page:Page,chatId:string){
+  await cardAt(page,chatId).locator('.canvas-card-title').click();
+  const chat=openChat(page);
+  await chat.waitFor();
+  await chat.getByRole('button',{name:'Split screen',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('.canvas-chat')?.getAttribute('data-mode')==='split');
+  return chat;
+}
+const humanMessages=async(h:ChatHarness,channelId:string)=>(await messages(h,channelId)).filter(m=>(m as Message&{source?:string}).source?.startsWith('human:'));
+
+await runChatTest('canvas files: a drop on a chat with a draft or queued files queues without sending',async h=>{
+  const {page,base}=h;
+  const chatId=await standaloneChat(h,'Synthetic busy chat');
+  const {id}=await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Busy'});
+  await call(h,'POST',`/api/canvases/${id}/cards`,{cards:[{channelId:chatId,x:120,y:120}]});
+  await page.goto(`${base}/?view=canvas&canvas=${id}`);
+  await cardAt(page,chatId).waitFor();
+  const target=`.canvas-card[data-channel-id="${chatId}"]`;
+  const chat=await splitOpen(page,chatId);
+  const box=chat.getByRole('textbox',{name:'Message',exact:true});
+
+  // A message being written stays, and the file waits for the person's Send.
+  await box.fill('half written');
+  await dropFile(page,target,'with-draft.txt');
+  await chat.locator('.composer-attachments').getByText('with-draft.txt').first().waitFor();
+  await chat.getByRole('button',{name:'Send',exact:true}).waitFor();
+  await quiet(900);
+  assert.equal((await humanMessages(h,chatId)).length,0,'nothing was sent');
+  assert.equal(await box.inputValue(),'half written','the draft stays');
+  await chat.getByRole('button',{name:'Remove with-draft.txt',exact:true}).click();
+  await box.fill('');
+
+  // Files already queued stay queued too.
+  await chat.locator('input[type=file]').setInputFiles({name:'pre.txt',mimeType:'text/plain',buffer:Buffer.from('synthetic')});
+  await chat.locator('.composer-attachments').getByText('pre.txt').first().waitFor();
+  await dropFile(page,target,'later.txt');
+  await chat.locator('.composer-attachments').getByText('later.txt').first().waitFor();
+  await chat.getByRole('button',{name:'Send',exact:true}).waitFor();
+  await quiet(900);
+  assert.equal((await humanMessages(h,chatId)).length,0,'nothing was sent');
+  await chat.getByRole('button',{name:'Send',exact:true}).click();
+  await messageWith(h,chatId,['pre.txt','later.txt']);
+  assert.equal((await humanMessages(h,chatId)).length,1,'the human filter sees the manual send');
+},{canvas:true});
+
+await runChatTest('canvas files: a Quote during the upload, or opening another chat, cancels the auto-send',async h=>{
+  const {page,base}=h;
+  const first=await standaloneChat(h,'Synthetic first chat'),second=await standaloneChat(h,'Synthetic second chat');
+  const {id}=await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Switch'});
+  await call(h,'POST',`/api/canvases/${id}/cards`,{cards:[{channelId:first,x:120,y:120},{channelId:second,x:520,y:120}]});
+  const quoted=await h.emit('message.created',{text:'Synthetic agent line to quote'},{channelId:first});
+  await page.goto(`${base}/?view=canvas&canvas=${id}`);
+  await cardAt(page,first).waitFor();
+  const chat=await splitOpen(page,first);
+  const sel=`.canvas-card[data-channel-id="${first}"]`;
+
+  // A change to the draft that is not typing (Quote) cancels: the quote and the file wait for a manual Send.
+  let held=h.holdNext('/api/files');
+  await dropFile(page,sel,'quoted.txt');
+  await held.started;
+  const message=chat.locator(`#message-${quoted.id}`);
+  await message.hover();
+  await message.getByRole('button',{name:'Quote',exact:true}).click();
+  held.release();
+  await chat.locator('.composer-attachments').getByText('quoted.txt').first().waitFor();
+  await chat.getByRole('button',{name:'Send',exact:true}).waitFor();
+  await quiet(900);
+  assert.equal((await humanMessages(h,first)).length,0,'the quote was not sent on its own');
+  await chat.getByRole('button',{name:'Remove quoted.txt',exact:true}).click();
+  await chat.getByRole('textbox',{name:'Message',exact:true}).fill('');
+
+  // Opening another chat during the upload: nothing goes to either chat.
+  held=h.holdNext('/api/files');
+  await dropFile(page,sel,'moving.txt');
+  await held.started;
+  await cardAt(page,second).locator('.canvas-card-title').click();
+  await page.waitForFunction(second=>new URL(location.href).searchParams.get('chat')===second,second);
+  held.release();
+  await quiet(1200);
+  assert.equal((await humanMessages(h,first)).length,0,'not posted to the first chat');
+  assert.equal((await humanMessages(h,second)).length,0,'and never to the second');
+  assert.equal(await openChat(page).locator('.composer-attachments').getByText('moving.txt').count(),0,'the second chat has no such file');
+},{canvas:true});
+
 await runChatTest('canvas files: more than 20 files are cut with the existing error and wait for a manual send',async h=>{
   const {page,base}=h;
   const chatId=await standaloneChat(h,'Synthetic many chat');
@@ -132,6 +217,7 @@ await runChatTest('canvas files: more than 20 files are cut with the existing er
   await dragFiles(page,`.canvas-card[data-channel-id="${chatId}"]`,Array.from({length:21},(_,n)=>`bulk-${n}.txt`));
   const chat=openChat(page);
   await chat.getByText(/You can attach up to 20 files/).waitFor();
+  assert.equal(await dock(page).locator('.composer-attachments').count(),0,'the bottom box gets nothing');
   await chat.getByRole('button',{name:'Send',exact:true}).waitFor();
   await quiet(900);
   assert.equal((await messages(h,chatId)).length,0,'a cut drop is not sent on its own');

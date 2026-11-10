@@ -10,7 +10,8 @@ import {boardApi,createCanvas,setCardHome,deleteCanvas,getHidden,isCanvasGone,li
 import {CanvasSwitcher} from './CanvasSwitcher';
 import {ShareDialog} from './ShareDialog';
 import {createBoardStore,type BoardOp} from './board-store';
-import {Surface,outsideFileDropTargets,type FileDropTarget,type SurfaceControls} from './Surface';
+import {Surface,type FileDropTarget,type SurfaceControls} from './Surface';
+import {FOLDER_NOTICE,outsideFileDropTargets} from '../components/file-drop';
 import {nudgeMessage,type CanvasLive} from './live';
 import {LoosePile,MAX_BULK} from './LoosePile';
 import {areaAround,clearOfCards,dropLayout,gridPlacement,looseChats,slotInArea,slotOutsideAreas} from './loose';
@@ -314,7 +315,9 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const [areaFiles, setAreaFiles] = useState<{id: number; areaId: string; files: File[]} | null>(null);
   const roleRef = useRef(board?.canvas.role); roleRef.current = board?.canvas.role;
   const chatFilesRef = useRef(onChatFiles); chatFilesRef.current = onChatFiles;
-  const dropFiles = useCallback((target: FileDropTarget, files: File[]) => {
+  const dropFiles = useCallback((target: FileDropTarget, files: File[], folders: boolean) => {
+    if (folders && (target.kind === 'card' ? visibleRef.current.some(channel => channel.id === target.channelId) : roleRef.current !== 'view')) say(FOLDER_NOTICE);
+    if (!files.length) return;
     if (target.kind === 'card') {
       if (!visibleRef.current.some(channel => channel.id === target.channelId)) return;
       setSelectedId(target.channelId);
@@ -325,7 +328,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     if (roleRef.current === 'view') return;
     openPanel({kind: 'area', areaId: target.areaId});
     setAreaFiles(current => ({id: (current?.id ?? 0) + 1, areaId: target.areaId, files}));
-  }, [openPanel]);
+  }, [openPanel, say]);
   // Files wait only for their own panel: once it closes or moves to another area they are gone.
   useEffect(() => { if (areaFiles && !(panel?.kind === 'area' && panel.areaId === areaFiles.areaId)) setAreaFiles(null); }, [panel, areaFiles]);
   const openAreaContext = useCallback((areaId: string) => openPanel({kind: 'area', areaId}), [openPanel]);

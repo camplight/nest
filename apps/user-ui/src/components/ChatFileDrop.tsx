@@ -1,10 +1,9 @@
 import {useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
+import {FOLDER_NOTICE,dragCarriesFiles,droppedFiles} from './file-drop';
 import './chat-file-drop.css';
 
-function carriesFiles(event:DragEvent){
-  return !!event.dataTransfer&&(Array.from(event.dataTransfer.types).includes('Files')||Array.from(event.dataTransfer.items).some(item=>item.kind==='file'));
-}
+const carriesFiles=(event:DragEvent)=>dragCarriesFiles(event.dataTransfer);
 
 /**
  * Mounted only on chat screens; the window target includes navigation and panels.
@@ -28,13 +27,8 @@ export function ChatFileDrop({scope,onFiles,disabledReason,enabled=true,accept}:
       if(refused(event)){reset();return;}
       event.preventDefault();event.stopPropagation();reset();
       if(latest.current.disabledReason){setNotice(latest.current.disabledReason);return;}
-      const entries=Array.from(event.dataTransfer!.items).filter(item=>item.kind==='file');
-      let folders=false;
-      const files=entries.length?entries.flatMap(item=>{
-        if(item.webkitGetAsEntry?.()?.isDirectory){folders=true;return [];}
-        const file=item.getAsFile();return file?[file]:[];
-      }):Array.from(event.dataTransfer!.files);
-      setNotice(folders?'Folders can’t be attached directly. Drop individual files or a ZIP archive.':files.length?null:'These items could not be read as files. Try Attach files.');
+      const {files,folders}=droppedFiles(event.dataTransfer!);
+      setNotice(folders?FOLDER_NOTICE:files.length?null:'These items could not be read as files. Try Attach files.');
       if(files.length)latest.current.onFiles(files);
     }
     function escape(event:KeyboardEvent){if(event.key==='Escape')reset();}
