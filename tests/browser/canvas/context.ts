@@ -214,6 +214,7 @@ await runChatTest('canvas homes: labels, Use this area\'s context and the drop w
   const launch=crypto.randomUUID(),briefing=crypto.randomUUID();
   await call(h,'POST',`/api/canvases/${plan}/areas`,{id:launch,title:'Launch',x:0,y:0,w:420,h:320});
   await call(h,'POST',`/api/canvases/${plan}/areas`,{id:briefing,title:'Briefing',x:480,y:0,w:420,h:320});
+  await call(h,'POST',`/api/canvases/${plan}/areas`,{id:crypto.randomUUID(),title:'Quiet',x:0,y:360,w:420,h:240});
   const put=async(path:string,notes:string)=>call(h,'PUT',path,{notes,version:(await call<{version:number}>(h,'GET',path)).version});
   await put(`/api/canvases/${plan}/areas/${briefing}/context`,'Synthetic briefing notes.');
   await call(h,'POST',`/api/canvases/${plan}/cards`,{cards:[{channelId:chat,x:40,y:100}]});
@@ -257,20 +258,21 @@ await runChatTest('canvas homes: labels, Use this area\'s context and the drop w
   assert.deepEqual((await homeOf(h,plan))!.home,{isHere:true,label:'Launch'},'the home followed the card back');
   assert.equal(await card.getByText(/^context from/).count(),0);
   // A move into an area with no context changes the home but warns about nothing.
-  await dragCardInto(page,chat,'Launch');
+  await dragCardInto(page,chat,'Quiet');
   await page.waitForFunction(async([id,channel])=>{
-    const board=await (await fetch(`/api/canvases/${id}/board`,{credentials:'include'})).json() as HomeBoard&{areas:{title:string;x:number;w:number}[]};
-    const found=board.cards.find(c=>c.channelId===channel), zone=board.areas.find(a=>a.title==='Launch')!;
-    return Boolean(found&&found.x+140>=zone.x&&found.x+140<zone.x+zone.w&&found.home?.label==='Launch');
+    const board=await (await fetch(`/api/canvases/${id}/board`,{credentials:'include'})).json() as HomeBoard;
+    return board.cards.find(c=>c.channelId===channel)?.home?.label==='Quiet';
   },[plan,chat] as const);
+  await card.waitFor();
   assert.equal(await notice.getByText(WARNING,{exact:true}).count(),0,'no warning when the area has no context');
 
   // The chat on a second canvas: its card says where the context comes from.
   await call(h,'POST',`/api/canvases/${study}/cards`,{cards:[{channelId:chat,x:40,y:100}]});
   await openCanvas(page,base,study);
   const second=page.locator(`.canvas-card[data-channel-id="${chat}"]`);
-  await second.getByText('context from Launch',{exact:true}).waitFor();
+  await second.getByText('context from Quiet',{exact:true}).waitFor();
   // Compact cards (zoomed out) keep only the title and faces: the status line is hidden, home label or not.
+  assert.equal(await chatEvents(h),events,'drags, Undo and canvas switches never reach the chat');
   const trigger=await h.emit('message.created',{text:'Synthetic trigger'},{source:'human:demo-owner'});
   await h.emit('agent.turn.started',{triggerEventId:trigger.id},{source:`agent:${agentName}`,channelId:chat});
   events=await chatEvents(h);
