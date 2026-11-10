@@ -3,6 +3,7 @@
 import type {MentionNotification, SendMessage} from '@nest/schemas';
 import type {Agent,EventRow} from '../types';
 import {agentLifecycleStart,fetchAgentStarts,mergeAgentStarts,type AgentStarts} from '../chat/lifecycles';
+import {foldInspected,inspectToolEvent,type AppCall,type Inspected} from '../app-activity';
 import {cardPulse,type CardPulse,type PulseCard} from './pulse';
 
 export type CanvasLive = {
@@ -33,6 +34,8 @@ const MENTIONS_DELAY_MS = 1500;
 // Over the cap a channel is trimmed back to TRIM_TO, progress phases first, so a start is not evicted.
 const MAX_EVENTS_PER_CHANNEL = 400;
 const TRIM_TO = 300;
+// Classified app calls kept per channel (a few words each), newest first when trimmed.
+const MAX_APP_EVENTS = 300;
 /** Kept in full, per channel. Each seed's page also sets how far back a refresh can vouch for its kind. */
 const SEEDS = [
   {url: '/api/events?typePrefix=agent.turn.&order=desc&limit=1000', limit: 1000, prefix: 'agent.turn.'},
@@ -70,6 +73,8 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
   const events = new Map<string, Map<string, EventRow>>();
   /** channel → agent → that agent's latest stripped signal there. */
   const signals = new Map<string, Map<string, EventRow>>();
+  /** channel → event id → the classified app call. Never the tool's command or output. */
+  const appEvents = new Map<string, Map<string, Inspected>>();
   let cards = new Map<string, string[]>();
   let agents: Agent[] = [];
   let starts: AgentStarts = {};
@@ -94,10 +99,23 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
     events.set(channelId, new Map([...others, ...phases].map(e => [e.id, e])));
   }
 
+  /** Keeps the app call a tool event is, if it is one; the payload itself is not kept. */
+  function storeApp(channelId: string, event: EventRow) {
+    const call = inspectToolEvent(event);
+    if (!call) return;
+    let channel = appEvents.get(channelId);
+    if (!channel) appEvents.set(channelId, channel = new Map());
+    channel.set(call.id, call);
+    if (channel.size <= MAX_APP_EVENTS) return;
+    const newest = [...channel.values()].sort((a, b) => b.at - a.at).slice(0, MAX_APP_EVENTS);
+    appEvents.set(channelId, new Map(newest.map(item => [item.id, item])));
+  }
+
   /** Keeps what the pulses read; returns false for anything else. */
   function store(event: EventRow) {
     const channelId = event.channelId;
     if (!channelId) return false;
+    if (event.type.startsWith('tool.')) storeApp(channelId, event);
     if (kindOf(event.type) >= 0) { storeEvent(channelId, event); return true; }
     if (!event.source.startsWith('agent:')) return false;
     const agent = event.source.slice(6);
@@ -116,7 +134,8 @@ export function createCanvasLive({fetchJson, now, frame, intervalMs = REFRESH_MS
     if (!ids.length && !removed.length) return;
     const subset = ids.map(channelId => ({channelId, agentNames: cards.get(channelId)!}));
     const rows = ids.flatMap(id => [...(events.get(id)?.values() ?? []), ...(signals.get(id)?.values() ?? [])]);
-    const fresh = cardPulse({events: rows, agents, starts, mentions, cards: subset, now: now()});
+    const apps = new Map<string, AppCall[]>(ids.map(id => [id, foldInspected([...(appEvents.get(id)?.values() ?? [])], now())]));
+    const fresh = cardPulse({events: rows, agents, starts, mentions, cards: subset, now: now(), apps});
     let next: Map<string, CardPulse> | null = null;
     for (const [id, pulse] of fresh) {
       if (samePulse(pulses.get(id), pulse)) continue;

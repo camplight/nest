@@ -7,15 +7,16 @@ import {activeTurns} from '../chat/working';
 import type {AgentStarts} from '../chat/lifecycles';
 import {cardCentre,contains} from './geometry';
 import type {AreaSummary} from './Area';
+import {summarise,type AppCall,type AppSummary} from '../app-activity';
 
 /** An agent mid-turn with no signal for this long reads as quiet (a possible hang). */
 export const QUIET_AFTER_MS = 20 * 60_000;
 const MAX_ARTIFACTS = 6;
 
 export type AgentPulse = {name: string; state: 'working' | 'quiet' | 'interrupted' | 'done' | 'failed' | 'idle' | 'unavailable'; since: number; quietMinutes?: number};
-export type CardPulse = {agents: AgentPulse[]; lastActivityAt: number | null; artifacts: {fileId: string; name: string; mime?: string}[]; needsYou: {kind: 'mention'; id: string; at: number; sender: string; text: string}[]};
+export type CardPulse = {agents: AgentPulse[]; lastActivityAt: number | null; artifacts: {fileId: string; name: string; mime?: string}[]; needsYou: {kind: 'mention'; id: string; at: number; sender: string; text: string}[]; apps: AppSummary};
 export type PulseCard = {channelId: string; agentNames: string[]};
-export type PulseInput = {events: EventRow[]; agents: Agent[]; starts: AgentStarts; mentions: MentionNotification[]; cards: PulseCard[]; now: number};
+export type PulseInput = {events: EventRow[]; agents: Agent[]; starts: AgentStarts; mentions: MentionNotification[]; cards: PulseCard[]; now: number; /** Classified app calls per channel (see app-activity.ts). */ apps?: ReadonlyMap<string, AppCall[]>};
 
 const ENDINGS: Record<string, 'done' | 'failed'> = {
   'agent.turn.completed': 'done', 'wrapper.turn.completed': 'done',
@@ -85,7 +86,7 @@ function channelPulse(events: EventRow[], card: PulseCard, input: PulseInput, by
     .sort((a, b) => b.createdAt - a.createdAt)
     .map(m => ({kind: 'mention' as const, id: m.id, at: m.createdAt, sender: m.sender, text: m.text}));
 
-  return {agents, lastActivityAt, artifacts, needsYou};
+  return {agents, lastActivityAt, artifacts, needsYou, apps: summarise(input.apps?.get(card.channelId) ?? [])};
 }
 
 /** One pulse per card. Events from channels that are not cards are ignored. */

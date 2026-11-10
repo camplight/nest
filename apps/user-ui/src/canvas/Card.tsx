@@ -4,6 +4,7 @@ import {memo,useCallback,useState,useSyncExternalStore} from 'react';
 import type {BoardCard} from '@nest/schemas';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {fileHref} from '../attachments';
+import {IntegrationLogo} from '../components/IntegrationLogo';
 import type {AgentPulse,CardPulse} from './pulse';
 
 export type CardProps = {
@@ -107,6 +108,20 @@ function NudgeButton({channelId, agent, onNudge}: {channelId: string; agent: str
   </>;
 }
 
+const MAX_APP_LOGOS = 4;
+/** The apps this chat's agents used: logos in one row with +N, each named by how many reads and changes. */
+function AppLogos({apps}: {apps: CardPulse['apps']['apps']}) {
+  return <ul className="canvas-card-apps" aria-label="Apps used">
+    {apps.slice(0, MAX_APP_LOGOS).map(app => {
+      const text = `${app.appName}: ${app.reads} reads · ${app.changes} changes`;
+      return <li key={app.app} className={`canvas-card-app${app.running ? ' is-live' : ''}`} role="img" aria-label={text} title={text}>
+        <IntegrationLogo toolkit={app.app}/>
+      </li>;
+    })}
+    {apps.length > MAX_APP_LOGOS ? <li className="canvas-card-apps-more" title={apps.slice(MAX_APP_LOGOS).map(app => app.appName).join(', ')}>+{apps.length - MAX_APP_LOGOS}</li> : null}
+  </ul>;
+}
+
 function OpenBody({card, pulse, onNudge, facesDraggable, draggingFace}: {
   card: Extract<BoardCard, {access: 'open'}>; pulse?: CardPulse; onNudge?: CardProps['onNudge']; facesDraggable: boolean; draggingFace: string | null;
 }) {
@@ -142,6 +157,7 @@ function OpenBody({card, pulse, onNudge, facesDraggable, draggingFace}: {
         <a className="canvas-card-chip" href={fileHref(file.fileId)} target="_blank" rel="noreferrer" title={file.name}>{file.name}</a>
       </li>)}
     </ul> : null}
+    {pulse?.apps.apps.length ? <AppLogos apps={pulse.apps.apps}/> : null}
     {pulse?.lastActivityAt ? <LastActivity at={pulse.lastActivityAt}/> : null}
   </>;
 }

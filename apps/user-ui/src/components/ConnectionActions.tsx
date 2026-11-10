@@ -2,30 +2,12 @@ import { MAX_CONNECTION_ACTIONS, MAX_CONNECTION_CATALOG_PAGES } from "@nest/sche
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { apiJson, getApiHeaders } from "../api";
+import { actionName, connectionAppName } from "./connection-names";
+
+export { connectionAppName };
 
 type Action = { slug: string; name: string; description: string };
 type ActionPage = { items: Action[]; nextCursor: string | null };
-const appNames: Record<string, string> = {
-  gmail: "Gmail", trello: "Trello", slack: "Slack", miro: "Miro",
-  googledrive: "Google Drive", googlecalendar: "Google Calendar",
-  googlesheets: "Google Sheets", googledocs: "Google Docs",
-  fathom: "Fathom", wordpress: "WordPress", github: "GitHub",
-};
-export function connectionAppName(slug: string) {
-  return appNames[slug] ?? slug.replaceAll("_", " ").replace(/^./, char => char.toUpperCase());
-}
-function actionName(action: Action, toolkit: string) {
-  const name = action.name?.trim() || action.slug;
-  // Provider identifiers are presentation only. Grants always use the exact slug.
-  const prefix = toolkit.replace(/[^a-z0-9]/gi, "");
-  const words = name.replaceAll("_", " ").trim();
-  const first = words.split(" ")[0];
-  const title = first.replace(/[^a-z0-9]/gi, "").toLowerCase() === prefix.toLowerCase()
-    ? words.slice(first.length).trim() : words;
-  const friendly = title || words;
-  return friendly === friendly.toUpperCase()
-    ? friendly.toLowerCase().replace(/^./, char => char.toUpperCase()) : friendly;
-}
 function errorMessage(reason: unknown) {
   if (reason instanceof Error) {
     try { const value = JSON.parse(reason.message); if (typeof value.error === "string") return value.error; } catch { /* Use a friendly network fallback. */ }

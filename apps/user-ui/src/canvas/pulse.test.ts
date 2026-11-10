@@ -86,7 +86,7 @@ describe('cardPulse',()=>{
   it('ignores events from channels that are not cards',()=>{
     const result=pulse([started('s1','Pom','m1',now-min,'c2'),message('m1','agent:Pom',now-min,[{fileId:'x',name:'x.txt'}],'c2')]);
     expect([...result.keys()]).toEqual(['c1']);
-    expect(result.get('c1')).toEqual({agents:[{name:'Pom',state:'idle',since:0}],lastActivityAt:null,artifacts:[],needsYou:[]});
+    expect(result.get('c1')).toEqual({agents:[{name:'Pom',state:'idle',since:0}],lastActivityAt:null,artifacts:[],needsYou:[],apps:{apps:[],reads:0,changes:0}});
   });
 });
 
@@ -94,7 +94,7 @@ describe('areaSummaries',()=>{
   it('counts cards that need you and cards with a working agent, including nested areas',()=>{
     const area=(id:string,x:number,y:number,w:number,h:number)=>({id,canvasId:'cv',title:id,x,y,w,h,tint:'moss' as const,version:1});
     const outer=area('outer',0,0,2000,1000),inner=area('inner',100,100,800,600),apart=area('apart',3000,0,600,600);
-    const p=(state:'working'|'idle',needs:number):CardPulse=>({agents:[{name:'Pom',state,since:1}],lastActivityAt:null,artifacts:[],needsYou:Array.from({length:needs},(_,i)=>({kind:'mention' as const,id:`n${i}`,at:1,sender:'x',text:'hi'}))});
+    const p=(state:'working'|'idle',needs:number):CardPulse=>({agents:[{name:'Pom',state,since:1}],lastActivityAt:null,artifacts:[],needsYou:Array.from({length:needs},(_,i)=>({kind:'mention' as const,id:`n${i}`,at:1,sender:'x',text:'hi'})),apps:{apps:[],reads:0,changes:0}});
     const placed=(channelId:string,x:number,y:number)=>({channelId,x,y,w:280});
     const result=areaSummaries(
       [placed('a',200,200),placed('b',1200,200),placed('c',1200,600),placed('d',3100,100)],

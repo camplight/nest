@@ -415,12 +415,55 @@
 /* Semantic zoom: a big title, faces and a needs-you or quiet marker only. */
 .canvas-world.is-compact .canvas-card-status,
 .canvas-world.is-compact .canvas-card-artifacts,
+.canvas-world.is-compact .canvas-card-apps,
 .canvas-world.is-compact .canvas-card-activity,
 .canvas-world.is-compact .canvas-card-owner {
   display: none;
 }
 .canvas-card-home {
   overflow-wrap: anywhere;
+}
+/* Apps agents used here: small logos in one row, then +N. A ring marks an app with a call in flight. */
+.canvas-card-apps {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--nest-muted);
+  font: 600 12px Inter, sans-serif;
+}
+.canvas-card-app {
+  position: relative;
+  display: grid;
+  flex-shrink: 0;
+  border-radius: 6px;
+}
+.canvas-card-app .connection-app-logo {
+  grid-row: auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+.canvas-card-app .connection-app-logo img { width: 15px; height: 15px; }
+.canvas-card-app .connection-app-logo svg { width: 14px; height: 14px; }
+.canvas-card-app.is-live::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 9px;
+  border: 2px solid var(--canvas-pip);
+  pointer-events: none;
+}
+.canvas-card-apps-more { white-space: nowrap; }
+@media (prefers-reduced-motion: no-preference) {
+  .canvas-card-app.is-live::after { animation: canvas-app-ring 1.6s ease-in-out infinite; }
+}
+@keyframes canvas-app-ring {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .35; transform: scale(1.12); }
 }
 /* Compact cards keep Remove from canvas in the Tab order: hidden until it has keyboard focus. */
 .canvas-world.is-compact .canvas-card-actions:not(:focus-within) {
