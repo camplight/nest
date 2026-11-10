@@ -700,3 +700,21 @@ Runs of three or more consecutive agent messages show only the latest reply by d
 Explicit workspace views on legacy `/onboarding` URLs take precedence over setup and normalize to `/`, preserving project, tab and message parameters. Bare onboarding URLs and setup OAuth returns retain their existing behavior. Chat/Files navigation belongs beneath the project title, outside the details sidebar. The sidebar no longer duplicates Sharing, and long descriptions can be expanded without moving project navigation. Project membership and permission rules are unchanged.
 
 Google login preserves workspace destinations in tab-local session storage for up to ten minutes. After authentication (and any required password change), a root callback restores the original project/channel, section and focused message. Explicit new destinations take precedence; only local workspace paths are accepted. Password login retains its current URL. Membership checks still apply after restoration.
+
+### November upstream synchronization
+
+The pin advances from `7406b6a` to upstream main `e64fc064` without vendor
+source changes. This brings OrgOps #74 (explicit human/agent roles and
+ownership/path checks), #90 (persist Slack intake before acknowledgement),
+#91/#92 (reasoning styles, channel billing and isolated price refresh), and
+#93 (bounded visible summaries for human tool-only turns).
+
+Engine migrations 051–053 add agent roles, human roles and reasoning style.
+Existing agents default to STANDARD except the upstream agent named `system`;
+the earliest human becomes OWNER and other humans default to MEMBER. Existing
+agents default to the DO reasoning style. Nest does not promote additional
+identities or change configured credentials/models during synchronization.
+Keep the normal stopped-database snapshots and persistent engine files; activation
+failure restores the previous release/database pair. No Nest product migration
+or new Nest settings UI is introduced. Native CI includes the upstream role,
+billing, path-access and LLM tests in addition to existing turn-executor coverage.
