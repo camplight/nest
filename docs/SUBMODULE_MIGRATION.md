@@ -718,3 +718,10 @@ Keep the normal stopped-database snapshots and persistent engine files; activati
 failure restores the previous release/database pair. No Nest product migration
 or new Nest settings UI is introduced. Native CI includes the upstream role,
 billing, path-access and LLM tests in addition to existing turn-executor coverage.
+
+Delegated creation now sends the configured manager identity with the runner
+credential and requires that agent to have an operator-granted SYSTEM role.
+The helper returns a clear 403 when the role is absent or revoked. This sync
+does not grant roles automatically; an instance owner/admin must grant the
+manager role explicitly if delegated creation should remain enabled. Existing
+request-bound capabilities and project-owner invitation checks remain in force.
