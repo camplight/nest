@@ -112,6 +112,17 @@ describe('canvas context store', () => {
     expect(ctx().agentForKey('nope')).toBeNull();
   });
 
+  it('revokes one key by its hash and audits only the agent name', () => {
+    ctx().saveKey('bot', 'hash1');
+    ctx().revokeKey('hash1');
+    ctx().revokeKey('hash1');
+    ctx().revokeKey('unknown');
+    expect(ctx().agentForKey('hash1')).toBeNull();
+    expect(ctx().keyFor('bot')).toBeNull();
+    const rows = store.db.prepare("SELECT actor_id, payload_json FROM product_audit WHERE type='audit.canvas.context.key.revoked'").all();
+    expect(rows).toEqual([{ actor_id: 'system', payload_json: JSON.stringify({ agentName: 'bot' }) }]);
+  });
+
   it('remembers which agents have the skill enabled', () => {
     expect(ctx().skillEnabled('bot')).toBe(false);
     ctx().markSkillEnabled('bot'); ctx().markSkillEnabled('bot');

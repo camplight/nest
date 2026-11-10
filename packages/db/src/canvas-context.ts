@@ -140,6 +140,15 @@ export function createCanvasContextStore(db: Database.Database) {
   function agentForKey(tokenHash: string) {
     return (db.prepare('SELECT agent_name AS a FROM product_context_tokens WHERE token_hash=? AND revoked_at IS NULL').get(tokenHash) as { a: string } | undefined)?.a ?? null;
   }
+  // Revokes exactly one key, e.g. one whose secret could not be installed in the engine.
+  function revokeKey(tokenHash: string) {
+    db.transaction(() => {
+      const row = db.prepare('SELECT agent_name AS a FROM product_context_tokens WHERE token_hash=? AND revoked_at IS NULL').get(tokenHash) as { a: string } | undefined;
+      if (!row) return;
+      db.prepare('UPDATE product_context_tokens SET revoked_at=? WHERE token_hash=?').run(Date.now(), tokenHash);
+      audit('key.revoked', 'system', { agentName: row.a });
+    })();
+  }
   function markSkillEnabled(agentName: string) {
     db.transaction(() => {
       if (db.prepare('INSERT OR IGNORE INTO product_context_agents(agent_name,skill_enabled_at) VALUES (?,?)').run(agentName, Date.now()).changes) {
@@ -153,7 +162,7 @@ export function createCanvasContextStore(db: Database.Database) {
 
   return {
     get, setNotes, addFile, file, removeFile, canvasBytes, links, link, unlink, usedBy, home, setHome, homesIn,
-    storageKeysFor, storageKeysForArea, keyFor, saveKey, agentForKey, markSkillEnabled, skillEnabled,
+    storageKeysFor, storageKeysForArea, keyFor, saveKey, revokeKey, agentForKey, markSkillEnabled, skillEnabled,
   };
 }
 export type CanvasContextStore = ReturnType<typeof createCanvasContextStore>;

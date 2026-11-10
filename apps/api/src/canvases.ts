@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { ProductDb } from '@nest/db';
 import { CanvasConflictError, CanvasForbiddenError, CanvasLimitError } from '@nest/db';
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
-import { isChatMember } from './canvas-context';
+import { isChatMember, type ContextAgents } from './canvas-context';
 import { removeStored, type ContextFiles } from './context-files';
 import {
   areaFor, CARD_HEIGHT, DEFAULT_CARD_WIDTH, homeAfterMove, NewCanvasSchema, CanvasRenameSchema, CanvasSharingSchema, HiddenSchema, NewAreaSchema, AreaPatchSchema, PlaceCardsSchema, CardPatchSchema,
@@ -58,7 +58,9 @@ function forViewer(rows: CanvasCardRow[], channels: Channel[]) {
   });
 }
 
-export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files }: { store: ProductDb; orgops: OrgOpsClient; enabled: boolean; files?: Pick<ContextFiles, 'remove'> }) {
+export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files, agents }: {
+  store: ProductDb; orgops: OrgOpsClient; enabled: boolean; files?: Pick<ContextFiles, 'remove'>; agents?: ContextAgents;
+}) {
   // `channels` is every chat the engine lists for the caller, archived ones included, read once per request.
   const routes = new Hono<{ Variables: { human: Human; channels: Channel[] } }>();
   const canvases = store.canvases;
@@ -201,6 +203,13 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files 
   routes.get('/api/canvases/:id/board', async c => {
     const canvas = visible(c);
     const board = buildBoard(c.get('human'), c.get('channels'), canvas.id);
+    if (agents) {
+      // Polled every few seconds: decide from the channel list already loaded, so a settled board makes
+      // no engine calls, and never make the read wait for agent setup (ensureAgents never throws).
+      const open = new Set(board.cards.filter(card => card.access === 'open').map(card => card.channelId));
+      const pending = agents.pending(c.get('channels').filter(ch => open.has(ch.id)));
+      if (pending.length) void agents.ensureAgents(pending);
+    }
     const etag = c.req.query('etag');
     if (etag && etag === board.etag) return c.json({ unchanged: true });
     return c.json(board);
@@ -228,12 +237,16 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files 
     return c.body(null, 204);
   });
 
-  // The home follows a chat member's placement or move; anyone else leaves it alone.
+  // The home follows a chat member's placement or move; anyone else leaves it alone. Returns whether it changed.
   function saveHome(canvasId: string, row: CanvasCardRow, areas: CanvasArea[], channel: Channel | undefined, human: Human) {
     const area = areaFor({ x: row.x + row.w / 2, y: row.y + CARD_HEIGHT / 2 }, areas);
-    const next = homeAfterMove(store.canvasContext.home(row.channelId), { canvasId, areaId: area?.id ?? null, byMember: isChatMember(channel, human) });
+    const current = store.canvasContext.home(row.channelId);
+    const next = homeAfterMove(current, { canvasId, areaId: area?.id ?? null, byMember: isChatMember(channel, human) });
     if (next) store.canvasContext.setHome(row.channelId, next, human.id);
+    return Boolean(next) && (next!.canvasId !== current?.canvasId || next!.areaId !== current?.areaId);
   }
+  // A new home may bring context with it, so the chat's agents are set up before answering.
+  const homesChanged = async (channelIds: string[]) => { if (agents && channelIds.length) await agents.ensureAgents(channelIds); };
   routes.post('/api/canvases/:id/cards', async c => {
     const canvas = visible(c);
     const human = c.get('human');
@@ -251,9 +264,10 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files 
     })), input.area, human.id);
     // A member's first placement gives the chat its home; later placements follow the move rule.
     const areas = canvases.areas(canvas.id);
-    for (const row of canvases.cards(canvas.id)) {
-      if (input.cards.some(card => card.channelId === row.channelId)) saveHome(canvas.id, row, areas, byId.get(row.channelId), human);
-    }
+    const changed = canvases.cards(canvas.id)
+      .filter(row => input.cards.some(card => card.channelId === row.channelId) && saveHome(canvas.id, row, areas, byId.get(row.channelId), human))
+      .map(row => row.channelId);
+    await homesChanged(changed);
     return c.json(buildBoard(human, c.get('channels'), canvas.id), 201);
   });
   routes.patch('/api/canvases/:id/cards/:channelId', async c => {
@@ -261,7 +275,7 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files 
     const input = parse(CardPatchSchema, await body(c));
     const human = c.get('human');
     const row = canvases.moveCard(canvas.id, c.req.param('channelId'), input, human.id);
-    saveHome(canvas.id, row, canvases.areas(canvas.id), c.get('channels').find(ch => ch.id === row.channelId), human);
+    if (saveHome(canvas.id, row, canvases.areas(canvas.id), c.get('channels').find(ch => ch.id === row.channelId), human)) await homesChanged([row.channelId]);
     return c.json(forViewer([row], c.get('channels'))[0]);
   });
   routes.delete('/api/canvases/:id/cards/:channelId', c => {

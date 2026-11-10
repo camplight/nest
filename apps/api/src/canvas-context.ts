@@ -12,8 +12,12 @@ import {
 } from '@nest/schemas';
 import { ContextFileTooLargeError, removeStored, type ContextFiles } from './context-files';
 
-/** Supplied by Task 4; context routes only accept it for now. */
-export type ContextAgents = { ensureAgents(channelIds: string[]): Promise<void> };
+/** Agent setup (see context-agents.ts): context writes and home changes call `ensureAgents` for the chats they affect. */
+export type ContextAgents = {
+  ensureAgents(channelIds: string[]): Promise<void>;
+  /** Chats among these (already loaded) channels that still have an agent to set up; answers without calling the engine. */
+  pending(channels: { id: string; archivedAt?: number | null; participants?: { subscriberType: string; subscriberId: string }[] }[]): string[];
+};
 /** A chat member: a HUMAN participant (identified by username, as in projects) or the engine owner. */
 export function isChatMember(channel: { ownerHumanId?: string | null; participants?: { subscriberType: string; subscriberId: string }[] } | undefined, human: Human) {
   if (!channel) return false;
@@ -29,13 +33,36 @@ const JSON_LIMIT = 64_000;
 // (1 MiB covers multipart overhead); the store rejects anything past the canvas limit anyway.
 const MULTIPART_OVERHEAD = MiB;
 const UPLOAD_LIMIT = MAX_CONTEXT_BYTES_PER_CANVAS + MULTIPART_OVERHEAD;
-const DOWNLOAD_HEADERS = {
+export const DOWNLOAD_HEADERS = {
   'content-type': 'application/octet-stream',
   'x-content-type-options': 'nosniff',
   'content-security-policy': "default-src 'none'; sandbox",
   'cache-control': 'private, no-store',
   'referrer-policy': 'no-referrer',
 };
+
+export const attachment = (name: string) => `attachment; filename*=UTF-8''${encodeURIComponent(name.replace(/[\r\n]/g, ''))}`;
+
+const areaById = (store: ProductDb, areaId: string) =>
+  store.db.prepare('SELECT id, canvas_id AS canvasId, title FROM product_canvas_areas WHERE id=?').get(areaId) as { id: string; canvasId: string; title: string } | undefined;
+/**
+ * An area's links with their source areas, read through on every call. A link is available only while
+ * its linker can still read the source canvas, so losing access makes it unavailable at once.
+ */
+export function linkSources(store: ProductDb, areaId: string) {
+  return store.canvasContext.links(areaId).flatMap(link => {
+    const source = areaById(store, link.sourceAreaId);
+    if (!source) return [];
+    return [{ ...link, source, available: Boolean(store.canvases.get(source.canvasId, link.linkedBy)) }];
+  });
+}
+/** Chats whose home context includes this scope: homes on the canvas, or in the area or an area that links to it. */
+export function chatsUsing(store: ProductDb, scope: ContextScope) {
+  const { canvasContext: context } = store;
+  if (scope.kind === 'canvas') return [...context.homesIn(scope.canvasId).keys()];
+  const areas = [{ areaId: scope.areaId, canvasId: scope.canvasId }, ...context.usedBy(scope.areaId)];
+  return areas.flatMap(({ areaId, canvasId }) => [...context.homesIn(canvasId)].filter(([, home]) => home.areaId === areaId).map(([channelId]) => channelId));
+}
 
 // Display names only; the stored file is always named by its uuid storage key.
 function fileName(raw: string) {
@@ -52,7 +79,7 @@ function mimeType(raw: string) {
  * its own middleware (auth, flag, no-store, body limits) covers only these paths. Context edits never
  * call the engine beyond identifying the caller.
  */
-export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled, files }: {
+export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled, files, agents }: {
   store: ProductDb; orgops: OrgOpsClient; enabled: boolean; files: ContextFiles; agents?: ContextAgents;
 }) {
   const routes = new Hono<Env>();
@@ -110,27 +137,19 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     return { kind: 'area', canvasId: canvas.id, areaId };
   }
   const requireEdit = (canvas: Canvas) => { if (canvas.role === 'view') throw new CanvasForbiddenError(); };
-  const areaById = (areaId: string) =>
-    store.db.prepare('SELECT id, canvas_id AS canvasId, title FROM product_canvas_areas WHERE id=?').get(areaId) as { id: string; canvasId: string; title: string } | undefined;
+  // Agents in the affected chats get their context key once there is something to read; this never throws.
+  const setUpAgents = async (scope: ContextScope) => { if (agents) await agents.ensureAgents(chatsUsing(store, scope)); };
 
   function scopeContext(scope: ContextScope, viewerId: string): ScopeContext {
     const saved = context.get(scope);
     if (scope.kind === 'canvas') return { ...saved, links: [], usedBy: [] };
-    // Read through on every request: a linker who loses the source canvas makes the link unavailable at once.
-    const links = context.links(scope.areaId).flatMap((link): ContextLink[] => {
-      const source = areaById(link.sourceAreaId);
-      if (!source) return [];
+    const links = linkSources(store, scope.areaId).map(({ sourceAreaId, source, available }): ContextLink => {
       const readable = canvases.get(source.canvasId, viewerId);
-      return [{
-        sourceAreaId: link.sourceAreaId,
-        title: readable ? source.title : 'Unavailable area',
-        canvasName: readable ? readable.name : null,
-        available: Boolean(canvases.get(source.canvasId, link.linkedBy)),
-      }];
+      return { sourceAreaId, title: readable ? source.title : 'Unavailable area', canvasName: readable ? readable.name : null, available };
     });
     const usedBy = context.usedBy(scope.areaId).map(use => ({
       areaId: use.areaId,
-      title: canvases.get(use.canvasId, viewerId) ? areaById(use.areaId)?.title ?? null : null,
+      title: canvases.get(use.canvasId, viewerId) ? areaById(store, use.areaId)?.title ?? null : null,
     }));
     return { ...saved, links, usedBy };
   }
@@ -157,6 +176,7 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
       if (error instanceof CanvasConflictError) return c.json({ error: 'Context changed', current: scopeContext(scope, human.id) }, 409);
       throw error;
     }
+    await setUpAgents(scope);
     return c.json(scopeContext(scope, human.id));
   };
 
@@ -195,6 +215,7 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
           id: randomUUID(), name: fileName(s.part.name), mime: mimeType(s.part.type), size: s.size, storageKey: s.storageKey,
         }, human.id));
       })();
+      await setUpAgents(scope);
       return c.json(rows, 201);
     } catch (error) {
       await Promise.all(saved.map(s => files.remove(s.storageKey).catch(() => undefined)));
@@ -227,7 +248,7 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     const stored = fileIn(c, canvasOf(c));
     return c.body(files.open(stored.storageKey), 200, {
       ...DOWNLOAD_HEADERS,
-      'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(stored.name.replace(/[\r\n]/g, ''))}`,
+      'content-disposition': attachment(stored.name),
     });
   });
   routes.delete('/api/canvases/:id/context/files/:fileId', deleteFile);
@@ -245,9 +266,10 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     if (sourceAreaId === scope.areaId) throw badRequest('An area cannot use its own context');
     const human = c.get('human');
     // A source on a canvas the caller cannot read is indistinguishable from a missing one.
-    const source = areaById(sourceAreaId);
+    const source = areaById(store, sourceAreaId);
     if (!source || !canvases.get(source.canvasId, human.id)) throw notFound();
     context.link(scope.areaId, sourceAreaId, human.id);
+    await setUpAgents(scope);
     return c.json(scopeContext(scope, human.id));
   });
   routes.delete('/api/canvases/:id/areas/:areaId/context/links/:sourceAreaId', c => {
@@ -273,6 +295,7 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     const area = areaFor({ x: card.x + card.w / 2, y: card.y + CARD_HEIGHT / 2 }, canvases.areas(canvas.id));
     const home = { canvasId: canvas.id, areaId: area?.id ?? null };
     context.setHome(channelId, home, human.id);
+    if (agents) await agents.ensureAgents([channelId]);
     return c.json({ home });
   });
 

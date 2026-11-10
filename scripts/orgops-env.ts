@@ -32,8 +32,11 @@ export function configureOrgOpsEnv(component: 'api' | 'runner' = 'api') {
   }
   const skills = resolve(projectRoot, 'skills');
   if (!existsSync(skills)) cpSync(resolve(repoRoot, 'vendor/orgops/skills'), skills, {recursive: true});
-  const connectionSkill=resolve(skills,'nest-connections');
-  if(!existsSync(connectionSkill))cpSync(resolve(repoRoot,'skills/nest-connections'),connectionSkill,{recursive:true});
+  // Nest skills are copied once; runtime copies stay writable and are never overwritten.
+  for (const name of ['nest-connections', 'nest-context']) {
+    const target = resolve(skills, name);
+    if (!existsSync(target)) cpSync(resolve(repoRoot, 'skills', name), target, {recursive: true});
+  }
   const files = resolve(repoRoot, process.env.NEST_FILES_DIR ?? 'files'); mkdirSync(files, {recursive: true});
   ensureLink(files, resolve(projectRoot, 'files'));
   process.env.ORGOPS_PROJECT_ROOT = projectRoot;

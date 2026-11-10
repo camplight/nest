@@ -1,0 +1,10 @@
+{
+  "name": "nest-context",
+  "title": "Nest chat context",
+  "description": "Read the shared notes and files people attached to the canvas area of the chat you are answering in.",
+  "version": "1.0.0",
+  "category": "skill",
+  "license": "MIT",
+  "tags": ["context", "canvas"],
+  "runtimes": ["generic", "codex", "orgops"]
+}

@@ -72,6 +72,12 @@ for (const component of ["api", "runner"] as const)
           "utf8",
         ),
       ).toContain("name: nest-connections");
+      const contextSkill = join(result.projectRoot, "skills/nest-context/SKILL.md");
+      expect(readFileSync(contextSkill, "utf8")).toContain("name: nest-context");
+      // Runtime copies are copy-if-missing: an existing copy is never overwritten.
+      writeFileSync(contextSkill, "runtime copy");
+      configureOrgOpsEnv(component);
+      expect(readFileSync(contextSkill, "utf8")).toBe("runtime copy");
     } finally {
       process.env = previous;
       vi.unstubAllEnvs();
