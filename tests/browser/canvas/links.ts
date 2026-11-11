@@ -190,3 +190,179 @@ await runChatTest('canvas links: reduced motion stills the flow; Escape and an o
   await page.mouse.click(surface.x+surface.width-40,surface.y+surface.height-200);
   await pop.waitFor({state:'detached'});
 },{canvas:true,flows:true,reducedMotion:'reduce'});
+
+/** Pom, the Blog post project (Pom in it) and a canvas with the harness chat and Blog post side by side, not linked. */
+async function twoCards(h:ChatHarness){
+  await call(h,'POST','/api/agents',{name:'Pom',icon:'pom',visibility:'PUBLIC',modelId:'wrapped:none',workspacePath:join(mkdtempSync(join(tmpdir(),'nest-links-')),'pom')});
+  const blog=await call<{channelId:string}>(h,'POST','/api/projects',{id:crypto.randomUUID(),name:'Blog post',description:'Synthetic blog project',members:[{subscriberType:'AGENT',subscriberId:'Pom'}]});
+  const {id:canvasId}=await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Flows board'});
+  await call(h,'POST',`/api/canvases/${canvasId}/cards`,{cards:[{channelId:h.project.channelId,x:80,y:140},{channelId:blog.channelId,x:640,y:140}]});
+  return {canvasId,blog:blog.channelId};
+}
+const cardOf=(page:Page,channelId:string)=>page.locator(`.canvas-card[data-channel-id="${channelId}"]`);
+const centre=(box:{x:number;y:number;width:number;height:number})=>({x:box.x+box.width/2,y:box.y+box.height/2});
+/** Presses A's + port and moves to a point in steps, without releasing. */
+async function dragPort(page:Page,channelId:string,to:{x:number;y:number}){
+  const card=cardOf(page,channelId);
+  await card.hover();
+  const port=card.locator('[data-port]');
+  await until(()=>port.evaluate(el=>getComputedStyle(el).opacity),o=>o==='1','the port shows on hover');
+  const at=centre((await port.boundingBox())!);
+  await page.mouse.move(at.x,at.y);
+  await page.mouse.down();
+  await page.mouse.move(at.x+20,at.y+4,{steps:3});
+  await page.mouse.move(to.x,to.y,{steps:8});
+}
+
+await runChatTest('canvas links: drag the + port onto a card, or onto empty canvas for a new step',async h=>{
+  const {page,base}=h, from=h.project.channelId;
+  const {canvasId,blog}=await twoCards(h);
+  await openCanvas(page,base,canvasId);
+  const card=cardOf(page,from);
+  const port=card.locator('[data-port]');
+  assert.equal(await port.getAttribute('title'),'Drag to another chat to pass results along');
+  assert.equal(await port.evaluate(el=>getComputedStyle(el,'::before').content),'"+"');
+
+  // Onto Blog post: a dashed accent line follows the pointer, and the card under it is outlined.
+  await dragPort(page,from,centre((await cardOf(page,blog).boundingBox())!));
+  await page.locator('.canvas-links .lk.temp').waitFor({state:'attached'});
+  assert.match((await page.locator('.canvas-links .lk.temp').getAttribute('d'))??'',/^M[\d.-]+ [\d.-]+C/);
+  assert.deepEqual(await page.locator('.canvas-card.linktarget').evaluateAll(els=>els.map(el=>el.getAttribute('data-channel-id'))),[blog]);
+  await page.mouse.up();
+  const pop=page.getByRole('dialog',{name:'Hand-off between chats',exact:true});
+  await pop.getByText('Synthetic chat project → Blog post',{exact:true}).waitFor();
+  assert.equal(await page.locator('.canvas-links .lk.temp, .canvas-card.linktarget').count(),0,'the drag marks are gone');
+  const links=await until(()=>call<{links:Link[]}>(h,'GET',`/api/flows/links?channelId=${encodeURIComponent(from)}`),r=>r.links.length===1,'one link');
+  assert.deepEqual([links.links[0].from,links.links[0].to],[from,blog]);
+  await pop.getByRole('button',{name:'Done',exact:true}).click();
+  await pop.waitFor({state:'detached'});
+
+  // Onto empty canvas, above the cards: a new chat is placed where the pointer was released, linked, with its note.
+  const box=(await card.boundingBox())!;
+  const release={x:box.x+box.width/2,y:box.y-150};
+  assert.equal(await page.evaluate(({x,y})=>document.elementFromPoint(x,y)?.className,release),'canvas-surface','the release point is empty canvas');
+  await dragPort(page,from,release);
+  assert.equal(await page.locator('.canvas-card.linktarget').count(),0,'no card outlined over empty canvas');
+  await page.mouse.up();
+  const title='Next step after "Synthetic chat project"';
+  const step=page.locator('.canvas-card').filter({has:page.getByRole('heading',{name:title,exact:true})});
+  await step.waitFor();
+  const placed=(await step.boundingBox())!;
+  assert.ok(release.x>=placed.x&&release.x<=placed.x+placed.width&&release.y>=placed.y&&release.y<=placed.y+placed.height,`placed at the release point: ${JSON.stringify({release,placed})}`);
+  await pop.getByText(`Synthetic chat project → ${title}`,{exact:true}).waitFor();
+  await page.getByRole('status').filter({hasText:'New step added. Pick who picks it up.'}).waitFor();
+  const stepId=(await step.getAttribute('data-channel-id'))!;
+  await until(()=>call<{links:Link[]}>(h,'GET',`/api/flows/links?channelId=${encodeURIComponent(stepId)}`),r=>r.links.some(l=>l.from===from&&l.to===stepId),'the new step is linked');
+  await pop.getByRole('button',{name:'Done',exact:true}).click();
+  await pop.waitFor({state:'detached'});
+  await page.getByRole('button',{name:`Open chat ${title}`,exact:true}).click();
+  const sheet=page.getByRole('dialog',{name:`Open chat ${title}`,exact:true});
+  await until(()=>sheet.locator('.message-src-line').allInnerTexts(),texts=>texts.includes('Picks up what "Synthetic chat project" produces.'),'the new step\'s note');
+  await sheet.getByRole('button',{name:'Close',exact:true}).click();
+  await sheet.waitFor({state:'detached'});
+
+  // A release over chrome (the zoom controls) does nothing.
+  const cards=await page.locator('.canvas-card').count();
+  await dragPort(page,from,centre((await page.locator('.canvas-zoom').boundingBox())!));
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator('.canvas-card').count(),cards,'no new step over the zoom controls');
+  assert.equal(await pop.count(),0,'no popover over chrome');
+},{canvas:true,flows:true});
+
+await runChatTest('canvas links: the chat picker, the Setup line and its links row, and loose chats',async h=>{
+  const {page,base}=h, from=h.project.channelId;
+  const {canvasId,blog}=await twoCards(h);
+  const notes=await call<{channelId:string}>(h,'POST','/api/projects',{id:crypto.randomUUID(),name:'Research notes',description:'Synthetic research',members:[]});
+  await call(h,'POST',`/api/canvases/${canvasId}/cards`,{cards:[{channelId:notes.channelId,x:80,y:560}]});
+  const loose=await call<{channelId:string}>(h,'POST','/api/projects',{id:crypto.randomUUID(),name:'Loose idea',description:'Synthetic loose chat',members:[{subscriberType:'AGENT',subscriberId:'Pom'}]});
+  await call(h,'POST','/api/flows/links',{id:crypto.randomUUID(),from,to:blog});
+  await openCanvas(page,base,canvasId);
+
+  // The card's connect button opens the picker: every other chat on the canvas, the linked one marked, and a new step.
+  const connect=cardOf(page,from).getByRole('button',{name:'Connect: pass this chat\'s results to another chat',exact:true});
+  assert.equal(await connect.getAttribute('title'),'Connect: pass this chat\'s results to another chat');
+  await connect.click();
+  const picker=page.getByRole('dialog',{name:'Connect chats',exact:true});
+  await picker.getByRole('heading',{name:'Connect “Synthetic chat project”',exact:true}).waitFor();
+  await picker.getByText('Pick the chat that should get its results. Or drag the + on a card\'s right edge onto another card.',{exact:true}).waitFor();
+  const search=picker.getByPlaceholder('Find a chat…');
+  assert.equal(await page.evaluate(()=>(document.activeElement as HTMLInputElement|null)?.placeholder),'Find a chat…','the search has focus');
+  const rows=picker.locator('.lpick button[data-to]');
+  // Each row: the chat's face (its first agent, else its first person's initials), its title, and `connected` when linked.
+  const rowTexts=()=>rows.evaluateAll(els=>els.map(el=>[...el.childNodes].filter(n=>!(n instanceof Element&&(n.classList.contains('lp-face')||n.classList.contains('agent-portrait')))).map(n=>n.textContent).join(' ').trim()));
+  assert.deepEqual((await rowTexts()).sort(),['Blog post connected','Research notes']);
+  assert.equal(await rows.filter({hasText:'Blog post'}).locator('.agent-portrait').count(),1,'Blog post shows Pom');
+  await picker.getByRole('button',{name:'A new step after this one'}).waitFor();
+  await search.fill('blo');
+  assert.deepEqual(await rowTexts(),['Blog post connected']);
+  await search.fill('nothing like this');
+  await picker.getByText('No chat with that name.',{exact:true}).waitFor();
+  await picker.getByRole('button',{name:'A new step after this one'}).waitFor();
+  await picker.getByRole('button',{name:'Cancel',exact:true}).click();
+  await picker.waitFor({state:'detached'});
+
+  // The open chat: the Setup line reads its agent and how many chats it is connected to.
+  await page.getByRole('button',{name:'Open chat Synthetic chat project',exact:true}).click();
+  const sheet=page.getByRole('dialog',{name:'Open chat Synthetic chat project',exact:true});
+  const setup=sheet.locator('details.cfg');
+  await setup.waitFor();
+  await until(()=>setup.locator('summary .sm-chip').allInnerTexts().then(t=>t.map(s=>s.trim()).join(' · ')),t=>t===`${agentName} · 1 connected`,'the Setup summary');
+  assert.equal(await setup.locator('summary .more').innerText(),'Setup');
+  await sheet.getByRole('button',{name:'Connect: pass results to another chat',exact:true}).waitFor();
+  await setup.locator('summary').click();
+  const row=setup.locator('.links-row');
+  await row.waitFor();
+  assert.deepEqual((await row.locator(':scope > *').allInnerTexts()).map(t=>t.trim()),['Passes to','→ Blog post','+ Connect']);
+  const chip=row.getByRole('button',{name:'→ Blog post',exact:true});
+  assert.equal(await chip.getAttribute('title'),'Passes results to Blog post');
+
+  // The chip opens the Hand-off popover; pausing strikes it through.
+  await chip.click();
+  const pop=page.getByRole('dialog',{name:'Hand-off between chats',exact:true});
+  await pop.getByRole('button',{name:'Pause',exact:true}).click();
+  await until(()=>chip.getAttribute('class'),c=>/\boff\b/.test(c??''),'the chip is paused');
+  assert.match(await chip.evaluate(el=>getComputedStyle(el).textDecorationLine),/line-through/);
+  await pop.getByRole('button',{name:'Done',exact:true}).click();
+  await pop.waitFor({state:'detached'});
+
+  // + Connect opens the picker for this chat.
+  await row.getByRole('button',{name:'+ Connect',exact:true}).click();
+  await picker.getByRole('heading',{name:'Connect “Synthetic chat project”',exact:true}).waitFor();
+  await page.keyboard.press('Escape');
+  await picker.waitFor({state:'detached'});
+  await sheet.getByRole('button',{name:'Close',exact:true}).click();
+  await sheet.waitFor({state:'detached'});
+
+  // Setup stays open for this person after a reload.
+  await page.reload();
+  await page.locator('.canvas-card').first().waitFor();
+  await page.getByRole('button',{name:'Open chat Synthetic chat project',exact:true}).click();
+  await sheet.locator('details.cfg[open] .links-row').waitFor();
+  await sheet.getByRole('button',{name:'Close',exact:true}).click();
+  await sheet.waitFor({state:'detached'});
+
+  // A loose chat has a Setup line but no connect button and no links row.
+  await page.goto(`${base}/?view=canvas&canvas=${canvasId}&chat=${loose.channelId}&mode=focus`);
+  const plain=page.getByRole('dialog',{name:'Open chat Loose idea',exact:true});
+  await plain.locator('details.cfg').waitFor();
+  await until(()=>plain.locator('details.cfg summary .sm-chip').allInnerTexts(),t=>t.join('|')==='Pom','the loose chat\'s agent');
+  assert.equal(await plain.getByRole('button',{name:'Connect: pass results to another chat',exact:true}).count(),0,'no connect button');
+  assert.equal(await plain.locator('.links-row').count(),0,'no links row');
+},{canvas:true,flows:true});
+
+await runChatTest('canvas links: a phone has no port, and the Setup line still shows in the chat',async h=>{
+  const {page,base}=h, from=h.project.channelId;
+  const {canvasId,blog}=await twoCards(h);
+  await call(h,'POST','/api/flows/links',{id:crypto.randomUUID(),from,to:blog});
+  await page.goto(`${base}/?view=canvas&canvas=${canvasId}`);
+  const list=page.getByRole('region',{name:'Canvas list',exact:true});
+  await list.waitFor();
+  assert.equal(await page.locator('[data-port]').count(),0,'no port on a phone');
+  await list.getByRole('button',{name:/^Not in an area/}).tap();
+  await list.getByRole('list',{name:'Chats not in an area',exact:true}).getByRole('button',{name:/^Synthetic chat project/}).tap();
+  const chat=page.locator('.canvas-chat');
+  await chat.locator('details.cfg').waitFor();
+  await until(()=>chat.locator('details.cfg summary .sm-chip').allInnerTexts().then(t=>t.map(s=>s.trim()).join(' · ')),t=>t===`${agentName} · 1 connected`,'the phone Setup summary');
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal page scroll at 390 px');
+},{canvas:true,flows:true,viewport:{width:390,height:844},hasTouch:true});

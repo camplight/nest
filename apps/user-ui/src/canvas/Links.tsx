@@ -29,6 +29,13 @@ export function ForkIcon() {
   </svg>;
 }
 
+/** The mock's IC_LINK: two chats with an arrow between them, on the connect buttons and the Setup line. */
+export function LinkIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="5.5" cy="12" r="2.5"/><circle cx="18.5" cy="12" r="2.5"/><path d="M8 12h4.5M10.5 9l3 3-3 3"/>
+  </svg>;
+}
+
 /** A path's midpoint by length (the mock's getPointAtLength(len / 2)). */
 export function labelPoint(path: SVGPathElement): Point {
   const point = path.getPointAtLength(path.getTotalLength() / 2);

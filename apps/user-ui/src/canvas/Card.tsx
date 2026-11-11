@@ -13,6 +13,7 @@ import type {AgentPulse,CardPulse} from './pulse';
 import type {NeedsItem} from './needs';
 import {participantRows,shownRows,type ParticipantRow,type RowState} from './rows';
 import {useServiceAgent} from './useFlows';
+import {LinkIcon} from './Links';
 
 export type CardProps = {
   card: BoardCard;
@@ -48,11 +49,20 @@ export type CardProps = {
   /** The area this card sits in (by centre), shown as a stripe in its tint; absent outside areas. */
   areaTitle?: string;
   areaTint?: string;
+  /**
+   * Hand-offs are set up and this is an open card: the `+` port on its right edge (drag it onto another chat) and the
+   * footer's connect button, which opens the chat picker under itself.
+   */
+  onConnect?(channelId: string, anchor: HTMLElement): void;
+  /** A dragged `+` port is over this card: releasing here connects to it (the mock's `.linktarget`). */
+  linkTarget?: boolean;
 };
+export const CONNECT_TITLE = 'Connect: pass this chat\'s results to another chat';
+export const PORT_TITLE = 'Drag to another chat to pass results along';
 
 const NO_NEEDS: readonly NeedsItem[] = [];
 /** Clicks here act on their own control (or start a face drag), never open the chat. Other faces open it like the rest of the card. */
-const OWN_CLICK = 'button, a, input, textarea, select, .canvas-card-face[data-drag]';
+const OWN_CLICK = 'button, a, input, textarea, select, .canvas-card-face[data-drag], [data-port]';
 
 export function cardTitle(card: BoardCard) {
   return card.access === 'open' ? card.title || 'Untitled chat' : card.access === 'locked' ? 'Private chat' : 'This chat is no longer available';
@@ -202,9 +212,10 @@ function CardFiles({files, total, width, fresh, onPopped, onMore}: {
   </ul>;
 }
 
-function OpenBody({card, pulse, needs, viewer, onNudge, facesDraggable, draggingFace, onOpen, onRemove}: {
+function OpenBody({card, pulse, needs, viewer, onNudge, facesDraggable, draggingFace, onOpen, onRemove, onConnect}: {
   card: Extract<BoardCard, {access: 'open'}>; pulse?: CardPulse; needs: readonly NeedsItem[]; viewer: string; onNudge?: CardProps['onNudge'];
   facesDraggable: boolean; draggingFace: string | null; onOpen?(channelId: string): void; onRemove?(channelId: string): void;
+  onConnect?: CardProps['onConnect'];
 }) {
   const title = cardTitle(card);
   const service = useServiceAgent();
@@ -240,6 +251,8 @@ function OpenBody({card, pulse, needs, viewer, onNudge, facesDraggable, dragging
       <span className="canvas-card-foot-end">
         {onRemove ? <button type="button" className="canvas-card-remove" aria-label="Remove from canvas" title="Remove from canvas (the chat stays)"
           onClick={() => onRemove(card.channelId)}><span aria-hidden="true">✕</span></button> : null}
+        {onConnect ? <button type="button" className="ib sm canvas-card-connect" data-act="linkpick" aria-label={CONNECT_TITLE} title={CONNECT_TITLE}
+          aria-haspopup="dialog" onClick={event => onConnect(card.channelId, event.currentTarget)}><LinkIcon/></button> : null}
         {/* The body opens the chat too; this is the visible and keyboard route. */}
         {onOpen ? <button type="button" className="canvas-card-open" aria-label={`Open chat ${title}`} onClick={() => onOpen(card.channelId)}>Open</button> : null}
       </span>
@@ -248,14 +261,15 @@ function OpenBody({card, pulse, needs, viewer, onNudge, facesDraggable, dragging
 }
 
 export const Card = memo(function Card({card, draggable, dx, dy, dragging, measure, pulse, needs = NO_NEEDS, viewer = '', onNudge, onRemove, onOpen, open = false,
-  facesDraggable = false, draggingFace = null, dropping = false, selected = false, areaTitle, areaTint}: CardProps) {
+  facesDraggable = false, draggingFace = null, dropping = false, selected = false, areaTitle, areaTint, onConnect, linkTarget = false}: CardProps) {
   const title = cardTitle(card);
   const ref = useCallback((element: HTMLElement | null) => measure(card.channelId, element), [card.channelId, measure]);
   const opens = card.access === 'open' && onOpen ? onOpen : undefined;
   const attention = card.access === 'open' && needs.length > 0;
+  const connects = card.access === 'open' ? onConnect : undefined;
   return <article
     ref={ref}
-    className={`canvas-card${dragging ? ' is-dragging' : ''}${opens ? ' is-openable' : ''}${open ? ' is-open' : ''}${dropping ? ' is-drop-target' : ''}${selected ? ' is-selected' : ''}${areaTitle ? ' in-area' : ''}${attention ? ' needs-you' : ''}`}
+    className={`canvas-card${dragging ? ' is-dragging' : ''}${opens ? ' is-openable' : ''}${open ? ' is-open' : ''}${dropping ? ' is-drop-target' : ''}${selected ? ' is-selected' : ''}${areaTitle ? ' in-area' : ''}${attention ? ' needs-you' : ''}${linkTarget ? ' linktarget' : ''}`}
     data-channel-id={card.channelId}
     data-tint={areaTitle ? areaTint : undefined}
     data-access={card.access}
@@ -273,11 +287,13 @@ export const Card = memo(function Card({card, draggable, dx, dy, dragging, measu
     {/* The home's setter can no longer read its canvas, so agents read nothing from it; same tag as an unavailable link. */}
     {card.access === 'open' && card.home?.available === false ? <p className="canvas-card-home" title="Agents in this chat read no context until a member uses an area's context again">context <span className="canvas-context-tag">unavailable</span></p> : null}
     {card.access === 'open' ? <OpenBody card={card} pulse={pulse} needs={needs} viewer={viewer} onNudge={onNudge} facesDraggable={facesDraggable}
-      draggingFace={draggingFace} onOpen={opens} onRemove={onRemove}/> : null}
+      draggingFace={draggingFace} onOpen={opens} onRemove={onRemove} onConnect={connects}/> : null}
     {card.access === 'locked' ? <p className="canvas-card-owner">Owner: {card.ownerLabel}</p> : null}
     {/* Every card can come off the canvas; the chat itself is untouched and an open one returns to Loose chats. */}
     {card.access !== 'open' && onRemove ? <div className="canvas-card-actions">
       <button type="button" className="canvas-card-remove" onClick={() => onRemove(card.channelId)}>Remove from canvas</button>
     </div> : null}
+    {/* Pointer only: the footer's connect button is the keyboard route. Hidden on the open card and at far zoom (CSS). */}
+    {connects && !open ? <span className="port" data-port title={PORT_TITLE} aria-hidden="true"/> : null}
   </article>;
 });

@@ -1444,14 +1444,59 @@ the canvas UI for links (lines, labels and the Hand-off popover).
      @…` line. The service agent's face shows in the open chat's sub-line titled
      `Switchyard · posts hand-offs and scheduled runs; never replies`; it is never a
      card row, a tray or picker face, a mention candidate or a quiet agent.
-8. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
+8. Connecting chats on the canvas (`Card.tsx`, `Surface.tsx`, `LinkPicker.tsx`,
+   `ChatSetup.tsx`, `CanvasView.tsx`), shown only while availability says flows are
+   enabled.
+   - The `+` port (`[data-port]`, titled `Drag to another chat to pass results
+     along`) sits on an open card's right edge, shown on hover and on the selected
+     card, never on the card whose chat is open or at far zoom; phones (the list)
+     have none. Dragging it draws the mock's dashed `.lk.temp` from the card's right
+     edge to the pointer and outlines the open card under it (`.linktarget`).
+     Released on another open card it connects the two; released on empty canvas
+     (hit-tested with `elementFromPoint`: the surface's own background or an area's
+     inside, never its chrome, an area's title bar, a line label, the top bar, the
+     drawer, a popover or a sheet) it adds a new step, for canvas editors only.
+     Anywhere else, or after Escape, nothing happens.
+   - The chat picker (`role=dialog`, `Connect chats`) opens from a card's footer
+     button (`Connect: pass this chat's results to another chat`, before Open), the
+     open chat's header (`Connect: pass results to another chat`, chats on this
+     canvas only) and the Setup line's `+ Connect`, 120 px left of the button and
+     8 px under it (popAt). It lists every other open, unarchived chat on the canvas
+     by area (`Not in an area` last), marks one already connected `connected`,
+     filters by name (`Find a chat…`; `No chat with that name.`) and, for editors
+     (not on a phone), ends with `Or` / `A new step after this one`. Cancel, Escape
+     and a press outside close it.
+   - Connecting `POST`s `/api/flows/links` and opens the new link's Hand-off popover
+     under its label; a pair already linked opens its existing link. A refusal (no
+     read in the first chat or no post in the second, a team-only chat included, or
+     flows not set up) is a toast with the API's text.
+   - A new step `POST`s `/api/projects` `{name:'Next step after "{from title, 26
+     chars}"', members:[], collaboration:'team'}`, places its card with its top-left
+     60 px above the release point (from the picker: 120 px right of the chat's card
+     and 60 px down, the mock's `lp-new`; an area there grows to hold it), links it
+     with `intro:true` (the note `Picks up what "{from}" produces.`), opens the
+     popover and toasts `New step added. Pick who picks it up.` (the mock's
+     double-click rename hint is left out: titles are renamed from the chat).
+   - The open chat's Setup line (the mock's `cfgBlock`) is a collapsed `details.cfg`
+     at the top of the chat body: its agents (never Switchyard) and `{n} connected`
+     (hand-off links, not forks) joined by `·`, and `Setup ▾`. Open, it shows the
+     links row (`Gets from ← {source}` and `Passes to → {target}` chips that open
+     the Hand-off popover, a paused one struck through, then `+ Connect`); loose chats
+     have no links row and no header connect button. The popover opened from a chip
+     works for a link whose other chat is not on this canvas. Whether the line is
+     open is remembered per person in `localStorage`
+     (`nest-canvas-setup-open:{humanId}`). The Setup line shows on phones too, and
+     the Hand-off popover and picker open there.
+9. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
    `handoff.test.ts`, `access.test.ts` and the fork case in `canvas-board.test.ts`
    run against the real engine and Nest handlers with temporary databases.
    `handoff.test.ts` covers a lost post response followed by a restart (exactly one
    hand-off), an engine outage, the cap, lost access and the engine watch.
    `tests/browser/canvas/links.ts` drives the lines, labels and popover in a browser
    against the real engine, API and worker (the harness's `flows` option ticks the
-   worker every 200 ms), through pause, a delivered hand-off and disconnect.
+   worker every 200 ms), through pause, a delivered hand-off and disconnect, then
+   connecting by dragging the port onto a card and onto empty canvas (a new step),
+   the chat picker, the Setup line and its links row, loose chats and a phone.
 
 ## Private Community catalog
 

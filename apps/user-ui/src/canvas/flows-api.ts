@@ -1,5 +1,5 @@
 // Typed helpers for the product /api/flows routes (apps/api/src/flows/routes.ts): availability, links and needs.
-import type {FlowNeed,Link,LinkPatch} from '@nest/schemas';
+import type {FlowNeed,Link,LinkPatch,NewLink} from '@nest/schemas';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 
 export type FlowsAvailability = {enabled: boolean; reason?: string; serviceAgent: string | null; summaries: 'model' | 'fallback'; webhooks: boolean};
@@ -34,6 +34,13 @@ export const getAvailability = () => apiJson<FlowsAvailability>('/api/flows/avai
 export const getNeeds = async () => (await apiJson<{items: FlowNeed[]}>('/api/flows/needs')).items;
 /** Every link touching a chat the viewer can read. */
 export const getLinks = async (channelId: string) => (await apiJson<{links: LinkView[]}>(`/api/flows/links?channelId=${encodeURIComponent(channelId)}`)).links;
+
+/**
+ * Connects two chats (`intro`: the target gets a `Picks up what "A" produces.` note). A pair already connected answers with
+ * the existing link. Refusals (no access to either chat, flows not set up) come back as the API's `{error}`.
+ */
+export const createLink = (input: Pick<NewLink, 'id' | 'from' | 'to'> & {intro?: boolean}) =>
+  apiJson<Link>('/api/flows/links', write('POST', input));
 
 export async function patchLink(id: string, patch: Omit<LinkPatch, 'version'>, version: number): Promise<Link> {
   try { return await apiJson<Link>(linkPath(id), write('PATCH', {...patch, version})); } catch (error) { throw conflict(error); }

@@ -1,7 +1,7 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
-import {useCallback,useEffect,useId,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore,type CSSProperties,type FormEvent,type ReactNode} from 'react';
+import {useCallback,useEffect,useId,useLayoutEffect,useMemo,useReducer,useRef,useState,useSyncExternalStore,type CSSProperties,type FormEvent,type ReactNode} from 'react';
 import {Columns2,Ellipsis,FileText,Search,Share2,SquareArrowOutUpRight,X} from 'lucide-react';
-import {AGENT_PIN_LIMIT_MESSAGE,CanvasTint,type AgentPins,type BoardLink,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
+import {AGENT_PIN_LIMIT_MESSAGE,CanvasTint,type AgentPins,type BoardLink,type Link,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
@@ -36,8 +36,11 @@ import {errorText,getContextSummary,uploadContextFile,type PanelScope} from './c
 import {chatSees,contextLabel,joinNames,type ChatSees} from './context-label';
 import {cardSheet,clearOfDrawer,looseSheet,samePlace,stageBounds,type SheetPlace} from './sheet';
 import {isServiceAgent,useFlows} from './useFlows';
-import {LinkConflict,deleteLink,flowError,getLinks,patchLatest,sendNow,type LinkView} from './flows-api';
+import {LinkConflict,createLink,deleteLink,flowError,getLinks,patchLatest,sendNow,type LinkView} from './flows-api';
 import {HandoffPopover,type HandoffChange} from './HandoffPopover';
+import {LinkPicker} from './LinkPicker';
+import {ChatSetup} from './ChatSetup';
+import {LinkIcon} from './Links';
 import './canvas.css';
 
 export type CanvasHuman = {id?: string; username: string};
@@ -84,6 +87,9 @@ const them = (n: number) => n === 1 ? 'it' : 'them';
 const SYNC_INTERVAL_MS = 5000;
 const NO_PULSES: ReadonlyMap<string, CardPulse> = new Map();
 const NOTHING: ReadonlySet<string> = new Set();
+const NO_LINKS: LinkView[] = [];
+/** The mock's newStep toast (without its rename hint: a card title is renamed from the chat, not by double-click). */
+export const NEW_STEP_TOAST = 'New step added. Pick who picks it up.';
 const TINTS = CanvasTint.options;
 /** Keeps a placed grid (or area) well inside the ±1,000,000 coordinate limit. */
 const PLACE_LIMIT = 900_000;
@@ -758,10 +764,11 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
    * one change at a time so each write carries the version the previous one returned. While it is open the line shows
    * its settings (and the name as typed) before the board re-reads them.
    */
-  const [flowPop, setFlowPop] = useState<{linkId: string; anchor: HTMLElement | null; view: LinkView | null; draft?: string} | null>(null);
+  // `chat`: opened from the open chat's links row, whose other chat may not be on this canvas (no line to follow).
+  const [flowPop, setFlowPop] = useState<{linkId: string; anchor: HTMLElement | null; view: LinkView | null; draft?: string; chat?: true} | null>(null);
   const flowPopRef = useRef(flowPop); flowPopRef.current = flowPop;
   useEffect(() => { setFlowPop(null); }, [canvasId]);
-  const flowLinkGone = Boolean(flowPop && board && !board.links.some(l => l.id === flowPop.linkId && l.access === 'open'));
+  const flowLinkGone = Boolean(flowPop && !flowPop.chat && board && !board.links.some(l => l.id === flowPop.linkId && l.access === 'open'));
   useEffect(() => { if (flowLinkGone) setFlowPop(null); }, [flowLinkGone]);
   /** The link with its version and rights, read through a chat the viewer can read (the source first). */
   const readLink = useCallback(async (linkId: string): Promise<LinkView | null> => {
@@ -773,8 +780,9 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     }
     return null;
   }, [store]);
-  const openFlowLink = useCallback((linkId: string, anchor: HTMLElement) => {
+  const openFlowLink = useCallback((linkId: string, anchor: HTMLElement | null) => {
     if (flowPopRef.current?.linkId === linkId) return;
+    setLinkPick(null);
     setFlowPop({linkId, anchor, view: null});
     void readLink(linkId).then(view => {
       if (flowPopRef.current?.linkId !== linkId) return;
@@ -814,6 +822,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       setFlowPop(current => current?.linkId === saved.id && current.view
         ? {...current, view: {...current.view, ...saved}, draft: change.label !== undefined && current.draft === saved.label ? undefined : current.draft} : current);
       void store.refresh({force: true});
+      bumpLinks();
       if (change.on !== undefined) flows.refresh();
     } catch (error) {
       setFlowPop(current => current?.linkId === before.id && current.view
@@ -834,6 +843,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       setFlowPop(null);
       say(`Disconnected. "${view.toTitle}" keeps what it already got.`);
       void store.refresh({force: true});
+      bumpLinks();
       flows.refresh();
     } catch (error) { say(flowError(error, 'Could not disconnect. Try again.')); }
   }), [queueFlow, say, store, flows.refresh]);
@@ -855,6 +865,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       const saved = await patchLatest(view.id, {on: !view.on}, view.version);
       say(saved.on ? `Findings from "${view.fromTitle}" flow back to "${view.toTitle}" again.` : `Paused: findings from "${view.fromTitle}" no longer flow back to "${view.toTitle}".`);
       void store.refresh({force: true});
+      bumpLinks();
       flows.refresh();
     } catch (error) { say(flowError(error, 'Could not change the fork. Try again.')); }
   }), [queueFlow, readLink, say, store, flows.refresh]);
@@ -866,6 +877,100 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     return board.links.map(l => l.id === view.id && l.access === 'open'
       ? {...l, what: view.what, when: view.when, who: view.who, on: view.on, label: flowPop?.draft ?? view.label} : l);
   }, [flowsOn, board, flowPop]);
+  /**
+   * Connecting chats (the mock's connect, linkpick and newStep): a dragged `+` port, the chat picker (a card's connect
+   * button, the open chat's header and its `+ Connect`) or a new step. A new link, or the pair's existing one, opens its
+   * Hand-off popover under its label once the board shows it. A refusal (S9: no access to either chat) is a toast.
+   */
+  const [linkPick, setLinkPick] = useState<{from: string; anchor: HTMLElement | null} | null>(null);
+  useEffect(() => { setLinkPick(null); }, [canvasId]);
+  const pickFrom = linkPick && board ? board.cards.find((card): card is Extract<BoardCard, {access: 'open'}> => card.channelId === linkPick.from && card.access === 'open') : undefined;
+  useEffect(() => { if (linkPick && board && !pickFrom) setLinkPick(null); }, [linkPick, board, pickFrom]);
+  const openLinkPick = useCallback((from: string, anchor: HTMLElement | null) => {
+    setFlowPop(null);
+    setLinkPick(current => current?.from === from && current.anchor === anchor ? null : {from, anchor});
+  }, []);
+  const closeLinkPick = useCallback(() => setLinkPick(null), []);
+  /** Opens a link's popover under its label, once the label is drawn (a few frames after the board re-read). */
+  const showLink = useCallback((linkId: string) => {
+    if (phoneRef.current) { openFlowLink(linkId, null); return; }
+    let tries = 0;
+    const go = () => {
+      const label = viewRoot.current?.querySelector<HTMLElement>(`.canvas-world > .lab[data-link-id="${CSS.escape(linkId)}"]`) ?? null;
+      if (label || ++tries >= 30) openFlowLink(linkId, label); else requestAnimationFrame(go);
+    };
+    requestAnimationFrame(go);
+  }, [openFlowLink]);
+  const connect = useCallback(async (from: string, to: string, intro = false) => {
+    setLinkPick(null);
+    let link: Link;
+    try { link = await createLink({id: crypto.randomUUID(), from, to, ...(intro ? {intro: true} : {})}); } catch (error) {
+      say(flowError(error, 'Could not connect these chats. Try again.'));
+      return false;
+    }
+    bumpLinks();
+    await store.refresh({force: true});
+    showLink(link.id);
+    return true;
+  }, [say, store, showLink]);
+  const connectCards = useCallback((from: string, to: string) => void connect(from, to), [connect]);
+  /**
+   * A new step after a chat (editors only): a new team chat named after it, placed with its top 60 px above `at` (the
+   * mock's newStep; an area there grows to hold it), connected with the intro note, its popover open.
+   */
+  const newStep = useCallback(async (from: string, at: Point) => {
+    const current = store.snapshot().board;
+    const source = current?.cards.find(card => card.channelId === from);
+    if (!current || current.canvas.role === 'view' || source?.access !== 'open') return;
+    setLinkPick(null);
+    let project: Project;
+    try {
+      project = await apiJson<Project>('/api/projects', {method: 'POST', headers: getApiHeaders(),
+        body: JSON.stringify({id: crypto.randomUUID(), name: `Next step after "${cardTitle(source).slice(0, 26)}"`, members: [], collaboration: 'team'})});
+    } catch { say('Could not add a new step. Try again.'); return; }
+    void refreshRef.current().catch(() => {});
+    const now = store.snapshot().board;
+    if (!now || now.canvas.id !== current.canvas.id) return;
+    const spot = clampPoint({x: at.x, y: at.y - 60});
+    if (!await store.apply({kind: 'placeCards', cards: [{channelId: project.channelId, ...spot}]})) { say('Could not put the new step on the canvas. Try again.'); return; }
+    const target = areaFor(cardCentre({...spot, w: DEFAULT_CARD_WIDTH}), now.areas);
+    const grown = target ? growToFit(target, [{...spot, w: DEFAULT_CARD_WIDTH, h: CARD_PLACE_HEIGHT}]) : null;
+    if (target && grown) await store.apply({kind: 'patchArea', areaId: target.id, patch: grown});
+    if (await connect(from, project.channelId, true)) say(NEW_STEP_TOAST);
+  }, [store, say, connect]);
+  const dropNewStep = useCallback((from: string, at: Point) => void newStep(from, at), [newStep]);
+  /** The picker's new step goes 120 px right of the chat and 60 px down (the mock's lp-new). */
+  const pickNewStep = useCallback((from: string) => {
+    const card = store.snapshot().board?.cards.find(c => c.channelId === from);
+    if (card) void newStep(from, {x: card.x + card.w + 120, y: card.y + 60});
+  }, [store, newStep]);
+  const canConnect = useCallback((card: BoardCard) => flowsOn && card.access === 'open', [flowsOn]);
+  /** The open chat's links (for its Setup line), re-read as the board's links change and after each change made here. */
+  const [linksTick, bumpLinks] = useReducer((n: number) => n + 1, 0);
+  const [chatLinks, setChatLinks] = useState<{channelId: string; links: LinkView[]} | null>(null);
+  const boardLinks = useMemo(() => JSON.stringify(board?.links ?? []), [board?.links]);
+  useEffect(() => {
+    if (!flowsOn || !chatShown || !chatChannelId) return;
+    let live = true;
+    getLinks(chatChannelId).then(links => { if (live) setChatLinks({channelId: chatChannelId, links}); }).catch(() => {});
+    return () => { live = false; };
+  }, [flowsOn, chatShown, chatChannelId, boardLinks, linksTick]);
+  // The popover's settings show on the chips at once (a pause strikes its chip through before the re-read).
+  const setupLinks = useMemo(() => {
+    const links = chatLinks?.channelId === chatChannelId ? chatLinks.links : NO_LINKS;
+    const view = flowPop?.view;
+    return view ? links.map(l => l.id === view.id ? {...l, ...view} : l) : links;
+  }, [chatLinks, chatChannelId, flowPop]);
+  const openChatLink = useCallback((link: LinkView, anchor: HTMLElement) => {
+    if (flowPopRef.current?.linkId === link.id) return;
+    setLinkPick(null);
+    setFlowPop({linkId: link.id, anchor, view: link, chat: true});
+  }, []);
+  const chatOnBoard = openCard?.access === 'open';
+  const chatSetup = flowsOn && chatShown && chatChannelId ? <ChatSetup key={chatChannelId} channelId={chatChannelId} loose={!chatOnBoard} links={setupLinks}
+    agents={chatPeople.filter(p => p.subscriberType === 'AGENT' && !isServiceAgent(p.subscriberId, service)).map(p => p.subscriberId)} viewer={humanId}
+    onConnect={anchor => openLinkPick(chatChannelId, anchor)} onOpenLink={openChatLink}/> : null;
+  const chatConnect = flowsOn && chatOnBoard && chatChannelId ? (anchor: HTMLElement) => openLinkPick(chatChannelId, anchor) : undefined;
   const flowCards = flowPop?.view && board ? {from: board.cards.find(c => c.channelId === flowPop.view!.from), to: board.cards.find(c => c.channelId === flowPop.view!.to)} : null;
   const agentsOf = (card: BoardCard | undefined) => card?.access === 'open'
     ? card.participants.filter(p => p.subscriberType === 'AGENT' && !isServiceAgent(p.subscriberId, service)).map(p => p.subscriberId) : [];
@@ -929,7 +1034,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
           areaContext={areaContext} onAreaContext={openAreaContext} contextAreaId={panel?.kind === 'area' ? panel.areaId : null} onOpenCanvas={id => onSelectCanvas(id)} onDropFiles={focusChat ? undefined : dropFiles}
           needs={cardNeeds} viewer={username} onNotice={say} onAreaCreated={setRenameAreaId} renameAreaId={renameAreaId} onRenameStarted={renameStarted}
           onViewChange={viewChanged} onEmptyPress={focusChat ? emptyPress : undefined} onFit={focusChat ? fitCloses : undefined}
-          links={shownLinks} onOpenLink={openFlowLink} onToggleFork={toggleFork}/>
+          links={shownLinks} onOpenLink={openFlowLink} onToggleFork={toggleFork}
+          canConnect={canConnect} onConnect={connectCards} onNewStep={canPlace ? dropNewStep : undefined} onLinkPick={openLinkPick}/>
         <AgentTray suggested={tray.suggested} pinned={tray.pinned} pins={shownPins} pinsReady={pins !== null} onTogglePin={toggle}
           agents={roster} humanId={humanId} owners={owners} busy={busy} cards={board.cards} areas={board.areas} open={pickerOpen} onOpenChange={showPicker}/>
         {/* Files dropped on empty canvas start a chat here, even beside a split chat; a focus chat takes every drop itself. */}
@@ -999,6 +1105,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         canPlace={board.canvas.role !== 'view'} draggable onNewArea={newArea} onArchive={hide} onClose={closeDrawer} now={Date.now}
         onOpenChat={openLoose} highlight={highlight} focusKey={drawerFocus}/> : null}
       {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} anchor={sheetAnchor} drawerOpen={drawerOpen} watchView={watchView} title={chatTitle} sub={chatSub} area={chatArea} onPlace={placeHere} onUseHere={useHere}
+        setup={chatSetup} onConnect={chatConnect}
         onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
         {chat}
       </CanvasChat> : null}
@@ -1007,7 +1114,10 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         title={panel.kind === 'area' ? board.areas.find(a => a.id === panel.areaId)?.title : undefined}
         canEdit={board.canvas.role !== 'view'} dropped={areaFiles?.areaId === (panel.kind === 'area' ? panel.areaId : null) ? areaFiles : null} holdsChat={panel.kind === 'canvas' ? board.cards.length > 0 : board.cards.some(card => areaFor(cardCentre(card), board.areas)?.id === panel.areaId)}
         onViewOnlyDrop={() => say(VIEW_ONLY_FILES)} onChanged={() => loadSummary(board.canvas.id)} onClose={() => setPanel(null)}/> : null}
-      {flowPop?.view && board && !phone ? <HandoffPopover key={flowPop.linkId} link={flowPop.view} fromTitle={flowPop.view.fromTitle} toTitle={flowPop.view.toTitle}
+      {linkPick && pickFrom && board ? <LinkPicker key={`pick:${linkPick.from}`} from={pickFrom} cards={board.cards} areas={board.areas} links={board.links} service={service}
+        anchor={linkPick.anchor} onPick={to => void connect(linkPick.from, to)} onNewStep={board.canvas.role !== 'view' && !phone ? () => pickNewStep(linkPick.from) : undefined}
+        onClose={closeLinkPick}/> : null}
+      {flowPop?.view && board ? <HandoffPopover key={flowPop.linkId} link={flowPop.view} fromTitle={flowPop.view.fromTitle} toTitle={flowPop.view.toTitle}
         fromAgent={agentsOf(flowCards?.from)[0] ?? null} candidates={flowCards?.to?.access === 'open' ? agentsOf(flowCards.to) : flowPop.view.who ? [flowPop.view.who] : []}
         pinned={shownPins} anchor={flowPop.anchor} editable={flowPop.view.canEdit && board.canvas.role !== 'view'}
         onChange={changeFlow} onLabelDraft={draftFlowLabel} onDisconnect={disconnectFlow} onSendNow={sendFlow} onClose={closeFlowPop}/> : null}
@@ -1065,6 +1175,7 @@ type ChatSub = {
   onSees(areaId: string | null, opener: HTMLElement): void;
 };
 const MAX_SUB_FACES = 5;
+const CHAT_CONNECT_TITLE = 'Connect: pass results to another chat';
 const initials = (name: string) => name.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(' ').filter(Boolean).slice(0, 2).map(word => word[0]).join('').toUpperCase() || '?';
 
 /** The mock's `.ch-sub`: participant faces, then `in {area} · sees N contexts` (a button to that context) or where it comes from. */
@@ -1095,9 +1206,14 @@ function ChatSubline({sub}: {sub: ChatSub}) {
   </p>;
 }
 
-function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub, area, onPlace, onUseHere, onMode, onClose, onOpenRegular, children}: {
+function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub, area, onPlace, onUseHere, setup, onConnect, onMode, onClose, onOpenRegular, children}: {
   channelId: string; mode: CanvasChatMode; anchor: SheetAnchor | null; drawerOpen: boolean; watchView(listener: () => void): () => void;
-  title: string; sub?: ChatSub; area?: ChatArea; onPlace?(): void; onUseHere?(): Promise<void>; onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
+  title: string; sub?: ChatSub; area?: ChatArea; onPlace?(): void; onUseHere?(): Promise<void>;
+  /** The Setup line, at the top of the chat body. */
+  setup?: ReactNode;
+  /** A chat on this canvas, with hand-offs set up: the header's connect button opens the chat picker under it. */
+  onConnect?(anchor: HTMLElement): void;
+  onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
 }) {
   const panel = useRef<HTMLElement>(null);
   const [split, setSplit] = useState(readSplit);
@@ -1259,6 +1375,8 @@ function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub,
         <button type="button" className="canvas-chat-icon" aria-label="Split screen" aria-pressed={!focus}
           title={focus ? 'Split screen: the chat on the right, the canvas stays usable' : 'Float over the canvas instead'}
           onClick={() => onMode(focus ? 'split' : 'focus')}><Columns2 size={16} aria-hidden="true"/></button>
+        {onConnect ? <button type="button" className="canvas-chat-icon canvas-chat-connect" aria-label={CHAT_CONNECT_TITLE} title={CHAT_CONNECT_TITLE}
+          aria-haspopup="dialog" onClick={event => onConnect(event.currentTarget)}><LinkIcon/></button> : null}
         <span ref={setActionsSlot} className="canvas-chat-slot"/>
         <button type="button" className="canvas-chat-icon" aria-label="Open in the regular chat view" title="Open in the regular chat view"
           onClick={onOpenRegular}><SquareArrowOutUpRight size={16} aria-hidden="true"/></button>
@@ -1285,7 +1403,7 @@ function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub,
       </div>
     </header>
     <ChatHeaderSlotsContext.Provider value={slots}>
-      <div className="canvas-chat-body">{children}</div>
+      <div className="canvas-chat-body">{setup}{children}</div>
     </ChatHeaderSlotsContext.Provider>
   </section>;
 }

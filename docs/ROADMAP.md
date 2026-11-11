@@ -644,8 +644,9 @@ Done so far: the service agent, the link store (migration `014_links_forks.sql`)
 the link API with its permissions (`/api/flows/links`, `/api/flows/availability`),
 links and fork parents on the board, summaries, and the hand-off worker with Send
 now, approvals and the Needs you items it serves (`/api/flows/needs`), and on the
-canvas the link lines and labels, the Hand-off popover and Switchyard lines in
-chats. Not yet built: creating links from the canvas, flow items in Needs you,
+canvas the link lines and labels, the Hand-off popover, Switchyard lines in
+chats, and connecting chats (the `+` port, the chat picker, a new step and the open
+chat's Setup line with its links row). Not yet built: flow items in Needs you,
 forks, schedules and webhooks.
 Access that comes only through a team counts as no access for flows.
 

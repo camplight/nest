@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {drawnEnds,linkPath,offsetReverse} from './link-geometry';
+import {drawnEnds,linkPath,linkRelease,offsetReverse,tempLinkPath} from './link-geometry';
 
 describe('link geometry (the mock\'s geom)',()=>{
   it('joins side by side cards from the right edge to the left edge, bowed by 40% of the gap',()=>{
@@ -30,5 +30,44 @@ describe('link geometry (the mock\'s geom)',()=>{
   it('draws a fork from the parent (its target) to the child (its source)',()=>{
     expect(drawnEnds({kind:'fork',from:'child',to:'parent'})).toEqual({a:'parent',b:'child'});
     expect(drawnEnds({kind:'link',from:'a',to:'b'})).toEqual({a:'a',b:'b'});
+  });
+});
+
+describe('dragging a card\'s + port (the mock\'s link gesture)',()=>{
+  it('draws the temporary line from the right edge at mid-height to the pointer',()=>{
+    expect(tempLinkPath({x:80,y:140,w:264,h:200},{x:700,y:300})).toBe('M344 240C424 240 620 300 700 300');
+  });
+
+  // A tiny stand-in for the DOM: an element knows its classes and attributes, and its parent.
+  type Fake={cls:string[];attrs?:Record<string,string>;parent?:Fake};
+  const matches=(f:Fake,selector:string)=>selector.split(',').map(s=>s.trim()).some(s=>s.startsWith('.')?f.cls.includes(s.slice(1)):s.startsWith('[')?Boolean(f.attrs?.[s.slice(1,-1).split('=')[0]]):f.cls.includes(`tag:${s}`));
+  const el=(f:Fake):Element=>({
+    closest:(selector:string)=>{let at:Fake|undefined=f;while(at){if(matches(at,selector))return el(at);at=at.parent;}return null;},
+    getAttribute:(name:string)=>f.attrs?.[name]??null,
+    __fake:f,
+  }) as unknown as Element;
+  const surfaceFake:Fake={cls:['canvas-surface']};
+  const surface={contains:(other:Element)=>{let at:Fake|undefined=(other as unknown as {__fake:Fake}).__fake;while(at){if(at===surfaceFake)return true;at=at.parent;}return false;}} as unknown as Element;
+  const world:Fake={cls:['canvas-world'],parent:surfaceFake};
+  const card=(id:string):Fake=>({cls:['canvas-card'],attrs:{'data-channel-id':id},parent:world});
+  const open=(id:string)=>id!=='locked';
+
+  it('connects on another open card, anywhere inside it',()=>{
+    expect(linkRelease(el({cls:['canvas-card-title'],parent:card('b')}),surface,'a',open)).toEqual({kind:'card',channelId:'b'});
+  });
+  it('does nothing on its own card or a card that is not open',()=>{
+    expect(linkRelease(el(card('a')),surface,'a',open)).toBeNull();
+    expect(linkRelease(el(card('locked')),surface,'a',open)).toBeNull();
+  });
+  it('counts the bare surface and an area\'s inside as empty canvas',()=>{
+    expect(linkRelease(el(surfaceFake),surface,'a',open)).toEqual({kind:'empty'});
+    expect(linkRelease(el({cls:['canvas-area'],parent:world}),surface,'a',open)).toEqual({kind:'empty'});
+  });
+  it('never counts chrome, an area\'s title bar, a line label or anything outside the surface',()=>{
+    expect(linkRelease(el({cls:['tag:button'],parent:{cls:['canvas-chrome','canvas-zoom'],parent:surfaceFake}}),surface,'a',open)).toBeNull();
+    expect(linkRelease(el({cls:['canvas-area-title'],parent:{cls:['canvas-area-bar'],parent:{cls:['canvas-area'],parent:world}}}),surface,'a',open)).toBeNull();
+    expect(linkRelease(el({cls:['lab'],parent:world}),surface,'a',open)).toBeNull();
+    expect(linkRelease(el({cls:['canvas-drawer']}),surface,'a',open)).toBeNull();
+    expect(linkRelease(null,surface,'a',open)).toBeNull();
   });
 });

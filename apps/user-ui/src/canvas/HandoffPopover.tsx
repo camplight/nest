@@ -2,7 +2,7 @@
 // with a plain-language summary and Disconnect / Send now / Pause / Done. Anchored under the line's label (the mock's
 // popAt) and kept inside the window. Each option press saves at once; the name saves 600 ms after typing stops.
 // Only the link's creator changes the settings; a member of the receiving chat may pause or disconnect it.
-import {useEffect,useLayoutEffect,useRef,useState,type CSSProperties} from 'react';
+import {useEffect,useLayoutEffect,useRef,useState,type CSSProperties,type RefObject} from 'react';
 import type {LinkWhat,LinkWhen} from '@nest/schemas';
 import {AgentAvatar} from '../components/AgentAvatar';
 import type {LinkView} from './flows-api';
@@ -18,7 +18,7 @@ export type HandoffPopoverProps = {
   candidates: readonly string[];
   /** The person's pinned agents, offered by `+ Someone else`. */
   pinned: readonly string[];
-  /** The label the popover sits under; focus returns there on close. */
+  /** The label the popover sits under (null: centred near the top); focus returns there on close. */
   anchor: HTMLElement | null;
   /** The creator, on a canvas they may edit: the settings can change. */
   editable: boolean;
@@ -45,6 +45,54 @@ const GOES: Record<LinkWhat, string> = {results: 'its results and files go', sum
 export const LABEL_SAVE_MS = 600;
 /** The mock's popAt margins: 16 px from the sides and bottom, 76 px from the top. */
 const SIDE = 16, TOP = 76;
+
+/**
+ * The mock's popAt for a popover under `anchor`: `dx` px left of its left edge and `dy` px under it, kept 16 px inside
+ * the window and 76 px from the top; centred near the top without an anchor. Re-placed as its content or the window changes.
+ */
+export function usePopPlacement(ref: RefObject<HTMLElement>, anchor: HTMLElement | null, dx: number, dy: number) {
+  const [place, setPlace] = useState<{left: number; top: number} | null>(null);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => {
+      const r = anchor?.isConnected ? anchor.getBoundingClientRect() : null;
+      const x = r ? r.left - dx : (window.innerWidth - element.offsetWidth) / 2, y = r ? r.bottom + dy : TOP;
+      const left = Math.max(SIDE, Math.min(window.innerWidth - element.offsetWidth - SIDE, x));
+      const top = Math.max(TOP, Math.min(window.innerHeight - element.offsetHeight - SIDE, y));
+      setPlace(current => current?.left === left && current.top === top ? current : {left, top});
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    observer?.observe(element);
+    window.addEventListener('resize', measure);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
+  }, [ref, anchor, dx, dy]);
+  return place;
+}
+/** The placed popover's position, as the `.canvas-flow-pop` CSS reads it. */
+export const popStyle = (place: {left: number; top: number} | null) =>
+  place ? {'--flow-pop-left': `${place.left}px`, '--flow-pop-top': `${place.top}px`} as CSSProperties : undefined;
+
+/** Escape (before an open chat's own Escape) and a press outside close a popover; a press on its opener leaves it open. */
+export function usePopDismiss(ref: RefObject<HTMLElement>, anchor: RefObject<HTMLElement | null>, onClose: () => void) {
+  const closeRef = useRef(onClose); closeRef.current = onClose;
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      closeRef.current();
+    };
+    const outside = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target || ref.current?.contains(target) || anchor.current?.contains(target)) return;
+      closeRef.current();
+    };
+    window.addEventListener('keydown', key, true);
+    window.addEventListener('pointerdown', outside, true);
+    return () => { window.removeEventListener('keydown', key, true); window.removeEventListener('pointerdown', outside, true); };
+  }, [ref, anchor]);
+}
 
 export function HandoffPopover({link, fromTitle, toTitle, fromAgent, candidates, pinned, anchor, editable, onChange, onLabelDraft, onDisconnect, onSendNow, onClose}: HandoffPopoverProps) {
   const [more, setMore] = useState(false);
@@ -77,42 +125,9 @@ export function HandoffPopover({link, fromTitle, toTitle, fromAgent, candidates,
     };
   }, []);
 
-  // Under the label (r.left - 170, r.bottom + 10), inside the window. Re-placed as its content or the window changes.
-  const [place, setPlace] = useState<{left: number; top: number} | null>(null);
-  useLayoutEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const measure = () => {
-      const r = anchorRef.current?.isConnected ? anchorRef.current.getBoundingClientRect() : null;
-      const x = r ? r.left - 170 : (window.innerWidth - element.offsetWidth) / 2, y = r ? r.bottom + 10 : TOP;
-      const left = Math.max(SIDE, Math.min(window.innerWidth - element.offsetWidth - SIDE, x));
-      const top = Math.max(TOP, Math.min(window.innerHeight - element.offsetHeight - SIDE, y));
-      setPlace(current => current?.left === left && current.top === top ? current : {left, top});
-    };
-    measure();
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
-    observer?.observe(element);
-    window.addEventListener('resize', measure);
-    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
-  }, [anchor]);
-
-  // Escape (before an open chat's own Escape) and a press outside close it; the label it came from leaves it open.
-  const closeRef = useRef(onClose); closeRef.current = onClose;
-  useEffect(() => {
-    const key = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
-      event.preventDefault();
-      closeRef.current();
-    };
-    const outside = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (!target || ref.current?.contains(target) || anchorRef.current?.contains(target)) return;
-      closeRef.current();
-    };
-    window.addEventListener('keydown', key, true);
-    window.addEventListener('pointerdown', outside, true);
-    return () => { window.removeEventListener('keydown', key, true); window.removeEventListener('pointerdown', outside, true); };
-  }, []);
+  // Under the label (r.left - 170, r.bottom + 10), inside the window; Escape and a press outside close it.
+  const place = usePopPlacement(ref, anchor, 170, 10);
+  usePopDismiss(ref, anchorRef, onClose);
 
   const shownTo = toTitle.slice(0, 30);
   const picks = [...new Set([...candidates, ...(more ? pinned : [])])];
@@ -122,7 +137,7 @@ export function HandoffPopover({link, fromTitle, toTitle, fromAgent, candidates,
       onClick={() => { if (link[key] !== value) change({[key]: value} as HandoffChange); }}>
       <span>{title}<small>{small}</small></span>
     </button>);
-  const style = place ? {'--flow-pop-left': `${place.left}px`, '--flow-pop-top': `${place.top}px`} as CSSProperties : undefined;
+  const style = popStyle(place);
 
   return <div ref={ref} role="dialog" aria-label="Hand-off between chats" className={`canvas-flow-pop invite wide${place ? ' is-placed' : ''}`} style={style}>
     <div className="iv-h"><div><h2 ref={heading} tabIndex={-1}>Hand-off</h2><small>{fromTitle} → {toTitle}</small></div></div>

@@ -1,5 +1,5 @@
 // Pure link-line math: the mock's geom (switchyard-nest-vision.html, geom) and its reverse-pair offset (renderLinks).
-import type {Rect} from './geometry';
+import type {Point,Rect} from './geometry';
 
 /** How far apart a reverse pair (A→B beside B→A) is drawn, so both lines and labels show. */
 export const REVERSE_OFFSET = 22;
@@ -39,4 +39,26 @@ export function offsetReverse(links: readonly {id: string; from: string; to: str
 /** The drawn ends: a link runs source → target; a fork (stored child → parent) is drawn parent → child, as in the mock. */
 export function drawnEnds(link: {kind: 'link' | 'fork'; from: string; to: string}): {a: string; b: string} {
   return link.kind === 'fork' ? {a: link.to, b: link.from} : {a: link.from, b: link.to};
+}
+
+/** The mock's temporary `.lk.temp` while a card's + port is dragged: from A's right edge at mid-height to the pointer. */
+export const tempLinkPath = (A: Rect, p: Point) =>
+  `M${A.x + A.w} ${A.y + A.h / 2}C${A.x + A.w + 80} ${A.y + A.h / 2} ${p.x - 80} ${p.y} ${p.x} ${p.y}`;
+
+/** Inside the surface but not empty canvas: its chrome (tools, zoom), an area's title bar, line labels and controls. */
+const NOT_EMPTY = '.canvas-chrome, .canvas-area-bar, .lab, button, a, input, textarea, select, [contenteditable]';
+/**
+ * Where a dragged + port was released, from the element under the pointer (elementFromPoint): another open card, or
+ * empty canvas (the surface's own background or an area's inside). Anything else is null: the dragged card, a locked or
+ * unavailable card, the surface's chrome, or anything outside the surface (the top bar, the drawer, a popover or sheet).
+ */
+export function linkRelease(hit: Element | null, surface: Element | null, from: string, isOpen: (channelId: string) => boolean):
+  {kind: 'card'; channelId: string} | {kind: 'empty'} | null {
+  if (!hit || !surface?.contains(hit)) return null;
+  const card = hit.closest('.canvas-card');
+  if (card) {
+    const id = card.getAttribute('data-channel-id');
+    return id && id !== from && isOpen(id) ? {kind: 'card', channelId: id} : null;
+  }
+  return hit.closest(NOT_EMPTY) ? null : {kind: 'empty'};
 }

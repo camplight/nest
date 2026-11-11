@@ -13,6 +13,7 @@ import {ORIGIN,areaMembers,cardCentre,clampZoom,fit,growToFit,isCompact,toCanvas
 import {CARD_PLACE_HEIGHT} from './loose';
 import {clearOfDrawer,presentView,stageBounds} from './sheet';
 import {Links} from './Links';
+import {linkRelease,tempLinkPath} from './link-geometry';
 
 export type SurfaceProps = {
   board: CanvasBoard;
@@ -74,6 +75,14 @@ export type SurfaceProps = {
   onOpenLink?(linkId: string, anchor: HTMLElement): void;
   /** A fork line's label was pressed: pause or resume its findings. */
   onToggleFork?(linkId: string): void;
+  /** Cards that offer hand-offs (open cards, with flows set up): the `+` port and the footer's connect button. */
+  canConnect?(card: BoardCard): boolean;
+  /** A card's `+` port was dragged onto another open card. */
+  onConnect?(from: string, to: string): void;
+  /** A card's `+` port was dragged onto empty canvas and released at this canvas point; editors only (absent otherwise). */
+  onNewStep?(from: string, at: Point): void;
+  /** A card's connect button was pressed: open the chat picker under it. */
+  onLinkPick?(from: string, anchor: HTMLElement): void;
 };
 const NO_RECTS: ReadonlyMap<string, Rect> = new Map();
 export type FileDropTarget = {kind: 'card'; channelId: string} | {kind: 'area'; areaId: string};
@@ -120,7 +129,7 @@ export function drawnNotice(inside: number) {
 }
 
 type Tool = 'select' | 'area';
-type Mode = 'pan' | 'card' | 'area' | 'resize' | 'draw' | 'face';
+type Mode = 'pan' | 'card' | 'area' | 'resize' | 'draw' | 'face' | 'link';
 type Gesture = {pointerId: number; mode: Mode; id?: string; agent?: string; start: Point; startView: View; active: boolean; members?: {cards: Set<string>; areas: Set<string>}; base?: {w: number; h: number};
   /** Pressed on empty canvas (an area's inside counts; a card does not). */
   empty?: boolean};
@@ -129,7 +138,9 @@ type Preview =
   | {kind: 'area'; id: string; dx: number; dy: number; cards: Set<string>; areas: Set<string>}
   | {kind: 'resize'; id: string; w: number; h: number}
   | {kind: 'draw'; rect: Rect}
-  | {kind: 'face'; id: string; agent: string; x: number; y: number; away: boolean};
+  | {kind: 'face'; id: string; agent: string; x: number; y: number; away: boolean}
+  /** A card's `+` port dragged to canvas point `p`; `over` is the open card a release would connect to. */
+  | {kind: 'link'; id: string; p: Point; over: string | null};
 type Pinch = {ids: [number, number]; dist: number; mid: Point; view: View};
 
 const DRAG_THRESHOLD = 3;
@@ -162,7 +173,7 @@ const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + 
 export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null,
   onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onOpenCanvas, onDropFiles,
   needs = NO_NEEDS, viewer = '', onNotice, onAreaCreated, renameAreaId = null, onRenameStarted, onViewChange, onEmptyPress, onFit,
-  links, onOpenLink, onToggleFork}: SurfaceProps) {
+  links, onOpenLink, onToggleFork, canConnect, onConnect, onNewStep, onLinkPick}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
   // Without a known human the view is not remembered, so it can never land under another person's key.
   const key = humanId ? viewKey(humanId, board.canvas.id) : null;
@@ -209,7 +220,11 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     }
     if (changed) bumpHeights();
   }), []);
-  useEffect(() => () => observer?.disconnect(), [observer]);
+  // Re-observes what is mounted: StrictMode's rehearsal unmount disconnects the observer after the cards' refs attached.
+  useEffect(() => {
+    for (const element of elements.current.values()) observer?.observe(element);
+    return () => observer?.disconnect();
+  }, [observer]);
   const measure = useCallback((id: string, element: HTMLElement | null) => {
     const previous = elements.current.get(id);
     if (previous && previous !== element) { observer?.unobserve(previous); elements.current.delete(id); }
@@ -451,6 +466,13 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       || at.clientY < r.top - REMOVE_DISTANCE || at.clientY > r.bottom + REMOVE_DISTANCE;
   };
 
+  const connectRef = useRef(onConnect); connectRef.current = onConnect;
+  const newStepRef = useRef(onNewStep); newStepRef.current = onNewStep;
+  const canConnectRef = useRef(canConnect); canConnectRef.current = canConnect;
+  /** What a dragged port is over: hit-tested against what is drawn there, so chrome over the surface never counts. */
+  const releaseAt = (from: string, at: {clientX: number; clientY: number}) => linkRelease(document.elementFromPoint(at.clientX, at.clientY), surfaceRef.current, from,
+    id => boardRef.current.cards.some(card => card.channelId === id && card.access === 'open'));
+
   function startPinch() {
     const [[a, pa], [b, pb]] = [...touches.current.entries()];
     pinch.current = {ids: [a, b], dist: Math.max(1, distance(pa, pb)), mid: midpoint(pa, pb), view: viewRef.current};
@@ -470,10 +492,14 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     if (pressed) selectRef.current?.(pressed);
     if (!pan && target.closest('button, input, textarea, select, a, .canvas-menu, .canvas-chrome')) return;
     const handle = pan ? null : target.closest<HTMLElement>('[data-drag]');
+    const port = pan || !pressed ? null : target.closest('[data-port]');
+    const portCard = port ? boardRef.current.cards.find(card => card.channelId === pressed) : undefined;
     const start = local(event), startView = viewRef.current;
     const current = boardRef.current;
     let next: Gesture = {pointerId: event.pointerId, mode: 'pan', start, startView, active: false, empty: !pan && !pressed && !target.closest('.canvas-card')};
-    if (handle?.dataset.drag === 'face' && pressed && handle.dataset.agent) {
+    if (portCard && connectRef.current && canConnectRef.current?.(portCard)) {
+      next = {...next, mode: 'link', id: pressed};
+    } else if (handle?.dataset.drag === 'face' && pressed && handle.dataset.agent) {
       next = {...next, mode: 'face', id: pressed, agent: handle.dataset.agent};
     } else if (handle?.dataset.drag === 'card') {
       next = {...next, mode: 'card', id: handle.dataset.channelId};
@@ -519,6 +545,11 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       case 'face': setPreview({kind: 'face', id: g.id!, agent: g.agent!, x: point.x, y: point.y, away: awayFrom(g.id!, event)}); return;
       case 'area': setPreview({kind: 'area', id: g.id!, dx: dx / zoom, dy: dy / zoom, cards: g.members!.cards, areas: g.members!.areas}); return;
       case 'resize': setPreview({kind: 'resize', id: g.id!, w: clampSize(g.base!.w + dx / zoom), h: clampSize(g.base!.h + dy / zoom)}); return;
+      case 'link': {
+        const target = releaseAt(g.id!, event);
+        setPreview({kind: 'link', id: g.id!, p: toCanvas(viewRef.current, point), over: target?.kind === 'card' ? target.channelId : null});
+        return;
+      }
       case 'draw': {
         const a = toCanvas(g.startView, g.start), b = toCanvas(viewRef.current, point);
         setPreview({kind: 'draw', rect: {x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y)}});
@@ -541,6 +572,13 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     if (!g.active || event.type === 'pointercancel') return;
     if (g.mode === 'face') {
       if (awayFrom(g.id!, event)) removeAgentRef.current?.(g.id!, g.agent!);
+      return;
+    }
+    if (g.mode === 'link') {
+      // Another open card connects; empty canvas (never chrome, the top bar or a drawer) adds a new step for editors.
+      const target = releaseAt(g.id!, event);
+      if (target?.kind === 'card') connectRef.current?.(g.id!, target.channelId);
+      else if (target?.kind === 'empty') newStepRef.current?.(g.id!, toCanvas(viewRef.current, local(event)));
       return;
     }
     const point = local(event), zoom = g.startView.zoom;
@@ -678,22 +716,28 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     });
   }, [linkHover, flash, contextAreaId, areaContext, board.areas]);
   // Link lines follow every card, mounted or not, and a card being dragged.
+  // A port drag moves no card, so the lines stay put (and their labels unmeasured) while it runs.
+  const moving = preview?.kind === 'card' || preview?.kind === 'area' ? preview : null;
   const linkRects = useMemo(() => {
     if (!links?.length) return NO_RECTS;
     const rects = new Map<string, Rect>();
     for (const r of cardRects) {
-      const shift = preview?.kind === 'card' && preview.id === r.card.channelId ? preview
-        : preview?.kind === 'area' && preview.cards.has(r.card.channelId) ? preview : null;
+      const shift = moving?.kind === 'card' && moving.id === r.card.channelId ? moving
+        : moving?.kind === 'area' && moving.cards.has(r.card.channelId) ? moving : null;
       rects.set(r.card.channelId, {x: r.x + (shift?.dx ?? 0), y: r.y + (shift?.dy ?? 0), w: r.w, h: r.h});
     }
     return rects;
-  }, [links, cardRects, preview]);
+  }, [links, cardRects, moving]);
   const openLinkRef = useRef(onOpenLink); openLinkRef.current = onOpenLink;
   const toggleForkRef = useRef(onToggleFork); toggleForkRef.current = onToggleFork;
   const openFlow = useCallback((linkId: string, anchor: HTMLElement) => openLinkRef.current?.(linkId, anchor), []);
+  const linkPickRef = useRef(onLinkPick); linkPickRef.current = onLinkPick;
+  // Stable, so memoized cards do not re-render; only cards canConnect allows get it.
+  const pickLink = useCallback((channelId: string, anchor: HTMLElement) => linkPickRef.current?.(channelId, anchor), []);
+  const linkFrom = preview?.kind === 'link' ? linkRects.get(preview.id) ?? cardRects.find(r => r.card.channelId === preview.id) : undefined;
   const toggleFork = useCallback((linkId: string) => toggleForkRef.current?.(linkId), []);
   const tile = TWIG_TILE * view.zoom;
-  const classes = ['canvas-surface', tool === 'area' ? 'is-drawing' : '', spaceHeld ? 'is-panning-key' : '', preview ? 'is-gesturing' : ''].filter(Boolean).join(' ');
+  const classes = ['canvas-surface', tool === 'area' ? 'is-drawing' : '', spaceHeld ? 'is-panning-key' : '', preview ? 'is-gesturing' : '', preview?.kind === 'link' ? 'is-linking' : ''].filter(Boolean).join(' ');
   return <div
     ref={surfaceRef}
     tabIndex={-1}
@@ -728,6 +772,9 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       })}
       {lines.map(line => <ContextLine key={line.key} from={line.from} to={line.to}/>)}
       {links?.length ? <Links links={links} rects={linkRects} selected={selectedChannelId} onOpen={openFlow} onToggleFork={toggleFork}/> : null}
+      {preview?.kind === 'link' && linkFrom ? <svg className="canvas-links" width="1" height="1" aria-hidden="true">
+        <path className="lk temp" d={tempLinkPath(linkFrom, preview.p)}/>
+      </svg> : null}
       {preview?.kind === 'draw' ? <div className="canvas-area-draft" style={{transform: `translate(${preview.rect.x}px, ${preview.rect.y}px)`, width: Math.max(MIN_AREA, preview.rect.w), height: Math.max(MIN_AREA, preview.rect.h)}}/> : null}
       {board.cards.map(card => {
         const shift = cardShift(card), home = homeOf(card);
@@ -741,7 +788,8 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
           facesDraggable={Boolean(onRemoveAgent && canManageCard?.(card))}
           draggingFace={preview?.kind === 'face' && preview.id === card.channelId ? preview.agent : null}
           dropping={dropId === card.channelId} selected={card.channelId === selectedChannelId}
-          areaTitle={home?.title} areaTint={home?.tint}/>;
+          areaTitle={home?.title} areaTint={home?.tint}
+          onConnect={onLinkPick && canConnect?.(card) ? pickLink : undefined} linkTarget={preview?.kind === 'link' && preview.over === card.channelId}/>;
       })}
     </div>
     {preview?.kind === 'face' ? <div className={`canvas-face-ghost${preview.away ? ' is-away' : ''}`} aria-hidden="true"
