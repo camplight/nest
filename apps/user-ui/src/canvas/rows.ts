@@ -30,9 +30,7 @@ export const MAX_ROWS = 4;
 
 const files = (n: number) => `shared ${n} file${n === 1 ? '' : 's'}`;
 /** The newest item from this participant, phrased for its row. */
-const waitingText = (item: NeedsItem) => item.kind === 'review'
-  ? `needs your review · ${item.short.replace(/^Review /, '')}`
-  : `needs you · ${item.short.slice(item.short.indexOf(': ') + 2)}`;
+const waitingText = (item: NeedsItem) => `${item.kind === 'review' ? 'needs your review' : 'needs you'} · ${item.reason}`;
 
 function agentText(agent: AgentPulse): string {
   switch (agent.state) {

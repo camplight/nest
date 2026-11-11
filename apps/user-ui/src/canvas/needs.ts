@@ -8,6 +8,8 @@ export type NeedsItem = {
   from: string | null;
   /** The reason as a card's pill reads it: `{sender}: {text}` or `Review {task}`. */
   short: string;
+  /** The reason alone, for the sender's row: the mention's first line or the task's title. */
+  reason: string;
 };
 export type NeedsInput = {
   pulses: ReadonlyMap<string, CardPulse>;
@@ -25,7 +27,7 @@ export function needsYouItems({pulses, titles, reviews, projects}: NeedsInput): 
     if (chatTitle === undefined) continue;
     for (const mention of pulse.needsYou) {
       items.push({key: `mention:${mention.id}`, kind: 'mention', channelId, chatTitle, detail: `${mention.sender}: ${mention.text}`, at: mention.at,
-        from: mention.sender, short: `${mention.sender}: ${oneLine(mention.text)}`});
+        from: mention.sender, short: `${mention.sender}: ${oneLine(mention.text)}`, reason: oneLine(mention.text)});
     }
   }
   const channelOf = new Map(projects.map(project => [project.id, project.channelId]));
@@ -34,7 +36,7 @@ export function needsYouItems({pulses, titles, reviews, projects}: NeedsInput): 
     const chatTitle = channelId === undefined ? undefined : titles.get(channelId);
     if (channelId === undefined || chatTitle === undefined) continue;
     items.push({key: `review:${task.id}`, kind: 'review', channelId, chatTitle, detail: `${task.title} needs review${task.agentName ? ` · ${task.agentName}` : ''}`, at: task.updatedAt,
-      from: task.agentName || null, short: `Review ${task.title}`});
+      from: task.agentName || null, short: `Review ${task.title}`, reason: task.title});
   }
   return items.sort((a, b) => b.at - a.at);
 }

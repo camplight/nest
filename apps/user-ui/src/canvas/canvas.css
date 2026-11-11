@@ -476,32 +476,21 @@
 .canvas-card-open:hover,
 .canvas-card-remove:hover { border-color: var(--nest-accent); }
 /*
- * Remove from canvas (not in the mock) stays out of the way: a small icon that takes no room until the card is
- * hovered or has keyboard focus inside it, so the Needs you pill keeps its width. It stays in the Tab order.
+ * Remove from canvas (not in the mock) stays out of the way: a small icon whose slot is always kept, shown only
+ * while the card is hovered or has keyboard focus inside it, so the footer never shifts. It stays in the Tab order
+ * (opacity, not visibility), and touch screens always show it.
  */
 .canvas-card-foot .canvas-card-remove {
   width: 26px;
   padding: 0;
   color: var(--nest-muted);
   font-size: 13px;
+  transition: opacity .12s ease;
 }
-.canvas-card:not(:hover):not(:focus-within) .canvas-card-foot .canvas-card-remove {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  min-height: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  border: 0;
-}
-@media (hover: none) {
+@media (hover: hover) {
   .canvas-card:not(:hover):not(:focus-within) .canvas-card-foot .canvas-card-remove {
-    position: static;
-    width: 26px;
-    height: auto;
-    min-height: 26px;
-    clip-path: none;
-    border: 1px solid var(--nest-border);
+    opacity: 0;
+    pointer-events: none;
   }
 }
 .canvas-card-error {

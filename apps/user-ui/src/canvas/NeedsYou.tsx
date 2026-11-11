@@ -10,11 +10,12 @@ const REVIEWS_MS = 60_000;
 const NO_REVIEWS: DashboardTask[] = [];
 
 /**
- * Tasks awaiting review: read on mount, when `refresh` changes (a list opens), on focus, and once a minute while visible.
- * Nothing is read while `enabled` is false.
+ * Tasks awaiting review: read when enabled, when `open` turns true (a list opens; closing it reads nothing), on focus,
+ * and once a minute while visible. Nothing is read while `enabled` is false.
  */
-export function useReviews(refresh: unknown, enabled = true) {
+export function useReviews(open: boolean, enabled = true) {
   const [reviews, setReviews] = useState<DashboardTask[]>(NO_REVIEWS);
+  const reload = useRef<() => void>(() => {});
   useEffect(() => {
     if (!enabled) return;
     let current = true;
@@ -25,10 +26,16 @@ export function useReviews(refresh: unknown, enabled = true) {
     };
     const tick = () => { if (document.visibilityState !== 'hidden') load(); };
     load();
+    reload.current = load;
     const timer = setInterval(tick, REVIEWS_MS);
     window.addEventListener('focus', load);
-    return () => { current = false; clearInterval(timer); window.removeEventListener('focus', load); };
-  }, [refresh, enabled]);
+    return () => { current = false; reload.current = () => {}; clearInterval(timer); window.removeEventListener('focus', load); };
+  }, [enabled]);
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    if (open && !wasOpen.current) reload.current();
+    wasOpen.current = open;
+  }, [open]);
   return reviews;
 }
 

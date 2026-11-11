@@ -47,8 +47,8 @@ export type CardProps = {
 };
 
 const NO_NEEDS: readonly NeedsItem[] = [];
-/** Clicks here act on their own control (or start a face drag), never open the chat. */
-const OWN_CLICK = 'button, a, input, textarea, select, .canvas-card-face';
+/** Clicks here act on their own control (or start a face drag), never open the chat. Other faces open it like the rest of the card. */
+const OWN_CLICK = 'button, a, input, textarea, select, .canvas-card-face[data-drag]';
 
 export function cardTitle(card: BoardCard) {
   return card.access === 'open' ? card.title || 'Untitled chat' : card.access === 'locked' ? 'Private chat' : 'This chat is no longer available';

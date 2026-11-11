@@ -6,7 +6,10 @@ import {MAX_ROWS,participantRows,shownRows} from './rows';
 const base:CardPulse={agents:[],people:[],lastActivityAt:null,artifacts:[],needsYou:[],apps:{apps:[],reads:0,changes:0}};
 const agent=(name:string)=>({subscriberType:'AGENT',subscriberId:name});
 const human=(name:string)=>({subscriberType:'HUMAN',subscriberId:name});
-const item=(kind:'mention'|'review',from:string|null,short:string,at=1):NeedsItem=>({key:`${kind}:${short}`,kind,channelId:'c1',chatTitle:'Launch',detail:short,at,from,short});
+const item=(kind:'mention'|'review',from:string|null,reason:string,at=1):NeedsItem=>{
+  const short=kind==='review'?`Review ${reason}`:`${from}: ${reason}`;
+  return {key:`${kind}:${short}`,kind,channelId:'c1',chatTitle:'Launch',detail:short,at,from,short,reason};
+};
 const rows=(pulse:Partial<CardPulse>,participants=[agent('Pip'),human('mate'),human('me')],needs:NeedsItem[]=[])=>participantRows({participants,pulse:{...base,...pulse},needs,viewer:'me'});
 
 describe('participantRows',()=>{
@@ -42,15 +45,16 @@ describe('participantRows',()=>{
   it('waits on you only for a Needs you item from that participant: a review of the agent\'s task or a person\'s mention',()=>{
     const result=rows({agents:[{name:'Pip',state:'done',since:1,said:'draft ready'},{name:'Pom',state:'done',since:1}],people:[{name:'mate',at:1,said:'hi',files:0}]},
       [agent('Pip'),agent('Pom'),human('mate'),human('me')],
-      [item('review','Pip','Review Launch post',3),item('mention','mate','mate: pick a hook',2),item('review',null,'Review Orphan task',1)]);
+      [item('review','Pip','Review: Launch post',3),item('mention','mate','note: pick a hook',2),item('review',null,'Orphan task',1)]);
+    // The reason is stored on the item, so a colon inside it is kept as written.
     expect(result.map(r=>[r.name,r.state,r.text])).toEqual([
-      ['Pip','waiting','needs your review · Launch post'],['Pom','done','done'],['mate','waiting','needs you · pick a hook'],['me','idle',''],
+      ['Pip','waiting','needs your review · Review: Launch post'],['Pom','done','done'],['mate','waiting','needs you · note: pick a hook'],['me','idle',''],
     ]);
   });
 
   it('a live turn or a problem outranks waiting, and a person never waits for an agent\'s review with the same name',()=>{
     const result=rows({agents:[{name:'Pip',state:'working',since:1},{name:'Pom',state:'failed',since:1}]},[agent('Pip'),agent('Pom'),human('Pip')],
-      [item('review','Pip','Review A'),item('review','Pom','Review B')]);
+      [item('review','Pip','A'),item('review','Pom','B')]);
     expect(result.map(r=>[r.kind,r.state])).toEqual([['agent','working'],['agent','failed'],['human','idle']]);
   });
 

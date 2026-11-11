@@ -157,8 +157,12 @@ await runChatTest('canvas pile: Place on canvas and dragging a row place cards w
   await rowFor(page,seeded[2].name).getByRole('checkbox').check();
   await pile.getByRole('button',{name:'Place on canvas',exact:true}).click();
   const second=JSON.parse((await again).request().postData()!) as {cards:{x:number;y:number}[]};
-  assert.equal(second.cards[0].y,body.cards[0].y+160+40,'below the first grid, with a gap');
-  const overlap=(a:{x:number;y:number},b:{x:number;y:number})=>a.x<b.x+280&&b.x<a.x+280&&a.y<b.y+160&&b.y<a.y+160;
+  // Mounted cards are measured (canvas px, unaffected by zoom); the new grid goes below the taller one, plus a gap.
+  const heightOf=(channelId:string)=>page.locator(`.canvas-card[data-channel-id="${channelId}"]`).evaluate(el=>(el as HTMLElement).offsetHeight);
+  const firstRow=Math.max(...await Promise.all(seeded.slice(0,2).map(chat=>heightOf(chat.channelId))));
+  assert.equal(second.cards[0].y,body.cards[0].y+firstRow+40,'below the first grid, with a gap');
+  const placedHeights=new Map(await Promise.all((await board(h,id)).cards.map(async c=>[c.channelId,await heightOf(c.channelId)] as const)));
+  const overlap=(a:{x:number;y:number},b:{channelId:string;x:number;y:number})=>a.x<b.x+280&&b.x<a.x+280&&a.y<b.y+placedHeights.get(b.channelId)!&&b.y<a.y+260;
   for(const other of (await board(h,id)).cards.filter(c=>c.channelId!==seeded[2].channelId))assert.ok(!overlap(second.cards[0],other),`clear of ${other.channelId}`);
   await page.locator(`.canvas-card[data-channel-id="${seeded[2].channelId}"]`).waitFor();
 

@@ -64,13 +64,20 @@ export function filterLoose(items: LooseChat[], {query, needsYou, agent, age}: L
 }
 
 export const GRID_COLUMNS = 3;
-export const GRID_STEP = {x: 300, y: 200};
+/**
+ * A card that is not mounted yet (so not measured) is assumed this tall when placing it. Cards with participant
+ * rows run about 180-260 canvas px. Placement only: area membership keeps the shared CARD_HEIGHT, which the
+ * server uses too.
+ */
+export const CARD_PLACE_HEIGHT = 260;
+/** The mock's 300 × 300 grid: a 280 × 260 card with room around it. */
+export const GRID_STEP = {x: 300, y: 300};
 export const AREA_PADDING = 48;
 
-/** Cards in rows of 3, 300×200 apart, with the grid's bounds centred on `centre` (canvas units). */
+/** Cards in rows of 3, 300×300 apart, with the grid's bounds centred on `centre` (canvas units). */
 export function gridPlacement(channelIds: string[], centre: Point): {cards: {channelId: string; x: number; y: number}[]; bounds: Rect} {
   const columns = Math.min(GRID_COLUMNS, Math.max(1, channelIds.length)), rows = Math.max(1, Math.ceil(channelIds.length / GRID_COLUMNS));
-  const w = (columns - 1) * GRID_STEP.x + DEFAULT_CARD_WIDTH, h = (rows - 1) * GRID_STEP.y + CARD_HEIGHT;
+  const w = (columns - 1) * GRID_STEP.x + DEFAULT_CARD_WIDTH, h = (rows - 1) * GRID_STEP.y + CARD_PLACE_HEIGHT;
   const x = Math.round(centre.x - w / 2), y = Math.round(centre.y - h / 2);
   return {
     cards: channelIds.map((channelId, i) => ({channelId, x: x + (i % GRID_COLUMNS) * GRID_STEP.x, y: y + Math.floor(i / GRID_COLUMNS) * GRID_STEP.y})),
@@ -81,8 +88,14 @@ export function gridPlacement(channelIds: string[], centre: Point): {cards: {cha
 /** The rect of a new area that wraps `bounds` with 48 px on every side. */
 export const areaAround = (bounds: Rect, pad = AREA_PADDING): Rect => ({x: bounds.x - pad, y: bounds.y - pad, w: bounds.w + 2 * pad, h: bounds.h + 2 * pad});
 
-/** A chat dropped from the pile lands as a default-width card centred on the drop point. */
+/**
+ * A chat dropped from the pile lands as a default-width card whose membership centre (the shared CARD_HEIGHT)
+ * is the drop point, so it joins the area it was dropped on.
+ */
 export const dropPlacement = (at: Point, w = DEFAULT_CARD_WIDTH): Point => ({x: Math.round(at.x - w / 2), y: Math.round(at.y - CARD_HEIGHT / 2)});
+
+/** A card already on the canvas. `h` is its measured height; unmeasured cards use CARD_PLACE_HEIGHT. */
+export type Placed = {x: number; y: number; w: number; h?: number};
 
 /** The space kept between a moved grid (or its area) and the card above it. */
 export const PLACE_GAP = 40;
@@ -90,8 +103,8 @@ export const PLACE_GAP = 40;
  * How far down `rect` (a new grid, or the area around it) must move so it covers no existing card:
  * below the lowest card it overlaps plus a gap, again until it overlaps none. 0 when it is already clear.
  */
-export function clearOfCards(rect: Rect, cards: {x: number; y: number; w: number}[], gap = PLACE_GAP): number {
-  const taken = cards.map(card => ({x: card.x, y: card.y, w: card.w, h: CARD_HEIGHT}));
+export function clearOfCards(rect: Rect, cards: Placed[], gap = PLACE_GAP): number {
+  const taken = cards.map(card => ({x: card.x, y: card.y, w: card.w, h: card.h ?? CARD_PLACE_HEIGHT}));
   let dy = 0;
   // Each pass moves past at least one more card, so this ends within one pass per card.
   for (let pass = 0; pass <= taken.length; pass++) {
@@ -107,31 +120,30 @@ export function clearOfCards(rect: Rect, cards: {x: number; y: number; w: number
  * Where chats dropped from the pile land: one chat centred on the drop point, or several in the
  * 3-wide grid centred there, moved down below any existing card it would cover.
  */
-export function dropLayout(channelIds: string[], at: Point, cards: {x: number; y: number; w: number}[]): {channelId: string; x: number; y: number}[] {
+export function dropLayout(channelIds: string[], at: Point, cards: Placed[]): {channelId: string; x: number; y: number}[] {
   if (channelIds.length === 1) return [{channelId: channelIds[0]!, ...dropPlacement(at)}];
   const first = gridPlacement(channelIds, at);
   const dy = clearOfCards(first.bounds, cards);
   return dy ? gridPlacement(channelIds, {x: at.x, y: at.y + dy}).cards : first.cards;
 }
 
-type Placed = {x: number; y: number; w: number};
 /** Room kept around other cards when a card is moved in from the chat header. */
 const SLOT_MARGIN = PLACE_GAP / 2;
 const SLOT_TRIES = 400;
 const takenBy = (cards: Placed[]): Rect[] =>
-  cards.map(card => ({x: card.x - SLOT_MARGIN, y: card.y - SLOT_MARGIN, w: card.w + 2 * SLOT_MARGIN, h: CARD_HEIGHT + 2 * SLOT_MARGIN}));
+  cards.map(card => ({x: card.x - SLOT_MARGIN, y: card.y - SLOT_MARGIN, w: card.w + 2 * SLOT_MARGIN, h: (card.h ?? CARD_PLACE_HEIGHT) + 2 * SLOT_MARGIN}));
 
 /**
  * Where a card moved into an area goes: the first free grid spot under its title bar, row by row,
  * in as many columns as fit (at least one). Rows continue below the area, which then grows to fit.
  */
-export function slotInArea(area: Rect, cards: Placed[], w = DEFAULT_CARD_WIDTH): Point {
+export function slotInArea(area: Rect, cards: Placed[], w = DEFAULT_CARD_WIDTH, h = CARD_PLACE_HEIGHT): Point {
   const columns = Math.max(1, Math.floor((area.w - 2 * AREA_FIT_PAD.side - w) / GRID_STEP.x) + 1);
   const taken = takenBy(cards);
   const spotAt = (i: number): Point => ({x: area.x + AREA_FIT_PAD.side + (i % columns) * GRID_STEP.x, y: area.y + AREA_FIT_PAD.top + Math.floor(i / columns) * GRID_STEP.y});
   for (let i = 0; i < SLOT_TRIES; i++) {
     const spot = spotAt(i);
-    if (!taken.some(rect => overlaps(rect, {...spot, w, h: CARD_HEIGHT}))) return spot;
+    if (!taken.some(rect => overlaps(rect, {...spot, w, h}))) return spot;
   }
   return spotAt(SLOT_TRIES);
 }
@@ -140,13 +152,13 @@ export function slotInArea(area: Rect, cards: Placed[], w = DEFAULT_CARD_WIDTH):
  * Where a card taken out of an area goes: just right of that area, stepping down (then further
  * right) until it overlaps no area and no other card.
  */
-export function slotOutsideAreas(home: Rect, areas: Rect[], cards: Placed[], w = DEFAULT_CARD_WIDTH): Point {
+export function slotOutsideAreas(home: Rect, areas: Rect[], cards: Placed[], w = DEFAULT_CARD_WIDTH, h = CARD_PLACE_HEIGHT): Point {
   const taken = [...takenBy(cards), ...areas];
   const start = {x: home.x + home.w + PLACE_GAP, y: home.y};
   const rows = SLOT_TRIES / 4, step = SLOT_MARGIN;
   for (let i = 0; i < SLOT_TRIES; i++) {
     const spot = {x: start.x + Math.floor(i / rows) * GRID_STEP.x, y: start.y + (i % rows) * step};
-    if (!taken.some(rect => overlaps(rect, {...spot, w, h: CARD_HEIGHT}))) return spot;
+    if (!taken.some(rect => overlaps(rect, {...spot, w, h}))) return spot;
   }
   return {x: start.x + 4 * GRID_STEP.x, y: start.y};
 }

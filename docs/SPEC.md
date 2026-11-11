@@ -758,6 +758,9 @@ Phase 1 is built from
    pointer; dragging a selected row carries every selected chat (up to 100), which
    land as a grid centred on the pointer, moved down below any card it would cover.
    "Place on canvas" and "New area from these" put that grid at the viewport centre.
+   The grid is 3 across on the mock's 300 × 300 step. Placement uses each mounted
+   card's measured height and assumes 260 canvas px for a card not yet shown; area
+   membership still uses the card's top 160 px centre, on client and server alike.
    A chat started from the bottom box stays in sight: on a canvas the person can
    edit it is placed at the viewport centre (moved below any card it would cover),
    opens in split screen (or the mode of the chat already open) and is centred in
@@ -796,7 +799,7 @@ Phase 1 is built from
    `Review <task>`, `+N` for more) that opens the chat, and the card gets a coral
    border; otherwise it shows `Nudge <agent>` for a quiet agent, else `Moving` or
    `All quiet`. Open is a visible footer button; Remove from canvas is a small icon
-   shown on hover or keyboard focus. At compact zoom a card keeps its title, 40 px
+   whose slot is always kept, shown on hover or keyboard focus. At compact zoom a card keeps its title, 40 px
    faces and a coral dot (needs you) or `quiet`.
 
    Area summaries. At compact zoom an area's title has a summary under it, counting the

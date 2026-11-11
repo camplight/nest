@@ -1,7 +1,7 @@
 // The infinite canvas: pan and zoom (mouse, trackpad, touch), culling, area drawing and card/area moves.
 // One transformed container holds every mounted item; only items near the viewport mount.
 import {useCallback,useEffect,useLayoutEffect,useMemo,useReducer,useRef,useState,type DragEvent as ReactDragEvent,type MutableRefObject,type PointerEvent as ReactPointerEvent} from 'react';
-import {CARD_HEIGHT,CanvasTint,areaFor,type BoardCard,type CanvasArea,type CanvasBoard,type ContextLink} from '@nest/schemas';
+import {CanvasTint,areaFor,type BoardCard,type CanvasArea,type CanvasBoard,type ContextLink} from '@nest/schemas';
 import type {BoardOp} from './board-store';
 import {Area,type AreaContext,type AreaSummary} from './Area';
 import {Card} from './Card';
@@ -10,6 +10,7 @@ import {AgentAvatar} from '../components/AgentAvatar';
 import {areaSummaries,type CardPulse} from './pulse';
 import type {NeedsItem} from './needs';
 import {ORIGIN,areaMembers,cardCentre,clampZoom,fit,growToFit,isCompact,toCanvas,visible,zoomAt,type Point,type Rect,type Size,type View} from './geometry';
+import {CARD_PLACE_HEIGHT} from './loose';
 
 export type SurfaceProps = {
   board: CanvasBoard;
@@ -67,6 +68,8 @@ export type SurfaceControls = {
   centre(): Point;
   /** Animates the view to a card (at zoom 0.8 or more) or fits an area. False when it is not on this canvas. */
   reveal(target: {channelId: string} | {areaId: string}): boolean;
+  /** A card's measured height in canvas units, once it has been mounted; undefined before that. */
+  cardHeight(channelId: string): number | undefined;
 };
 /** A reveal reads at a comfortable size: never smaller than this. */
 const REVEAL_MIN_ZOOM = 0.8;
@@ -187,7 +190,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     if (element && previous !== element) { elements.current.set(id, element); observer?.observe(element); }
   }, [observer]);
 
-  const cardRects = useMemo(() => board.cards.map(card => ({card, x: card.x, y: card.y, w: card.w, h: heights.current.get(card.channelId) ?? CARD_HEIGHT})), [board.cards, heightTick]);
+  const cardRects = useMemo(() => board.cards.map(card => ({card, x: card.x, y: card.y, w: card.w, h: heights.current.get(card.channelId) ?? CARD_PLACE_HEIGHT})), [board.cards, heightTick]);
   const contentRects = useCallback((): Rect[] => [...cardRects, ...boardRef.current.areas], [cardRects]);
 
   useLayoutEffect(() => {
@@ -261,6 +264,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
         animateTo(next);
         return true;
       },
+      cardHeight: channelId => heights.current.get(channelId),
     };
     return () => { controls.current = null; };
   }, [controls, animateTo]);
@@ -508,7 +512,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     if (g.mode === 'card') {
       const card = current.cards.find(c => c.channelId === g.id);
       if (card) {
-        const moved = {x: clampCoord(card.x + dx), y: clampCoord(card.y + dy), w: card.w, h: heights.current.get(card.channelId) ?? CARD_HEIGHT};
+        const moved = {x: clampCoord(card.x + dx), y: clampCoord(card.y + dy), w: card.w, h: heights.current.get(card.channelId) ?? CARD_PLACE_HEIGHT};
         apply({kind: 'moveCard', channelId: card.channelId, x: moved.x, y: moved.y});
         // A card dropped into an area that does not quite hold it grows the area to fit.
         const target = areaFor(cardCentre(moved), current.areas);

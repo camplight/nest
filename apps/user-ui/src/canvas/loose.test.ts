@@ -2,7 +2,7 @@ import {describe,expect,it} from 'vitest';
 import type {Project} from '@nest/schemas';
 import type {Channel} from '../types';
 import type {CardPulse} from './pulse';
-import {PLACE_GAP,areaAround,clearOfCards,dropPlacement,filterLoose,gridPlacement,looseChats,slotInArea,slotOutsideAreas,type LooseChat,type LooseFilter} from './loose';
+import {CARD_PLACE_HEIGHT,GRID_STEP,PLACE_GAP,areaAround,clearOfCards,dropPlacement,filterLoose,gridPlacement,looseChats,slotInArea,slotOutsideAreas,type LooseChat,type LooseFilter} from './loose';
 
 const NOW=Date.UTC(2026,10,8,12);
 const HOUR=3_600_000,DAY=24*HOUR;
@@ -85,17 +85,32 @@ describe('filterLoose',()=>{
 });
 
 describe('gridPlacement',()=>{
-  it('lays cards out 3 across, 300×200 apart, centred on the point, with a 48 px area around them',()=>{
+  it('lays cards out 3 across, 300×300 apart, centred on the point, with a 48 px area around them',()=>{
     const {cards,bounds}=gridPlacement(['a','b','c','d'],{x:1000,y:500});
-    // 3 columns × 2 rows: (2×300+280) × (1×200+160) = 880 × 360, centred on (1000,500).
-    expect(bounds).toEqual({x:560,y:320,w:880,h:360});
+    // 3 columns × 2 rows: (2×300+280) × (1×300+260) = 880 × 560, centred on (1000,500).
+    expect(bounds).toEqual({x:560,y:220,w:880,h:560});
     expect(cards).toEqual([
-      {channelId:'a',x:560,y:320},{channelId:'b',x:860,y:320},{channelId:'c',x:1160,y:320},
+      {channelId:'a',x:560,y:220},{channelId:'b',x:860,y:220},{channelId:'c',x:1160,y:220},
       {channelId:'d',x:560,y:520},
     ]);
-    expect(areaAround(bounds)).toEqual({x:512,y:272,w:976,h:456});
+    expect(areaAround(bounds)).toEqual({x:512,y:172,w:976,h:656});
     const one=gridPlacement(['a'],{x:0,y:0});
-    expect(one.cards).toEqual([{channelId:'a',x:-140,y:-80}]);
+    expect(one.cards).toEqual([{channelId:'a',x:-140,y:-130}]);
+  });
+  it('keeps rows of cards as tall as the placement estimate apart, inside the grid and its area',()=>{
+    const {cards,bounds}=gridPlacement(['a','b','c','d','e','f','g'],{x:0,y:0});
+    const rects=cards.map(card=>({...card,w:280,h:CARD_PLACE_HEIGHT}));
+    for(const [i,a] of rects.entries())for(const b of rects.slice(i+1)){
+      const apart=a.x+a.w<=b.x||b.x+b.w<=a.x||a.y+a.h<=b.y||b.y+b.h<=a.y;
+      expect(apart,`${a.channelId} and ${b.channelId} overlap`).toBe(true);
+    }
+    // Rows keep the mock's 40 px between a full-height card and the next row.
+    expect(GRID_STEP.y-CARD_PLACE_HEIGHT).toBeGreaterThanOrEqual(PLACE_GAP);
+    const area=areaAround(bounds);
+    for(const r of rects){
+      expect(r.x>=bounds.x&&r.y>=bounds.y&&r.x+r.w<=bounds.x+bounds.w&&r.y+r.h<=bounds.y+bounds.h).toBe(true);
+      expect(r.y+r.h<=area.y+area.h-48).toBe(true);
+    }
   });
 });
 
@@ -113,16 +128,19 @@ describe('clearOfCards',()=>{
     expect(clearOfCards(rect,[{x:900,y:0,w:280},{x:0,y:360,w:280}])).toBe(0);
   });
   it('moves a grid below the lowest card it overlaps, plus a gap',()=>{
-    // Two cards under the grid; the lower one's bottom is 300 + 160.
-    expect(clearOfCards(rect,[{x:100,y:0,w:280},{x:500,y:300,w:280}])).toBe(460+PLACE_GAP);
+    // Two unmeasured cards under the grid; the lower one's bottom is 300 + the placement estimate.
+    expect(clearOfCards(rect,[{x:100,y:0,w:280},{x:500,y:300,w:280}])).toBe(300+CARD_PLACE_HEIGHT+PLACE_GAP);
+  });
+  it('uses a mounted card\'s measured height',()=>{
+    expect(clearOfCards(rect,[{x:100,y:0,w:280,h:180}])).toBe(180+PLACE_GAP);
   });
   it('keeps moving while the moved grid lands on a card further down',()=>{
     const below={x:0,y:200+PLACE_GAP+100,w:280};
-    expect(clearOfCards(rect,[{x:0,y:40,w:280},below])).toBe(below.y+160+PLACE_GAP);
+    expect(clearOfCards(rect,[{x:0,y:40,w:280},below])).toBe(below.y+CARD_PLACE_HEIGHT+PLACE_GAP);
   });
   it('clears the area around the grid when there is one',()=>{
     const area=areaAround(rect);
-    expect(clearOfCards(area,[{x:-40,y:-200,w:280}])).toBe(-200+160+PLACE_GAP-area.y);
+    expect(clearOfCards(area,[{x:-40,y:-200,w:280}])).toBe(-200+CARD_PLACE_HEIGHT+PLACE_GAP-area.y);
   });
 });
 
@@ -143,11 +161,15 @@ describe('slotInArea',()=>{
   });
   it('skips taken spots row by row, keeping a gap from every card',()=>{
     expect(slotInArea(area,[{x:132,y:172,w:280}])).toEqual({x:432,y:172});
-    expect(slotInArea(area,[{x:132,y:172,w:280},{x:450,y:180,w:280}])).toEqual({x:132,y:372});
+    expect(slotInArea(area,[{x:132,y:172,w:280},{x:450,y:180,w:280}])).toEqual({x:132,y:472});
+    // The moving card's measured height decides whether a spot clears the card below it.
+    const below=[{x:132,y:172,w:280},{x:432,y:450,w:280}];
+    expect(slotInArea(area,below)).toEqual({x:132,y:472});
+    expect(slotInArea(area,below,280,180)).toEqual({x:432,y:172});
   });
   it('uses one column in a narrow area and goes below its last card when it is full',()=>{
     const narrow={x:0,y:0,w:344,h:300};
-    expect(slotInArea(narrow,[{x:32,y:72,w:280}])).toEqual({x:32,y:272});
+    expect(slotInArea(narrow,[{x:32,y:72,w:280}])).toEqual({x:32,y:372});
   });
 });
 
@@ -160,6 +182,6 @@ describe('slotOutsideAreas',()=>{
     const neighbour={x:450,y:-50,w:400,h:300};
     const spot=slotOutsideAreas(home,[home,neighbour],[{x:440,y:300,w:280}]);
     expect(spot.x).toBe(440);
-    expect(spot.y).toBeGreaterThanOrEqual(300+160+PLACE_GAP/2);
+    expect(spot.y).toBeGreaterThanOrEqual(300+CARD_PLACE_HEIGHT+PLACE_GAP/2);
   });
 });

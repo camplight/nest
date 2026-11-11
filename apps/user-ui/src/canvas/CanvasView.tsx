@@ -1,6 +1,6 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
 import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore,type FormEvent,type ReactNode} from 'react';
-import {CARD_HEIGHT,CanvasTint,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
+import {CanvasTint,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
@@ -15,7 +15,7 @@ import {FOLDER_NOTICE,dragCarriesFiles,outsideCanvasChat} from '../components/fi
 import {AgentAvatar} from '../components/AgentAvatar';
 import {nudgeMessage,type CanvasLive} from './live';
 import {LoosePile,MAX_BULK} from './LoosePile';
-import {areaAround,clearOfCards,dropLayout,gridPlacement,looseChats,slotInArea,slotOutsideAreas} from './loose';
+import {CARD_PLACE_HEIGHT,areaAround,clearOfCards,dropLayout,gridPlacement,looseChats,slotInArea,slotOutsideAreas,type Placed} from './loose';
 import {SPLIT_MAX,SPLIT_MIN,clampSplit,readSplit,splitAt,writeSplit} from './split';
 import {cardTitle} from './Card';
 import {AgentTray} from './AgentTray';
@@ -242,6 +242,9 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     return ok;
   }, [store, say]);
   const controls = useRef<SurfaceControls | null>(null);
+  /** A card's measured height once it is mounted, else the placement estimate. Placement only; never area membership. */
+  const heightOf = useCallback((channelId: string) => controls.current?.cardHeight(channelId) ?? CARD_PLACE_HEIGHT, []);
+  const measured = useCallback((cards: readonly BoardCard[]): Placed[] => cards.map(card => ({x: card.x, y: card.y, w: card.w, h: heightOf(card.channelId)})), [heightOf]);
   /** A new area whose title opens for typing as soon as it is shown (drawn, or made from chats). */
   const [renameAreaId, setRenameAreaId] = useState<string | null>(null);
   useEffect(() => { setRenameAreaId(null); }, [canvasId]);
@@ -255,7 +258,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     if (!current || !channelIds.length) return Promise.resolve(false);
     const centre = clampPoint(controls.current?.centre() ?? {x: 0, y: 0});
     const first = gridPlacement(channelIds, centre);
-    const dy = clearOfCards(withArea ? areaAround(first.bounds) : first.bounds, current.cards);
+    const dy = clearOfCards(withArea ? areaAround(first.bounds) : first.bounds, measured(current.cards));
     const {cards: placed, bounds} = dy ? gridPlacement(channelIds, clampPoint({x: centre.x, y: centre.y + dy})) : first;
     const area: NewArea | undefined = withArea ? {id: crypto.randomUUID(), title: 'New area', ...areaAround(bounds), tint: TINTS[current.areas.length % TINTS.length]} : undefined;
     const saved = applyTracked({kind: 'placeCards', cards: placed, ...(area ? {area} : {})});
@@ -266,19 +269,20 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       requestAnimationFrame(() => { controls.current?.reveal({areaId: area.id}); setRenameAreaId(area.id); });
     });
     return saved;
-  }, [store, applyTracked, say]);
+  }, [store, applyTracked, say, measured]);
   /** Chats dropped from the pile; dropped into an area, that area grows so they all fit inside it. */
   const dropChat = useCallback((channelIds: string[], at: Point) => {
     const current = store.snapshot().board;
     if (!current) return;
     const ids = [...new Set(channelIds)].filter(id => !current.cards.some(card => card.channelId === id) && candidatesRef.current.some(chat => chat.channelId === id)).slice(0, MAX_BULK);
     if (!ids.length) return;
-    const cards = dropLayout(ids, at, current.cards).map(card => ({...card, ...clampPoint(card)}));
+    const cards = dropLayout(ids, at, measured(current.cards)).map(card => ({...card, ...clampPoint(card)}));
     void applyTracked({kind: 'placeCards', cards});
     const target = areaFor(at, current.areas);
-    const grown = target ? growToFit(target, cards.map(card => ({...card, w: DEFAULT_CARD_WIDTH, h: CARD_HEIGHT}))) : null;
+    // The dropped cards are not mounted yet, so the area grows for the placement estimate.
+    const grown = target ? growToFit(target, cards.map(card => ({...card, w: DEFAULT_CARD_WIDTH, h: CARD_PLACE_HEIGHT}))) : null;
     if (target && grown) void store.apply({kind: 'patchArea', areaId: target.id, patch: grown});
-  }, [store, applyTracked]);
+  }, [store, applyTracked, measured]);
   const hide = useCallback(async (channelIds: string[], value: boolean) => {
     const result = await setHidden(channelIds, value);
     setHiddenIds(new Set(result.channelIds));
@@ -454,7 +458,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   }, [cards, candidates]);
   // Cards show their chat's Needs you items too (mentions and reviews), so the reviews are read here for both.
   const [needsOpen, setNeedsOpen] = useState(false);
-  const reviews = useReviews(needsOpen, !phone);
+  // Read only for a shown canvas on a wide screen; the phone list reads its own.
+  const reviews = useReviews(needsOpen, Boolean(canvasId) && !phone);
   const needsCache = useRef<ReadonlyMap<string, NeedsItem[]>>(new Map());
   const cardNeeds = useMemo(() => {
     const next = needsByChannel(needsYouItems({pulses, titles, reviews, projects}), needsCache.current);
@@ -521,14 +526,15 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     const target = areaId ? current.areas.find(a => a.id === areaId) : undefined;
     const home = card ? areaFor(cardCentre(card), current.areas) : undefined;
     if (areaId ? !target || target.id === home?.id : !card || !home) return;
-    const spot = clampPoint(target ? slotInArea(target, others, w) : slotOutsideAreas(home!, current.areas, others, w));
+    const h = heightOf(channelId);
+    const spot = clampPoint(target ? slotInArea(target, measured(others), w, h) : slotOutsideAreas(home!, current.areas, measured(others), w, h));
     const saved = card ? applyTracked({kind: 'moveCard', channelId, ...spot}) : applyTracked({kind: 'placeCards', cards: [{channelId, ...spot}]});
-    const grown = target ? growToFit(target, [{...spot, w, h: CARD_HEIGHT}]) : null;
+    const grown = target ? growToFit(target, [{...spot, w, h}]) : null;
     if (target && grown) void store.apply({kind: 'patchArea', areaId: target.id, patch: grown});
     if (!await saved) return;
     if (target) setSelectedId(channelId);
     requestAnimationFrame(() => controls.current?.reveal({channelId}));
-  }, [store, applyTracked]);
+  }, [store, applyTracked, measured, heightOf]);
   const moveToAreaRef = useRef(moveToArea); moveToAreaRef.current = moveToArea;
   const [searchOpen, setSearchOpen] = useState(false);
   useEffect(() => { setSearchOpen(false); }, [canvasId]);

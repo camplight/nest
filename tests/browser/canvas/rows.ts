@@ -184,3 +184,68 @@ await runChatTest('canvas rows: area summaries at compact zoom leave out zeros, 
   await title.waitFor();
   await page.locator('.canvas-notice').getByText('New area around 1 conversation. Name it. Chats share its context once a member moves them in or picks "Use this area\'s context".',{exact:true}).waitFor();
 },{canvas:true,viewport:{width:1440,height:900}});
+
+await runChatTest('canvas rows: a 4-row card dropped from the pile sits inside the area; Remove keeps the footer still and works from the keyboard',async h=>{
+  const {page,base}=h;
+  await h.loginAs('mate');
+  for(const name of ['Moss','Puff'])assert.ok((await h.post('/api/agents',{name,icon:'pip',visibility:'PUBLIC',modelId:'wrapped:none',workspacePath:`/tmp/${name}-${crypto.randomUUID()}`,mode:'WRAPPED',assignedRunnerId:'fixture-runner',desiredState:'STOPPED'})).ok,`agent ${name}`);
+  const tall=await call<{id:string;channelId:string}>(h,'POST','/api/projects',{id:crypto.randomUUID(),name:'Synthetic tall chat',description:'Synthetic test project',
+    members:[agentName,'Moss','Puff'].map(subscriberId=>({subscriberType:'AGENT',subscriberId}))});
+  assert.ok((await h.post(`/api/channels/${tall.channelId}/subscribe`,{subscriberType:'HUMAN',subscriberId:'mate'})).ok,'mate joins');
+  for(const who of [agentName,'Moss','Puff'])await h.emit('message.created',{text:`Synthetic note from ${who}`},{source:`agent:${who}`,channelId:tall.channelId});
+  const {id:canvas}=await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Tall'});
+  await call(h,'POST',`/api/canvases/${canvas}/cards`,{cards:[{channelId:h.project.channelId,x:0,y:0}]});
+  const areaId=await newArea(h,canvas,{title:'Landing zone',x:600,y:0,w:400,h:300});
+  await page.goto(`${base}/?view=canvas&canvas=${canvas}`);
+  const pile=page.getByRole('complementary',{name:'Loose chats',exact:true});
+  const area=page.locator(`.canvas-area[data-area-id="${areaId}"]`);
+  await area.waitFor();
+
+  // Dropped from the pile on the area's middle: the area grows for the taller card, which sits fully inside it.
+  const row=pile.locator('.canvas-pile-row').filter({has:page.getByRole('checkbox',{name:'Select Synthetic tall chat',exact:true})});
+  const transfer=await page.evaluateHandle(()=>new DataTransfer());
+  await row.dispatchEvent('dragstart',{dataTransfer:transfer});
+  const target=(await area.boundingBox())!;
+  const at={clientX:target.x+target.width/2,clientY:target.y+target.height/2};
+  const surface=page.locator('.canvas-surface');
+  await surface.dispatchEvent('dragover',{dataTransfer:transfer,...at});
+  const grown=page.waitForResponse(r=>r.request().method()==='PATCH'&&r.url().includes(`/api/canvases/${canvas}/areas/${areaId}`));
+  await surface.dispatchEvent('drop',{dataTransfer:transfer,...at});
+  assert.ok((await grown).ok(),'the area is resized to fit');
+  const card=cardAt(page,tall.channelId);
+  await card.locator('.canvas-card-rows-more').getByText('+1 more',{exact:true}).waitFor();
+  assert.equal(await card.locator('.canvas-card-row').count(),4,'four rows, then +1 more');
+  let boxes:{card:{x:number;y:number;width:number;height:number};area:{x:number;y:number;width:number;height:number}}|null=null,fits=false;
+  for(let i=0;i<40&&!fits;i++){
+    const [c,a]=await Promise.all([card.boundingBox(),area.boundingBox()]);
+    boxes=c&&a?{card:c,area:a}:null;
+    fits=Boolean(boxes&&c!.x>=a!.x&&c!.y>=a!.y&&c!.x+c!.width<=a!.x+a!.width&&c!.y+c!.height<=a!.y+a!.height);
+    if(!fits)await page.waitForTimeout(100);
+  }
+  assert.ok(fits,`the 4-row card sits fully inside the area (${JSON.stringify(boxes)})`);
+  const zoom=parseInt(await page.getByLabel('Zoom level',{exact:true}).innerText(),10)/100;
+  console.log(`4-row card: ${Math.round(boxes!.card.height/zoom)} canvas px tall`);
+
+  // Remove from canvas: its slot is kept, so hovering or focusing the card never moves the footer.
+  const remove=card.getByRole('button',{name:'Remove from canvas',exact:true});
+  const open=card.getByRole('button',{name:'Open chat Synthetic tall chat',exact:true});
+  await page.mouse.move(5,5);
+  const opacity=()=>remove.evaluate(el=>Number(getComputedStyle(el).opacity));
+  for(let i=0;i<20&&await opacity()!==0;i++)await page.waitForTimeout(50);
+  assert.equal(await opacity(),0,'hidden until the card is hovered or focused');
+  const before=(await open.boundingBox())!;
+  await card.locator('.canvas-card-title').hover();
+  const hovered=(await open.boundingBox())!;
+  assert.equal(hovered.x,before.x,'hovering does not shift the footer');
+  await page.mouse.move(5,5);
+  // From the keyboard: focused, it shows; Enter takes the card off the canvas and the chat returns to the pile.
+  await remove.focus();
+  for(let i=0;i<20&&await opacity()!==1;i++)await page.waitForTimeout(50);
+  assert.equal(await opacity(),1,'visible while focused');
+  assert.equal((await open.boundingBox())!.x,before.x,'focusing does not shift the footer');
+  const removed=page.waitForResponse(r=>r.request().method()==='DELETE'&&r.url().includes(`/api/canvases/${canvas}/cards/${tall.channelId}`));
+  await page.keyboard.press('Enter');
+  assert.ok((await removed).ok());
+  await card.waitFor({state:'detached'});
+  await row.waitFor();
+},{canvas:true,viewport:{width:1440,height:900}});

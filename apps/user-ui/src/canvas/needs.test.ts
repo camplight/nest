@@ -24,7 +24,7 @@ describe('needsYouItems',()=>{
   });
   it('says who each item is from and gives the card pill its short reason',()=>{
     const items=needsYouItems({pulses:new Map([['c1',pulse('m1')]]),titles,reviews:[review('t1','p2',500)],projects:[project('p2','c2')]});
-    expect(items.map(i=>[i.from,i.short])).toEqual([['Pip','Review Task t1'],['demo-bob','demo-bob: ping m1']]);
+    expect(items.map(i=>[i.from,i.short,i.reason])).toEqual([['Pip','Review Task t1','Task t1'],['demo-bob','demo-bob: ping m1','ping m1']]);
   });
   it('groups items per chat and keeps an unchanged chat\'s array',()=>{
     const items=needsYouItems({pulses:new Map([['c1',pulse('m1','m2')],['c2',pulse('m3')]]),titles,reviews:[],projects:[]});
