@@ -588,6 +588,51 @@ stores context in migration `012_canvas_context.sql` and its files under
 on `feat/switchyard-canvas`; not yet deployed. App counts cover the loaded history
 only, and Codex and Claude Code agents neither read context nor show app use.
 
+The canvas was then reworked to match the design mockup
+(`switchyard-nest-vision.html`).
+
+- **Areas:** each area header has a context chip with counts, which opens an
+  anchored popover. Areas also show a file shelf and a "Used by" footer.
+- **Cards:** cards show a row per participant, with the needs-you reason as a pill.
+- **Chats:**
+  - A chat opens in place over its card.
+  - App calls read as timeline lines.
+  - Agents can be pinned to the tray; pins are stored per person in migration
+    `013`.
+  - Loose chats open in a left drawer from the top bar.
+
+Smaller differences from the mockup are left as follow-ups:
+
+- **Areas:**
+  - organic area shapes
+  - link chips use the mockup's glyphs and fly the camera to both areas
+  - rename by double-click instead of the ⋯ menu
+  - the drag hint reads "Place in {area} · shares its context"
+- **Context popover:**
+  - a `Context · {title}` heading and explainer
+  - 56 px file tiles
+  - a `Done` footer
+- **Cards:**
+  - compact last activity (`2m`) in the title row
+  - artifact thumbnails
+  - an app-logo row under the title
+  - sleepy styling for quiet agents (`z z`)
+  - the mockup's compact far-zoom card
+- **Chats:**
+  - Apps here chips filter the timeline to one app
+  - changes outside Nest are emphasised in coral
+  - a single bottom-centre toast for notices, with "Moved into {area}" wording
+  - an icon-only mic with a pulsing recording state
+- **Agents:**
+  - drag-ghost labels ("Invite Moss to …") for tray drags
+  - a hint when the Pinned tray is empty
+- **Top bar:**
+  - a floating top-bar pill holding New area, Loose chats, Scheduled and Search
+  - Needs you cycles through chats
+  - a share pill with presence avatars
+  - the canvas summary line
+- **Canvas:** a legend for working, waiting on you and gone quiet.
+
 ## First-visit visual orientation
 
 Implemented for review: a replayable three-step spotlight tour in the workspace
