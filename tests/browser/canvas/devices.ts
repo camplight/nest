@@ -440,3 +440,42 @@ await runChatTest('canvas devices: a reload restores the view position and the o
   const sheet=(await chat.boundingBox())!;
   assert.ok(Math.abs(sheet.x-after.x)<=24&&Math.abs(sheet.y-after.y)<=24,`the restored sheet is over its card: ${JSON.stringify(sheet)}`);
 },{canvas:true,viewport:{width:1440,height:900}});
+
+await runChatTest('canvas top bar: one row with a long canvas name from 1024 px up, nothing overflowing',async h=>{
+  const {page,base}=h;
+  const name='Synthetic forty character canvas name xx';
+  assert.equal(name.length,40);
+  const id=await newCanvas(h,name);
+  await call(h,'POST',`/api/canvases/${id}/cards`,{cards:[{channelId:h.project.channelId,x:120,y:120}]});
+  await page.goto(`${base}/?view=canvas&canvas=${id}`);
+  const heading=page.getByRole('heading',{name,exact:true});
+  await heading.waitFor();
+  assert.equal(await heading.getAttribute('title'),name,'the full name is the title');
+  await page.getByRole('button',{name:'Needs you (0)',exact:true}).waitFor();
+  for(const width of [1440,1280,1024]){
+    await page.setViewportSize({width,height:900});
+    await page.waitForTimeout(200);
+    const bar=await page.locator('.canvas-view .workspace-topbar').evaluate(header=>{
+      const controls=[...header.querySelectorAll('button')].filter(el=>el.getClientRects().length>0).map(el=>{
+        const box=el.getBoundingClientRect();
+        return {name:el.getAttribute('aria-label')||el.textContent?.trim()||'',top:box.top,left:box.left,right:box.right,bottom:box.bottom};
+      });
+      const title=header.querySelector('.canvas-name')!.getBoundingClientRect();
+      return {controls,title:{top:title.top,bottom:title.bottom,left:title.left,right:title.right},scroll:header.scrollWidth,client:header.clientWidth,
+        page:document.documentElement.scrollWidth,inner:innerWidth};
+    });
+    const where=`at ${width}: ${JSON.stringify(bar)}`;
+    assert.ok(bar.controls.length>=9,`the name, canvas menu, Share, Context, Loose chats, Needs you, Search and the workspace controls ${where}`);
+    // The canvas's own 36 px buttons share their top edge; the 44 px workspace icons and the name share the row's centre.
+    const top=bar.controls[0].top,middle=(top+bar.controls[0].bottom)/2;
+    for(const control of bar.controls){
+      assert.ok(Math.abs((control.top+control.bottom)/2-middle)<=2,`${control.name} shares the row ${where}`);
+      if(control.bottom-control.top===bar.controls[0].bottom-top)assert.ok(Math.abs(control.top-top)<=2,`${control.name} lines up ${where}`);
+    }
+    assert.ok(Math.abs((bar.title.top+bar.title.bottom)/2-middle)<=2,`the canvas name sits in the row ${where}`);
+    const boxes=[bar.title,...bar.controls].sort((a,b)=>a.left-b.left);
+    for(let i=1;i<boxes.length;i++)assert.ok(boxes[i].left>=boxes[i-1].right-0.5,`nothing overlaps ${where}`);
+    assert.ok(bar.scroll<=bar.client,`the bar does not overflow ${where}`);
+    assert.ok(bar.page<=bar.inner,`the page does not scroll sideways ${where}`);
+  }
+},{canvas:true,viewport:{width:1440,height:900}});

@@ -857,9 +857,14 @@ Phase 1 is built from
    the drawer), `Archive` and `Clear`; actions take at most 100 chats. Archive is the
    personal hide above; `Show archived` in the footer lists archived chats with
    Unarchive. The footer says `Tick chats to act on several at once`. The list is
-   windowed (48 px rows, 30 px group headers) and opens at its top each time. Below 1360 px wide the toggle shows its
-   icon and count and Canvas context reads `Context` (both keep their full names), and
-   the heading wraps rather than run under the search.
+   windowed (48 px rows, 30 px group headers) and opens at its top each time. From 1024 px up the top bar
+   stays one row: the canvas name truncates with its full text as its title, and labels
+   collapse to icons as the bar itself narrows, lowest priority first (Search and Share,
+   and the tour pill drops its step count, below a 1440 px bar; the Loose chats toggle
+   becomes its icon and count and Canvas context reads `Context` below 1288 px; the
+   canvas menu and Context become icons below 1100 px; Needs you becomes a dot and its
+   count below 1000 px). Every button keeps its full text as its name. Narrower windows
+   wrap the heading rather than run it under the search; phones keep the phone layout.
 
    Cards. An open card shows its title with the last activity (`5m`), the apps its
    agents used (up to four logos, each titled `<app>: N reads · M changes`, then the

@@ -1,4 +1,5 @@
 // Top-bar canvas menu: Yours / Shared with you, New canvas, and the owner's Rename and Delete canvas….
+import {Layers} from 'lucide-react';
 import {useEffect,useId,useRef,useState,type FormEvent,type KeyboardEvent as ReactKeyboardEvent,type ReactNode} from 'react';
 import type {Canvas} from '@nest/schemas';
 
@@ -52,7 +53,7 @@ export function CanvasSwitcher({canvases, current, open, onOpenChange, onSelect,
 
   return <div className="canvas-switcher-root" ref={root}>
     <button ref={trigger} type="button" className="canvas-switcher" aria-label="Switch canvas" aria-haspopup="menu" aria-expanded={open}
-      onClick={() => onOpenChange(!open)}>Canvases <span aria-hidden="true">▾</span></button>
+      onClick={() => onOpenChange(!open)}><Layers className="canvas-switcher-icon" size={16} aria-hidden="true"/><span className="canvas-bar-label">Canvases</span> <span aria-hidden="true">▾</span></button>
     {open ? <div className="canvas-menu" role="menu" aria-label="Canvases">
       <p className="canvas-menu-group" role="presentation">Yours</p>
       {yours.length ? <ul role="none">{yours.map(item)}</ul> : <p className="canvas-menu-empty" role="presentation">No canvases of your own yet.</p>}

@@ -1,6 +1,6 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
 import {useCallback,useEffect,useId,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore,type CSSProperties,type FormEvent,type ReactNode} from 'react';
-import {Columns2,Ellipsis,SquareArrowOutUpRight,X} from 'lucide-react';
+import {Columns2,Ellipsis,FileText,Search,Share2,SquareArrowOutUpRight,X} from 'lucide-react';
 import {AGENT_PIN_LIMIT_MESSAGE,CanvasTint,type AgentPins,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
@@ -818,17 +818,24 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     <WorkspaceTopbar onMenu={onMenu} search={canvasId ? <div className="canvas-tools">
       {/* On phones Needs you is a segment of the list instead. */}
       {phone ? null : <NeedsYou pulses={pulses} titles={titles} projects={projects} reviews={reviews} onOpenChange={setNeedsOpen} onJump={jumpTo}/>}
-      <button type="button" className="canvas-search-button" title="Search the canvas (Ctrl+K)" onClick={() => setSearchOpen(true)}>Search</button>
+      {/* Top-bar labels collapse to their icons as the bar narrows (canvas.css); the text stays as the name. */}
+      <button type="button" className="canvas-search-button" title="Search the canvas (Ctrl+K)" onClick={() => setSearchOpen(true)}>
+        <Search size={16} aria-hidden="true"/><span className="canvas-bar-label">Search</span>
+      </button>
     </div> : undefined} leading={canvasId ? <div className="canvas-heading">
-      <h1 className="canvas-name">{name}</h1>
+      <h1 className="canvas-name" title={name}>{name}</h1>
       <CanvasSwitcher canvases={canvases ?? []} current={current} open={switcherOpen} onOpenChange={setSwitcherOpen}
         onSelect={id => onSelectCanvas(id)} onCreate={createNew} onRename={rename} onDelete={remove}/>
-      {board && board.canvas.role === 'owner' ? <button type="button" className="canvas-share-button" onClick={() => setSharing(true)}>Share</button> : null}
+      {board && board.canvas.role === 'owner' ? <button type="button" className="canvas-share-button canvas-share-open" title="Share this canvas" onClick={() => setSharing(true)}>
+        <Share2 size={16} aria-hidden="true"/><span className="canvas-bar-label">Share</span>
+      </button> : null}
       {board ? <button type="button" className={`canvas-share-button canvas-context-button${contextSummary?.canvas.hasContext ? ' has-context' : ''}`}
         aria-haspopup="dialog" aria-expanded={panel?.kind === 'canvas'} title={`Canvas context: notes and files every chat on ${board.canvas.name} can see`}
         onClick={event => openPanel({kind: 'canvas'}, event.currentTarget)}>
         {/* Narrower windows show the mock's shorter `Context`; the name stays `Canvas context`. */}
-        <span className="canvas-context-long">Canvas context</span><span className="canvas-context-short" aria-hidden="true">Context</span>{contextSummary?.canvas.hasContext ? <span className="canvas-context-count"> · {contextLabel(contextSummary.canvas)}</span> : null}
+        <FileText size={16} aria-hidden="true"/>
+        {/* One flex item, so the label and count read as one line. */}
+        <span><span className="canvas-context-long">Canvas context</span><span className="canvas-context-short" aria-hidden="true">Context</span>{contextSummary?.canvas.hasContext ? <span className="canvas-context-count"> · {contextLabel(contextSummary.canvas)}</span> : null}</span>
       </button> : null}
       {board ? <LooseToggle count={shownLoose.length} hot={looseHot} open={phone ? undefined : drawerOpen} controls={drawerId} onClick={toggleDrawer} buttonRef={looseButton}/> : null}
       {ownerName ? <span className="canvas-shared-by">Shared by {ownerName}</span> : null}

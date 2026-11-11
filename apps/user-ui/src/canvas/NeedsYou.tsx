@@ -78,7 +78,10 @@ export function NeedsYou({pulses, titles, projects, reviews, onOpenChange, onJum
 
   return <div className="canvas-needs-root" ref={root}>
     <button ref={trigger} type="button" className="canvas-needs" aria-haspopup="true" aria-expanded={open} aria-controls="canvas-needs-list"
-      data-attention={items.length > 0 || undefined} onClick={() => setOpen(value => !value)}>Needs you ({items.length})</button>
+      data-attention={items.length > 0 || undefined} aria-label={`Needs you (${items.length})`} onClick={() => setOpen(value => !value)}>
+      {/* A narrow top bar keeps the dot and the count (canvas.css). */}
+      <i className="canvas-needs-dot" aria-hidden="true"/><span className="canvas-bar-label">Needs you </span><span className="canvas-needs-count">({items.length})</span>
+    </button>
     {open ? <div className="canvas-needs-panel" id="canvas-needs-list">
       {items.length ? <ul aria-label="Needs you">
         {items.map(item => <li key={item.key}>

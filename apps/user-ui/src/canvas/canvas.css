@@ -1312,11 +1312,83 @@
   display: none;
 }
 /*
- * Below 1360 px the top bar has no room for every label: the toggle is its icon and count, and Canvas context reads
- * `Context` (both keep their full names for screen readers).
+ * The top bar stays one row from 1024 px up: the canvas name truncates (its full text is the title) and labels collapse
+ * to their icons, lowest priority first, as the bar itself narrows (a container query, so an open sidebar counts):
+ * Search and Share (and the tour pill's step count), then Loose chats (icon and count) with `Context` for Canvas context, then the canvas menu and
+ * Context to icons, then Needs you to a dot and its count. Every button keeps its full text as its name.
  */
-@media (max-width: 1360px) {
-  .canvas-context-long {
+.canvas-view .dashboard-topbar.workspace-topbar {
+  container: canvas-bar / inline-size;
+}
+.canvas-search-button,
+.canvas-share-button,
+.canvas-switcher,
+.canvas-needs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.canvas-switcher-icon,
+.canvas-needs-dot {
+  display: none;
+}
+.canvas-needs-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--nest-muted);
+}
+.canvas-needs[data-attention] .canvas-needs-dot {
+  background: var(--nest-coral);
+}
+/* Phones keep their text-only buttons. */
+@media (max-width: 760px) {
+  .canvas-search-button > svg,
+  .canvas-share-open > svg,
+  .canvas-context-button > svg {
+    display: none;
+  }
+}
+/* One row from 1024 px; narrower tablets may still wrap the heading, as before. */
+@media (min-width: 1024px) {
+  .canvas-heading {
+    flex-wrap: nowrap;
+    flex: 1 1 auto;
+  }
+  .canvas-heading > * {
+    flex: none;
+  }
+  .canvas-heading > .canvas-name {
+    flex: 0 1 auto;
+    min-width: 3em;
+  }
+}
+@media (min-width: 761px) {
+  @container canvas-bar (max-width: 1440px) {
+    .canvas-search-button .canvas-bar-label,
+    .canvas-share-open .canvas-bar-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .canvas-search-button,
+    .canvas-share-button.canvas-share-open {
+      padding: 0 10px;
+    }
+    /* The tour pill reads `Start here`, as it does below 1100 px everywhere. */
+    .workspace-controls .quick-tour-steps {
+      display: none;
+    }
+  }
+}
+@container canvas-bar (max-width: 1288px) {
+  .canvas-context-long,
+  .canvas-loose-label {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -1327,16 +1399,52 @@
   .canvas-context-short {
     display: inline;
   }
-  .canvas-loose-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
   .canvas-share-button.canvas-loose-button {
     padding: 0 10px;
+  }
+}
+@media (min-width: 761px) {
+  @container canvas-bar (max-width: 1100px) {
+    .canvas-switcher .canvas-bar-label,
+    .canvas-context-count {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .canvas-context-short {
+      display: none;
+    }
+    .canvas-switcher-icon {
+      display: block;
+    }
+    .canvas-switcher,
+    .canvas-share-button.canvas-context-button {
+      padding: 0 10px;
+    }
+    .canvas-shared-by {
+      display: none;
+    }
+  }
+}
+@media (min-width: 761px) {
+  @container canvas-bar (max-width: 1000px) {
+    .canvas-needs .canvas-bar-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .canvas-needs-dot {
+      display: block;
+    }
+    .canvas-needs {
+      padding: 0 10px;
+    }
   }
 }
 
