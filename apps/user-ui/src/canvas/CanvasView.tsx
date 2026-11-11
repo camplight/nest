@@ -69,7 +69,7 @@ export const CANT_ADD = "You can't add people to this chat";
 /** The canvas's file-drag banner (the mock's three targets); a viewer's areas take no files. */
 export const FILE_DRAG_HINT = 'Drop on a chat to share files with it, on an area to add them to its context, or anywhere else to start a chat';
 const FILE_DRAG_HINT_VIEW = 'Drop on a chat to share files with it, or anywhere else to start a chat';
-const VIEW_ONLY_FILES = 'You can view this canvas but not add files to its areas.';
+const VIEW_ONLY_FILES = 'You can view this canvas but not add files to its context.';
 const s = (n: number) => n === 1 ? '' : 's';
 const them = (n: number) => n === 1 ? 'it' : 'them';
 
@@ -629,7 +629,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={applyTracked} pulses={pulses} onNudge={sendNudge}
           onDropChat={canPlace ? dropChat : undefined} controls={controls} onOpenChat={openFromCard} openChannelId={chatShown ? chatChannelId : null}
           onDropAgent={dropAgent} onRemoveAgent={removeAgent} canManageCard={manageable} onSelectCard={setSelectedId} selectedChannelId={selected?.channelId ?? null}
-          areaContext={areaContext} onAreaContext={openAreaContext} contextAreaId={panel?.kind === 'area' ? panel.areaId : null} onDropFiles={dropFiles}/>
+          areaContext={areaContext} onAreaContext={openAreaContext} contextAreaId={panel?.kind === 'area' ? panel.areaId : null} onOpenCanvas={id => onSelectCanvas(id)} onDropFiles={dropFiles}/>
         <AgentTray tray={tray} suggestedFor={selected ? cardTitle(selected) : null} agents={agents} humanId={humanId} cards={board.cards} areas={board.areas}/>
         {/* Files dropped on empty canvas start a chat here, even beside a split chat; a focus chat takes every drop itself. */}
         {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!focusChat}
@@ -691,7 +691,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         canvasName={board.canvas.name} scope={panel.kind === 'area' ? {kind: 'area', areaId: panel.areaId} : {kind: 'canvas'}} anchor={panel.anchor}
         title={panel.kind === 'area' ? board.areas.find(a => a.id === panel.areaId)?.title : undefined}
         canEdit={board.canvas.role !== 'view'} dropped={areaFiles?.areaId === (panel.kind === 'area' ? panel.areaId : null) ? areaFiles : null} holdsChat={panel.kind === 'canvas' ? board.cards.length > 0 : board.cards.some(card => areaFor(cardCentre(card), board.areas)?.id === panel.areaId)}
-        onChanged={() => loadSummary(board.canvas.id)} onClose={() => setPanel(null)}/> : null}
+        onViewOnlyDrop={() => say(VIEW_ONLY_FILES)} onChanged={() => loadSummary(board.canvas.id)} onClose={() => setPanel(null)}/> : null}
     </div>
   </section>;
 }
@@ -711,8 +711,8 @@ function CanvasMain({inert, children}: {inert: boolean; children: ReactNode}) {
 }
 
 const SPLIT_STEP = 2;
-/** Another dialog above the chat (manage channel, the tour) takes Escape for itself. */
-const OTHER_DIALOG = '[aria-modal="true"]:not(.canvas-chat), .dialog-backdrop';
+/** Another dialog above the chat (manage channel, the tour) takes Escape for itself, and so does an open context popover. */
+const OTHER_DIALOG = '[aria-modal="true"]:not(.canvas-chat), .dialog-backdrop, .canvas-context';
 
 /**
  * The open chat: enlarged over a dimmed canvas (focus), or on the right with a draggable divider (split).

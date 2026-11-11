@@ -327,7 +327,7 @@ await runChatTest('canvas files: on a view-only canvas an area drop does nothing
   await dragFiles(theirs,'.canvas-area[data-area-id="'+areaId+'"]',['nope.txt'],'dragover');
   assert.equal(await theirs.locator('.canvas-area.is-drop-target').count(),0,'a viewer sees no area highlight');
   await dropFile(theirs,'.canvas-area[data-area-id="'+areaId+'"]','nope.txt');
-  await theirs.locator('.canvas-notice').getByText('You can view this canvas but not add files to its areas.',{exact:true}).waitFor();
+  await theirs.locator('.canvas-notice').getByText('You can view this canvas but not add files to its context.',{exact:true}).waitFor();
   assert.equal(await theirs.getByRole('dialog',{name:/^Context for/}).count(),0,'no popover for a viewer');
   assert.equal(await dock(theirs).locator('.composer-attachments').count(),0,'and not the bottom box either');
   assert.deepEqual(uploads,[]);

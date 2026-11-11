@@ -1,7 +1,7 @@
 // An area ("nest") on the surface: inline rename, a title bar to move it, a corner to resize it and a menu, plus its
 // context: the `◱` chip, `↳` link chips, a file shelf when it holds no chats and a "Used by …" footer.
 import {memo,useEffect,useRef,useState,type KeyboardEvent} from 'react';
-import type {CanvasArea,ContextSummary} from '@nest/schemas';
+import type {CanvasArea,ContextLink,ContextSummary} from '@nest/schemas';
 import {contextFileHref} from './context-api';
 import {contextLabel,linkElsewhere,usedByList} from './context-label';
 import {FileTile} from './FileTile';
@@ -32,11 +32,13 @@ export type AreaProps = {
   context?: AreaContext;
   /** Opens (or closes) this area's context popover under `opener`; offered to viewers too, read-only. */
   onContext?(areaId: string, opener: HTMLElement): void;
+  /** A `↳`/`↗` link chip is pressed: show its source (the mock's goref). Without it the chip opens this area's context. */
+  onLinkOpen?(areaId: string, link: ContextLink, opener: HTMLElement): void;
   /** A link chip is hovered or focused (sourceAreaId), or no longer is (null). */
   onLinkHover?(areaId: string, sourceAreaId: string | null): void;
 };
 
-export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, summary, dropTarget = null, empty = false, contextOpen = false, onRename, onDelete, context, onContext, onLinkHover}: AreaProps) {
+export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, summary, dropTarget = null, empty = false, contextOpen = false, onRename, onDelete, context, onContext, onLinkOpen, onLinkHover}: AreaProps) {
   const [editing, setEditing] = useState(false);
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -99,7 +101,7 @@ export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, su
           const other = linkElsewhere(link, area.canvasId);
           return <button key={link.sourceAreaId} type="button" className={`canvas-context-chip${link.available ? '' : ' is-unavailable'}`}
             title={link.available ? `Uses ${other && link.canvasName ? `${link.canvasName} › ` : ''}${link.title}'s context (linked, not copied)` : `${link.title} is unavailable`}
-            onClick={event => onContext?.(area.id, event.currentTarget)}
+            onClick={event => onLinkOpen ? onLinkOpen(area.id, link, event.currentTarget) : onContext?.(area.id, event.currentTarget)}
             onPointerEnter={() => onLinkHover?.(area.id, link.sourceAreaId)} onPointerLeave={() => onLinkHover?.(area.id, null)}
             onFocus={() => onLinkHover?.(area.id, link.sourceAreaId)} onBlur={() => onLinkHover?.(area.id, null)}>
             {other ? '↗' : '↳'} {link.title}{link.available ? null : <span className="canvas-context-tag"> unavailable</span>}

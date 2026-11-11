@@ -31,6 +31,8 @@ export type ContextPanelProps = {
   dropped?: {id: number; files: File[]} | null;
   /** The scope holds a chat card, so its people and agents can see this context. */
   holdsChat: boolean;
+  /** A viewer dropped files here: nothing is added, the canvas says why. */
+  onViewOnlyDrop?(): void;
   /** Notes emptied or filled, files or links changed: the board's chips and dots need a fresh summary. */
   onChanged?(): void;
   onClose(): void;
@@ -43,7 +45,7 @@ const EDGE = 16, GAP = 8;
 /** Phones get a bottom sheet instead (the 760 px canvas breakpoint, see canvas.css). */
 const SHEET_QUERY = '(max-width: 760px)';
 
-export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdit, dropped, holdsChat, onChanged, onClose}: ContextPanelProps) {
+export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdit, dropped, holdsChat, onViewOnlyDrop, onChanged, onClose}: ContextPanelProps) {
   const areaId = scope.kind === 'area' ? scope.areaId : null;
   const [context, setContext] = useState<ScopeContext | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -133,6 +135,19 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
     return () => window.removeEventListener('pointerdown', outside, true);
   }, []);
 
+  // Escape, wherever focus is (plain text in the popover leaves it on the body): it folds the area picker first, then
+  // closes the popover. Captured on the window so it runs before an open focus chat's Escape, which then stands aside.
+  const pickerRef = useRef(false);
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      if (pickerRef.current) setPicker(false); else closeRef.current();
+    };
+    window.addEventListener('keydown', key, true);
+    return () => window.removeEventListener('keydown', key, true);
+  }, []);
+
   function addFiles(files: File[]) {
     if (!canEdit || !files.length) return;
     setFileError(null);
@@ -168,11 +183,12 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
     handledDrop.current = dropped.id;
     addFiles(dropped.files);
   }, [dropped, context]);
+  // File drags over the popover never reach the page behind it (the browser would open the file): a viewer's drop only says why.
   function drop(event: DragEvent) {
-    if (!canEdit || !carriesFiles(event)) return;
+    if (!carriesFiles(event)) return;
     event.preventDefault();
     setDropping(false);
-    addFiles(Array.from(event.dataTransfer.files));
+    if (canEdit) addFiles(Array.from(event.dataTransfer.files)); else onViewOnlyDrop?.();
   }
 
   function togglePicker() {
@@ -207,6 +223,7 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
     }
   }
 
+  pickerRef.current = picker;
   const name = scope.kind === 'canvas' ? canvasName || 'this canvas' : title || 'Untitled area';
   const label = scope.kind === 'canvas' ? 'Canvas context' : `Context for ${title || 'Untitled area'}`;
   const linked = new Set(context?.links.map(l => l.sourceAreaId) ?? []);
@@ -217,13 +234,12 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
   const style = place ? {'--context-left': `${place.left}px`, '--context-top': `${place.top}px`} as CSSProperties : undefined;
 
   return <div ref={panelRef} role="dialog" className={`canvas-context${dropping ? ' is-dropping' : ''}${place ? ' is-placed' : ''}`} aria-label={label} style={style}
-    // Escape folds the area picker first, then closes the popover.
-    onKeyDown={event => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
+    onDragOver={event => {
+      if (!carriesFiles(event)) return;
       event.preventDefault();
-      if (picker) setPicker(false); else onClose();
+      event.dataTransfer.dropEffect = canEdit ? 'copy' : 'none';
+      if (canEdit) setDropping(true);
     }}
-    onDragOver={event => { if (canEdit && carriesFiles(event)) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDropping(true); } }}
     onDragLeave={event => { if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) setDropping(false); }}
     onDrop={drop}>
     <header className="canvas-context-head">

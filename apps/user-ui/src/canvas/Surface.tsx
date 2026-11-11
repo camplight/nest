@@ -1,7 +1,7 @@
 // The infinite canvas: pan and zoom (mouse, trackpad, touch), culling, area drawing and card/area moves.
 // One transformed container holds every mounted item; only items near the viewport mount.
 import {useCallback,useEffect,useLayoutEffect,useMemo,useReducer,useRef,useState,type DragEvent as ReactDragEvent,type MutableRefObject,type PointerEvent as ReactPointerEvent} from 'react';
-import {CARD_HEIGHT,CanvasTint,areaFor,type BoardCard,type CanvasArea,type CanvasBoard} from '@nest/schemas';
+import {CARD_HEIGHT,CanvasTint,areaFor,type BoardCard,type CanvasArea,type CanvasBoard,type ContextLink} from '@nest/schemas';
 import type {BoardOp} from './board-store';
 import {Area,type AreaContext,type AreaSummary} from './Area';
 import {Card} from './Card';
@@ -40,6 +40,8 @@ export type SurfaceProps = {
   onAreaContext?(areaId: string, opener: HTMLElement): void;
   /** The area whose context popover is open: its chip is expanded and its link lines are drawn. */
   contextAreaId?: string | null;
+  /** A link chip whose source is on another canvas the person can read was pressed: open that canvas. */
+  onOpenCanvas?(canvasId: string): void;
   /**
    * Files dropped on an open card or, for editors, on an area. A file drag highlights the card or area under it.
    * Anywhere else on the canvas, file drags are left to the bottom box or the open chat.
@@ -57,6 +59,8 @@ export type SurfaceControls = {
 /** A reveal reads at a comfortable size: never smaller than this. */
 const REVEAL_MIN_ZOOM = 0.8;
 const REVEAL_MS = 320;
+/** How long a pressed link chip keeps its dotted line drawn after framing the two areas. */
+const LINK_FLASH_MS = 2600;
 const prefersReducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 /** The drag data type a pile row carries: the chat's channel id, or several ids on separate lines. */
 export const CHAT_DRAG_TYPE = 'application/x-nest-chat';
@@ -103,7 +107,7 @@ const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + b.y) / 2});
 
 export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null,
-  onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onDropFiles}: SurfaceProps) {
+  onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onOpenCanvas, onDropFiles}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
   // Without a known human the view is not remembered, so it can never land under another person's key.
   const key = humanId ? viewKey(humanId, board.canvas.id) : null;
@@ -518,6 +522,29 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     setLinkHover(current => sourceAreaId ? {from: areaId, to: sourceAreaId} : current?.from === areaId ? null : current), []);
   const areaContextRef = useRef(onAreaContext); areaContextRef.current = onAreaContext;
   const openAreaContext = useCallback((areaId: string, opener: HTMLElement) => areaContextRef.current?.(areaId, opener), []);
+  /**
+   * A pressed link chip shows its source, as the mock's goref does: a source on this canvas is framed together with the
+   * linking area and their dotted line stays drawn for a moment; one on another readable canvas opens that canvas.
+   * A source the person cannot read (or a missing one) opens this area's context, which says it is unavailable.
+   */
+  const [flash, setFlash] = useState<{from: string; to: string} | null>(null);
+  useEffect(() => {
+    if (!flash) return;
+    const timer = setTimeout(() => setFlash(null), LINK_FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [flash]);
+  const openCanvasRef = useRef(onOpenCanvas); openCanvasRef.current = onOpenCanvas;
+  const openLink = useCallback((areaId: string, link: ContextLink, opener: HTMLElement) => {
+    const areas = boardRef.current.areas, from = areas.find(a => a.id === areaId), to = areas.find(a => a.id === link.sourceAreaId);
+    const element = surfaceRef.current;
+    if (from && to && element?.clientWidth && element.clientHeight) {
+      animateTo(fit([from, to], {w: element.clientWidth, h: element.clientHeight}));
+      setFlash({from: areaId, to: link.sourceAreaId});
+      return;
+    }
+    if (link.canvasId && link.canvasId !== boardRef.current.canvas.id && openCanvasRef.current) { openCanvasRef.current(link.canvasId); return; }
+    areaContextRef.current?.(areaId, opener);
+  }, [animateTo]);
 
   const nudgeRef = useRef(onNudge); nudgeRef.current = onNudge;
   const nudge = useCallback(async (channelId: string, agent: string) => { await nudgeRef.current?.(channelId, agent); }, []);
@@ -567,13 +594,13 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   // Only links between areas on this canvas draw, and a removed link draws nothing, even when its chip went away under the pointer.
   const lines = useMemo(() => {
     const byId = new Map(board.areas.map(area => [area.id, area]));
-    const pairs = linkHover ? [linkHover] : contextAreaId ? [...(areaContext ?? new Map<string, AreaContext>())].flatMap(([from, context]) =>
+    const pairs = linkHover ? [linkHover] : flash ? [flash] : contextAreaId ? [...(areaContext ?? new Map<string, AreaContext>())].flatMap(([from, context]) =>
       context.links.filter(link => from === contextAreaId || link.sourceAreaId === contextAreaId).map(link => ({from, to: link.sourceAreaId}))) : [];
     return pairs.flatMap(({from, to}) => {
       const a = byId.get(from), b = byId.get(to);
       return a && b && areaContext?.get(from)?.links.some(link => link.sourceAreaId === to) ? [{key: `${from}:${to}`, from: a, to: b}] : [];
     });
-  }, [linkHover, contextAreaId, areaContext, board.areas]);
+  }, [linkHover, flash, contextAreaId, areaContext, board.areas]);
   const tile = TWIG_TILE * view.zoom;
   const classes = ['canvas-surface', tool === 'area' ? 'is-drawing' : '', spaceHeld ? 'is-panning-key' : '', preview ? 'is-gesturing' : ''].filter(Boolean).join(' ');
   return <div
@@ -605,7 +632,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
         return <Area key={area.id} area={area} dx={shift?.dx ?? 0} dy={shift?.dy ?? 0} w={resize?.w ?? area.w} h={resize?.h ?? area.h}
           canEdit={canEdit} compact={compact} summary={summaries?.get(area.id)} dropTarget={dropArea?.id === area.id ? dropArea.kind : null} onRename={rename} onDelete={remove}
           empty={!occupied.has(area.id)} contextOpen={area.id === contextAreaId}
-          context={areaContext?.get(area.id)} onContext={onAreaContext ? openAreaContext : undefined} onLinkHover={hoverLink}/>;
+          context={areaContext?.get(area.id)} onContext={onAreaContext ? openAreaContext : undefined} onLinkOpen={openLink} onLinkHover={hoverLink}/>;
       })}
       {lines.map(line => <ContextLine key={line.key} from={line.from} to={line.to}/>)}
       {preview?.kind === 'draw' ? <div className="canvas-area-draft" style={{transform: `translate(${preview.rect.x}px, ${preview.rect.y}px)`, width: Math.max(MIN_AREA, preview.rect.w), height: Math.max(MIN_AREA, preview.rect.h)}}/> : null}

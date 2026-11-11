@@ -167,14 +167,21 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
 
   const countsOf = (saved: { notes: string; files: unknown[] }): ContextCounts => ({ notes: saved.notes.length > 0, fileCount: saved.files.length });
   const areaScope = (canvasId: string, areaId: string): ContextScope => ({ kind: 'area', canvasId, areaId });
+  /** One request's notes-and-files counts by area id, so an area linked from several areas is read once per request. */
+  type CountsCache = Map<string, ContextCounts>;
+  const areaCounts = (cache: CountsCache, canvasId: string, areaId: string) => {
+    let counts = cache.get(areaId);
+    if (!counts) { counts = countsOf(context.get(areaScope(canvasId, areaId))); cache.set(areaId, counts); }
+    return counts;
+  };
   // A source area is named, and its notes and files counted, only to viewers who can read its canvas; an
   // unavailable link (its linker lost the source) shows no counts, since its chats read nothing from it.
-  const linksFor = (areaId: string, viewerId: string) => linkSources(store, areaId).map(({ sourceAreaId, source, available }): ContextLink => {
+  const linksFor = (areaId: string, viewerId: string, cache: CountsCache = new Map()) => linkSources(store, areaId).map(({ sourceAreaId, source, available }): ContextLink => {
     const readable = canvases.get(source.canvasId, viewerId);
     if (!readable) return { sourceAreaId, title: 'Unavailable area', canvasId: null, canvasName: null, available, counts: null };
     return {
       sourceAreaId, title: source.title, canvasId: readable.id, canvasName: readable.name, available,
-      counts: available ? countsOf(context.get(areaScope(source.canvasId, sourceAreaId))) : null,
+      counts: available ? areaCounts(cache, source.canvasId, sourceAreaId) : null,
     };
   });
   // The areas using this one, titled only for viewers who can read their canvas.
@@ -193,8 +200,9 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
 
   routes.get('/api/canvases/context-sources', c => {
     const human = c.get('human');
+    const cache: CountsCache = new Map();
     return c.json(canvases.list(human.id).flatMap(canvas => canvases.areas(canvas.id).map((area): ContextSource => ({
-      canvasId: canvas.id, canvasName: canvas.name, areaId: area.id, title: area.title, counts: countsOf(context.get(areaScope(canvas.id, area.id))),
+      canvasId: canvas.id, canvasName: canvas.name, areaId: area.id, title: area.title, counts: areaCounts(cache, canvas.id, area.id),
     }))));
   });
 
@@ -286,16 +294,22 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     const canvas = canvasOf(c);
     const viewerId = c.get('human').id;
     const own = context.get({ kind: 'canvas', canvasId: canvas.id });
+    // Each area is read once: its own row seeds the cache its linkers' counts come from.
+    const cache: CountsCache = new Map();
+    const read = canvases.areas(canvas.id).map(area => {
+      const saved = context.get(areaScope(canvas.id, area.id));
+      cache.set(area.id, countsOf(saved));
+      return { area, saved };
+    });
     const summary: ContextSummary = {
-      areas: canvases.areas(canvas.id).map(area => {
-        const saved = context.get(areaScope(canvas.id, area.id));
-        const counts = countsOf(saved);
+      areas: read.map(({ area, saved }) => {
+        const counts = cache.get(area.id)!;
         return {
           areaId: area.id,
           hasContext: counts.notes || counts.fileCount > 0,
           ...counts,
           files: saved.files.slice(0, SUMMARY_SHELF_FILES).map(({ id, name, mime }) => ({ id, name, mime })),
-          links: linksFor(area.id, viewerId),
+          links: linksFor(area.id, viewerId, cache),
           usedBy: usesOf(area.id, viewerId),
         };
       }),

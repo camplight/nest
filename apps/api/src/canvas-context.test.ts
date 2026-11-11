@@ -432,6 +432,26 @@ describe('canvas context API against the unchanged engine', () => {
       expect(await linked(owner)).toEqual([{ sourceAreaId: b1, title: 'Brand kit', canvasId: b, canvasName: 'B', available: false, counts: null }]);
     });
 
+    it('reads each source area once per summary or sources request, however many areas link it', async () => {
+      const a = await canvas(owner, 'A');
+      const source = await area(owner, a, 'Source');
+      const users = [await area(owner, a, 'U1'), await area(owner, a, 'U2')];
+      const b = await canvas(owner, 'B');
+      const far = await area(owner, b, 'Far');
+      for (const user of users) {
+        for (const sourceAreaId of [source, far]) expect((await call(owner, 'POST', `/api/canvases/${a}/areas/${user}/context/links`, { sourceAreaId })).status).toBe(200);
+      }
+      const get = vi.spyOn(product.store.canvasContext, 'get');
+      const reads = (areaId: string) => get.mock.calls.filter(([scope]) => scope.kind === 'area' && scope.areaId === areaId).length;
+      const summary = await (await call(owner, 'GET', `/api/canvases/${a}/context/summary`)).json();
+      expect(summary.areas.find((row: { areaId: string }) => row.areaId === users[1]).links).toHaveLength(2);
+      expect([reads(source), reads(far)]).toEqual([1, 1]);
+      get.mockClear();
+      expect((await call(owner, 'GET', '/api/canvases/context-sources')).status).toBe(200);
+      expect([reads(source), reads(far)]).toEqual([1, 1]);
+      get.mockRestore();
+    });
+
     it('lists no readers for an area on another canvas or with no chats, and unconfigured agents on a server without a service token', async () => {
       await call(owner, 'POST', '/api/runners/register', { existingRunnerId: 'fixture-runner', displayName: 'Fixture' });
       await agent('Pip');

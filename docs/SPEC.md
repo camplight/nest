@@ -922,11 +922,16 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    `No context` for viewers), hidden at compact zoom with the shelf and footer. One
    click opens the context popover anchored under the chip and kept inside the
    window (a bottom sheet at 760 px and below). The Canvas context button in the top
-   bar (which adds `· Notes · 1 file` when the canvas has context), a `↳`/`↗` link
-   chip, and the open chat's `sees N contexts` open the same popover under
-   themselves. The popover floats over the canvas, so an open split or focus chat
-   stays open; Escape (after folding the area picker), an outside press or Done
-   closes it and focus returns to its opener. It holds the explainer, the warning,
+   bar (which adds `· Notes · 1 file` when the canvas has context) and the open
+   chat's `sees N contexts` open the same popover under themselves. A `↳` link chip
+   (a button, so also from the keyboard) frames its area and the source together
+   and keeps their dotted line drawn for a moment; a `↗` chip opens the source's
+   canvas; a chip for an unavailable source opens the area's popover. The popover
+   floats over the canvas, so an open split or focus chat stays open; Escape (after
+   folding the area picker) closes the popover before any chat, wherever focus is
+   inside it, and an outside press or Done closes it too; focus returns to its
+   opener. File drags over the popover never reach the page: a viewer's drop shows
+   the view-only notice. It holds the explainer, the warning,
    the autosaved notes, file tiles with progress for uploads, "Also uses" rows with
    each source's canvas and counts and a ✕ (`Stop using {title}`), the picker grouped
    `On {canvas}` / `Other canvases` with counts, `Used by … Changes here reach them

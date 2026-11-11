@@ -154,6 +154,17 @@ await runChatTest('canvas context: notes, files, links, used by, view-only and n
   await page.keyboard.press('Escape');
   await first.waitFor({state:'detached'});
   assert.equal(await chat.isVisible(),true,'Escape closes only the popover');
+  // In focus too, with focus left on plain text inside the popover (not on a field): Escape is the popover's, not the chat's.
+  await chat.getByRole('button',{name:'Split screen',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('.canvas-chat')?.getAttribute('data-mode')==='focus');
+  await sub.getByRole('button',{name:'sees 2 contexts',exact:true}).click();
+  await first.waitFor();
+  await first.locator('.canvas-context-explainer').click();
+  await page.keyboard.press('Escape');
+  await first.waitFor({state:'detached'});
+  assert.equal(await chat.getAttribute('data-mode'),'focus','the focus chat stays open');
+  await chat.getByRole('button',{name:'Split screen',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('.canvas-chat')?.getAttribute('data-mode')==='split');
 
   // Area context: the warning (Launch holds the harness chat), then an upload with progress.
   const panel=await openAreaContext(page,'Launch');
@@ -218,6 +229,18 @@ await runChatTest('canvas context: notes, files, links, used by, view-only and n
   await brandChip.hover();
   // Brand kit is on another canvas: no line to draw.
   await page.locator('.canvas-context-line').waitFor({state:'detached'});
+  // Pressing `↳ Research` (from the keyboard here) frames Launch and Research together and keeps their line drawn a moment.
+  await page.mouse.move(1,1);
+  await chip.focus();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(()=>{
+    const surface=document.querySelector('.canvas-surface')!.getBoundingClientRect();
+    return [...document.querySelectorAll('.canvas-area')].every(area=>{const box=area.getBoundingClientRect();return box.left>=surface.left-1&&box.right<=surface.right+1&&box.top>=surface.top-1&&box.bottom<=surface.bottom+1;});
+  });
+  await page.evaluate(()=>(document.activeElement as HTMLElement|null)?.blur());
+  assert.equal(await page.locator('.canvas-context-line').count(),1,'the line stays drawn after the chip loses focus');
+  await page.locator('.canvas-context-line').waitFor({state:'detached'});
+  assert.equal(await page.getByRole('dialog',{name:/^Context for/}).count(),0,'a reveal opens no popover');
   // ✕ stops using a link again.
   await openAreaContext(page,'Launch');
   await panel.getByRole('button',{name:'Stop using Research',exact:true}).click();
@@ -226,6 +249,10 @@ await runChatTest('canvas context: notes, files, links, used by, view-only and n
   await panel.getByRole('button',{name:'Done',exact:true}).click();
   await chat.getByRole('button',{name:'Close',exact:true}).click();
   await chat.waitFor({state:'detached'});
+  // Pressing `↗ Brand kit` opens the Brand canvas, where that area lives.
+  await brandChip.click();
+  await page.waitForURL(url=>url.searchParams.get('canvas')===brand);
+  await areaOf(page,'Brand kit').waitFor();
 
   // Used by: the source area says so on the canvas and in its popover; with no chats, its files sit on a shelf.
   const brandArea=(await call<{areas:{id:string}[]}>(h,'GET',`/api/canvases/${brand}/board`)).areas[0].id;
@@ -272,6 +299,22 @@ await runChatTest('canvas context: notes, files, links, used by, view-only and n
   for(const name of ['Add files','+ Use context from another area','Remove brief.txt','Stop using Unavailable area']){
     assert.equal(await theirArea.getByRole('button',{name,exact:true}).count(),0,`no ${name} for a viewer`);
   }
+  // A file dropped on the read-only popover is taken (the browser never opens it in place of the canvas) and refused.
+  const uploads:string[]=[];
+  mate.page.on('request',request=>{if(request.method()==='POST'&&/\/context\/files$/.test(new URL(request.url()).pathname))uploads.push(request.url());});
+  const prevented=await mate.page.evaluate(()=>{
+    const data=new DataTransfer();
+    data.items.add(new File(['synthetic bytes'],'nope.txt',{type:'text/plain'}));
+    const target=document.querySelector('.canvas-context .canvas-context-explainer')!;
+    const over=new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:data}), drop=new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:data});
+    target.dispatchEvent(over); target.dispatchEvent(drop);
+    return [over.defaultPrevented,drop.defaultPrevented];
+  });
+  assert.deepEqual(prevented,[true,true],'dragover and drop are prevented');
+  await mate.page.locator('.canvas-notice').getByText('You can view this canvas but not add files to its context.',{exact:true}).waitFor();
+  assert.equal(new URL(mate.page.url()).searchParams.get('canvas'),roadmap,'still on the canvas');
+  await theirArea.waitFor();
+  assert.deepEqual(uploads,[]);
 },{canvas:true});
 
 /** Drags a card by its title until its centre is over the middle of the area, then drops it. */
