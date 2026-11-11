@@ -5,7 +5,7 @@ export function defaultModelReference(id:string|undefined,models:{id:string;refe
 import {agentInstructionBody, agentInstructionResponse, isAgentSettingsPath} from './agent-instructions';
 import {voiceJoinBody} from './voice-request';
 import {serviceClient} from './service';
-export {serviceClient, EngineError, type EngineEvent, type EngineChannel, type ServiceAgent, type ServiceClient, type ServicePost} from './service';
+export {serviceClient, EngineError, EngineUnreachableError, isEngineOutage, type EngineEvent, type EngineChannel, type ServiceAgent, type ServiceClient, type ServicePost} from './service';
 
 export type Human = { id: string; username: string; mustChangePassword: boolean; createdAt?: number };
 const hopHeaders = ['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length'];

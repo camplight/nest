@@ -140,27 +140,86 @@ describe('the Switchyard service identity against the unchanged engine', () => {
     // Only the stopped service agent's receipt still holds the event back.
     expect((await service.event(posted.id))!.status).toBe('PENDING');
     expect(receipt(posted.id, 'Switchyard')).toBe('PENDING');
-    expect(await sy.drain()).toBeGreaterThanOrEqual(1);
+    expect(await sy.drain()).toBe(1);
     expect(receipt(posted.id, 'Switchyard')).toBe('DELIVERED');
     expect((await service.event(posted.id))!.status).toBe('DELIVERED');
   });
 
-  it('stops itself again after someone starts it', async () => {
+  it('stops itself again after someone starts it, before the next post', async () => {
     const sy = switchyard();
-    expect((await sy.ensure()).ok).toBe(true);
+    const room = await chat('Room', ['Pip']);
+    await sy.join(room);
     expect((await call(owner, 'POST', '/api/agents/Switchyard/start')).status).toBe(200);
     expect((await agent('Switchyard')).desiredState).toBe('RUNNING');
-    // Within the cache window ensure() does not ask the engine again.
-    const calls = serviceCalls.length;
-    expect((await sy.ensure()).ok).toBe(true);
-    expect(serviceCalls.length).toBe(calls);
-    clock += 60_001;
-    expect(await sy.ensure()).toEqual({ ok: true, name: 'Switchyard' });
+    // Within the 60 s adoption cache: the post itself must stop the agent first.
+    serviceCalls = [];
+    const posted = await sy.post({ channelId: room, text: 'After a start', target: 'Pip', kind: 'handoff', setBy: ownerId, idempotencyKey: 'nest:test:started' });
+    expect(serviceCalls).toEqual(['GET /api/agents/Switchyard', 'POST /api/agents/Switchyard/stop', 'POST /api/events']);
+    const stop = engine.db.prepare("SELECT created_at AS at FROM events WHERE type='agent.control.stop' AND payload_json LIKE '%\"Switchyard\"%'").get() as { at: number };
+    expect(stop.at).toBeLessThan(posted.createdAt);
     expect((await agent('Switchyard')).desiredState).toBe('STOPPED');
     const stopped = audits('audit.flows.service_agent.stopped');
     expect(stopped).toHaveLength(1);
     expect(stopped[0].actorId).toBe('system');
     expect(JSON.parse(stopped[0].payload)).toMatchObject({ agentName: 'Switchyard', desiredState: 'RUNNING' });
+    // A stopped agent costs one read per post and is not stopped again.
+    serviceCalls = [];
+    await sy.post({ channelId: room, text: 'Again', target: 'Pip', kind: 'handoff', setBy: ownerId, idempotencyKey: 'nest:test:again' });
+    expect(serviceCalls).toEqual(['GET /api/agents/Switchyard', 'POST /api/events']);
+  });
+
+  it('stops a started agent before it joins or drains', async () => {
+    const sy = switchyard();
+    expect((await sy.ensure()).ok).toBe(true);
+    const room = await chat('Room', ['Pip']);
+    expect((await call(owner, 'POST', '/api/agents/Switchyard/start')).status).toBe(200);
+    serviceCalls = [];
+    await sy.join(room);
+    expect(serviceCalls).toEqual(['GET /api/agents/Switchyard', 'POST /api/agents/Switchyard/stop', `POST /api/channels/${room}/subscribe`]);
+    expect((await call(owner, 'POST', '/api/agents/Switchyard/start')).status).toBe(200);
+    serviceCalls = [];
+    expect(await sy.drain()).toBe(0);
+    expect(serviceCalls).toEqual(['GET /api/agents/Switchyard', 'POST /api/agents/Switchyard/stop', 'GET /api/events']);
+    expect((await agent('Switchyard')).desiredState).toBe('STOPPED');
+    expect(audits('audit.flows.service_agent.stopped')).toHaveLength(2);
+  });
+
+  it('decides again when the agent is replaced within the cache window', async () => {
+    const sy = switchyard();
+    expect((await sy.ensure()).ok).toBe(true);
+    expect((await call(owner, 'DELETE', '/api/agents/Switchyard')).status).toBe(200);
+    expect((await call(owner, 'POST', '/api/agents', { name: 'Switchyard', modelId: 'test', workspacePath: join(dir, 'other'), description: 'Routes my trains', visibility: 'PRIVATE', mode: 'CLASSIC', desiredState: 'STOPPED' })).status).toBe(201);
+    const room = await chat('Room', ['Pip', 'Switchyard']);
+    const message = (await (await call(owner, 'POST', '/api/events', { type: 'message.created', source: 'human:owner', channelId: room, payload: { text: 'for the real Switchyard' } })).json()) as EngineEvent;
+    await expect(sy.post({ channelId: room, text: 'x', target: 'Pip', kind: 'handoff', setBy: ownerId, idempotencyKey: 'nest:test:replaced' })).rejects.toMatchObject({ reason: 'name-taken' });
+    expect(await sy.drain()).toBe(0);
+    expect(receipt(message.id, 'Switchyard')).toBe('PENDING');
+    expect(await sy.ensure()).toEqual({ ok: false, reason: 'name-taken' });
+  });
+
+  it('reports a refused token as an error, not as engine-unavailable', async () => {
+    // A scoped runner token (a common misconfiguration) may read humans but not create this agent: 403.
+    const invite = await (await call(owner, 'POST', '/api/runners/invites', {})).json();
+    const scoped = decodeURIComponent(String(invite.invite.inviteUrl).split('/').pop()!);
+    for (const [token, status] of [[scoped, 403], ['not-the-runner-token', 401]] as const) {
+      const lines: string[] = [];
+      const sy = createSwitchyard({ store: product.store, orgops: client, token, name: 'Switchyard', workspaceRoot: join(dir, 'managed'), defaultModelId: 'test', now: () => clock, log: line => lines.push(line) });
+      await expect(sy.ensure()).rejects.toMatchObject({ name: 'EngineError', status });
+      await expect(sy.post({ channelId: 'c', text: 'x', target: null, kind: 'note', setBy: ownerId, idempotencyKey: 'nest:test:refused' })).rejects.toMatchObject({ status });
+      // One line per change of problem, holding the status but never the token.
+      expect(lines).toEqual([`[switchyard] service agent Switchyard unavailable: engine status ${status}`]);
+      expect(lines.join()).not.toContain(token);
+    }
+    expect((await call(owner, 'GET', '/api/agents/Switchyard')).status).toBe(404);
+  });
+
+  it('reports engine-unavailable only for an unreachable engine', async () => {
+    const lines: string[] = [];
+    const down = createOrgOpsClient('http://engine', (async () => { throw new TypeError('fetch failed'); }) as typeof fetch);
+    const sy = createSwitchyard({ store: product.store, orgops: down, token: RUNNER, name: 'Switchyard', workspaceRoot: join(dir, 'managed'), defaultModelId: 'test', now: () => clock, log: line => lines.push(line) });
+    expect(await sy.ensure()).toEqual({ ok: false, reason: 'engine-unavailable' });
+    expect(await sy.ensure()).toEqual({ ok: false, reason: 'engine-unavailable' });
+    expect(lines).toEqual(['[switchyard] service agent Switchyard unavailable: EngineUnreachableError']);
   });
 
   it('refuses a same-name agent it did not create', async () => {

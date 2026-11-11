@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ProductDb } from '@nest/db';
-import { DEFAULT_AGENT_MODEL_ID, type EngineEvent, type OrgOpsClient, type ServiceAgent } from '@nest/orgops-client';
+import { DEFAULT_AGENT_MODEL_ID, EngineError, isEngineOutage, type EngineEvent, type OrgOpsClient, type ServiceAgent, type ServiceClient } from '@nest/orgops-client';
 
 /** The engine description that marks the agent Nest made; an agent without it is never adopted. */
 export const SWITCHYARD_MARKER = 'Nest service identity for hand-offs, scheduled runs, webhooks and fork seeds. It never takes turns.';
@@ -34,30 +34,48 @@ const defaultWorkspaceRoot = () =>
  * Nest's service identity: a real engine agent that stays stopped, so it never takes turns.
  * Nest posts as it with the global runner token, which keeps its requested `agent:<name>` source.
  */
-export function createSwitchyard({ store, orgops, token, name, workspaceRoot, defaultModelId, now = Date.now }: {
+export function createSwitchyard({ store, orgops, token, name, workspaceRoot, defaultModelId, now = Date.now, log = line => console.warn(line) }: {
   store: ProductDb; orgops: OrgOpsClient; token: string | undefined; name?: string;
-  workspaceRoot?: string; defaultModelId?: string; now?: () => number;
+  workspaceRoot?: string; defaultModelId?: string; now?: () => number; log?: (line: string) => void;
 }) {
   const agentName = name || process.env.NEST_SWITCHYARD_AGENT_NAME || 'Switchyard';
   const root = workspaceRoot ?? defaultWorkspaceRoot();
-  let cached: { state: SwitchyardState; at: number } | null = null;
+  // The cached adoption verdict: which agent is ours, or that the name is taken. Never its run state.
+  type Verdict = { state: SwitchyardState; at: number; agentId?: string; ownerId?: string };
+  let cached: Verdict | null = null;
   let checking: Promise<SwitchyardState> | null = null;
+  let reported: string | null = null;
 
   const audit = (type: string, payload: Record<string, unknown>) =>
     store.db.prepare('INSERT INTO product_audit(type,actor_id,payload_json,created_at) VALUES (?,?,?,?)').run(type, 'system', JSON.stringify(payload), Date.now());
   const remember = (agent: ServiceAgent) =>
     store.db.prepare('INSERT INTO product_settings VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json')
       .run(SWITCHYARD_SETTING, JSON.stringify({ id: agent.id, name: agent.name }));
+  // Adopt only the agent Nest made: the marker, the instance owner and a private classic agent.
+  const ours = (agent: ServiceAgent, ownerId: string | undefined) =>
+    agent.description === SWITCHYARD_MARKER && agent.ownerHumanId === ownerId && agent.visibility === 'PRIVATE' && agent.mode === 'CLASSIC';
+  /** One line per change of problem; only a status or an error name, never a body or the token. */
+  function report(problem: string | null) {
+    if (problem === reported) return;
+    reported = problem;
+    if (problem) log(`[switchyard] service agent ${agentName} unavailable: ${problem}`);
+  }
+  const describe = (error: unknown) =>
+    error instanceof EngineError ? `engine status ${error.status}` : error instanceof Error ? error.name : 'unknown error';
 
-  async function check(service: ReturnType<OrgOpsClient['service']>): Promise<SwitchyardState> {
+  async function stopIfStarted(service: ServiceClient, agent: ServiceAgent) {
+    if (agent.desiredState === 'STOPPED') return;
+    await service.stopAgent(agentName);
+    audit('audit.flows.service_agent.stopped', { agentName, agentId: agent.id, desiredState: agent.desiredState });
+  }
+
+  async function check(service: ServiceClient): Promise<Verdict> {
     const humans = await service.humans();
     const owner = [...humans].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.id.localeCompare(b.id))[0];
-    if (!owner) return { ok: false, reason: 'engine-unavailable' };
-    // Adopt only the agent Nest made: the marker, the instance owner and a private classic agent.
-    const ours = (agent: ServiceAgent) =>
-      agent.description === SWITCHYARD_MARKER && agent.ownerHumanId === owner.id && agent.visibility === 'PRIVATE' && agent.mode === 'CLASSIC';
+    if (!owner) throw new Error('The engine has no humans');
     let agent = await service.agent(agentName);
     if (!agent) {
+      let createError: unknown = null;
       try {
         await service.createAgent({
           name: agentName, description: SWITCHYARD_MARKER, modelId: defaultModelId || DEFAULT_AGENT_MODEL_ID,
@@ -65,41 +83,60 @@ export function createSwitchyard({ store, orgops, token, name, workspaceRoot, de
           desiredState: 'STOPPED', runtimeState: 'STOPPED', emitAuditEvents: false,
           enabledSkills: [], alwaysPreloadedSkills: [], allowOutsideWorkspace: false, allowOwnerHumanSecrets: false,
         });
-      } catch { /* A concurrent create or a lost response: reconcile by name below. */ }
+      } catch (error) { createError = error; /* A concurrent create or a lost response: reconcile by name below. */ }
       agent = await service.agent(agentName);
-      if (!agent) return { ok: false, reason: 'engine-unavailable' };
+      if (!agent) throw createError ?? new Error('The created service agent could not be read back');
     }
-    if (!ours(agent)) return { ok: false, reason: 'name-taken' };
-    if (agent.desiredState !== 'STOPPED') {
-      await service.stopAgent(agentName);
-      audit('audit.flows.service_agent.stopped', { agentName, agentId: agent.id, desiredState: agent.desiredState });
-    }
+    if (!ours(agent, owner.id)) return { state: { ok: false, reason: 'name-taken' }, at: now() };
+    await stopIfStarted(service, agent);
     remember(agent);
-    return { ok: true, name: agentName };
+    return { state: { ok: true, name: agentName }, at: now(), agentId: agent.id, ownerId: owner.id };
   }
 
-  /** Create, adopt or re-stop the service agent. A usable or name-taken answer is cached for 60 s. */
-  async function ensure(): Promise<SwitchyardState> {
-    if (!token) return { ok: false, reason: 'no-service-token' };
-    if (cached && now() - cached.at < CACHE_MS) return cached.state;
+  /** The adoption verdict, cached for 60 s; `fresh` when this call read the agent from the engine. */
+  async function adoption(): Promise<{ state: SwitchyardState; fresh: boolean }> {
+    if (!token) return { state: { ok: false, reason: 'no-service-token' }, fresh: false };
+    if (cached && now() - cached.at < CACHE_MS) return { state: cached.state, fresh: false };
     checking ??= (async () => {
       try {
-        const state = await check(orgops.service(token));
-        // An engine outage is retried on the next call rather than remembered.
-        cached = state.ok || state.reason === 'name-taken' ? { state, at: now() } : null;
-        return state;
-      } catch {
+        const verdict = await check(orgops.service(token));
+        cached = verdict;
+        report(verdict.state.ok ? null : 'the name belongs to an agent Nest did not create');
+        return verdict.state;
+      } catch (error) {
         cached = null;
-        return { ok: false, reason: 'engine-unavailable' } as const;
+        report(describe(error));
+        // Only an outage is a state; a 4xx (a wrong or scoped token, a rejected agent) or a bug is thrown.
+        if (isEngineOutage(error)) return { ok: false, reason: 'engine-unavailable' } as const;
+        throw error;
       } finally { checking = null; }
     })();
-    return checking;
+    return { state: await checking, fresh: true };
   }
 
-  async function usable() {
-    const state = await ensure();
+  /** Create, adopt or re-stop the service agent. Only the adoption verdict is cached (60 s). */
+  const ensure = async (): Promise<SwitchyardState> => (await adoption()).state;
+
+  /**
+   * Before every join, post and drain: the agent must still be ours and stopped. A started agent
+   * would take turns in every chat it has joined, so it is stopped before anything is sent.
+   */
+  async function usable(): Promise<ServiceClient> {
+    const { state, fresh } = await adoption();
     if (!state.ok) throw new SwitchyardUnavailableError(state.reason);
-    return orgops.service(token!);
+    const service = orgops.service(token!);
+    if (fresh) return service;
+    const verdict = cached;
+    const agent = await service.agent(agentName);
+    if (!agent || !verdict || agent.id !== verdict.agentId || !ours(agent, verdict.ownerId)) {
+      // Replaced or edited since the verdict: decide again from scratch.
+      cached = null;
+      const again = await ensure();
+      if (!again.ok) throw new SwitchyardUnavailableError(again.reason);
+      return service;
+    }
+    await stopIfStarted(service, agent);
+    return service;
   }
 
   return {
@@ -124,8 +161,12 @@ export function createSwitchyard({ store, orgops, token, name, workspaceRoot, de
     },
     /** One read of the service agent's due receipts, which marks them delivered. Returns the events read. */
     async drain(): Promise<number> {
-      if (!(await ensure()).ok) return 0;
-      return (await orgops.service(token!).events({ agentName, limit: '500' })).length;
+      let service: ServiceClient;
+      try { service = await usable(); } catch (error) {
+        if (error instanceof SwitchyardUnavailableError) return 0;
+        throw error;
+      }
+      return (await service.events({ agentName, limit: '500' })).length;
     },
   };
 }

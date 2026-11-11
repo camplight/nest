@@ -1,5 +1,5 @@
 import {expect, it} from 'vitest';
-import {createOrgOpsClient, EngineError} from './index';
+import {createOrgOpsClient, EngineError, EngineUnreachableError, isEngineOutage} from './index';
 
 function recording(answer: (url: URL, init: RequestInit) => Response) {
   const seen: {method: string; path: string; headers: Headers; body: unknown}[] = [];
@@ -41,4 +41,18 @@ it('answers null for a missing agent or event, and refuses an empty token', asyn
   expect(await client.service('runner-secret').agent('Switchyard')).toBeNull();
   expect(await client.service('runner-secret').event('e1')).toBeNull();
   expect(() => client.service('')).toThrow();
+});
+
+it('treats only an unreachable engine or a 5xx answer as an outage', async () => {
+  const down = createOrgOpsClient('http://engine', (async () => { throw new TypeError('fetch failed'); }) as unknown as typeof fetch);
+  const unreachable = await down.service('runner-secret').humans().catch(error => error);
+  expect(unreachable).toBeInstanceOf(EngineUnreachableError);
+  expect(isEngineOutage(unreachable)).toBe(true);
+  for (const [status, outage] of [[503, true], [500, true], [403, false], [400, false], [401, false]] as const) {
+    const {client} = recording(() => Response.json({error: 'x'}, {status}));
+    const error = await client.service('runner-secret').humans().catch(failure => failure);
+    expect(error).toMatchObject({name: 'EngineError', status});
+    expect(isEngineOutage(error)).toBe(outage);
+  }
+  expect(isEngineOutage(new Error('bug'))).toBe(false);
 });

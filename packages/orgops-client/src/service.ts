@@ -8,6 +8,22 @@ export class EngineError extends Error {
   }
 }
 
+/** The engine could not be reached at all: a network failure, a timeout or an aborted request. */
+export class EngineUnreachableError extends Error {
+  constructor(path: string) {
+    super(`Engine unreachable for ${path.split('?')[0]}`);
+    this.name = 'EngineUnreachableError';
+  }
+}
+
+/** True only for an engine outage (unreachable, or a 5xx answer); a 4xx is a configuration or caller error. */
+export const isEngineOutage = (error: unknown) =>
+  error instanceof EngineUnreachableError || (error instanceof EngineError && error.status >= 500);
+
+// fetch rejects with a TypeError for network failures, and with TimeoutError or AbortError for its signal.
+const transportFailure = (error: unknown) =>
+  error instanceof TypeError || (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError'));
+
 export type EngineEvent = {
   id: string; type: string; source: string; channelId?: string; parentEventId?: string;
   payload: Record<string, unknown>; status: string; deliverAt?: number; idempotencyKey?: string;
@@ -17,7 +33,7 @@ export type EngineChannel = {
   id: string; name: string; visibility: string; ownerHumanId: string | null; archivedAt?: number | null;
   participants: {subscriberType: string; subscriberId: string}[];
 };
-export type ServiceAgent = ManagedEngineAgent & {desiredState: string; description: string | null};
+export type ServiceAgent = Omit<ManagedEngineAgent, 'description'> & {desiredState: string; description: string | null};
 export type ServicePost = {type: string; source: string; channelId: string; payload: Record<string, unknown>; idempotencyKey: string; deliverAt?: number};
 
 type EngineRequest = (path: string, init?: RequestInit) => Promise<Response>;
@@ -26,9 +42,15 @@ type EngineRequest = (path: string, init?: RequestInit) => Promise<Response>;
 export function serviceClient(request: EngineRequest, token: string) {
   if (!token) throw Error('The engine service token is not configured');
   const drop = (response: Response) => response.body?.cancel().catch(() => undefined);
-  const headers = (extra: Record<string, string> = {}) => ({'x-orgops-runner-token': token, ...extra});
+  const headers = (extra: Record<string, string> = {}) => ({...extra, 'x-orgops-runner-token': token});
   async function call(path: string, init: RequestInit = {}, allow: number[] = []) {
-    const response = await request(path, {...init, headers: headers(init.headers as Record<string, string> | undefined)});
+    let response: Response;
+    try {
+      response = await request(path, {...init, headers: headers(init.headers as Record<string, string> | undefined)});
+    } catch (error) {
+      if (transportFailure(error)) throw new EngineUnreachableError(path);
+      throw error;
+    }
     if (!response.ok && !allow.includes(response.status)) {
       await drop(response);
       throw new EngineError(response.status, path);
