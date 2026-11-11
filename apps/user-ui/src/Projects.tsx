@@ -1,7 +1,7 @@
 import {PublishedArtifacts} from './PublishedArtifacts';
 import {WorkspaceTopbar} from "./components/WorkspaceTopbar";
 import {DesignIcon} from "./Dashboard";
-import { useEffect, useRef, useState, type ReactNode, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode, type FormEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Project, ProjectDetail, Task } from '@nest/schemas';
@@ -10,6 +10,7 @@ import { apiJson, getApiHeaders } from './api';
 import { AgentAvatar } from './components/AgentAvatar';
 import {ProjectStart} from './ProjectStart';
 import {ProjectContext} from './ProjectContext';
+import {ProjectAccessGate} from './ProjectAccessGate';
 import './projects.css';
 
 type Props = {userId:string; participants:ChannelParticipant[]; existingChats: {id:string;name:string;archived:boolean}[]; onChat:(id:string)=>void; projectId: string | null; taskId: string | null; tab: string; agents: Agent[]; onSelect: (project: string | null, task?: string | null, tab?: string) => void; onLoaded: (project: Project) => void; onMenu: () => void; chat: ReactNode; onMembersChanged:()=>Promise<void>};
@@ -31,6 +32,9 @@ export function Projects(props: Props) {
   const [creating,setCreating]=useState(false);
   const createTrigger=useRef<HTMLButtonElement>(null);
   const createRequested = !projectId && tab === "new";
+  const accessGateVisible=Boolean(projectId&&error&&!detail&&!loading);
+  const accessMember=useCallback(()=>setRefresh(value=>value+1),[]);
+  const accessUnavailable=useCallback(()=>setError('Project unavailable'),[]);
   useEffect(()=>{
     const controller=new AbortController();
     setLoading(true);setError(null);setDetail(null);setCreating(createRequested);
@@ -52,8 +56,9 @@ export function Projects(props: Props) {
 
     <div className="dashboard-content">
       {(!projectId || tab === 'tasks') && <div className="dashboard-title"><h1>{detail?.name ?? (projectId ? 'Project' : creating ? 'New project' : 'Projects')}</h1>{(!projectId || tab === "tasks") && (!creating || !!projectId) && <button ref={createTrigger} className="dashboard-action project-create" onClick={()=>projectId?setCreating(!creating):onSelect(null,null,'new')}>{creating ? 'Cancel' : projectId ? 'New task +' : 'New project +'}</button>}</div>}
-      {error && <div className="notice error" role="alert">{error} <button onClick={()=>setRefresh(n=>n+1)}>Refresh</button></div>}
+      {error && !accessGateVisible && <div className="notice error" role="alert">{error} <button onClick={()=>setRefresh(n=>n+1)}>Refresh</button></div>}
       {loading && <p role="status">Loading projects…</p>}
+      {accessGateVisible && projectId && <ProjectAccessGate key={projectId} projectId={projectId} onMember={accessMember} onUnavailable={accessUnavailable}/>}
       {!projectId && <>
         {creating && props.userId && <ProjectStart key={props.userId} ownerId={props.userId} onCreated={p=>{onLoaded(p);onSelect(p.id);}} onCancel={()=>{setCreating(false);onSelect(null);requestAnimationFrame(()=>createTrigger.current?.focus());}} />}
         {!creating&&<div className="project-grid">{filteredProjects.map(project=><button className="dashboard-card project-summary" key={project.id} onClick={()=>onSelect(project.id)}><h2>{project.name}</h2><p>{project.description || 'Open the conversation and work with your team.'}</p><span>Open project →</span></button>)}</div>}

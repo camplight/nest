@@ -1,3 +1,10 @@
+.project-access-gate { width:min(560px,100%); box-sizing:border-box; margin:auto; padding:32px; text-align:left; }
+.project-access-gate h2 { margin:0 0 12px; font-size:22px; }
+.project-access-gate p { max-width:54ch; line-height:1.65; color:var(--nest-muted); }
+.project-access-gate .dashboard-action { margin-top:12px; }
+.project-access-error { margin-top:20px; }
+@media(max-width:600px) { .project-access-gate { padding:22px; } }
+
 .project-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(290px,100%),1fr)); gap: 20px; }
 .project-summary { padding: 24px; text-align: left; min-width:0; display:flex; flex-direction:column; align-items:stretch; }
 .project-summary h2 { font-size: 18px; margin: 0 0 12px; }
