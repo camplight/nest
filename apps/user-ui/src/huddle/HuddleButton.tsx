@@ -16,7 +16,7 @@ export function HuddleButton(props: {channel: Channel; label: string; username: 
     return () => {current = false;};
   }, [open, Huddle]);
   return <>
-    <button ref={launcher} type="button" className="huddle-launch" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><Headphones size={17} aria-hidden="true"/>Huddle</button>
+    <button ref={launcher} type="button" className="huddle-launch" title="Start a huddle (voice room) in this chat" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><Headphones size={17} aria-hidden="true"/>Huddle</button>
     {open && (Huddle ? <Huddle {...props} onClose={close}/> : <div className="huddle-load-notice" role={failed ? 'alert' : 'status'}>
       <span>{failed ? 'Huddle couldn’t load. Refresh the page to try again.' : 'Loading huddle…'}</span>
       {failed && <button type="button" onClick={() => window.location.reload()}>Refresh page</button>}

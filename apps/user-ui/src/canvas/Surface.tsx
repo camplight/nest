@@ -11,7 +11,7 @@ import {areaSummaries,type CardPulse} from './pulse';
 import type {NeedsItem} from './needs';
 import {ORIGIN,areaMembers,cardCentre,clampZoom,fit,growToFit,isCompact,toCanvas,visible,zoomAt,type Point,type Rect,type Size,type View} from './geometry';
 import {CARD_PLACE_HEIGHT} from './loose';
-import {presentView} from './sheet';
+import {presentView,stageBounds} from './sheet';
 
 export type SurfaceProps = {
   board: CanvasBoard;
@@ -63,6 +63,10 @@ export type SurfaceProps = {
   onRenameStarted?(areaId: string): void;
   /** After any render that moved the view, resized the surface or moved or measured a card: an open sheet re-reads its card. */
   onViewChange?(): void;
+  /** A press on empty canvas (not a card, a control or a drag past the drag threshold): an open sheet closes. */
+  onEmptyPress?(): void;
+  /** Fit was pressed; it fits once this returns (an open sheet closes first). */
+  onFit?(): void;
 };
 export type FileDropTarget = {kind: 'card'; channelId: string} | {kind: 'area'; areaId: string};
 const carriesFiles = (event: ReactDragEvent) => event.dataTransfer.types.includes('Files');
@@ -71,8 +75,11 @@ export type SurfaceControls = {
   centre(): Point;
   /** Animates the view to a card (at zoom 0.8 or more) or fits an area. False when it is not on this canvas. */
   reveal(target: {channelId: string} | {areaId: string}): boolean;
-  /** Animates the view so a card opened in place sits where its chat sheet fits (zoom 1 or less). False when it is not on this canvas. */
-  present(channelId: string): boolean;
+  /**
+   * Animates the view so a card opened in place sits where its chat sheet fits (zoom 1 or less): `sheetHeight` tall, and
+   * above the bottom box `dockTop` px down the surface (null without one). False when the card is not on this canvas.
+   */
+  present(channelId: string, sheetHeight: number, dockTop: number | null): boolean;
   /** A card's measured height in canvas units, once it has been mounted; undefined before that. */
   cardHeight(channelId: string): number | undefined;
 };
@@ -103,7 +110,9 @@ export function drawnNotice(inside: number) {
 
 type Tool = 'select' | 'area';
 type Mode = 'pan' | 'card' | 'area' | 'resize' | 'draw' | 'face';
-type Gesture = {pointerId: number; mode: Mode; id?: string; agent?: string; start: Point; startView: View; active: boolean; members?: {cards: Set<string>; areas: Set<string>}; base?: {w: number; h: number}};
+type Gesture = {pointerId: number; mode: Mode; id?: string; agent?: string; start: Point; startView: View; active: boolean; members?: {cards: Set<string>; areas: Set<string>}; base?: {w: number; h: number};
+  /** Pressed on empty canvas (an area's inside counts; a card does not). */
+  empty?: boolean};
 type Preview =
   | {kind: 'card'; id: string; dx: number; dy: number}
   | {kind: 'area'; id: string; dx: number; dy: number; cards: Set<string>; areas: Set<string>}
@@ -141,7 +150,7 @@ const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + 
 
 export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null,
   onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onOpenCanvas, onDropFiles,
-  needs = NO_NEEDS, viewer = '', onNotice, onAreaCreated, renameAreaId = null, onRenameStarted, onViewChange}: SurfaceProps) {
+  needs = NO_NEEDS, viewer = '', onNotice, onAreaCreated, renameAreaId = null, onRenameStarted, onViewChange, onEmptyPress, onFit}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
   // Without a known human the view is not remembered, so it can never land under another person's key.
   const key = humanId ? viewKey(humanId, board.canvas.id) : null;
@@ -271,11 +280,11 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
         animateTo(next);
         return true;
       },
-      present: channelId => {
+      present: (channelId, sheetHeight, dockTop) => {
         const element = surfaceRef.current;
         const rect = cardRectsRef.current.find(c => c.card.channelId === channelId);
         if (!rect || !element?.clientWidth || !element.clientHeight) return false;
-        animateTo(presentView(rect, {w: element.clientWidth, h: element.clientHeight}));
+        animateTo(presentView(rect, stageBounds({w: element.clientWidth, h: element.clientHeight}, dockTop), sheetHeight));
         return true;
       },
       cardHeight: channelId => heights.current.get(channelId),
@@ -420,6 +429,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   }, [cancel]);
 
   const removeAgentRef = useRef(onRemoveAgent); removeAgentRef.current = onRemoveAgent;
+  const emptyPressRef = useRef(onEmptyPress); emptyPressRef.current = onEmptyPress;
   const selectRef = useRef(onSelectCard); selectRef.current = onSelectCard;
   /** Whether a screen point is more than REMOVE_DISTANCE outside the card's on-screen bounds. */
   const awayFrom = (channelId: string, at: {clientX: number; clientY: number}) => {
@@ -450,7 +460,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     const handle = pan ? null : target.closest<HTMLElement>('[data-drag]');
     const start = local(event), startView = viewRef.current;
     const current = boardRef.current;
-    let next: Gesture = {pointerId: event.pointerId, mode: 'pan', start, startView, active: false};
+    let next: Gesture = {pointerId: event.pointerId, mode: 'pan', start, startView, active: false, empty: !pan && !pressed && !target.closest('.canvas-card')};
     if (handle?.dataset.drag === 'face' && pressed && handle.dataset.agent) {
       next = {...next, mode: 'face', id: pressed, agent: handle.dataset.agent};
     } else if (handle?.dataset.drag === 'card') {
@@ -514,6 +524,8 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     gesture.current = null;
     setPreview(null);
     if (g.active) { dragged.current = true; setTimeout(() => { dragged.current = false; }, 0); }
+    // A press that never moved past the drag threshold, on empty canvas: the mock closes an open chat on it.
+    if (!g.active && g.mode === 'pan' && g.empty && event.type === 'pointerup') emptyPressRef.current?.();
     if (!g.active || event.type === 'pointercancel') return;
     if (g.mode === 'face') {
       if (awayFrom(g.id!, event)) removeAgentRef.current?.(g.id!, g.agent!);
@@ -556,7 +568,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   }
 
   const zoomBy = (factor: number) => setView(zoomAt(viewRef.current, factor, {x: size.w / 2, y: size.h / 2}));
-  const fitAll = () => setView(fit(contentRects(), size));
+  const fitAll = () => { onFit?.(); setView(fit(contentRects(), size)); };
   const rename = useCallback((areaId: string, title: string) => void applyRef.current({kind: 'patchArea', areaId, patch: {title}}), []);
   const remove = useCallback((areaId: string) => {
     // The area and its focused Delete button unmount: keep keyboard focus on the canvas.

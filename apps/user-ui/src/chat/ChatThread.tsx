@@ -6,11 +6,13 @@ import {appRedaction,type AppRedaction} from '../activity';
 import {AgentActivity} from '../components/AgentActivity';
 import {AgentAvatar} from '../components/AgentAvatar';
 import type {Agent,EventRow} from '../types';
+import {createPortal} from 'react-dom';
 import {AssistantRuntimeProvider,ThreadPrimitive,useAuiState,useExternalStoreRuntime} from './aui';
 import type {ChannelEventsCore,ChannelEventsSnapshot} from './channel-events';
 import {serverClock} from '../server-clock';
 import {ChatAppsHere,useServerTick} from './AppsHere';
 import {ExportButton} from './ExportButton';
+import {ChatHeaderSlotsContext} from './header-slots';
 import {formatTime} from './format';
 import {MessageActions} from './MessageActions';
 import {MessageBody} from './MessageBody';
@@ -29,6 +31,8 @@ export type ChatThreadProps={
  snapshot:ChannelEventsSnapshot;core:ChannelEventsCore;currentUsername:string;agents:Agent[];
  focusedMessageId:string|null;isConversationEmpty:boolean;
  onPreviewDemo(path:string):void;onQuote(target:ReplyTarget,quotedText:string):void;footer?:ReactNode;headerActions?:ReactNode;
+ /** Sharing: before headerActions in the thread's own row, or in a host's More menu (ChatHeaderSlotsContext). */
+ headerMore?:ReactNode;
  channelLabel:string;wrappedAgents?:string[];onFocusMessage(eventId:string):void;handle?:Ref<ChatThreadHandle>;
  /** Phase 2 app activity (canvas flag): the Apps here bar, the wrapped-agent line and app-call titles and redaction. */
  appActivity?:boolean;
@@ -203,6 +207,8 @@ function ThreadEmpty(){
 
 export function ChatThread(props:ChatThreadProps):JSX.Element{
  const {snapshot,core,currentUsername,focusedMessageId}=props;
+ // A host with its own header (the canvas sheet) takes Huddle, Sharing and Export; the thread then has no header row.
+ const slots=useContext(ChatHeaderSlotsContext);
  const previousItems=useRef<TimelineItem[]>([]);
  const items=useMemo(()=>{
   const next=buildTimeline(snapshot.events,{currentUsername,detachedIds:snapshot.detachedIds},previousItems.current);
@@ -294,7 +300,9 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  return <AssistantRuntimeProvider runtime={runtime}><ChatPortalProvider><ThreadContext.Provider value={view}>
   <div className="nest-chat relative flex min-h-0 flex-1 flex-col">
    {/* Keep Sharing and Huddle reachable on mobile. Export stays hidden at the existing mobile breakpoint. */}
-   <div className="chat-header-actions flex shrink-0 flex-wrap items-center justify-end gap-3 px-3 pb-2 empty:hidden">{props.headerActions}<span className="max-[761px]:hidden"><ExportButton items={items} channelLabel={props.channelLabel}/></span></div>
+   {slots
+    ? <>{slots.actions&&createPortal(props.headerActions,slots.actions)}{slots.more&&createPortal(<>{props.headerMore}<ExportButton items={items} channelLabel={props.channelLabel} menuItem/></>,slots.more)}</>
+    : <div className="chat-header-actions flex shrink-0 flex-wrap items-center justify-end gap-3 px-3 pb-2 empty:hidden">{props.headerMore}{props.headerActions}<span className="max-[761px]:hidden"><ExportButton items={items} channelLabel={props.channelLabel}/></span></div>}
    {props.appActivity&&<ChatAppsHere events={snapshot.events} wrappedAgents={props.wrappedAgents??NO_AGENTS}/>}
    <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
     <ThreadPrimitive.Viewport ref={panelRef} turnAnchor="bottom" autoScroll={!focusPending} scrollToBottomOnInitialize={!focusedMessageId}

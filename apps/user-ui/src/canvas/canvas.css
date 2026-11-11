@@ -1258,42 +1258,13 @@
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--nest-lime) 70%, transparent); }
   100% { box-shadow: 0 0 0 22px transparent; }
 }
-/* The open card lies under its sheet: its ring would show around the sheet's corner. */
+/* The open card lies under its sheet: its ring, border and tinted top edge would show around the sheet's corners. */
 .canvas-body.is-in-place .canvas-card.is-open {
   outline-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
-/*
- * At 560 px the header reads like the mock's open card: the title with Close at its right, then one compact row of
- * actions under it, instead of three wrapped rows of full-size buttons.
- */
-.canvas-chat[data-place] .canvas-chat-bar {
-  gap: 8px;
-  padding: 12px 12px 10px 18px;
-}
-.canvas-chat[data-place] .canvas-chat-heading {
-  flex: 1 1 calc(100% - 96px);
-}
-.canvas-chat[data-place] .canvas-chat-actions {
-  display: contents;
-}
-.canvas-chat[data-place] .canvas-chat-actions > * {
-  order: 2;
-}
-.canvas-chat[data-place] .canvas-chat-actions > :last-child {
-  order: 1;
-  align-self: flex-start;
-}
-.canvas-chat[data-place] :is(.canvas-chat-action, .canvas-chat-area select) {
-  min-height: 30px;
-  font-size: 12.5px;
-}
-.canvas-chat[data-place] .canvas-chat-action {
-  padding: 0 10px;
-}
-.canvas-chat[data-place] .canvas-chat-area {
-  font-size: 12.5px;
-}
-/* At 560 px a demo preview stacks under the chat (its narrow layout) instead of squeezing two columns. */
+/* At 560 px a demo preview stacks with the chat (its narrow layout) instead of squeezing two columns. */
 .canvas-chat[data-mode="focus"] .artifact-chat-layout.has-preview {
   flex-direction: column;
   overflow: auto;
@@ -1302,8 +1273,10 @@
   min-height: 420px;
   flex: none;
 }
+/* It opens above the chat, in view; its × returns to the chat. */
 .canvas-chat[data-mode="focus"] .demo-artifact {
   flex: none;
+  order: -1;
 }
 .canvas-chat[data-mode="focus"] :is(.demo-artifact-canvas, .demo-artifact iframe) {
   min-height: 460px;
@@ -1344,15 +1317,13 @@
 .canvas-chat-bar {
   flex: none;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  padding: 10px 12px 10px 20px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 14px 10px 18px;
   border-bottom: 1px solid var(--nest-border);
 }
-/* A narrow split-screen chat puts its actions on a second row rather than cutting the title short. */
+/* The mock's `.ch-title`; a narrow split-screen chat cuts it short rather than wrapping the actions. */
 .canvas-chat-title {
-  flex: 1 1 220px;
   min-width: 0;
   margin: 0;
   font: 500 16px/1.3 Unbounded, sans-serif;
@@ -1360,54 +1331,128 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The mock's `.ch-acts`: 30 px icon buttons, then Close. */
 .canvas-chat-actions {
-  flex: 0 1 auto;
-  margin-left: auto;
+  flex: none;
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-}
-.canvas-chat-area {
-  display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+.canvas-chat-slot {
+  display: contents;
+}
+.canvas-chat-icon,
+.canvas-chat-actions .huddle-launch {
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border: 1px solid var(--nest-border);
+  border-radius: 8px;
+  padding: 0;
+  background: var(--nest-surface);
   color: var(--nest-muted);
-  font: 500 13px/1 Inter, sans-serif;
-}
-.canvas-chat-area select {
-  min-height: 34px;
-  max-width: 180px;
-  border: 1px solid var(--nest-border);
-  border-radius: 8px;
-  padding: 0 28px 0 10px;
-  background: var(--nest-surface);
-  color: var(--nest-text);
-  font: inherit;
   cursor: pointer;
 }
-.canvas-chat-action {
-  min-height: 34px;
-  border: 1px solid var(--nest-border);
-  border-radius: 8px;
-  padding: 0 12px;
-  background: var(--nest-surface);
-  color: var(--nest-text);
-  font: 500 13px/1 Inter, sans-serif;
-  cursor: pointer;
+/* Huddle keeps its name for screen readers; on the title row it shows only its headphones. */
+.canvas-chat-actions .huddle-launch {
+  gap: 0;
+  font-size: 0;
 }
-.canvas-chat-action:hover {
+.canvas-chat-actions .huddle-launch svg {
+  width: 16px;
+  height: 16px;
+}
+.canvas-chat-icon:hover,
+.canvas-chat-actions .huddle-launch:hover {
   background: var(--nest-muted-surface);
+  color: var(--nest-text);
 }
-.canvas-chat-action[aria-pressed="true"] {
+.canvas-chat-icon:focus-visible {
+  outline: 2px solid var(--nest-lime);
+  outline-offset: 2px;
+}
+.canvas-chat-icon[aria-pressed="true"] {
   border-color: var(--nest-forest);
   background: var(--nest-forest);
   color: var(--instance-on-primary, var(--nest-white));
 }
-:root[data-theme="dark"] .canvas-chat-action[aria-pressed="true"] {
+:root[data-theme="dark"] .canvas-chat-icon[aria-pressed="true"] {
   border-color: var(--nest-lime);
   background: var(--nest-lime);
   color: var(--nest-forest);
+}
+/* The mock's `.x`: Close sits apart, on a quiet fill. */
+.canvas-chat-close {
+  border-color: transparent;
+  background: var(--nest-muted-surface);
+}
+.canvas-chat-more {
+  position: relative;
+}
+.canvas-chat-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  min-width: 240px;
+  display: grid;
+  gap: 2px;
+  border: 1px solid var(--nest-border);
+  border-radius: 12px;
+  padding: 6px;
+  background: var(--nest-surface);
+  box-shadow: var(--canvas-shadow);
+}
+.canvas-chat-menu[hidden] {
+  display: none;
+}
+/* Menu rows: Use this area's context, then App's Sharing and Export chat as plain rows. */
+.canvas-chat-menu :is(.canvas-chat-menu-item, .chat-menu-item, .canvas-chat-slot > .huddle-launch) {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--nest-text);
+  font: 500 13px/1.2 Inter, sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+.canvas-chat-menu :is(.canvas-chat-menu-item, .chat-menu-item, .canvas-chat-slot > .huddle-launch):hover {
+  background: var(--nest-muted-surface);
+}
+.canvas-chat-menu :is(.canvas-chat-menu-item, .chat-menu-item, .canvas-chat-slot > .huddle-launch) svg {
+  width: 15px;
+  height: 15px;
+}
+.canvas-chat-area {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 4px 6px 10px;
+  border-bottom: 1px solid var(--nest-border);
+  margin-bottom: 4px;
+  color: var(--nest-muted);
+  font: 500 13px/1 Inter, sans-serif;
+}
+.canvas-chat-area select {
+  min-height: 32px;
+  max-width: 160px;
+  border: 1px solid var(--nest-border);
+  border-radius: 8px;
+  padding: 0 26px 0 8px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+  font: inherit;
+  cursor: pointer;
 }
 .canvas-chat-body {
   flex: 1;
@@ -1424,14 +1469,7 @@
   background: transparent;
 }
 .canvas-chat-body .workspace-header {
-  padding: 8px 0;
-}
-.canvas-chat-body .workspace-header > div > span,
-.canvas-chat-body .workspace-title-row {
   display: none;
-}
-.canvas-chat-body .workspace-header p {
-  margin: 0;
 }
 .canvas-chat-body .chat-stack {
   margin-top: 8px;

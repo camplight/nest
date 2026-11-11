@@ -278,8 +278,13 @@ await runChatTest('canvas areas: the open chat header moves its chat into an are
 
   // Into an area: a free spot beside the card already there, the area grows to hold it, and the card gets its stripe.
   await page.goto(`${base}/?view=canvas&canvas=${id}&chat=${h.project.channelId}&mode=split`);
-  const picker=page.locator('.canvas-chat').getByRole('combobox',{name:'Area',exact:true});
-  await picker.waitFor();
+  // The Area picker is in the header's More menu, which closes once a choice is made (its value is read while closed).
+  const picker=page.locator('.canvas-chat .canvas-chat-area select');
+  const openMenu=async()=>{
+    await page.locator('.canvas-chat').getByRole('button',{name:'More chat actions',exact:true}).click();
+    await page.locator('.canvas-chat').getByRole('combobox',{name:'Area',exact:true}).waitFor();
+  };
+  await openMenu();
   assert.equal(await picker.inputValue(),'','not in an area yet');
   const moved=page.waitForResponse(r=>r.request().method()==='PATCH'&&r.url().includes(`/api/canvases/${id}/cards/${h.project.channelId}`));
   await picker.selectOption({label:'Landing zone'});
@@ -293,6 +298,7 @@ await runChatTest('canvas areas: the open chat header moves its chat into an are
 
   // No area: out beside the area, in none.
   const out=page.waitForResponse(r=>r.request().method()==='PATCH'&&r.url().includes(`/api/canvases/${id}/cards/${h.project.channelId}`));
+  await openMenu();
   await picker.selectOption({label:'No area'});
   assert.ok((await out).ok());
   const left=await board(h,id);
@@ -303,7 +309,7 @@ await runChatTest('canvas areas: the open chat header moves its chat into an are
   // A loose chat opened from the pile is placed straight into the area.
   await page.goto(`${base}/?view=canvas&canvas=${id}&chat=${loose.channelId}&mode=split`);
   const placed=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith(`/api/canvases/${id}/cards`));
-  await picker.waitFor();
+  await openMenu();
   assert.equal(await picker.locator('option[value=""]').textContent(),'Not on this canvas');
   await picker.selectOption({label:'Landing zone'});
   assert.equal((await placed).status(),201);

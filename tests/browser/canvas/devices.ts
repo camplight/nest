@@ -391,16 +391,25 @@ await runChatTest('canvas devices: a reload restores the view position and the o
   const chat=page.locator('.canvas-chat');
   await chat.waitFor();
   await page.waitForFunction(storageKey=>JSON.parse(localStorage.getItem(storageKey)??'null')?.zoom===1,key);
-  await page.waitForTimeout(400);
-  const opened=(await card.boundingBox())!;
+  // Polled from Node until the card stops moving (the camera has settled), rather than a fixed sleep.
+  const steady=async()=>{
+    let last='';
+    for(let i=0;i<80;i++){const now=JSON.stringify(await card.boundingBox());if(now===last)return JSON.parse(now) as {x:number;y:number};last=now;await new Promise(r=>setTimeout(r,60));}
+    throw Error('the card did not settle');
+  };
+  const opened=await steady();
+  // The saved view is the settled one on screen (saving trails the last move by a moment).
+  await page.waitForFunction(storageKey=>{
+    const v=JSON.parse(localStorage.getItem(storageKey)??'null'),m=/translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec((document.querySelector('.canvas-world') as HTMLElement|null)?.style.transform??'');
+    return Boolean(v&&m&&v.zoom===1&&Math.abs(v.x-Number(m[1]))<0.5&&Math.abs(v.y-Number(m[2]))<0.5);
+  },key);
   await page.reload();
   await chat.waitFor();
   assert.equal(new URL(page.url()).searchParams.get('chat'),h.project.channelId,'the open chat is restored');
   assert.equal(await chat.getAttribute('data-mode'),'focus');
   await card.waitFor();
-  await page.waitForTimeout(400);
+  const after=await steady();
   assert.equal(await zoomLabel(page).textContent(),'100%','the zoom is restored');
-  const after=(await card.boundingBox())!;
   assert.ok(Math.abs(after.x-opened.x)<=2&&Math.abs(after.y-opened.y)<=2,`the card is where it was: ${JSON.stringify(opened)} -> ${JSON.stringify(after)}`);
   const sheet=(await chat.boundingBox())!;
   assert.ok(Math.abs(sheet.x-after.x)<=24&&Math.abs(sheet.y-after.y)<=24,`the restored sheet is over its card: ${JSON.stringify(sheet)}`);

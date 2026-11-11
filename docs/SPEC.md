@@ -753,15 +753,25 @@ Phase 1 is built from
    focus. One chat opens at a time, in focus or in split screen beside it, and
    "Open in the regular chat view" leaves the canvas. Focus opens the chat in place:
    the view moves to 100% (less only to fit a very tall card) with the card where a
-   560 px sheet fits, and the chat opens as that sheet over the card, its top-left
-   on the card's and following it as the view or window changes (at most
-   min(720 px, canvas height − 32 px) tall). Every other card, area and link dims
-   to 28%; there is no scrim. A chat that is not on this canvas opens as a plain
-   560 px chat centred just above the bottom box (at most min(640 px, 100vh −
-   190 px) tall), with the canvas at 30%. Escape (after any popover or picker in
-   the chat) or a click on the canvas beside the sheet closes it, and the card it
-   closes into flashes once. A demo preview inside the sheet stacks under the chat
-   rather than beside it. Phones keep a full-width chat. Only
+   560 px sheet of its current height fits, 56 px below the top for the area's
+   title, and the chat opens as that sheet over the card, its top-left on the
+   card's. It follows the card as the view or window changes, stays inside the
+   canvas (never over the Loose chats pile) and ends 8 px above the bottom box (at
+   most 720 px tall). Every other card, area and link dims to 28%; there is no
+   scrim and the canvas stays live: wheel, pinch and drag pan or zoom it, the zoom
+   bar, agent tray and bottom box work, and Fit closes the chat, then fits. A
+   press on empty canvas without dragging (the canvas's 3 px threshold) closes it,
+   unless it is closing a popover, which then closes alone. While a focus chat is
+   open the canvas is hidden from screen readers and Tab stays in the chat; file
+   drops on the canvas are ignored and drops on the chat attach. A chat that is not
+   on this canvas opens as a plain 560 px chat centred just above the bottom box (at
+   most min(640 px, 100vh − 190 px) tall), with the canvas at 30%. Escape (after
+   any popover, menu or picker in the chat) closes it, and the card it closes into
+   flashes once. The chat's header is one row, as in the mock: title, faces and
+   `in <area> · sees N contexts` (plus Archived or Read-only), then icon buttons
+   for Split screen, Huddle, Open in the regular chat view, a More menu (Area,
+   Use this area's context, Sharing, Export chat) and Close. A demo preview inside
+   the chat stacks above it rather than beside it. Phones keep a full-width chat. Only
    chats in the user UI's visible chat list open; if the open chat leaves that list,
    it closes. Only cards near the viewport are mounted, and below 50% zoom cards
    switch to a compact form. A chat dragged from the pile lands centred on the
@@ -1006,9 +1016,10 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    visibility warning when a card is in the area), refreshes the summary and opens
    nothing; while that area's popover is open the files join its Files section
    instead. A viewer's area drop only says they cannot add files. A drop on empty
-   canvas always goes to the bottom box, even beside a split chat, which takes focus
+   canvas goes to the bottom box, even beside a split chat, which takes focus
    and says `Attached N files. Say what you want done with them, then press Send.`;
-   a split chat takes only drops on itself, and a focus chat takes every drop.
+   an open chat (split or focus) takes only drops on itself, and while a focus chat
+   is open the canvas, its cards and areas and the bottom box take none.
 
 6. Context edits never create engine events and never wake an agent. The only
    engine writes in Phase 2 are the key setup above, `POST /api/messages` for files

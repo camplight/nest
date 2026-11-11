@@ -413,6 +413,7 @@ await runChatTest('canvas homes: labels, Use this area\'s context and the drop w
   // Not its home: the sub-line says where its context comes from instead of counting.
   await header.locator('.canvas-chat-sub').getByText('context from Quiet',{exact:true}).waitFor();
   assert.equal(await header.locator('.canvas-chat-sees').count(),0);
+  await header.getByRole('button',{name:'More chat actions',exact:true}).click();
   await header.getByRole('button',{name:"Use this area's context",exact:true}).click();
   await header.locator('.canvas-chat-sub').getByRole('button',{name:'sees 2 contexts',exact:true}).waitFor();
   await page.locator('.canvas-notice').getByText("This chat now uses Study's context.",{exact:true}).waitFor();
@@ -508,6 +509,7 @@ await runChatTest('canvas context: canvas notes warn on a drop, linked chats war
   assert.equal(await card.locator('.canvas-context-tag').innerText(),'unavailable');
   // A member re-homes it: available again, and the label goes.
   await card.locator('.canvas-card-title').click();
+  await page.locator('.canvas-chat-bar').getByRole('button',{name:'More chat actions',exact:true}).click();
   await page.locator('.canvas-chat-bar').getByRole('button',{name:"Use this area's context",exact:true}).click();
   await card.getByText('context unavailable',{exact:true}).waitFor({state:'detached'});
   assert.deepEqual((await homeOf(h,board))!.home,{isHere:true,label:'Empty'});

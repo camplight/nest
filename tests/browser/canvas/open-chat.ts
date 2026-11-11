@@ -183,6 +183,7 @@ await runChatTest('canvas chat: opens in place over its card, dims the rest, and
   const chatId=await standaloneChat(h,'Synthetic in-place chat');
   const neighbourId=await standaloneChat(h,'Synthetic neighbour chat');
   const looseId=await standaloneChat(h,'Synthetic plain chat');
+  await h.emit('message.created',{text:'Synthetic first note in place'},{channelId:chatId});
   const id=await canvasWith(h,[{channelId:chatId,x:120,y:120},{channelId:neighbourId,x:520,y:160}]);
   await page.goto(`${base}/?view=canvas&canvas=${id}`);
   const card=cardAt(page,chatId),neighbour=cardAt(page,neighbourId);
@@ -190,7 +191,8 @@ await runChatTest('canvas chat: opens in place over its card, dims the rest, and
   // Zoomed out first: opening brings the card to 100%.
   await page.getByRole('button',{name:'Zoom out',exact:true}).click();
   await page.getByRole('button',{name:'Zoom out',exact:true}).click();
-  const zoom=page.getByLabel('Zoom level',{exact:true});
+  // Behind a sheet the canvas is hidden from screen readers, so its controls are found by CSS here.
+  const zoom=page.locator('.canvas-zoom output');
   await until(async()=>await zoom.textContent()!=='100%','zoomed out');
 
   await card.locator('.canvas-card-title').click();
@@ -199,49 +201,135 @@ await runChatTest('canvas chat: opens in place over its card, dims the rest, and
   await until(async()=>await zoom.textContent()==='100%','the camera at 100%');
   await settled(async()=>JSON.stringify([await boxOf(chat),await boxOf(card)]),'the sheet over its card');
   const sheet=await boxOf(chat),under=await boxOf(card),body=await boxOf(page.locator('.canvas-body'));
+  const stageOf=()=>boxOf(page.locator('.canvas-stage')),dockOf=()=>boxOf(page.locator('.canvas-dock'));
   assert.ok(Math.abs(sheet.x-under.x)<=24&&Math.abs(sheet.y-under.y)<=24,`the sheet starts on its card: ${JSON.stringify(sheet)} over ${JSON.stringify(under)}`);
   assert.ok(overlap(sheet,under),'the sheet covers its card');
   assert.ok(sheet.width<=640&&sheet.width>=480,`a card-sized sheet, not a page-wide one: ${sheet.width}`);
-  assert.ok(sheet.y>=body.y+15&&sheet.y+sheet.height<=body.y+body.height-15,`inside the canvas: ${JSON.stringify(sheet)} in ${JSON.stringify(body)}`);
+  assert.ok(sheet.y-body.y>=48,`room above the card for an area title: ${sheet.y-body.y}px`);
+  assert.ok(sheet.y+sheet.height<=(await dockOf()).y-7,`the sheet stays above the bottom box: ${sheet.y+sheet.height} vs ${(await dockOf()).y}`);
+  // One compact header (the mock's .ch-head): messages start within about 110 px of the sheet's top.
+  const firstMessage=await boxOf(chat.locator('.messages-panel').getByText('Synthetic first note in place',{exact:true}));
+  const thread=await boxOf(chat.locator('.messages-panel'));
+  assert.ok(thread.y-sheet.y<=110,`the thread starts ${thread.y-sheet.y}px below the sheet's top`);
+  assert.ok(firstMessage.y>thread.y-1);
+  assert.equal(await chat.locator('.workspace-header').isVisible(),false,'no second header row');
+  assert.equal(await chat.locator('.chat-header-actions').count(),0,'no Sharing / Huddle / Export row');
+  for(const name of ['Split screen','Huddle','Open in the regular chat view','More chat actions','Close']){
+    const button=chat.locator('.canvas-chat-bar').getByRole('button',{name,exact:true});
+    const b=await boxOf(button);
+    assert.ok(b.width<=32&&b.height<=32,`${name} is a 30 px icon button: ${b.width}x${b.height}`);
+    assert.ok(await button.getAttribute('title'),`${name} has a title`);
+  }
   // Everything else on the canvas dims; the open card stays (under the sheet).
   await until(async()=>await opacity(neighbour)<0.5,'the neighbour card dimmed');
   assert.equal(await opacity(card),1,'the open card is not dimmed');
-  // No scrim: around the sheet the canvas shows straight through to the body.
+  // No scrim: around the sheet the canvas itself is under the pointer.
   assert.equal(await page.locator('.canvas-chat-backdrop').count(),0,'no backdrop');
-  const around=await page.evaluate(({x,y})=>{const el=document.elementFromPoint(x,y);return {cls:el?.className??'',bg:el?getComputedStyle(el).backgroundColor:''};},{x:body.x+12,y:body.y+body.height/2});
-  assert.equal(around.cls.split(' ')[0],'canvas-body',`nothing over the canvas beside the sheet: ${around.cls}`);
-  assert.match(around.bg,/rgba\(0, 0, 0, 0\)|transparent/,'the body paints nothing over the canvas');
+  const beside={x:body.x+12,y:body.y+body.height/2};
+  assert.equal(await page.evaluate(({x,y})=>document.elementFromPoint(x,y)?.className.split(' ')[0],beside),'canvas-surface','the live canvas beside the sheet');
+  assert.equal(await page.locator('.canvas-main').getAttribute('aria-hidden'),'true','hidden from screen readers');
+  assert.equal(await page.locator('.canvas-main[inert]').count(),0,'but not inert');
 
-  // Escape closes it, and the card flashes.
-  await composer(chat).click();
+  // The More menu: Area, Sharing and Export chat. Escape closes the menu first, then the sheet.
+  const more=chat.getByRole('button',{name:'More chat actions',exact:true});
+  await more.click();
+  const menu=chat.getByRole('group',{name:'More chat actions',exact:true});
+  await menu.getByRole('button',{name:'Sharing',exact:true}).waitFor();
+  await menu.getByRole('button',{name:'Export chat',exact:true}).waitFor();
   await page.keyboard.press('Escape');
+  await menu.waitFor({state:'hidden'});
+  assert.equal(await chat.count(),1,'Escape closed only the menu');
+  assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')),'More chat actions','focus back on ⋯');
+
+  // Tab stays in the sheet.
+  for(let n=0;n<25;n++){
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(()=>Boolean(document.activeElement?.closest('.canvas-chat'))),true,`Tab ${n+1} stays in the sheet`);
+  }
+
+  // The canvas stays live: a wheel zoom, a drag-pan and the zoom bar move the view and the sheet follows its card.
+  const follows=async(what:string)=>{
+    const [s,c]=JSON.parse(await settled(async()=>JSON.stringify([await boxOf(chat),await boxOf(card)]),what)) as [Box,Box];
+    const stage=await stageOf();
+    const clampedX=Math.min(Math.max(c.x,stage.x+16),stage.x+stage.width-16-s.width);
+    assert.ok(Math.abs(s.x-clampedX)<=24,`${what}: the sheet stays on its card (${s.x} vs ${c.x})`);
+    assert.ok(s.x+s.width<=stage.x+stage.width-15,`${what}: inside the stage`);
+  };
+  await page.mouse.move(beside.x,beside.y);
+  await page.mouse.wheel(0,-120);
+  await page.keyboard.down('Control');await page.mouse.wheel(0,200);await page.keyboard.up('Control');
+  await until(async()=>await zoom.textContent()!=='100%','a wheel zoom');
+  assert.equal(await chat.count(),1,'a wheel zoom keeps the sheet');
+  await follows('after a wheel zoom');
+  await page.mouse.move(beside.x,beside.y);
+  await page.mouse.down();
+  await page.mouse.move(beside.x+60,beside.y+30,{steps:5});
+  await page.mouse.up();
+  assert.equal(await chat.count(),1,'a drag-pan keeps the sheet');
+  await follows('after a drag-pan');
+  await page.locator('.canvas-zoom button[aria-label="Zoom in"]').click();
+  assert.equal(await chat.count(),1,'the zoom bar keeps the sheet');
+  await follows('after Zoom in');
+
+  // A window resize keeps it on its card, inside the stage and above the bottom box.
+  await page.setViewportSize({width:1200,height:800});
+  await follows('after a resize');
+  const resized=await boxOf(chat);
+  assert.ok(resized.y+resized.height<=(await dockOf()).y-7,'still above the bottom box');
+
+  // Drops on the canvas are ignored while the sheet is open; the sheet itself still takes them.
+  await dropFile(page,`.canvas-card[data-channel-id="${neighbourId}"]`,'ignored.txt');
+  await dropFile(page,'.canvas-surface','ignored-too.txt');
+  await page.waitForTimeout(300);
+  assert.equal(params(page).chat,chatId,'no other chat opened');
+  assert.equal(await page.locator('.composer-attachments').getByText(/ignored/).count(),0,'neither file was taken');
+  await dropFile(page,'.canvas-chat .chat-stack','sheet-drop.txt');
+  await chat.locator('.composer-attachments').getByText('sheet-drop.txt').first().waitFor();
+  await chat.getByRole('button',{name:'Remove sheet-drop.txt',exact:true}).click();
+
+  // The bottom box keeps working beside the sheet.
+  await page.locator('.canvas-dock textarea, .canvas-dock input[type="text"]').first().fill('Typed beside the sheet');
+  assert.equal(await page.locator('.canvas-dock textarea, .canvas-dock input[type="text"]').first().inputValue(),'Typed beside the sheet');
+  await page.locator('.canvas-dock textarea, .canvas-dock input[type="text"]').first().fill('');
+
+  // A press on the canvas while a popover is open closes only the popover; the next one closes the sheet.
+  await page.getByRole('button',{name:/^Canvas context/}).click();
+  const popover=page.getByRole('dialog',{name:'Canvas context',exact:true});
+  await popover.waitFor();
+  const empty=await boxOf(page.locator('.canvas-surface'));
+  await page.mouse.click(empty.x+12,empty.y+empty.height/2);
+  await popover.waitFor({state:'detached'});
+  assert.equal(await chat.count(),1,'the sheet stays while the popover closes');
+  await page.mouse.click(empty.x+12,empty.y+empty.height/2);
   await chat.waitFor({state:'detached'});
+  assert.equal(params(page).chat,null);
   assert.equal(await card.getAttribute('data-flash'),'','the card flashes as the chat closes into it');
   await until(async()=>await opacity(neighbour)===1,'the canvas back at full strength');
 
-  // A click on empty canvas beside the sheet closes it too; a press that starts in the chat does not.
+  // Escape closes it; Fit closes it and fits.
   await card.locator('.canvas-card-title').click();
   await chat.waitFor();
-  await settled(async()=>JSON.stringify(await boxOf(chat)),'the sheet');
-  const open=await boxOf(chat);
-  await page.mouse.move(open.x+40,open.y+open.height-30);
-  await page.mouse.down();
-  await page.mouse.move(body.x+12,body.y+body.height/2,{steps:4});
-  await page.mouse.up();
-  assert.equal(await chat.count(),1,'a drag out of the chat keeps it open');
-  await page.mouse.click(body.x+12,body.y+body.height/2);
+  await composer(chat).click();
+  await page.keyboard.press('Escape');
   await chat.waitFor({state:'detached'});
-  assert.equal(params(page).chat,null);
+  await card.locator('.canvas-card-title').click();
+  await chat.waitFor();
+  const world=page.locator('.canvas-world');
+  const presented=await settled(async()=>await world.getAttribute('style')??'','the camera on the card');
+  await page.locator('.canvas-fit').click();
+  await chat.waitFor({state:'detached'});
+  await until(async()=>await world.getAttribute('style')!==presented,'Fit moved the view');
 
   // A chat that is not on this canvas opens as a plain chat over the bottom box, with the canvas faded.
+  await page.setViewportSize({width:1440,height:900});
   await page.goto(`${base}/?view=canvas&canvas=${id}&chat=${looseId}&mode=focus`);
   await page.locator('.canvas-chat[data-place="loose"]').waitFor();
   await settled(async()=>JSON.stringify(await boxOf(chat)),'the plain chat');
-  const plain=await boxOf(chat),stage=await boxOf(page.locator('.canvas-stage')),box=await boxOf(dock(page));
+  const plain=await boxOf(chat),stage=await stageOf(),box=await dockOf();
   assert.ok(Math.abs(plain.x+plain.width/2-(stage.x+stage.width/2))<=2,`centred on the canvas: ${JSON.stringify(plain)} in ${JSON.stringify(stage)}`);
   assert.ok(plain.width<=640,`a plain chat is 560 px at most: ${plain.width}`);
   const gap=box.y-(plain.y+plain.height);
-  assert.ok(gap>=0&&gap<=40,`just above the bottom box: ${gap}px`);
+  assert.ok(gap>=7&&gap<=40,`just above the bottom box: ${gap}px`);
   await until(async()=>await opacity(page.locator('.canvas-world'))<0.5,'the canvas faded');
   assert.equal(await chat.locator('.canvas-chat-sub').getByText('Plain chat · not on this canvas').count(),1);
 
