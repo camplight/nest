@@ -840,8 +840,18 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
      canvas, area files included
    - `POST /api/canvases/:id/areas/:areaId/context/links` and
      `DELETE …/context/links/:sourceAreaId` (use another area's context)
-   - `GET /api/canvases/context-sources` (areas the person can link to)
-   - `GET /api/canvases/:id/context/summary` (which areas have context, for the chips)
+   - `GET /api/canvases/context-sources` (areas the person can link to, each with
+     `counts: {notes, fileCount}` for the picker)
+   - `GET /api/canvases/:id/context/summary`: one request per board load for every
+     area's chip, shelf and footer. `canvas` is `{hasContext, notes, fileCount}`; each
+     area is `{areaId, hasContext, notes, fileCount, files, links, usedBy}`, where
+     `files` lists the first 8 files (`id`, `name`, `mime`) for the shelf, `links` are
+     the area's links with their source's `canvasId`, `canvasName` and
+     `counts: {notes, fileCount}`, and `usedBy` the areas that link to it. A link's
+     source is named, placed and counted only for viewers who can read its canvas
+     (otherwise `title:'Unavailable area'` with nulls), and an unavailable link has
+     `counts: null`. A `usedBy` area's `title` is null when the viewer cannot read its
+     canvas. Scope reads (`GET …/context`) return links in the same shape.
    - `GET /api/canvases/:id/areas/:areaId/context/readers` (agents in the chats homed
      on the area and whether each can read it: `ready`, `unconfigured` or wrapped)
    - `POST /api/canvases/:id/cards/:channelId/home` ("Use this area's context"; chat
@@ -867,7 +877,7 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    canvas a chat's home warns ("Everyone in these chats, including their agents, can
    see this.", with Undo) when the canvas has notes or files, even outside any area,
    or the area under the card has context; a move within the home canvas warns only
-   for the new area's context. The context panel shows the same warning when a card
+   for the new area's context. The context popover shows the same warning when a card
    is in the scope, or when any chat's available home reads it, including chats homed
    in areas that link to this area (`inChats` on the context read).
 
@@ -892,7 +902,7 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    A context write or home change waits at most about 2 seconds for setup, then
    answers while setup finishes in the background.
    Wrapped agents (Codex, Claude Code) get no key because their harness does not
-   load engine skills; the panel says
+   load engine skills; the context popover says
    "<name> can't read context yet (wrapped agent)." The skill is `skills/nest-context`
    (`scripts/context.mjs read CHANNEL_ID`, `file CHANNEL_ID FILE_ID`).
    - `GET /api/context/agent?channelId=` and `GET /api/context/agent/files/:fileId?channelId=`
@@ -907,7 +917,44 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
      metadata is denied. A read returns the chat's home context only: canvas notes
      and files, the home area's notes and files, and areas linked to it.
 
-5. Context edits never create engine events and never wake an agent. The only
+5. Context in the UI. Every area's title bar has a `◱` chip button labelled from
+   the summary (`Notes · 2 files`, `Notes`, `3 files`, or `Add context` when empty;
+   `No context` for viewers), hidden at compact zoom with the shelf and footer. One
+   click opens the context popover anchored under the chip and kept inside the
+   window (a bottom sheet at 760 px and below). The Canvas context button in the top
+   bar (which adds `· Notes · 1 file` when the canvas has context), a `↳`/`↗` link
+   chip, and the open chat's `sees N contexts` open the same popover under
+   themselves. The popover floats over the canvas, so an open split or focus chat
+   stays open; Escape (after folding the area picker), an outside press or Done
+   closes it and focus returns to its opener. It holds the explainer, the warning,
+   the autosaved notes, file tiles with progress for uploads, "Also uses" rows with
+   each source's canvas and counts and a ✕ (`Stop using {title}`), the picker grouped
+   `On {canvas}` / `Other canvases` with counts, `Used by … Changes here reach them
+   right away.`, the readers, and Add files and Done. Viewers get it read-only, with
+   no Add files, picker or ✕; the area `⋯` menu holds only Rename and Delete, so
+   viewers have none. While an area's popover is open, its links to areas on this
+   canvas are drawn as dotted lines. An area holding no cards shows up to 8 file
+   tiles (a shelf) under its title, and a source area shows `Used by A and B. Edit
+   here once, they all see it.` along its bottom edge. The open chat's header shows
+   its participants' faces, then `in {area}` (or `on the canvas`, or `Plain chat ·
+   not on this canvas`) and, by home semantics, `sees N contexts` (the canvas, the
+   home area and that area's available links; tooltip `Sees: …`) when this card is
+   the chat's home, otherwise `context from {home}`, `context unavailable` or
+   `no shared context yet`. The phone list puts the same chip and shelf in an
+   expanded area.
+
+   File drops. During any file drag over the canvas a banner names the three targets.
+   A drop on an area (editors) uploads straight into its context through the context
+   upload route, one file per request with a progress notice, then says `Added N
+   files to {area}'s context. Every chat in the area can now see them.` (plus the
+   visibility warning when a card is in the area), refreshes the summary and opens
+   nothing; while that area's popover is open the files join its Files section
+   instead. A viewer's area drop only says they cannot add files. A drop on empty
+   canvas always goes to the bottom box, even beside a split chat, which takes focus
+   and says `Attached N files. Say what you want done with them, then press Send.`;
+   a split chat takes only drops on itself, and a focus chat takes every drop.
+
+6. Context edits never create engine events and never wake an agent. The only
    engine writes in Phase 2 are the key setup above, `POST /api/messages` for files
    dropped on a card and `POST /api/files` for uploads and voice notes. Dropping files
    on a card opens the chat in split screen and queues them in its reply box. They are
@@ -915,7 +962,7 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    queued files and the drop did not hit the 20-file cap; typing or removing a file
    cancels the send and leaves the files queued.
 
-6. App activity. Nest stores none. The browser derives it from the chat's engine
+7. App activity. Nest stores none. The browser derives it from the chat's engine
    `tool.*` events that the viewer can already read, so retention is the engine's
    and only people who can read the chat see it. A pure classifier
    (`apps/user-ui/src/app-activity.ts`) turns a call into app, action, read or
@@ -939,7 +986,7 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    response `Date` headers and realtime events, not the browser clock. Wrapped agents
    report no `tool.*` events, so their app use is not shown, and the chat says so.
 
-7. Voice notes. The reply box and bottom box record with `MediaRecorder`, as
+8. Voice notes. The reply box and bottom box record with `MediaRecorder`, as
    `audio/webm` or, where unsupported, `audio/mp4` (`Voice note.webm` or
    `Voice note.m4a`), for at most 5 minutes. The audio goes only through
    `POST /api/files` and the engine's `POST /api/voice/transcribe`. The transcript
@@ -947,7 +994,7 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    audio is still attached and a message says so. Cancelling at any stage discards
    the recording, transcript and attachment.
 
-8. Checks. `apps/api/src/canvas-context.test.ts`, `context-files.test.ts` and
+9. Checks. `apps/api/src/canvas-context.test.ts`, `context-files.test.ts` and
    `context-agents.test.ts` run against real Nest-to-OrgOps handlers with temporary
    databases. The `context.ts`, `files-voice.ts` and `apps.ts` suites run under
    `npm run test:ui:canvas`. Only the transcription result is stubbed in the voice
