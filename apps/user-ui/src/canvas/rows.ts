@@ -32,7 +32,7 @@ const files = (n: number) => `shared ${n} file${n === 1 ? '' : 's'}`;
 /** The newest item from this participant, phrased for its row. */
 const waitingText = (item: NeedsItem) => `${item.kind === 'review' ? 'needs your review' : 'needs you'} · ${item.reason}`;
 
-function agentText(agent: AgentPulse): string {
+export function agentText(agent: AgentPulse): string {
   switch (agent.state) {
     case 'working': return agent.app ? `${agent.app.appName} · ${agent.app.action}` : agent.activity || 'working';
     case 'quiet': return `quiet for ${agent.quietMinutes ?? 0} min${agent.activity ? ` · last: ${agent.activity}` : ''}`;

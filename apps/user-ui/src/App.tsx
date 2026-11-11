@@ -1973,7 +1973,7 @@ export default function App() {
         onOpenRegular={channelId => selectChannel(channelId)} live={canvasLiveRef.current}
         onChatFiles={(channelId, files) => setChatFiles(current => ({ channelId, files: current?.channelId === channelId ? [...current.files, ...files] : files }))}
         refreshChannels={async () => {
-          // Projects first, so a new project chat shows in the pile under its project name.
+          // Projects first, so a new project chat shows in Loose chats under its project name.
           setProjectIndex(await apiJson<Project[]>("/api/projects"));
           await refreshChannels(undefined, { select: false });
         }}

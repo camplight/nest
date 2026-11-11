@@ -40,12 +40,14 @@ export type AgentTrayProps = {
   busy: ReadonlyMap<string, number>;
   cards: BoardCard[];
   areas: CanvasArea[];
+  /** Whether the picker is open. The canvas keeps it and the Loose chats drawer from both being open at once. */
+  open: boolean;
+  onOpenChange(open: boolean): void;
 };
 
-export function AgentTray({suggested, pinned, pins, pinsReady, onTogglePin, agents, humanId, owners, busy, cards, areas}: AgentTrayProps) {
-  const [open, setOpen] = useState(false);
+export function AgentTray({suggested, pinned, pins, pinsReady, onTogglePin, agents, humanId, owners, busy, cards, areas, open, onOpenChange}: AgentTrayProps) {
   const button = useRef<HTMLButtonElement>(null);
-  const close = () => { setOpen(false); button.current?.focus({preventScroll: true}); };
+  const close = () => { onOpenChange(false); button.current?.focus({preventScroll: true}); };
   const face = (agent: Agent) => {
     const role = roleOf(agent);
     return <li key={agent.name}>
@@ -67,7 +69,7 @@ export function AgentTray({suggested, pinned, pins, pinsReady, onTogglePin, agen
           {pinned.length ? <ul className="canvas-tray-faces" data-group="pinned" aria-label="Pinned">{pinned.map(face)}</ul> : null}
         </div>
         <button ref={button} type="button" className="canvas-tray-all" aria-expanded={open} aria-haspopup="dialog"
-          aria-label={`All ${agents.length} agents`} title="Search all agents" onClick={() => open ? close() : setOpen(true)}>All {agents.length}</button>
+          aria-label={`All ${agents.length} agents`} title="Search all agents" onClick={() => open ? close() : onOpenChange(true)}>All {agents.length}</button>
       </div>
     </section>
     {open ? <AgentPicker agents={agents} humanId={humanId} owners={owners} busy={busy} pins={pins} pinsReady={pinsReady} onTogglePin={onTogglePin}

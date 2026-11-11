@@ -176,7 +176,7 @@ await runChatTest('canvas surface: two editors move the same card and the stale 
   assert.equal(await mate.page.getByRole('button',{name:/^(Rename|Delete) area$/}).count(),0);
   await mate.page.locator('[aria-label="Area Review"]').getByRole('button',{name:/^Context for Review: /}).click();
   await mate.page.getByRole('dialog',{name:'Context for Review',exact:true}).getByText('You can view this canvas but not change it.',{exact:true}).waitFor();
-// Wide enough that the card and area fit at 100% beside the Loose chats pile, so screen and canvas pixels match.
+// Wide enough that the card and area fit at 100%, so screen and canvas pixels match.
 },{canvas:true,viewport:{width:1760,height:900}});
 
 await runChatTest('canvas surface: a two-finger pinch on a tablet zooms and the view is kept',async h=>{

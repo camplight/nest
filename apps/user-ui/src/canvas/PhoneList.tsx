@@ -29,7 +29,7 @@ export function usePhoneLayout() {
 
 type Segment = 'areas' | 'needs' | 'loose';
 const SEGMENTS: {id: Segment; label: string}[] = [{id: 'areas', label: 'Areas'}, {id: 'needs', label: 'Needs you'}, {id: 'loose', label: 'Loose chats'}];
-const ANY_LOOSE = {needsYou: false, agent: null, age: 'any'} as const;
+const ANY_LOOSE = {state: 'all', agent: null} as const;
 
 export type PhoneListProps = {
   board: CanvasBoard;
@@ -82,7 +82,7 @@ export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, o
   const reviews = useReviews(segment === 'needs');
   const needs = useMemo(() => needsYouItems({pulses, titles, reviews, projects}), [pulses, titles, reviews, projects]);
   const now = Date.now();
-  const shownLoose = useMemo(() => filterLoose(loose, {query, ...ANY_LOOSE}, Date.now()), [loose, query]);
+  const shownLoose = useMemo(() => filterLoose(loose, {query, ...ANY_LOOSE}), [loose, query]);
   const counts: Record<Segment, number> = {areas: board.areas.length, needs: needs.length, loose: loose.length};
 
   // Tabs: arrow keys, Home and End move between the segments.

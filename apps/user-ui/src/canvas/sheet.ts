@@ -33,6 +33,17 @@ export function stageBounds(size: Size, dockTop: number | null, offset: Point = 
 }
 
 /**
+ * The bounds left of which a sheet keeps clear of the Loose chats drawer, whose right edge is `edge` (the bounds'
+ * coordinates; null while it is closed). Only when a full-width sheet still fits beside it: on a narrower canvas the
+ * bounds are unchanged and the sheet overlaps the drawer, above it.
+ */
+export function clearOfDrawer(bounds: Bounds, edge: number | null): Bounds {
+  if (edge === null) return bounds;
+  const left = edge + SHEET_GUTTER;
+  return left > bounds.left && bounds.right - left >= SHEET_WIDTH ? {...bounds, left} : bounds;
+}
+
+/**
  * The view that opens a card in place (the mock's openCard): zoom 1, or the largest zoom below it that fits the card.
  * The card's top-left goes where a centred sheet of its real height starts, with room above for the area's title and
  * the whole sheet above the bottom box. `bounds` are in the surface's coordinates.

@@ -1,7 +1,7 @@
-// Loose chats pile and bottom box (Task 7) on the real engine, API and WS. Synthetic data.
+// Loose chats (the top-bar toggle and its drawer) and the bottom box (Task 7) on the real engine, API and WS. Synthetic data.
 import assert from 'node:assert/strict';
 import type {Page} from 'playwright';
-import {runChatTest,type ChatHarness} from '../support/chat-harness';
+import {agentName,runChatTest,type ChatHarness} from '../support/chat-harness';
 
 type Board={areas:{id:string;title:string;x:number;y:number;w:number;h:number}[];cards:{channelId:string;x:number;y:number;w:number}[]};
 type Channel={id:string;archivedAt?:number|null};
@@ -32,25 +32,48 @@ async function canvasWithHarnessChat(h:ChatHarness){
   return id;
 }
 const pileOf=(page:Page)=>page.getByRole('complementary',{name:'Loose chats',exact:true});
-async function openCanvas(page:Page,base:string,id:string){
-  await page.goto(`${base}/?view=canvas&canvas=${id}`);
-  await page.locator('.canvas-surface .canvas-world').waitFor({state:'attached'});
+const toggleOf=(page:Page)=>page.locator('.canvas-loose-button');
+/** The top-bar count, once it reads `n`. */
+const countIs=(page:Page,n:number)=>toggleOf(page).locator('.canvas-loose-count').getByText(String(n),{exact:true}).waitFor();
+/** Opens the drawer from the top bar (it starts closed). */
+async function openDrawer(page:Page){
+  if(await pileOf(page).count())return;
+  await toggleOf(page).click();
   await pileOf(page).waitFor();
 }
-const rowFor=(page:Page,title:string)=>pileOf(page).locator('.canvas-pile-row').filter({has:page.getByRole('checkbox',{name:`Select ${title}`,exact:true})});
+async function openCanvas(page:Page,base:string,id:string,drawer=true){
+  await page.goto(`${base}/?view=canvas&canvas=${id}`);
+  await page.locator('.canvas-surface .canvas-world').waitFor({state:'attached'});
+  await toggleOf(page).waitFor();
+  if(drawer)await openDrawer(page);
+}
+const rowFor=(page:Page,title:string)=>pileOf(page).locator('.canvas-drawer-row').filter({has:page.getByRole('checkbox',{name:`Select ${title}`,exact:true})});
+/** Waits (polling from Node) until the drawer holds exactly `n` rows. */
+async function rowsAre(page:Page,n:number,what='rows in the drawer'){
+  let count=-1;
+  for(let i=0;i<100&&count!==n;i++){count=await page.locator('.canvas-drawer-row').count();if(count!==n)await page.waitForTimeout(100);}
+  assert.equal(count,n,what);
+}
 const inside=(area:Board['areas'][number],card:Board['cards'][number])=>{
   const cx=card.x+card.w/2,cy=card.y+80;
   return cx>=area.x&&cx<=area.x+area.w&&cy>=area.y&&cy<=area.y+area.h;
 };
 
-await runChatTest('canvas pile: 220 loose chats stay windowed, search, new area, hide and the bottom box',async h=>{
+await runChatTest('canvas pile: 220 loose chats stay windowed, search, new area, archive and the bottom box',async h=>{
   const {page,base}=h;
   const seeded=await seedChats(h,220);
   const id=await canvasWithHarnessChat(h);
-  await openCanvas(page,base,id);
+  await openCanvas(page,base,id,false);
+  // The top bar's toggle carries the count; the drawer starts closed.
+  await countIs(page,220);
+  assert.equal(await toggleOf(page).getAttribute('title'),'Plain chats that aren\'t on the canvas yet');
+  assert.equal(await toggleOf(page).locator('.canvas-loose-count').getAttribute('data-hot'),null,'nothing needs you, so the count is not coral');
+  assert.equal(await pileOf(page).count(),0,'closed until asked for');
+  await openDrawer(page);
   const pile=pileOf(page);
-  await pile.locator('.canvas-pile-count').getByText('220',{exact:true}).waitFor();
-  const rows=pile.locator('.canvas-pile-row');
+  await pile.getByRole('heading',{name:'Loose chats · 220',exact:true}).waitFor();
+  await pile.locator('.canvas-drawer-group').getByText('Today · 220',{exact:true}).waitFor();
+  const rows=pile.locator('.canvas-drawer-row');
   await rows.first().waitFor();
   const mounted=await rows.count();
   assert.ok(mounted>0&&mounted<40,`a windowed list: ${mounted} rows in the DOM`);
@@ -58,9 +81,11 @@ await runChatTest('canvas pile: 220 loose chats stay windowed, search, new area,
 
   // Search narrows the list.
   const search=pile.getByRole('searchbox',{name:'Search loose chats',exact:true});
+  assert.equal(await search.getAttribute('placeholder'),'Search loose chats');
+  assert.equal(await search.evaluate(el=>document.activeElement===el),true,'opening from the toggle focuses the search');
   await search.fill('invoice');
-  await page.waitForFunction(()=>document.querySelectorAll('.canvas-pile-row').length===11);
-  for(const text of await rows.allTextContents())assert.match(text,/invoice/i);
+  await rowsAre(page,11);
+  for(const text of await rows.locator('.canvas-drawer-title').allTextContents())assert.match(text,/invoice/i);
 
   // Three selected, then one area around them in one placeCards call.
   const picks=seeded.filter(c=>c.name.includes('invoice')).slice(0,3);
@@ -84,26 +109,33 @@ await runChatTest('canvas pile: 220 loose chats stay windowed, search, new area,
   assert.equal(placedCards.length,3,'three cards');
   assert.ok(placedCards.every(card=>inside(after.areas[0],card)),'the area wraps its cards');
   for(const pick of picks)await page.locator(`.canvas-card[data-channel-id="${pick.channelId}"]`).waitFor();
-  await page.waitForFunction(()=>document.querySelectorAll('.canvas-pile-row').length===8);
-  await pile.locator('.canvas-pile-count').getByText('217',{exact:true}).waitFor();
+  // The drawer closed with the new area (the mock's areaFromChats); the count dropped by three.
+  await pile.waitFor({state:'detached'});
+  await countIs(page,217);
+  await openDrawer(page);
+  await search.fill('invoice');
+  await rowsAre(page,8);
 
-  // Hide is personal: the row goes, a reload keeps it gone, and the engine channel is not archived.
+  // Archive (the spec's personal hide): the row goes, a reload keeps it gone, and the engine channel is not archived.
   const hidden=seeded.find(c=>c.name.includes('invoice')&&!picks.includes(c))!;
   await rowFor(page,hidden.name).getByRole('checkbox').check();
+  await pile.getByRole('toolbar',{name:'Selected chats',exact:true}).getByText('1 selected',{exact:true}).waitFor();
+  assert.equal(await pile.getByRole('button',{name:'Place on canvas',exact:true}).count(),0,'rows drag onto the canvas instead');
   const hid=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith('/api/canvases/hidden'));
-  await pile.getByRole('button',{name:'Hide',exact:true}).click();
+  await pile.getByRole('button',{name:'Archive',exact:true}).click();
   assert.equal((await hid).ok(),true);
   await rowFor(page,hidden.name).waitFor({state:'detached'});
   await page.reload();
-  await pile.locator('.canvas-pile-count').getByText('216',{exact:true}).waitFor();
+  await countIs(page,216);
+  await openDrawer(page);
   await search.fill('invoice');
-  await page.waitForFunction(()=>document.querySelectorAll('.canvas-pile-row').length===7);
-  assert.equal(await rowFor(page,hidden.name).count(),0,'still hidden after a reload');
+  await rowsAre(page,7);
+  assert.equal(await rowFor(page,hidden.name).count(),0,'still archived after a reload');
   const channels=await call<Channel[]>(h,'GET','/api/channels?includeArchived=1');
   assert.equal(channels.find(c=>c.id===hidden.channelId)?.archivedAt??null,null,'the engine channel is not archived');
-  await pile.getByRole('checkbox',{name:'Show hidden',exact:true}).check();
-  await rowFor(page,hidden.name).getByRole('button',{name:'Unhide',exact:true}).click();
-  await pile.getByRole('checkbox',{name:'Show hidden',exact:true}).uncheck();
+  await pile.getByRole('checkbox',{name:'Show archived',exact:true}).check();
+  await rowFor(page,hidden.name).getByRole('button',{name:'Unarchive',exact:true}).click();
+  await pile.getByRole('checkbox',{name:'Show archived',exact:true}).uncheck();
   await rowFor(page,hidden.name).waitFor();
   await search.fill('');
 
@@ -130,54 +162,67 @@ await runChatTest('canvas pile: 220 loose chats stay windowed, search, new area,
   const box=(await fresh.boundingBox())!, stage=(await page.locator('.canvas-surface').boundingBox())!;
   assert.ok(box.x>=stage.x&&box.x+box.width<=stage.x+stage.width&&box.y>=stage.y&&box.y+box.height<=stage.y+stage.height,'the new card is in view');
   await rowFor(page,'Draft the launch email').waitFor({state:'detached'});
+  // Escape with focus in the drawer closes it (and only it), and focus goes back to the toggle.
+  await search.focus();
+  await page.keyboard.press('Escape');
+  await pile.waitFor({state:'detached'});
+  assert.equal(await toggleOf(page).evaluate(el=>document.activeElement===el),true,'focus returns to the toggle');
+  assert.equal(await page.locator('.canvas-chat[data-mode="split"]').count(),1,'the split chat stays open');
   // The canvas starts with the icon sidebar; expanded, the new project is in its shortcuts.
   await page.getByRole('button',{name:'Expand sidebar',exact:true}).click();
   await page.getByRole('list',{name:'Project shortcuts'}).getByText('Draft the launch email',{exact:true}).waitFor();
   assert.equal(await dock.getByRole('textbox',{name:'Message',exact:true}).inputValue(),'','the box is ready for the next chat');
 },{canvas:true});
 
-await runChatTest('canvas pile: Place on canvas and dragging a row place cards where asked, and Remove from canvas returns a chat',async h=>{
+await runChatTest('canvas pile: dragging rows places cards where asked, and Remove from canvas returns a chat',async h=>{
   const {page,base}=h;
-  const seeded=await seedChats(h,4);
+  const seeded=await seedChats(h,5);
   const id=await canvasWithHarnessChat(h);
   await openCanvas(page,base,id);
   const pile=pileOf(page);
-  await pile.locator('.canvas-pile-count').getByText('4',{exact:true}).waitFor();
+  await countIs(page,5);
+  // Right of the harness chat's card (and clear of the drawer), so only the first grid is in the second one's way.
+  const dropAt={x:1180,y:200};
+  const dragSelected=async(chats:typeof seeded)=>{
+    for(const chat of chats)await rowFor(page,chat.name).getByRole('checkbox').check();
+    const transfer=await page.evaluateHandle(()=>new DataTransfer());
+    await rowFor(page,chats[0].name).dispatchEvent('dragstart',{dataTransfer:transfer});
+    const surface=(await page.locator('.canvas-surface').boundingBox())!;
+    const at={clientX:surface.x+dropAt.x,clientY:surface.y+dropAt.y};
+    const placed=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith(`/api/canvases/${id}/cards`));
+    await page.locator('.canvas-surface').dispatchEvent('dragover',{dataTransfer:transfer,...at});
+    await page.locator('.canvas-surface').dispatchEvent('drop',{dataTransfer:transfer,...at});
+    return JSON.parse((await placed).request().postData()!) as {cards:{x:number;y:number}[];area?:unknown};
+  };
 
-  for(const chat of seeded.slice(0,2))await rowFor(page,chat.name).getByRole('checkbox').check();
-  const placed=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith(`/api/canvases/${id}/cards`));
-  await pile.getByRole('button',{name:'Place on canvas',exact:true}).click();
-  const body=JSON.parse((await placed).request().postData()!) as {cards:{x:number;y:number}[];area?:unknown};
+  const body=await dragSelected(seeded.slice(0,2));
   assert.equal(body.area,undefined,'no area');
   assert.equal(body.cards[1].x-body.cards[0].x,300,'300 px apart');
   for(const chat of seeded.slice(0,2))await page.locator(`.canvas-card[data-channel-id="${chat.channelId}"]`).waitFor();
 
-  // Placing again at the same viewport centre does not stack the new grid on the cards already there.
-  const again=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith(`/api/canvases/${id}/cards`));
-  await rowFor(page,seeded[2].name).getByRole('checkbox').check();
-  await pile.getByRole('button',{name:'Place on canvas',exact:true}).click();
-  const second=JSON.parse((await again).request().postData()!) as {cards:{x:number;y:number}[]};
+  // Dropping a grid again at the same point does not stack it on the cards already there.
+  const second=await dragSelected(seeded.slice(2,4));
   // Mounted cards are measured (canvas px, unaffected by zoom); the new grid goes below the taller one, plus a gap.
   const heightOf=(channelId:string)=>page.locator(`.canvas-card[data-channel-id="${channelId}"]`).evaluate(el=>(el as HTMLElement).offsetHeight);
   const firstRow=Math.max(...await Promise.all(seeded.slice(0,2).map(chat=>heightOf(chat.channelId))));
   assert.equal(second.cards[0].y,body.cards[0].y+firstRow+40,'below the first grid, with a gap');
   const placedHeights=new Map(await Promise.all((await board(h,id)).cards.map(async c=>[c.channelId,await heightOf(c.channelId)] as const)));
   const overlap=(a:{x:number;y:number},b:{channelId:string;x:number;y:number})=>a.x<b.x+280&&b.x<a.x+280&&a.y<b.y+placedHeights.get(b.channelId)!&&b.y<a.y+260;
-  for(const other of (await board(h,id)).cards.filter(c=>c.channelId!==seeded[2].channelId))assert.ok(!overlap(second.cards[0],other),`clear of ${other.channelId}`);
+  for(const other of (await board(h,id)).cards.filter(c=>!seeded.slice(2,4).some(s=>s.channelId===c.channelId)))assert.ok(!overlap(second.cards[0],other),`clear of ${other.channelId}`);
   await page.locator(`.canvas-card[data-channel-id="${seeded[2].channelId}"]`).waitFor();
 
-  // A row dropped on the surface becomes one card centred on the drop point.
-  const target=seeded[3];
+  // A row dragged onto the surface becomes one card centred on the drop point.
+  const target=seeded[4];
   const surface=(await page.locator('.canvas-surface').boundingBox())!;
   const dropped=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith(`/api/canvases/${id}/cards`));
-  await rowFor(page,target.name).dragTo(page.locator('.canvas-surface'),{targetPosition:{x:200,y:150}});
+  await rowFor(page,target.name).dragTo(page.locator('.canvas-surface'),{targetPosition:{x:500,y:150}});
   const drop=JSON.parse((await dropped).request().postData()!) as {cards:{channelId:string}[]};
   assert.deepEqual(drop.cards.map(c=>c.channelId),[target.channelId]);
   const card=page.locator(`.canvas-card[data-channel-id="${target.channelId}"]`);
   await card.waitFor();
   // Offset by half the card width and CARD_HEIGHT, in screen pixels at the current zoom.
   const box=(await card.boundingBox())!, zoom=box.width/280;
-  assert.ok(Math.abs(box.x+box.width/2-(surface.x+200))<=2&&Math.abs(box.y+80*zoom-(surface.y+150))<=2,`card centred on the drop point: ${box.x - surface.x},${box.y - surface.y} at ${zoom}`);
+  assert.ok(Math.abs(box.x+box.width/2-(surface.x+500))<=2&&Math.abs(box.y+80*zoom-(surface.y+150))<=2,`card centred on the drop point: ${box.x - surface.x},${box.y - surface.y} at ${zoom}`);
   await rowFor(page,target.name).waitFor({state:'detached'});
 
   // Remove from canvas on an open card: the card goes, the chat is back in the pile, and the engine chat is untouched.
@@ -186,10 +231,120 @@ await runChatTest('canvas pile: Place on canvas and dragging a row place cards w
   assert.equal((await removed).status(),204);
   await card.waitFor({state:'detached'});
   await rowFor(page,target.name).waitFor();
-  await pile.locator('.canvas-pile-count').getByText('1',{exact:true}).waitFor();
+  await countIs(page,1);
   assert.equal((await board(h,id)).cards.some(c=>c.channelId===target.channelId),false,'off the canvas');
   const channels=await call<Channel[]>(h,'GET','/api/channels');
   assert.ok(channels.some(c=>c.id===target.channelId),'the chat still exists and is not archived');
+},{canvas:true});
+
+await runChatTest('canvas drawer: a left drawer from the top bar with a hot count, chips, day groups, reasons, and Escape after the sheet',async h=>{
+  const {page,base}=h;
+  await page.setViewportSize({width:1440,height:900});
+  // Loose: the harness chat (a mention will make it need you), a chat where Pip is working, a quiet one and an old one.
+  const working=await call<{channelId:string}>(h,'POST','/api/projects',{id:crypto.randomUUID(),name:'Synthetic working chat',description:'Synthetic test project',
+    members:[{subscriberType:'AGENT',subscriberId:agentName}]});
+  const [quiet,old]=await seedChats(h,2);
+  const {id}=await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Drawer launch'});
+  // A message ten days ago is the old chat's last activity.
+  const stale=await h.emit('message.created',{text:'Synthetic old note'},{source:'human:demo-owner',channelId:old.channelId});
+  h.engineDb.prepare('UPDATE events SET created_at=? WHERE id=?').run(Date.now()-10*24*3_600_000,stale.id);
+  const trigger=await h.emit('message.created',{text:'Synthetic trigger'},{source:'human:demo-owner',channelId:working.channelId});
+  await h.emit('agent.turn.started',{triggerEventId:trigger.id},{source:`agent:${agentName}`,channelId:working.channelId});
+  await h.emit('agent.turn.phase',{triggerEventId:trigger.id,phase:'codex-progress',text:'Drafting the launch post'},{source:`agent:${agentName}`,channelId:working.channelId});
+  const at=Date.now();
+  h.engineDb.prepare("UPDATE agents SET desired_state='RUNNING', runtime_state='RUNNING', last_heartbeat_at=?, updated_at=? WHERE name=?").run(at,at,agentName);
+  await openCanvas(page,base,id,false);
+  await countIs(page,4);
+
+  // A second person mentions the owner in a loose chat: the top-bar count turns coral.
+  const bob=await h.loginAs('demo-bob');
+  const sent=await bob.page.evaluate(async channelId=>(await fetch('/api/messages',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
+    id:crypto.randomUUID(),channelId,text:'@demo-owner please check the refund',mentions:[{kind:'HUMAN',name:'demo-owner',start:0,end:11}],attachments:[]})})).status,h.project.channelId);
+  assert.equal(sent,201);
+  await toggleOf(page).locator('.canvas-loose-count[data-hot]').waitFor();
+  assert.match(await toggleOf(page).innerText(),/Loose chats\s*4/);
+
+  // The drawer floats over the left of the canvas, which keeps its width, under the Area tool.
+  const stage=page.locator('.canvas-stage');
+  const before=(await stage.boundingBox())!;
+  await openDrawer(page);
+  const pile=pileOf(page);
+  const drawer=(await pile.boundingBox())!, after=(await stage.boundingBox())!;
+  assert.ok(drawer.x-after.x<40&&drawer.x>=after.x,`the drawer is at the canvas's left (${drawer.x-after.x} px in)`);
+  assert.equal(after.width,before.width,'the canvas keeps its full width');
+  assert.ok(Math.abs(drawer.width-370)<=1,`370 px wide (${drawer.width})`);
+  const tools=(await page.getByRole('toolbar',{name:'Canvas tools',exact:true}).boundingBox())!;
+  assert.ok(drawer.y>=tools.y+tools.height,'below the Area tool');
+  const tray=(await page.locator('.canvas-tray').boundingBox())!;
+  assert.ok(drawer.y+drawer.height<=tray.y,'clear of the agent tray');
+
+  // Chips with counts, day groups (Older folds behind Show) and each row's second line.
+  const chip=(label:string)=>pile.getByRole('group',{name:'Show',exact:true}).getByRole('button',{name:new RegExp(`^${label} \\d+$`)});
+  const chipText=async(label:string)=>(await chip(label).innerText()).replace(/\s+/g,' ');
+  await pile.locator('.canvas-drawer-line.is-hot').getByText('Needs you: @demo-owner please check the refund',{exact:true}).waitFor();
+  await rowFor(page,'Synthetic working chat').locator('.canvas-drawer-line').getByText('Pip · Drafting the launch post',{exact:true}).waitFor();
+  assert.equal(await chipText('All'),'All 4');
+  assert.equal(await chipText('Needs you'),'Needs you 1');
+  assert.equal(await chipText('Working'),'Working 1');
+  assert.equal(await chipText('Done'),'Done 2');
+  await pile.locator('.canvas-drawer-group').getByText('Today · 3',{exact:true}).waitFor();
+  await pile.locator('.canvas-drawer-group').getByText('Older · 1',{exact:true}).waitFor();
+  assert.equal(await rowFor(page,old.name).count(),0,'Older is folded');
+  await pile.getByRole('button',{name:'Show older chats',exact:true}).click();
+  await rowFor(page,old.name).waitFor();
+  assert.equal(await rowFor(page,quiet.name).getAttribute('title'),'Click to open · drag onto the canvas to place');
+  await chip('Working').click();
+  await rowsAre(page,1,'Working');
+  await rowFor(page,'Synthetic working chat').waitFor();
+  await chip('All').click();
+  await rowsAre(page,4,'All');
+  // The agent filter and a search over agent names (Pip is in the harness chat and the working one).
+  await pile.getByRole('combobox',{name:'Agent',exact:true}).selectOption(agentName);
+  await rowsAre(page,2,'with Pip');
+  await pile.getByRole('combobox',{name:'Agent',exact:true}).selectOption('');
+  await pile.getByRole('searchbox',{name:'Search loose chats',exact:true}).fill(agentName.toLowerCase());
+  await rowsAre(page,2,'searching for pip');
+  await pile.getByRole('searchbox',{name:'Search loose chats',exact:true}).fill('');
+  // A selected row is marked.
+  await rowFor(page,quiet.name).getByRole('checkbox').check();
+  assert.notEqual(await rowFor(page,quiet.name).getAttribute('data-selected'),null,'a ticked row is marked selected');
+  await pile.getByRole('button',{name:'Clear',exact:true}).click();
+
+  // A press on the canvas leaves the drawer open; the agent picker and the drawer take turns.
+  const surface=(await page.locator('.canvas-surface').boundingBox())!;
+  await page.mouse.click(surface.x+surface.width-200,surface.y+surface.height/2);
+  assert.equal(await pile.count(),1,'still open after a canvas press');
+  await page.locator('.canvas-tray').getByRole('button',{name:/^All \d+ agents$/}).click();
+  await page.getByRole('dialog',{name:'All agents',exact:true}).waitFor();
+  assert.equal(await pile.count(),0,'the picker closed the drawer');
+  await toggleOf(page).click();
+  await pile.waitFor();
+  assert.equal(await page.getByRole('dialog',{name:'All agents',exact:true}).count(),0,'the drawer closed the picker');
+
+  // A row opens its chat as the plain sheet, beside the drawer when it fits; the drawer stays open.
+  await rowFor(page,quiet.name).locator('.canvas-drawer-title').click();
+  const sheet=page.locator('.canvas-chat[data-place="loose"]');
+  await sheet.waitFor();
+  const placed=(await sheet.boundingBox())!, open=(await pile.boundingBox())!;
+  assert.ok(placed.x>=open.x+open.width,`the sheet keeps clear of the drawer (${placed.x} vs ${open.x+open.width})`);
+  // Escape with focus in the sheet closes the sheet only.
+  await sheet.focus();
+  await page.keyboard.press('Escape');
+  await sheet.waitFor({state:'detached'});
+  assert.equal(await pile.count(),1,'one Escape closed only the sheet');
+  // Escape with focus in the drawer closes the drawer only, even over an open sheet.
+  await rowFor(page,quiet.name).locator('.canvas-drawer-title').click();
+  await sheet.waitFor();
+  await pile.getByRole('searchbox',{name:'Search loose chats',exact:true}).click();
+  await page.keyboard.press('Escape');
+  await pile.waitFor({state:'detached'});
+  assert.equal(await sheet.count(),1,'one Escape closed only the drawer');
+  // ✕ closes it too.
+  await page.keyboard.press('Escape');
+  await sheet.waitFor({state:'detached'});
+  await openDrawer(page);
+  await pile.getByRole('button',{name:'Close',exact:true}).click();
+  await pile.waitFor({state:'detached'});
 },{canvas:true});
 
 await runChatTest('canvas areas: dropping chats into an area lights it up, they join it and it grows to fit them',async h=>{
@@ -238,6 +393,9 @@ await runChatTest('canvas areas: dropping chats into an area lights it up, they 
   }
 
   // A card dragged in on the canvas lights the area up mid-drag and joins it on release.
+  // The drawer floats over the canvas's left, where this card sits: close it first.
+  await pileOf(page).getByRole('button',{name:'Close',exact:true}).click();
+  await pileOf(page).waitFor({state:'detached'});
   const outside=page.locator(`.canvas-card[data-channel-id="${h.project.channelId}"]`);
   assert.equal(await outside.evaluate(e=>e.classList.contains('in-area')),false,'a card outside areas has no stripe');
   // Membership follows the card's centre, so aim that (not the grab point) at the area's middle.

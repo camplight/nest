@@ -21,7 +21,7 @@ export type AreaProps = {
   canEdit: boolean;
   compact: boolean;
   summary?: AreaSummary;
-  /** A dragged card or pile chat (`chat`), or a file drag (`files`), would land in this area if dropped now. */
+  /** A dragged card or loose chat (`chat`), or a file drag (`files`), would land in this area if dropped now. */
   dropTarget?: 'chat' | 'files' | null;
   /** The area holds no cards: its context files show on a shelf. */
   empty?: boolean;

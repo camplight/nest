@@ -1,6 +1,6 @@
 // Canvas context (Phase 2): the anchored context popover, area chips, shelves, ↳ link chips and link lines on the real engine, API and WS. Synthetic data.
 import assert from 'node:assert/strict';
-import type {Page} from 'playwright';
+import type {Locator,Page} from 'playwright';
 import {agentName,runChatTest,type ChatHarness} from '../support/chat-harness';
 
 async function call<T>(h:ChatHarness,method:string,path:string,body?:unknown):Promise<T>{
@@ -13,6 +13,20 @@ const chatEvents=async(h:ChatHarness)=>(await call<unknown[]>(h,'GET',`/api/even
 async function openCanvas(page:Page,base:string,id:string){
   await page.goto(`${base}/?view=canvas&canvas=${id}`);
   await page.locator('.canvas-surface .canvas-world').waitFor({state:'attached'});
+}
+/** Drags a Loose chats row onto the surface at a point on the page (the drawer, opened from the top bar, floats over the canvas's left). */
+async function dropRow(page:Page,row:Locator,at:{x:number;y:number}){
+  const transfer=await page.evaluateHandle(()=>new DataTransfer());
+  await row.dispatchEvent('dragstart',{dataTransfer:transfer});
+  const surface=page.locator('.canvas-surface');
+  await surface.dispatchEvent('dragover',{dataTransfer:transfer,clientX:at.x,clientY:at.y});
+  await surface.dispatchEvent('drop',{dataTransfer:transfer,clientX:at.x,clientY:at.y});
+}
+async function openDrawer(page:Page){
+  await page.locator('.canvas-loose-button').click();
+  const drawer=page.getByRole('complementary',{name:'Loose chats',exact:true});
+  await drawer.waitFor();
+  return drawer;
 }
 const areaOf=(page:Page,title:string)=>page.getByRole('region',{name:`Area ${title}`,exact:true});
 /** The area's `◱` chip: one click opens its context popover. */
@@ -429,11 +443,10 @@ await runChatTest('canvas homes: labels, Use this area\'s context and the drop w
     await call(h,'DELETE',`/api/canvases/${canvas}/cards/${chat}?version=${(row as unknown as {version:number}).version}`);
   }
   await openCanvas(page,base,plan);
-  const pile=page.getByRole('complementary',{name:'Loose chats',exact:true});
-  await pile.waitFor();
-  const surface=(await page.locator('.canvas-surface').boundingBox())!, target=(await areaOf(page,'Briefing').boundingBox())!;
-  await pile.locator('.canvas-pile-row').filter({has:page.getByRole('checkbox',{name:`Select ${title}`,exact:true})})
-    .dragTo(page.locator('.canvas-surface'),{targetPosition:{x:target.x+target.width/2-surface.x,y:target.y+target.height/2-surface.y}});
+  const pile=await openDrawer(page);
+  const target=(await areaOf(page,'Briefing').boundingBox())!;
+  await dropRow(page,pile.locator('.canvas-drawer-row').filter({has:page.getByRole('checkbox',{name:`Select ${title}`,exact:true})}),
+    {x:target.x+target.width/2,y:target.y+target.height/2});
   await page.locator('.canvas-notice').getByText(WARNING,{exact:true}).waitFor();
   assert.deepEqual((await homeOf(h,plan))!.home,{isHere:true,label:'Briefing'});
   await page.locator('.canvas-notice').getByRole('button',{name:'Undo',exact:true}).click();
@@ -457,11 +470,10 @@ await runChatTest('canvas context: canvas notes warn on a drop, linked chats war
   const notice=page.locator('.canvas-notice');
 
   // I1: a first placement outside every area, on a canvas with notes, warns (the area under it has none).
-  const pile=page.getByRole('complementary',{name:'Loose chats',exact:true});
-  await pile.waitFor();
-  const surface=(await page.locator('.canvas-surface').boundingBox())!, beside=(await areaOf(page,'Empty').boundingBox())!;
-  await pile.locator('.canvas-pile-row').filter({hasText:'Synthetic chat project'}).first()
-    .dragTo(page.locator('.canvas-surface'),{targetPosition:{x:beside.x+beside.width+160-surface.x,y:beside.y+beside.height/2-surface.y}});
+  const pile=await openDrawer(page);
+  const beside=(await areaOf(page,'Empty').boundingBox())!;
+  await dropRow(page,pile.locator('.canvas-drawer-row').filter({hasText:'Synthetic chat project'}).first(),
+    {x:beside.x+beside.width+160,y:beside.y+beside.height/2});
   await notice.getByText(WARNING,{exact:true}).waitFor();
   assert.deepEqual((await homeOf(h,board))!.home,{isHere:true,label:'Board'});
   await notice.getByRole('button',{name:'Undo',exact:true}).click();

@@ -11,8 +11,11 @@
 .canvas-heading {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
+  /* When the window is too narrow for one row, controls wrap rather than run under the search. */
+  flex-wrap: wrap;
+  row-gap: 8px;
 }
 .canvas-name {
   margin: 0;
@@ -26,6 +29,7 @@
 .canvas-switcher {
   min-height: 36px;
   max-width: 200px;
+  white-space: nowrap;
   cursor: pointer;
   border: 1px solid var(--nest-border);
   border-radius: 8px;
@@ -802,6 +806,15 @@
   color: var(--nest-text);
   cursor: pointer;
 }
+/* The heading (name, switcher, Share, Canvas context, Loose chats) takes the room the search and controls leave. */
+@media (min-width: 761px) {
+  .canvas-view .dashboard-topbar.workspace-topbar {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .canvas-view .workspace-topbar-search {
+    max-width: none;
+  }
+}
 @media (max-width: 760px) {
   /* Menu and the workspace controls share the first row; the canvas name, switcher and Share get their own. */
   .canvas-view .dashboard-topbar.workspace-topbar {
@@ -830,7 +843,7 @@
   }
 }
 
-/* The stage holds the surface and the bottom box; the Loose chats pile sits beside it. */
+/* The stage holds the surface, the agent tray and the bottom box; the Loose chats drawer floats over it. */
 .canvas-stage {
   position: relative;
   flex: 1;
@@ -939,229 +952,429 @@
   font-size: 11px;
 }
 
-/* Loose chats pile: a right-side panel; folded, it is a floating chip at the top right of the canvas. */
-.canvas-pile {
-  flex: none;
-  width: 320px;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  border-left: 1px solid var(--nest-border);
-  background: var(--nest-surface);
-}
-.canvas-pile:not(.is-open) {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  z-index: 3;
-  width: auto;
-  border: 1px solid var(--nest-border);
-  border-radius: 14px;
-  box-shadow: var(--canvas-shadow);
-}
-.canvas-pile-head {
-  padding: 8px;
-}
-.canvas-pile-toggle {
-  width: 100%;
-  min-height: 40px;
-  display: flex;
+/*
+ * Loose chats: the top-bar toggle and the mock's `.drawer`, a floating card over the left of the canvas (which keeps its
+ * full width), 370 px wide, under the Area tool and clear of the bottom box and the agent tray.
+ */
+.canvas-loose-button {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  border: 0;
-  border-radius: 10px;
-  padding: 0 8px;
-  background: transparent;
-  color: var(--nest-text);
-  font-family: Unbounded, Inter, sans-serif;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
+  gap: 6px;
+  white-space: nowrap;
 }
-.canvas-pile-toggle:hover {
-  background: var(--nest-muted-surface);
+.canvas-share-button.canvas-loose-button[aria-expanded="true"] {
+  border-color: var(--nest-accent);
+  background: color-mix(in srgb, var(--nest-lime) 18%, var(--nest-surface));
 }
-.canvas-pile-count {
-  min-width: 28px;
+.canvas-loose-count {
+  min-width: 20px;
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 0 7px;
   background: var(--nest-muted-surface);
-  font-family: Inter, sans-serif;
+  color: var(--nest-text);
   font-size: 12px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
-.canvas-pile-filters {
-  display: grid;
-  gap: 8px;
-  padding: 0 16px 10px;
+/* The mock's `.lcount.hot`: any loose chat needs you. */
+.canvas-loose-count.is-hot {
+  background: var(--nest-coral);
+  color: #fff;
 }
-.canvas-pile-search {
+.canvas-drawer {
+  position: absolute;
+  left: 16px;
+  top: 76px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  width: min(370px, calc(100% - 32px));
+  /*
+   * The mock's calc(100% - 170px) runs into the bottom box wherever it sits above the tray's row (76 px up, about 56 px
+   * tall): the drawer stops 14 px above that instead, so the box's attach and voice buttons stay clear.
+   */
+  max-height: calc(100% - 222px);
+  min-height: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 14px;
+  border: 1px solid var(--nest-border);
+  border-radius: 16px;
+  background: var(--nest-surface);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--nest-forest) 16%, transparent);
+  color: var(--nest-text);
+}
+.canvas-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.canvas-drawer-head h2 {
+  margin: 0;
+  font: 500 15px/1.2 Unbounded, Inter, sans-serif;
+  letter-spacing: -.03em;
+}
+.canvas-drawer-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0;
+  background: transparent;
+  color: var(--nest-muted);
+  cursor: pointer;
+}
+.canvas-drawer-close:hover {
+  background: var(--nest-muted-surface);
+  color: var(--nest-text);
+}
+.canvas-drawer-find {
+  display: flex;
+  gap: 6px;
+}
+.canvas-drawer-search,
+.canvas-drawer-agent {
   min-height: 36px;
   border: 1px solid var(--nest-border);
-  border-radius: 10px;
-  padding: 0 12px;
+  border-radius: 9px;
   background: var(--nest-bg);
   color: var(--nest-text);
+  font: inherit;
 }
-.canvas-pile-chips {
+.canvas-drawer-search {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+.canvas-drawer-search:placeholder-shown::-webkit-search-cancel-button {
+  display: none;
+}
+.canvas-drawer-search:focus {
+  border-color: var(--nest-accent);
+  outline: none;
+}
+.canvas-drawer-search:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--nest-accent) 35%, transparent);
+}
+.canvas-drawer-agent {
+  flex: none;
+  max-width: 104px;
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--nest-muted);
+}
+.canvas-drawer-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
-.canvas-pile-chip {
-  min-height: 32px;
-  max-width: 130px;
+.canvas-drawer-chip {
   border: 1px solid var(--nest-border);
   border-radius: 999px;
-  padding: 0 12px;
+  padding: 3px 10px;
   background: var(--nest-surface);
   color: var(--nest-text);
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
 }
-.canvas-pile-chip[aria-pressed="true"] {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--nest-lime) 26%, transparent);
-}
-.canvas-pile-hidden {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--nest-muted);
-  font-size: 13px;
-}
-.canvas-pile-bulk {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border-block: 1px solid var(--nest-border);
-  background: var(--nest-muted-surface);
-  font-size: 13px;
-}
-.canvas-pile-bulk > span {
-  flex-basis: 100%;
-  color: var(--nest-muted);
-}
-/* Over 100 selected: the reason the bulk actions are off, in plain view. */
-.canvas-pile-bulk > .canvas-pile-limit {
-  color: var(--nest-text);
+.canvas-drawer-chip b {
   font-weight: 600;
 }
-.canvas-pile-bulk button,
-.canvas-pile-unhide {
-  min-height: 32px;
-  border: 1px solid var(--nest-border);
-  border-radius: 999px;
-  padding: 0 12px;
-  background: var(--nest-surface);
-  color: var(--nest-text);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
+.canvas-drawer-chip[aria-pressed="true"] {
+  border-color: var(--nest-accent);
+  background: color-mix(in srgb, var(--nest-lime) 18%, var(--nest-surface));
 }
-.canvas-pile-bulk button:disabled {
-  opacity: .5;
-  cursor: default;
-}
-.canvas-pile-bulk .canvas-pile-clear {
-  border-color: transparent;
-  background: transparent;
-}
-.canvas-pile-error {
-  margin: 8px 16px;
+.canvas-drawer-error {
+  margin: 0;
   color: var(--canvas-alert);
-  font-size: 13px;
+  font-size: 12.5px;
 }
-.canvas-pile-list {
+.canvas-drawer-list {
   flex: 1;
-  min-height: 0;
+  min-height: 80px;
   overflow-y: auto;
   overscroll-behavior: contain;
+  margin: 0 -6px;
+  padding: 0 6px;
 }
-.canvas-pile-list ul {
+.canvas-drawer-list ul {
   position: relative;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.canvas-pile-row {
+.canvas-drawer-group,
+.canvas-drawer-row {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 56px;
   box-sizing: border-box;
+}
+.canvas-drawer-group {
+  height: 30px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 8px 4px;
+  color: var(--nest-muted);
+  font: 600 10.5px/1.3 Inter, sans-serif;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.canvas-drawer-group button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--nest-accent);
+  font: 500 12px/1.3 Inter, sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+.canvas-drawer-row {
+  height: 48px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 16px;
-  border-bottom: 1px solid color-mix(in srgb, var(--nest-border) 60%, transparent);
-  background: var(--nest-surface);
+  gap: 9px;
+  padding: 0 8px;
+  border-radius: 9px;
+  user-select: none;
+  cursor: pointer;
 }
-.canvas-pile-row[draggable="true"] {
+.canvas-drawer-row[draggable="true"] {
   cursor: grab;
 }
-.canvas-pile-row:hover {
+.canvas-drawer-row:hover {
   background: var(--nest-muted-surface);
 }
-.canvas-pile-row[data-hidden] .canvas-pile-main {
+/* The mock's `.lrow.sel`: lime-soft. */
+.canvas-drawer-row[data-selected] {
+  background: color-mix(in srgb, var(--nest-lime) 18%, var(--nest-surface));
+}
+.canvas-drawer-row[data-highlight] {
+  background: color-mix(in srgb, var(--nest-coral) 14%, transparent);
+  outline: 2px solid var(--nest-coral);
+  outline-offset: -2px;
+}
+.canvas-drawer-row[data-hidden] .canvas-drawer-main {
   opacity: .6;
 }
-.canvas-pile-row input {
+/* The mock's `.ck`: a 17 px rounded box, accent with a white tick when on. */
+.canvas-drawer-check {
   flex: none;
-  width: 18px;
-  height: 18px;
+  appearance: none;
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  border: 1.5px solid var(--nest-border);
+  border-radius: 5px;
+  background: var(--nest-surface);
+  cursor: pointer;
+}
+.canvas-drawer-check:checked {
+  border-color: var(--nest-accent);
+  background: var(--nest-accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 12px no-repeat;
+}
+.canvas-drawer-check:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 2px;
+}
+/* Forced colours draw no background: the box keeps a visible mark when ticked. */
+@media (forced-colors: active) {
+  .canvas-drawer-check {
+    appearance: auto;
+  }
+}
+.canvas-drawer-face {
+  flex: none;
+  display: grid;
+  width: 26px;
+  height: 26px;
+}
+.canvas-drawer-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+button.canvas-drawer-open {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: inherit;
+}
+button.canvas-drawer-open:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.canvas-drawer-title,
+.canvas-drawer-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-drawer-title {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.canvas-drawer-line {
+  min-height: 15px;
+  color: var(--nest-muted);
+  font-size: 11.5px;
+  line-height: 15px;
+}
+/* The mock's `.ls2.hot`: the reason in coral, bold. */
+.canvas-drawer-line.is-hot {
+  color: var(--canvas-alert);
+  font-weight: 600;
+}
+.canvas-drawer-time {
+  flex: none;
+  color: var(--nest-muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.canvas-drawer-unhide {
+  flex: none;
+  min-height: 28px;
+  border: 1px solid var(--nest-border);
+  border-radius: 999px;
+  padding: 0 10px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.canvas-drawer-empty {
+  margin: 0;
+  padding: 18px 8px;
+  color: var(--nest-muted);
+  font-size: 13px;
+  text-align: center;
+}
+.canvas-drawer-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: 9px;
+  border-top: 1px solid var(--nest-border);
+  font-size: 12.5px;
+}
+.canvas-drawer-bulk > b {
+  margin-right: 2px;
+  font-weight: 600;
+}
+.canvas-drawer-limit {
+  flex-basis: 100%;
+  font-weight: 600;
+}
+.canvas-drawer-bulk button {
+  border: 1px solid var(--nest-border);
+  border-radius: 9px;
+  padding: 5px 9px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.canvas-drawer-bulk button:hover:enabled {
+  border-color: var(--nest-accent);
+}
+.canvas-drawer-bulk button.is-primary {
+  border-color: var(--nest-text);
+  background: var(--nest-text);
+  color: var(--nest-bg);
+  font-weight: 600;
+}
+.canvas-drawer-bulk button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+.canvas-drawer-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 10px;
+  margin: 0;
+  color: var(--nest-muted);
+  font-size: 11.5px;
+}
+.canvas-drawer-foot label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+.canvas-drawer-foot input {
   margin: 0;
   accent-color: var(--nest-forest);
 }
-:root[data-theme="dark"] .canvas-pile-row input {
+:root[data-theme="dark"] .canvas-drawer-foot input {
   accent-color: var(--nest-lime);
 }
-.canvas-pile-main {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-  gap: 2px;
+/* Beside a split-screen chat the canvas keeps at least 40% of the body: the drawer stays inside that side. */
+.canvas-body.is-split .canvas-drawer {
+  width: min(370px, calc(40% - 32px));
 }
-.canvas-pile-title,
-.canvas-pile-meta {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+.canvas-context-short {
+  display: none;
 }
-.canvas-pile-title {
-  font-size: 14px;
-  font-weight: 500;
-}
-.canvas-pile-meta {
-  color: var(--nest-muted);
-  font-size: 12px;
-}
-.canvas-pile-needs {
-  flex: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: var(--nest-coral);
-}
-.canvas-pile-empty {
-  margin: 0;
-  padding: 24px 16px;
-  color: var(--nest-muted);
-  font-size: 14px;
-  text-align: center;
+/*
+ * Below 1360 px the top bar has no room for every label: the toggle is its icon and count, and Canvas context reads
+ * `Context` (both keep their full names for screen readers).
+ */
+@media (max-width: 1360px) {
+  .canvas-context-long {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .canvas-context-short {
+    display: inline;
+  }
+  .canvas-loose-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .canvas-share-button.canvas-loose-button {
+    padding: 0 10px;
+  }
 }
 @media (max-width: 760px) {
-  .canvas-pile.is-open {
-    position: absolute;
-    inset: 0 0 0 auto;
-    z-index: 4;
-    width: min(360px, 100%);
-    box-shadow: var(--canvas-shadow);
+  /* Phones: the drawer takes the full width under the top bar. */
+  .canvas-drawer {
+    inset: 0;
+    width: auto;
+    max-height: none;
+    border-width: 0;
+    border-radius: 0;
+    box-shadow: none;
   }
 }
 
@@ -1186,9 +1399,13 @@
   outline-offset: 2px;
 }
 
-/* The canvas side of the body: the stage with its bottom box, and the Loose chats pile. */
+/*
+ * The canvas side of the body: the stage with its bottom box. Its own stacking layer, so the Loose chats drawer (beside it
+ * in the body) floats over all of it, and the top bar's menus over both.
+ */
 .canvas-main {
   position: relative;
+  z-index: 0;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -2216,25 +2433,6 @@
   padding: 8px 12px;
   color: var(--nest-muted);
 }
-button.canvas-pile-open {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  text-align: left;
-  cursor: pointer;
-}
-button.canvas-pile-open:hover {
-  text-decoration: underline;
-}
-.canvas-pile-row[data-highlight] {
-  background: color-mix(in srgb, var(--nest-coral) 14%, transparent);
-  outline: 2px solid var(--nest-coral);
-  outline-offset: -2px;
-}
 @media (max-width: 760px) {
   .canvas-needs-panel {
     position: fixed;
@@ -2483,7 +2681,7 @@ li.canvas-phone-row[data-access] {
   border-top-color: var(--tint);
 }
 
-/* While a card or pile chat is dragged over an area, the area lights up and says where it will land. */
+/* While a card or loose chat is dragged over an area, the area lights up and says where it will land. */
 .canvas-area.is-drop-target {
   background: color-mix(in srgb, var(--tint) 16%, transparent);
   border: 2px solid color-mix(in srgb, var(--tint) 80%, transparent);

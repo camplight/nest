@@ -11,7 +11,7 @@ import {areaSummaries,type CardPulse} from './pulse';
 import type {NeedsItem} from './needs';
 import {ORIGIN,areaMembers,cardCentre,clampZoom,fit,growToFit,isCompact,toCanvas,visible,zoomAt,type Point,type Rect,type Size,type View} from './geometry';
 import {CARD_PLACE_HEIGHT} from './loose';
-import {presentView,stageBounds} from './sheet';
+import {clearOfDrawer,presentView,stageBounds} from './sheet';
 
 export type SurfaceProps = {
   board: CanvasBoard;
@@ -20,7 +20,7 @@ export type SurfaceProps = {
   /** Live state per channel id; each card gets its own pulse object, stable while unchanged. */
   pulses?: ReadonlyMap<string, CardPulse>;
   onNudge?(channelId: string, agent: string): Promise<void>;
-  /** Loose chats dragged from the pile (one, or every selected row) and dropped here, at this canvas point. */
+  /** Loose chats dragged from the drawer (one, or every selected row) and dropped here, at this canvas point. */
   onDropChat?(channelIds: string[], at: Point): void;
   /** Filled in by the surface so its owner can ask where the viewport is. */
   controls?: MutableRefObject<SurfaceControls | null>;
@@ -77,9 +77,10 @@ export type SurfaceControls = {
   reveal(target: {channelId: string} | {areaId: string}): boolean;
   /**
    * Animates the view so a card opened in place sits where its chat sheet fits (zoom 1 or less): `sheetHeight` tall, and
-   * above the bottom box `dockTop` px down the surface (null without one). False when the card is not on this canvas.
+   * above the bottom box `dockTop` px down the surface (null without one), and right of an open Loose chats drawer whose
+   * right edge is `drawerEdge` px across the surface when the sheet fits there. False when the card is not on this canvas.
    */
-  present(channelId: string, sheetHeight: number, dockTop: number | null): boolean;
+  present(channelId: string, sheetHeight: number, dockTop: number | null, drawerEdge?: number | null): boolean;
   /** A card's measured height in canvas units, once it has been mounted; undefined before that. */
   cardHeight(channelId: string): number | undefined;
 };
@@ -89,7 +90,7 @@ const REVEAL_MS = 320;
 /** How long a pressed link chip keeps its dotted line drawn after framing the two areas. */
 const LINK_FLASH_MS = 2600;
 const prefersReducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-/** The drag data type a pile row carries: the chat's channel id, or several ids on separate lines. */
+/** The drag data type a Loose chats row carries: the chat's channel id, or several ids on separate lines. */
 export const CHAT_DRAG_TYPE = 'application/x-nest-chat';
 /** The drag data type a tray or picker face carries: the agent's name. */
 export const AGENT_DRAG_TYPE = 'application/x-nest-agent';
@@ -282,11 +283,11 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
         animateTo(next);
         return true;
       },
-      present: (channelId, sheetHeight, dockTop) => {
+      present: (channelId, sheetHeight, dockTop, drawerEdge = null) => {
         const element = surfaceRef.current;
         const rect = cardRectsRef.current.find(c => c.card.channelId === channelId);
         if (!rect || !element?.clientWidth || !element.clientHeight) return false;
-        animateTo(presentView(rect, stageBounds({w: element.clientWidth, h: element.clientHeight}, dockTop), sheetHeight));
+        animateTo(presentView(rect, clearOfDrawer(stageBounds({w: element.clientWidth, h: element.clientHeight}, dockTop), drawerEdge), sheetHeight));
         return true;
       },
       cardHeight: channelId => heights.current.get(channelId),
@@ -299,7 +300,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   // An agent drag targets the open card under the pointer; anywhere else (locked, unavailable, empty canvas) takes no drop.
   const agentDropRef = useRef(onDropAgent); agentDropRef.current = onDropAgent;
   const [dropId, setDropId] = useState<string | null>(null);
-  /** The area a pile chat would land in if dropped now. */
+  /** The area a loose chat would land in if dropped now. */
   const [chatDropArea, setDropArea] = useState<{id: string; kind: 'chat' | 'files'} | null>(null);
   const setChatDropArea = (id: string | null, kind: 'chat' | 'files' = 'chat') => setDropArea(current => id ? (current?.id === id && current.kind === kind ? current : {id, kind}) : null);
   const carriesAgent = (event: ReactDragEvent) => Boolean(agentDropRef.current) && event.dataTransfer.types.includes(AGENT_DRAG_TYPE);
@@ -643,7 +644,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   // Which area each card sits in (by centre, like the API), for the tinted stripe on cards in an area.
   const homes = useMemo(() => new Map(board.cards.map(card => [card.channelId, areaFor(cardCentre(card), board.areas)])), [board.cards, board.areas]);
   const movingCard = preview?.kind === 'card' ? board.cards.find(c => c.channelId === preview.id) : undefined;
-  // The area a dragged card or pile chat would join if dropped now: it lights up while the pointer is over it.
+  // The area a dragged card or loose chat would join if dropped now: it lights up while the pointer is over it.
   const cardTarget = movingCard && preview?.kind === 'card'
     ? areaFor(cardCentre({x: movingCard.x + preview.dx, y: movingCard.y + preview.dy, w: movingCard.w}), board.areas) : undefined;
   const dropArea: {id: string; kind: 'chat' | 'files'} | null = cardTarget !== undefined ? cardTarget ? {id: cardTarget.id, kind: 'chat'} : null : chatDropArea;

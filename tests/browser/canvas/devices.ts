@@ -118,7 +118,7 @@ await runChatTest('canvas devices: a phone gets the list with areas, needs you a
   const list=page.getByRole('region',{name:'Canvas list',exact:true});
   await list.waitFor();
   assert.equal(await page.locator('.canvas-surface').count(),0,'no free canvas on a phone');
-  assert.equal(await page.locator('.canvas-pile, .canvas-tray').count(),0,'no pile panel or agent tray on a phone');
+  assert.equal(await page.locator('.canvas-drawer, .canvas-tray').count(),0,'no open Loose chats drawer or agent tray on a phone');
   assert.equal(await page.locator('[data-drag]').count(),0,'nothing to drag on a phone');
   const tabs=list.getByRole('tablist',{name:'Sections',exact:true});
   assert.deepEqual(await tabs.getByRole('tab').evaluateAll(els=>els.map(el=>el.firstChild?.textContent)),['Areas','Needs you','Loose chats']);
@@ -160,6 +160,21 @@ await runChatTest('canvas devices: a phone gets the list with areas, needs you a
   assert.equal(new URL(page.url()).searchParams.get('chat'),loose.channelId);
   await chat.getByRole('button',{name:'Close',exact:true}).tap();
   await chat.waitFor({state:'detached'});
+
+  // The top bar's Loose chats toggle shrinks to its icon and count; its drawer takes the full width under the top bar.
+  const toggle=page.locator('.canvas-loose-button');
+  assert.equal(await toggle.locator('.canvas-loose-count').innerText(),'1');
+  assert.equal(await toggle.locator('.canvas-loose-label').evaluate(el=>el.getBoundingClientRect().width<=1),true,'the label is visually hidden');
+  assert.ok((await toggle.boundingBox())!.width<=72,'icon and count only');
+  await toggle.tap();
+  const drawer=page.getByRole('complementary',{name:'Loose chats',exact:true});
+  await drawer.waitFor();
+  const drawerBox=(await drawer.boundingBox())!,top=(await page.locator('.canvas-body').boundingBox())!,width=page.viewportSize()!.width;
+  assert.ok(drawerBox.x<=1&&Math.abs(drawerBox.width-width)<=1,`full width: ${JSON.stringify(drawerBox)}`);
+  assert.ok(Math.abs(drawerBox.y-top.y)<=1,'right under the top bar');
+  await drawer.getByRole('checkbox',{name:'Select Synthetic loose chat',exact:true}).waitFor();
+  await drawer.getByRole('button',{name:'Close',exact:true}).tap();
+  await drawer.waitFor({state:'detached'});
 
   // Needs you lists a real mention from the mate, and opens its chat.
   await tabs.getByRole('tab',{name:/^Needs you/}).tap();
@@ -313,9 +328,7 @@ await runChatTest('canvas devices: 150 cards and 30 agents stay culled, smooth a
   assert.equal(board.cards.length,150);assert.equal(board.areas.length,6);
   console.log(`scale fixture seeded in ${Date.now()-started} ms`);
 
-  // The Loose chats pile is folded, so the surface has the width of a mid-range laptop screen.
-  const me=await call<{id:string}>(h,'GET','/api/auth/me');
-  await page.evaluate(key=>localStorage.setItem(key,'0'),`nest-canvas-pile-open:${me.id}`);
+  // The Loose chats drawer starts closed and floats over the canvas, so the surface has the width of a mid-range laptop screen.
   await page.goto(`${base}/?view=canvas&canvas=${id}`);
   await page.locator('.canvas-area').first().waitFor();
 

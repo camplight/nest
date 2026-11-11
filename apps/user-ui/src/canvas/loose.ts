@@ -1,29 +1,57 @@
-// Loose chats: the chats a person is part of that are not on the current canvas. Pure list logic for the pile.
+// Loose chats: the chats a person is part of that are not on the current canvas. Pure list logic for the drawer.
 import {CARD_HEIGHT,DEFAULT_CARD_WIDTH,type Project} from '@nest/schemas';
 import type {Channel,ChannelParticipant} from '../types';
-import type {CardPulse} from './pulse';
+import {oneLine,type CardPulse} from './pulse';
+import type {NeedsItem} from './needs';
+import {agentText} from './rows';
 import {AREA_FIT_PAD,overlaps,type Point,type Rect} from './geometry';
 
-export type LooseChat = {channelId: string; projectId: string | null; title: string; participants: ChannelParticipant[]; lastActivityAt: number | null; needsYou: boolean; agents: string[]};
-export type LooseAge = 'any' | 'today' | 'week' | 'older';
-export type LooseFilter = {query: string; needsYou: boolean; agent: string | null; age: LooseAge};
+/** The drawer's chips: it has a Needs you item, else an agent is working, else it is done. */
+export type LooseState = 'need' | 'working' | 'done';
+export type LooseChat = {
+  channelId: string; projectId: string | null; title: string; participants: ChannelParticipant[]; lastActivityAt: number | null; needsYou: boolean; agents: string[];
+  state: LooseState;
+  /** The newest Needs you reason (a mention's first line or the reviewed task's title); null when nothing needs the person. */
+  reason: string | null;
+  /** The row's second line without a reason: `{agent} · {activity}`, else the last message's first line, else empty. */
+  line: string;
+};
+export type LooseStateFilter = 'all' | LooseState;
+export type LooseFilter = {query: string; state: LooseStateFilter; agent: string | null};
 export type LooseInput = {
   /** App's already-visible channels. */
   channels: Channel[]; projects: Project[];
   boardChannelIds: ReadonlySet<string>; hidden: ReadonlySet<string>;
   username: string; userId: string;
   pulses: ReadonlyMap<string, CardPulse>;
+  /** Each chat's Needs you items (mentions and reviews), newest first, as the cards use them. Without it a chat's unread mentions count. */
+  needs?: ReadonlyMap<string, readonly NeedsItem[]>;
   showHidden: boolean;
 };
 
-const DAY_MS = 24 * 60 * 60_000;
 const isHuman = (p: ChannelParticipant) => p.subscriberType.trim().toUpperCase() === 'HUMAN';
 const isAgent = (p: ChannelParticipant) => p.subscriberType.trim().toUpperCase() === 'AGENT';
 /** Lifecycle channels are engine plumbing; the sidebar never lists them. */
 const isSystem = (channel: Channel) => channel.name.toLowerCase().startsWith('agent.lifecycle.');
 
+/**
+ * What a loose chat's row says, from the same live pulse and Needs you items as the cards: the newest reason when
+ * something needs the person; else the first agent's activity (as on its card row); else the first line of the newest
+ * message a person posted; else nothing.
+ */
+export function looseStatus(agents: readonly string[], pulse: CardPulse | undefined, needs: readonly NeedsItem[] | undefined): Pick<LooseChat, 'state' | 'reason' | 'line'> {
+  const reason = needs ? needs[0]?.reason ?? null : pulse?.needsYou[0] ? oneLine(pulse.needsYou[0].text) : null;
+  const working = Boolean(pulse?.agents.some(agent => agent.state === 'working'));
+  const first = agents[0] === undefined ? undefined : pulse?.agents.find(agent => agent.name === agents[0]);
+  let line = '';
+  // An idle agent that never said anything has no activity to show.
+  if (first && (first.state !== 'idle' || first.said)) line = `${first.name} · ${agentText(first)}`;
+  else line = [...(pulse?.people ?? [])].sort((a, b) => b.at - a.at).find(person => person.said)?.said ?? '';
+  return {state: reason !== null ? 'need' : working ? 'working' : 'done', reason, line};
+}
+
 /** The person's own chats (a human participant, or the owner) that are not archived, on this board or hidden. Newest activity first. */
-export function looseChats({channels, projects, boardChannelIds, hidden, username, userId, pulses, showHidden}: LooseInput): LooseChat[] {
+export function looseChats({channels, projects, boardChannelIds, hidden, username, userId, pulses, needs, showHidden}: LooseInput): LooseChat[] {
   const byChannel = new Map(projects.map(project => [project.channelId, project]));
   const items: LooseChat[] = [];
   for (const channel of channels) {
@@ -33,6 +61,8 @@ export function looseChats({channels, projects, boardChannelIds, hidden, usernam
     if (!mine) continue;
     const project = byChannel.get(channel.id);
     const pulse = pulses.get(channel.id);
+    const agents = [...new Set(participants.filter(isAgent).map(p => p.subscriberId))];
+    const status = looseStatus(agents, pulse, needs ? needs.get(channel.id) ?? [] : undefined);
     items.push({
       channelId: channel.id,
       projectId: project?.id ?? null,
@@ -40,27 +70,77 @@ export function looseChats({channels, projects, boardChannelIds, hidden, usernam
       title: project?.name || channel.name,
       participants,
       lastActivityAt: pulse?.lastActivityAt ?? project?.createdAt ?? null,
-      needsYou: Boolean(pulse?.needsYou.length),
-      agents: [...new Set(participants.filter(isAgent).map(p => p.subscriberId))],
+      needsYou: status.state === 'need',
+      agents,
+      ...status,
     });
   }
   return items.sort((a, b) => (b.lastActivityAt ?? -Infinity) - (a.lastActivityAt ?? -Infinity) || a.title.localeCompare(b.title));
 }
 
-/** Keeps order. The query matches the title or a participant id, ignoring case. */
-export function filterLoose(items: LooseChat[], {query, needsYou, agent, age}: LooseFilter, now: number): LooseChat[] {
+/** Keeps order. The query matches the title or an agent's name, ignoring case. */
+export function filterLoose(items: LooseChat[], {query, state, agent}: LooseFilter): LooseChat[] {
   const q = query.trim().toLowerCase();
-  const today = now - DAY_MS, week = now - 7 * DAY_MS;
   return items.filter(item => {
-    if (needsYou && !item.needsYou) return false;
+    if (state !== 'all' && item.state !== state) return false;
     if (agent && !item.agents.includes(agent)) return false;
-    const at = item.lastActivityAt;
-    if (age === 'today' && (at === null || at < today)) return false;
-    if (age === 'week' && (at === null || at < week)) return false;
-    if (age === 'older' && at !== null && at >= week) return false;
     if (!q) return true;
-    return item.title.toLowerCase().includes(q) || item.participants.some(p => p.subscriberId.toLowerCase().includes(q));
+    return item.title.toLowerCase().includes(q) || item.agents.some(name => name.toLowerCase().includes(q));
   });
+}
+
+/** The chip counts: every chat, and how many are in each state. */
+export function looseCounts(items: readonly LooseChat[]): Record<LooseStateFilter, number> {
+  const counts = {all: items.length, need: 0, working: 0, done: 0};
+  for (const item of items) counts[item.state]++;
+  return counts;
+}
+
+export const LOOSE_GROUPS = ['Today', 'Yesterday', 'This week', 'Older'] as const;
+export type LooseGroupName = typeof LOOSE_GROUPS[number];
+/**
+ * The day group of a last activity, by the local calendar: today, yesterday, the five days before that (this week),
+ * else older. A chat with no known activity is older.
+ */
+export function dayGroup(at: number | null, now: number): LooseGroupName {
+  if (at === null) return 'Older';
+  const day = (back: number) => { const date = new Date(now); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() - back); return date.getTime(); };
+  if (at >= day(0)) return 'Today';
+  if (at >= day(1)) return 'Yesterday';
+  if (at >= day(6)) return 'This week';
+  return 'Older';
+}
+
+/** One header per day group that has chats, in order, each followed by its rows (none while a group is folded). */
+export type DrawerItem =
+  | {kind: 'group'; name: LooseGroupName; count: number; fold: 'show' | 'hide' | null; top: number}
+  | {kind: 'row'; chat: LooseChat; index: number; top: number};
+export const DRAWER_ROW_HEIGHT = 48;
+export const DRAWER_GROUP_HEIGHT = 30;
+/**
+ * The drawer list laid out for windowing: group headers and rows with their offsets. `foldOlder` lets Older fold
+ * (no search and the All filter), and `olderOpen` says whether it is shown. `rows` are the listed chats in order,
+ * and each row's `index` is its place among them.
+ */
+export function drawerLayout(items: readonly LooseChat[], now: number, foldOlder: boolean, olderOpen: boolean): {items: DrawerItem[]; rows: LooseChat[]; height: number} {
+  const byGroup = new Map<LooseGroupName, LooseChat[]>(LOOSE_GROUPS.map(name => [name, []]));
+  for (const item of items) byGroup.get(dayGroup(item.lastActivityAt, now))!.push(item);
+  const out: DrawerItem[] = [], rows: LooseChat[] = [];
+  let top = 0;
+  for (const name of LOOSE_GROUPS) {
+    const chats = byGroup.get(name)!;
+    if (!chats.length) continue;
+    const folds = name === 'Older' && foldOlder;
+    out.push({kind: 'group', name, count: chats.length, fold: folds ? olderOpen ? 'hide' : 'show' : null, top});
+    top += DRAWER_GROUP_HEIGHT;
+    if (folds && !olderOpen) continue;
+    for (const chat of chats) {
+      out.push({kind: 'row', chat, index: rows.length, top});
+      rows.push(chat);
+      top += DRAWER_ROW_HEIGHT;
+    }
+  }
+  return {items: out, rows, height: top};
 }
 
 export const GRID_COLUMNS = 3;
@@ -89,7 +169,7 @@ export function gridPlacement(channelIds: string[], centre: Point): {cards: {cha
 export const areaAround = (bounds: Rect, pad = AREA_PADDING): Rect => ({x: bounds.x - pad, y: bounds.y - pad, w: bounds.w + 2 * pad, h: bounds.h + 2 * pad});
 
 /**
- * A chat dropped from the pile lands as a default-width card whose membership centre (the shared CARD_HEIGHT)
+ * A chat dropped from the Loose chats drawer lands as a default-width card whose membership centre (the shared CARD_HEIGHT)
  * is the drop point, so it joins the area it was dropped on.
  */
 export const dropPlacement = (at: Point, w = DEFAULT_CARD_WIDTH): Point => ({x: Math.round(at.x - w / 2), y: Math.round(at.y - CARD_HEIGHT / 2)});
@@ -117,7 +197,7 @@ export function clearOfCards(rect: Rect, cards: Placed[], gap = PLACE_GAP): numb
 }
 
 /**
- * Where chats dropped from the pile land: one chat centred on the drop point, or several in the
+ * Where chats dropped from the drawer land: one chat centred on the drop point, or several in the
  * 3-wide grid centred there, moved down below any existing card it would cover.
  */
 export function dropLayout(channelIds: string[], at: Point, cards: Placed[]): {channelId: string; x: number; y: number}[] {

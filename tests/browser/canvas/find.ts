@@ -45,7 +45,7 @@ await runChatTest('canvas find: Needs you from a real mention, jump to the chat,
   await chat.waitFor();
   assert.equal(await chat.getAttribute('data-mode'),'focus');
   assert.equal(new URL(page.url()).searchParams.get('chat'),h.project.channelId);
-  await page.getByRole('button',{name:'Close',exact:true}).click();
+  await chat.getByRole('button',{name:'Close',exact:true}).click();
   await chat.waitFor({state:'detached'});
 
   // Ctrl+K and "invoice" lists the loose chat under Chats elsewhere; Enter opens it.
@@ -62,13 +62,15 @@ await runChatTest('canvas find: Needs you from a real mention, jump to the chat,
   assert.equal(new URL(page.url()).searchParams.get('chat'),loose.channelId);
   await dialog.waitFor({state:'detached'});
   assert.match(await chat.locator('.canvas-chat-title').innerText(),/Synthetic invoice chat/);
+  // The Loose chats drawer opens beside it and points at the chat.
+  await page.getByRole('complementary',{name:'Loose chats',exact:true}).locator(`.canvas-drawer-row[data-highlight][data-channel-id="${loose.channelId}"]`).waitFor();
 
   // The shortcut does nothing while typing in the composer.
   const composer=chat.getByRole('textbox',{name:'Message',exact:true});
   await composer.click();
   await page.keyboard.press('Control+k');
   assert.equal(await dialog.count(),0,'the composer keeps Ctrl+K');
-  await page.getByRole('button',{name:'Close',exact:true}).click();
+  await chat.getByRole('button',{name:'Close',exact:true}).click();
   await chat.waitFor({state:'detached'});
 
   // A card on this canvas is found by name and opens.
@@ -80,7 +82,7 @@ await runChatTest('canvas find: Needs you from a real mention, jump to the chat,
   await page.keyboard.press('Enter');
   await chat.waitFor();
   assert.equal(new URL(page.url()).searchParams.get('chat'),h.project.channelId);
-  await page.getByRole('button',{name:'Close',exact:true}).click();
+  await chat.getByRole('button',{name:'Close',exact:true}).click();
   await chat.waitFor({state:'detached'});
 
   // Many results overflow the list; the active option stays inside its visible box while arrowing down.

@@ -1,8 +1,9 @@
 import {describe,expect,it} from 'vitest';
 import type {Project} from '@nest/schemas';
 import type {Channel} from '../types';
-import type {CardPulse} from './pulse';
-import {CARD_PLACE_HEIGHT,GRID_STEP,PLACE_GAP,areaAround,clearOfCards,dropPlacement,filterLoose,gridPlacement,looseChats,slotInArea,slotOutsideAreas,type LooseChat,type LooseFilter} from './loose';
+import type {AgentPulse,CardPulse} from './pulse';
+import type {NeedsItem} from './needs';
+import {CARD_PLACE_HEIGHT,GRID_STEP,PLACE_GAP,areaAround,clearOfCards,dayGroup,drawerLayout,dropPlacement,filterLoose,gridPlacement,looseChats,looseCounts,looseStatus,slotInArea,slotOutsideAreas,type LooseChat,type LooseFilter} from './loose';
 
 const NOW=Date.UTC(2026,10,8,12);
 const HOUR=3_600_000,DAY=24*HOUR;
@@ -12,7 +13,7 @@ const chat=(id:string,patch:Partial<Channel>={}):Channel=>({id,name:`chat-${id}`
 const pulse=(lastActivityAt:number|null,needs=0):CardPulse=>({agents:[],people:[],lastActivityAt,artifacts:[],needsYou:Array.from({length:needs},(_,i)=>({kind:'mention' as const,id:`m${i}`,at:NOW,sender:'x',text:'hi'})),apps:{apps:[],reads:0,changes:0}});
 const project=(id:string,channelId:string,name:string):Project=>({id,ownerId:myId,channelId,name,description:'',createdAt:NOW-10*DAY});
 const base={projects:[] as Project[],boardChannelIds:new Set<string>(),hidden:new Set<string>(),username:me,userId:myId,pulses:new Map<string,CardPulse>(),showHidden:false};
-const ANY:LooseFilter={query:'',needsYou:false,agent:null,age:'any'};
+const ANY:LooseFilter={query:'',state:'all',agent:null};
 
 describe('looseChats',()=>{
   it('keeps chats the person is in or owns that are not on the board, not hidden and not archived',()=>{
@@ -48,39 +49,110 @@ describe('looseChats',()=>{
   });
 });
 
+const looseItem=(channelId:string,patch:Partial<LooseChat>):LooseChat=>({channelId,projectId:null,title:`Chat ${channelId}`,participants:[],lastActivityAt:null,
+  needsYou:false,agents:[],state:'done',reason:null,line:'',...patch});
+
 describe('filterLoose',()=>{
   const items:LooseChat[]=[
-    {channelId:'1',projectId:null,title:'Invoice run',participants:[{subscriberType:'AGENT',subscriberId:'Pip'}],lastActivityAt:NOW-HOUR,needsYou:true,agents:['Pip']},
-    {channelId:'2',projectId:null,title:'Launch plan',participants:[{subscriberType:'AGENT',subscriberId:'Moss'}],lastActivityAt:NOW-3*DAY,needsYou:false,agents:['Moss']},
-    {channelId:'3',projectId:null,title:'Old notes',participants:[{subscriberType:'HUMAN',subscriberId:'invoice-team'}],lastActivityAt:NOW-30*DAY,needsYou:false,agents:[]},
-    {channelId:'4',projectId:null,title:'Silent',participants:[],lastActivityAt:null,needsYou:false,agents:[]},
+    looseItem('1',{title:'Invoice run',agents:['Pip'],needsYou:true,state:'need',reason:'approve refund'}),
+    looseItem('2',{title:'Launch plan',agents:['Moss'],state:'working'}),
+    looseItem('3',{title:'Old notes',participants:[{subscriberType:'HUMAN',subscriberId:'invoice-team'}]}),
+    looseItem('4',{title:'Silent',agents:['Invoicer']}),
   ];
-  const ids=(filter:Partial<LooseFilter>)=>filterLoose(items,{...ANY,...filter},NOW).map(c=>c.channelId);
+  const ids=(filter:Partial<LooseFilter>)=>filterLoose(items,{...ANY,...filter}).map(c=>c.channelId);
 
-  it('matches the query case-insensitively against the title and participant ids',()=>{
-    expect(ids({query:'INVOICE'})).toEqual(['1','3']);
+  it('matches the query case-insensitively against the title and agent names, not people',()=>{
+    expect(ids({query:'INVOICE'})).toEqual(['1','4']);
     expect(ids({query:'moss'})).toEqual(['2']);
     expect(ids({query:'  '})).toEqual(['1','2','3','4']);
   });
-  it('filters by needs you and agent',()=>{
-    expect(ids({needsYou:true})).toEqual(['1']);
+  it('filters by state chip and agent',()=>{
+    expect(ids({state:'need'})).toEqual(['1']);
+    expect(ids({state:'working'})).toEqual(['2']);
+    expect(ids({state:'done'})).toEqual(['3','4']);
     expect(ids({agent:'Moss'})).toEqual(['2']);
+    expect(ids({agent:'Moss',state:'done'})).toEqual([]);
   });
-  it('age today keeps only chats active in the last 24 h; week and older split the rest',()=>{
-    expect(ids({age:'today'})).toEqual(['1']);
-    expect(ids({age:'week'})).toEqual(['1','2']);
-    expect(ids({age:'older'})).toEqual(['3','4']);
+  it('counts every chat and each state for the chips',()=>{
+    expect(looseCounts(items)).toEqual({all:4,need:1,working:1,done:2});
   });
 
   it('filters 250 chats in under 10 ms',()=>{
-    const many:LooseChat[]=Array.from({length:250},(_,i)=>({channelId:`c${i}`,projectId:`p${i}`,title:i%7?`Synthetic chat ${i}`:`Invoice batch ${i}`,
-      participants:[{subscriberType:'HUMAN',subscriberId:me},{subscriberType:'AGENT',subscriberId:`Agent${i%9}`}],lastActivityAt:NOW-i*HOUR,needsYou:i%5===0,agents:[`Agent${i%9}`]}));
-    filterLoose(many,{...ANY,query:'warm'},NOW); // warm the JIT
+    const many:LooseChat[]=Array.from({length:250},(_,i)=>looseItem(`c${i}`,{projectId:`p${i}`,title:i%7?`Synthetic chat ${i}`:`Invoice batch ${i}`,
+      participants:[{subscriberType:'HUMAN',subscriberId:me},{subscriberType:'AGENT',subscriberId:`Agent${i%9}`}],lastActivityAt:NOW-i*HOUR,
+      state:i%5===0?'need':i%3===0?'working':'done',agents:[`Agent${i%9}`]}));
+    filterLoose(many,{...ANY,query:'warm'}); // warm the JIT
     const start=performance.now();
-    const result=filterLoose(many,{query:'invoice',needsYou:false,agent:'Agent3',age:'week'},NOW);
+    const result=filterLoose(many,{query:'invoice',state:'done',agent:'Agent4'});
     const elapsed=performance.now()-start;
     expect(result.length).toBeGreaterThan(0);
     expect(elapsed).toBeLessThan(10);
+  });
+});
+
+describe('looseStatus',()=>{
+  const agent=(name:string,state:AgentPulse['state'],extra:Partial<AgentPulse>={}):AgentPulse=>({name,state,since:NOW-HOUR,...extra});
+  const live=(agents:AgentPulse[],people:CardPulse['people']=[]):CardPulse=>({...pulse(NOW-HOUR),agents,people});
+  const review:NeedsItem={key:'review:t1',kind:'review',channelId:'c1',chatTitle:'Refunds',detail:'',at:NOW,from:'Pip',short:'Review Approve refund',reason:'Approve refund'};
+  const mention:NeedsItem={key:'mention:m1',kind:'mention',channelId:'c1',chatTitle:'Refunds',detail:'',at:NOW-HOUR,from:'sarah',short:'sarah: Can you check?',reason:'Can you check?'};
+
+  it('needs you with the newest Needs you item\'s reason, even while an agent works',()=>{
+    expect(looseStatus(['Pip'],live([agent('Pip','working',{activity:'Drafting'})]),[review,mention])).toEqual({state:'need',reason:'Approve refund',line:'Pip · Drafting'});
+  });
+  it('without the Needs you items, an unread mention\'s first line is the reason',()=>{
+    expect(looseStatus(['Pip'],{...pulse(NOW),needsYou:[{kind:'mention',id:'m',at:NOW,sender:'sarah',text:'**Check** this\nplease'}]},undefined).reason).toBe('Check this');
+    expect(looseStatus(['Pip'],pulse(NOW),[]).reason).toBeNull();
+  });
+  it('is working when any agent is working, else done',()=>{
+    expect(looseStatus(['Pip','Moss'],live([agent('Pip','idle'),agent('Moss','working')]),[]).state).toBe('working');
+    expect(looseStatus(['Pip'],live([agent('Pip','quiet',{quietMinutes:30})]),[]).state).toBe('done');
+    expect(looseStatus(['Pip'],undefined,[]).state).toBe('done');
+  });
+  it('says what the first agent is doing, as its card row does',()=>{
+    expect(looseStatus(['Pip','Moss'],live([agent('Pip','working',{app:{app:'gmail',appName:'Gmail',action:'Fetch emails'}}),agent('Moss','working',{activity:'x'})]),[]).line).toBe('Pip · Gmail · Fetch emails');
+    expect(looseStatus(['Pip'],live([agent('Pip','done',{said:'Sent the draft'})]),[]).line).toBe('Pip · Sent the draft');
+    expect(looseStatus(['Pip'],live([agent('Pip','failed')]),[]).line).toBe('Pip · ran into an error');
+  });
+  it('falls back to the newest message a person posted, then to nothing',()=>{
+    const people=[{name:'sarah',at:NOW-2*HOUR,said:'Older',files:0},{name:'lena',at:NOW-HOUR,said:'Newest note',files:0}];
+    expect(looseStatus(['Pip'],live([agent('Pip','idle')],people),[]).line).toBe('Newest note');
+    expect(looseStatus([],live([],people),[]).line).toBe('Newest note');
+    expect(looseStatus(['Pip'],live([agent('Pip','idle')]),[]).line).toBe('');
+  });
+  it('looseChats uses the chat\'s Needs you items when given, reviews included',()=>{
+    const [item]=looseChats({...base,channels:[chat('c1')],needs:new Map([['c1',[review]]])});
+    expect(item).toMatchObject({needsYou:true,state:'need',reason:'Approve refund'});
+    const [quiet]=looseChats({...base,channels:[chat('c1')],pulses:new Map([['c1',pulse(NOW,1)]]),needs:new Map()});
+    expect(quiet).toMatchObject({needsYou:false,state:'done',reason:null});
+  });
+});
+
+describe('day groups',()=>{
+  // Local calendar times: noon on Wednesday 11 November 2026.
+  const now=new Date(2026,10,11,12).getTime();
+  const at=(day:number,hour=0,minute=0)=>new Date(2026,10,day,hour,minute).getTime();
+  it('splits by the local calendar day: today, yesterday, this week, older',()=>{
+    expect(dayGroup(at(11,0,0),now)).toBe('Today');
+    expect(dayGroup(at(10,23,59),now)).toBe('Yesterday');
+    expect(dayGroup(at(10,0,0),now)).toBe('Yesterday');
+    expect(dayGroup(at(9,23),now)).toBe('This week');
+    expect(dayGroup(at(5,0),now)).toBe('This week');
+    expect(dayGroup(at(4,23),now)).toBe('Older');
+    expect(dayGroup(null,now)).toBe('Older');
+  });
+  it('lays out headers and rows in order and folds Older until shown',()=>{
+    const items=[looseItem('a',{lastActivityAt:at(11,9)}),looseItem('b',{lastActivityAt:at(11,8)}),looseItem('c',{lastActivityAt:at(8)}),looseItem('d',{lastActivityAt:null})];
+    const folded=drawerLayout(items,now,true,false);
+    expect(folded.items.map(i=>i.kind==='group'?`${i.name} · ${i.count}${i.fold?` ${i.fold}`:''}`:i.chat.channelId)).toEqual(['Today · 2','a','b','This week · 1','c','Older · 1 show']);
+    expect(folded.rows.map(c=>c.channelId)).toEqual(['a','b','c']);
+    expect(folded.items.map(i=>i.top)).toEqual([0,30,78,126,156,204]);
+    expect(folded.height).toBe(234);
+    const shown=drawerLayout(items,now,true,true);
+    expect(shown.items.at(-2)).toMatchObject({kind:'group',name:'Older',fold:'hide'});
+    expect(shown.items.at(-1)).toMatchObject({kind:'row',index:3});
+    // A search or a chip never folds Older.
+    expect(drawerLayout(items,now,false,false).items.at(-1)).toMatchObject({kind:'row',index:3});
+    expect(drawerLayout([],now,true,false)).toEqual({items:[],rows:[],height:0});
   });
 });
 

@@ -621,7 +621,7 @@ version), `product_canvas_members` (a person and their `edit` or `view` role),
 `product_canvas_areas` (title, position, size, tint, version),
 `product_canvas_cards` (one row per canvas and engine channel id, with position,
 width, version, who placed it and an owner label) and `product_loose_hidden` (the
-chats a person hid from their Loose chats pile). They hold layout only; their types
+chats a person archived (hid) from their Loose chats). They hold layout only; their types
 are in `packages/schemas/src/canvas.ts` and the store in `packages/db/src/canvases.ts`.
 Migration `013_agent_pins.sql` adds `product_agent_pins`: one row per engine human id
 with the ordered names of the agents that person pinned to their canvas tray (no row
@@ -726,7 +726,7 @@ Phase 1 is built from
    - `GET /api/canvases/hidden` returns `{channelIds}`. `POST /api/canvases/hidden`
      takes `{channelIds (1–100), hidden: true|false}` and returns the person's full
      `{channelIds}`. Chats the person cannot see are dropped without an error. This
-     is a personal hide from the Loose chats pile, never an engine archive.
+     is the Loose chats drawer's Archive: a personal hide, never an engine archive.
    - `GET /api/canvases/agent-pins` returns `{agentNames, saved}`: the person's tray
      pins in order, and whether they have ever saved any. `PUT /api/canvases/agent-pins`
      takes `{agentNames}` (the whole list, at most 7 distinct names) and returns the
@@ -760,8 +760,8 @@ Phase 1 is built from
    person placed but can no longer see shows as unavailable. Locked and unavailable cards never open.
    The owner and editors can take any card off the canvas with "Remove from canvas",
    whether it is open, locked or unavailable; viewers cannot (403). Removing never
-   changes the chat, and a loose chat the person has not hidden returns to the Loose
-   chats pile.
+   changes the chat, and a loose chat the person has not archived returns to Loose
+   chats.
 
 5. Using it. A shared canvas syncs every 5 seconds while visible and on window
    focus. One chat opens at a time, in focus or in split screen beside it, and
@@ -770,8 +770,9 @@ Phase 1 is built from
    560 px sheet of its current height fits, 56 px below the top for the area's
    title, and the chat opens as that sheet over the card, its top-left on the
    card's. It follows the card as the view or window changes, stays inside the
-   canvas (never over the Loose chats pile) and ends 8 px above the bottom box (at
-   most 720 px tall). Every other card, area and link dims to 28%; there is no
+   canvas and ends 8 px above the bottom box (at most 720 px tall). With the Loose
+   chats drawer open, opening a card puts it right of the drawer when a 560 px sheet
+   fits there; otherwise the sheet overlaps the drawer, above it. Every other card, area and link dims to 28%; there is no
    scrim and the canvas stays live: wheel, pinch and drag pan or zoom it, the zoom
    bar, agent tray and bottom box work, and Fit closes the chat, then fits. A
    press on empty canvas without dragging (the canvas's 3 px threshold) closes it,
@@ -781,9 +782,12 @@ Phase 1 is built from
    the bottom box and agent tray then, though screen readers do not; file
    drops on the canvas are ignored and drops on the chat attach. A chat that is not
    on this canvas opens as a plain 560 px chat centred just above the bottom box (at
-   most min(640 px, 100vh − 190 px) tall), with the canvas at 30%. Escape (after
-   any popover, menu or picker in the chat) closes it, and the card it closes into
-   flashes once. The chat's header is one row, as in the mock: title, faces and
+   most min(640 px, 100vh − 190 px) tall), with the canvas at 30%; with the drawer
+   open it is centred in the room right of the drawer when it fits there. Escape
+   (after any popover, menu or picker in the chat) closes it, and the card it closes
+   into flashes once. One Escape closes one thing: the chat's More menu, then a
+   popover, then the sheet; the drawer closes first only when focus is in it (or on
+   its toggle), and otherwise once no sheet is open. The chat's header is one row, as in the mock: title, faces and
    `in <area> · sees N contexts` (plus Archived or Read-only), then icon buttons
    for Split screen, Huddle, Open in the regular chat view, a More menu (Area,
    Use this area's context, Sharing, Export chat; hidden when it would be empty)
@@ -791,18 +795,18 @@ Phase 1 is built from
    the chat stacks above it rather than beside it. Phones keep a full-width chat. Only
    chats in the user UI's visible chat list open; if the open chat leaves that list,
    it closes. Only cards near the viewport are mounted, and below 50% zoom cards
-   switch to a compact form. A chat dragged from the pile lands centred on the
+   switch to a compact form. A chat dragged from the drawer lands centred on the
    pointer; dragging a selected row carries every selected chat (up to 100), which
    land as a grid centred on the pointer, moved down below any card it would cover.
-   "Place on canvas" and "New area from these" put that grid at the viewport centre.
+   "New area from these" puts that grid at the viewport centre inside a new area.
    The grid is 3 across on the mock's 300 × 300 step. Placement uses each mounted
    card's measured height and assumes 260 canvas px for a card not yet shown; area
    membership still uses the card's top 160 px centre, on client and server alike.
    A chat started from the bottom box stays in sight: on a canvas the person can
    edit it is placed at the viewport centre (moved below any card it would cover),
    opens in split screen (or the mode of the chat already open) and is centred in
-   view; on a view-only canvas or a phone it opens in focus and stays in the pile.
-   While a card or pile chat is dragged, the area it would join (by its centre)
+   view; on a view-only canvas or a phone it opens in focus and stays loose (the
+   drawer, on a wide screen, opens and points at it). While a card or loose chat is dragged, the area it would join (by its centre)
    lights up with a "Place in <area> · shares its context" label on its top edge. A card in an area
    carries a stripe in the area's tint, and screen readers hear "In area <area>".
    A card or chats dropped into an area grow it, never shrink it, so they fit inside
@@ -814,9 +818,40 @@ Phase 1 is built from
    sidebar; the collapse button beside the logo expands it. That choice, the one for
    every other view (which start expanded) and whether the sidebar's agent list is
    shown are remembered per browser. Phones keep the full slide-in menu. Search (Ctrl/Cmd+K)
-   finds cards, areas, loose chats and canvases; loose chats the person has hidden
-   are not searchable unless Show hidden is on. Needs you lists unread mentions and
+   finds cards, areas, loose chats and canvases; loose chats the person has archived
+   are not searchable unless Show archived is on. Needs you lists unread mentions and
    tasks waiting for review on chats the person can see.
+
+   Loose chats. The person's chats that are not on this canvas (theirs as a member or
+   owner, not archived in the engine, not lifecycle channels) sit behind the top bar's
+   `Loose chats {n}` toggle (`Plain chats that aren't on the canvas yet`), after Canvas
+   context. The count leaves out archived chats and turns coral while any of them needs
+   the person. The toggle opens the mock's drawer, a 370 px card over the left of the
+   canvas (16 px in, 76 px down, under the Area tool, its bottom 222 px above the
+   canvas's so the bottom box and tray stay clear); the canvas keeps its full width and a
+   press on it leaves the drawer open. The drawer and the agent picker take turns:
+   opening one closes the other. ✕ (`Close`) or Escape closes it, focus returning to the
+   toggle when it was in the drawer; opening it from the toggle focuses the search
+   (except on phones). It has `Loose chats · {n}`, a search over titles and agent names
+   (`Search loose chats`), a compact `All agents` filter, the chips `All / Needs you /
+   Working / Done` with counts, and rows in day groups by last activity on the local
+   calendar (`Today · n`, `Yesterday · n`, `This week · n` for the five days before,
+   `Older · n`; Older folds behind Show/Hide when there is no search, chip or agent
+   filter). A chat needs you when it has a Needs you item (mention or review), else is
+   working when an agent's turn is working, else is done, from the same pulses and
+   items as the cards. A row has a checkbox, the first agent's face, the title, a second
+   line and the last activity (`5m`): the line is `Needs you: {reason}` in coral for the
+   newest item, else `{agent} · {activity}` as on that agent's card row, else the first
+   line of the newest message a person posted, else empty. A row opens its chat in focus
+   on a click and drags onto the canvas (`Click to open · drag onto the canvas to
+   place`); shift-click ticks a range. With rows ticked, a bar shows `{n} selected`,
+   `New area from these` (which frames the area, opens its title for typing and closes
+   the drawer), `Archive` and `Clear`; actions take at most 100 chats. Archive is the
+   personal hide above; `Show archived` in the footer lists archived chats with
+   Unarchive. The footer says `Tick chats to act on several at once`. The list is
+   windowed (48 px rows, 30 px group headers). Below 1360 px wide the toggle shows its
+   icon and count and Canvas context reads `Context` (both keep their full names), and
+   the heading wraps rather than run under the search.
 
    Cards. An open card shows its title with the last activity (`5m`), the apps its
    agents used (up to four logos, each titled `<app>: N reads · M changes`, then the
@@ -888,7 +923,9 @@ Phase 1 is built from
 6. Phones and display. On viewports up to 760 px wide there is no free canvas.
    A list takes its place with three segments: Areas (each area opens to its chats,
    then the chats in no area), Needs you and Loose chats. Tapping a chat opens it in
-   focus over the whole body, and the bottom box stays under the list. Tablets keep
+   focus over the whole body, and the bottom box stays under the list. The top bar's
+   Loose chats toggle (icon and count) opens the drawer over the full width under the
+   top bar; its rows do not drag. Tablets keep
    the canvas with pinch and pan. Colours come from the Nest brand tokens with
    light and dark variants under `:root[data-theme="dark"]`; the Pip and Pom tints
    and the quiet and alert text colours, which have no brand token, are canvas

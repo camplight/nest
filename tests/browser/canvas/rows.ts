@@ -200,9 +200,10 @@ await runChatTest('canvas rows: a 4-row card dropped from the pile sits inside t
   const pile=page.getByRole('complementary',{name:'Loose chats',exact:true});
   const area=page.locator(`.canvas-area[data-area-id="${areaId}"]`);
   await area.waitFor();
+  await page.locator('.canvas-loose-button').click();
 
-  // Dropped from the pile on the area's middle: the area grows for the taller card, which sits fully inside it.
-  const row=pile.locator('.canvas-pile-row').filter({has:page.getByRole('checkbox',{name:'Select Synthetic tall chat',exact:true})});
+  // Dropped from the Loose chats drawer on the area's middle: the area grows for the taller card, which sits fully inside it.
+  const row=pile.locator('.canvas-drawer-row').filter({has:page.getByRole('checkbox',{name:'Select Synthetic tall chat',exact:true})});
   const transfer=await page.evaluateHandle(()=>new DataTransfer());
   await row.dispatchEvent('dragstart',{dataTransfer:transfer});
   const target=(await area.boundingBox())!;
@@ -238,7 +239,7 @@ await runChatTest('canvas rows: a 4-row card dropped from the pile sits inside t
   const hovered=(await open.boundingBox())!;
   assert.equal(hovered.x,before.x,'hovering does not shift the footer');
   await page.mouse.move(5,5);
-  // From the keyboard: focused, it shows; Enter takes the card off the canvas and the chat returns to the pile.
+  // From the keyboard: focused, it shows; Enter takes the card off the canvas and the chat returns to the drawer.
   await remove.focus();
   for(let i=0;i<20&&await opacity()!==1;i++)await page.waitForTimeout(50);
   assert.equal(await opacity(),1,'visible while focused');

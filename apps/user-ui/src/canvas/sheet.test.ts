@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import {toScreen} from './geometry';
-import {AREA_HEAD_ROOM,LOOSE_MAX_HEIGHT,cardSheet,looseSheet,presentView,samePlace,stageBounds} from './sheet';
+import {AREA_HEAD_ROOM,LOOSE_MAX_HEIGHT,cardSheet,clearOfDrawer,looseSheet,presentView,samePlace,stageBounds} from './sheet';
 
 describe('canvas chat sheet',()=>{
   it('keeps 16 px gutters and stops 8 px above the bottom box',()=>{
@@ -41,8 +41,8 @@ describe('canvas chat sheet',()=>{
     expect(low.y+low.maxH).toBe(752);
   });
 
-  it('stays within the stage, never over the Loose chats pile beside it',()=>{
-    // A 900 px stage at the left of a 1220 px body: the pile takes the last 320 px.
+  it('stays within the stage it is given',()=>{
+    // A card near the right edge of a 900 px stage: the sheet stops 16 px short of it.
     const place=cardSheet({x:800,y:100},stageBounds({w:900,h:800},700));
     expect(place.x+place.w).toBeLessThanOrEqual(900-16);
   });
@@ -57,6 +57,22 @@ describe('canvas chat sheet',()=>{
     // A short window: min(640px, 100vh - 190px).
     expect(looseSheet(stageBounds({w:1200,h:800},720),800,700).maxH).toBe(510);
     expect(looseSheet(stageBounds({w:1200,h:600},520),600,1000).maxH).toBe(496);
+  });
+
+  it('keeps clear of an open Loose chats drawer when a full sheet fits beside it, else overlaps it',()=>{
+    // The drawer: 16 px in, 370 px wide.
+    const wide=stageBounds({w:1400,h:840},760);
+    expect(clearOfDrawer(wide,386)).toEqual({...wide,left:402});
+    expect(clearOfDrawer(wide,null)).toBe(wide);
+    const plain=looseSheet(clearOfDrawer(wide,386),840,1000);
+    expect(plain.x).toBe(402+(1384-402-560)/2);
+    expect(plain.w).toBe(560);
+    // 960 wide: 944 - 402 = 542 < 560, so the sheet stays centred over the drawer.
+    const narrow=stageBounds({w:960,h:840},760);
+    expect(clearOfDrawer(narrow,386)).toBe(narrow);
+    // A card opened beside the drawer lands right of it.
+    const view=presentView({x:0,y:0,w:280,h:190},clearOfDrawer(wide,386),440);
+    expect(toScreen(view,{x:0,y:0}).x).toBe(402+(1384-402-560)/2);
   });
 
   it('compares places by value',()=>{

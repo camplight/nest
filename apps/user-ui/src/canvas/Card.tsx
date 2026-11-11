@@ -240,7 +240,7 @@ export const Card = memo(function Card({card, draggable, dx, dy, dragging, measu
     {card.access === 'open' ? <OpenBody card={card} pulse={pulse} needs={needs} viewer={viewer} onNudge={onNudge} facesDraggable={facesDraggable}
       draggingFace={draggingFace} onOpen={opens} onRemove={onRemove}/> : null}
     {card.access === 'locked' ? <p className="canvas-card-owner">Owner: {card.ownerLabel}</p> : null}
-    {/* Every card can come off the canvas; the chat itself is untouched and an open one returns to the pile. */}
+    {/* Every card can come off the canvas; the chat itself is untouched and an open one returns to Loose chats. */}
     {card.access !== 'open' && onRemove ? <div className="canvas-card-actions">
       <button type="button" className="canvas-card-remove" onClick={() => onRemove(card.channelId)}>Remove from canvas</button>
     </div> : null}

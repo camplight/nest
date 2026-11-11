@@ -8,7 +8,7 @@ const canvas=(id:string,name:string,role:Canvas['role']='owner'):Canvas=>({id,na
 const base={canvasId:'k1',x:0,y:0,w:280,version:1,placedBy:'h1',placedAt:1,ownerLabel:'demo-owner'};
 const open=(channelId:string,title:string):BoardCard=>({...base,channelId,projectId:null,access:'open',title,participants:[{subscriberType:'AGENT',subscriberId:'Pip'}],archived:false,canManage:true} as BoardCard);
 const area=(id:string,title:string):CanvasArea=>({id,canvasId:'k1',title,x:0,y:0,w:400,h:300,tint:'moss',version:1} as CanvasArea);
-const loose=(channelId:string,title:string):LooseChat=>({channelId,projectId:null,title,participants:[],lastActivityAt:null,needsYou:false,agents:['Moss']});
+const loose=(channelId:string,title:string):LooseChat=>({channelId,projectId:null,title,participants:[],lastActivityAt:null,needsYou:false,agents:['Moss'],state:'done',reason:null,line:''});
 
 describe('rank',()=>{
   it('puts prefix matches before word-start matches before substring matches',()=>{
