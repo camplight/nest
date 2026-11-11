@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -46,5 +46,30 @@ describe('summaries', () => {
     expect(content).toHaveLength(12_000);
     expect(content.endsWith('tail')).toBe(true);
     expect(content).not.toContain('B');
+  });
+  it('falls back within the timeout when the model resolver never resolves', async () => {
+    vi.useFakeTimers();
+    try {
+      const s = createSummarizer({ store, model: () => new Promise(() => {}), generate: async () => { throw new Error('unused'); } });
+      const p = s({ texts: ['hello'], purpose: 'handoff', actor: 'u', ref: {} });
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(await p).toEqual({ text: 'Summary unavailable. The latest result, shortened:\nhello', model: null });
+      expect(audits()).toEqual([]);
+    } finally { vi.useRealTimers(); }
+  });
+  it('still returns the model summary when the audit insert fails', async () => {
+    const lines: string[] = [];
+    store.db.exec('DROP TABLE product_audit');
+    const s = createSummarizer({ store, model, log: l => lines.push(l), generate: async () => ({ text: 'fine' }) });
+    const r = await s({ texts: ['a'], purpose: 'fork', actor: 'u', ref: {} });
+    expect(r).toEqual({ text: 'Summary (by openrouter:m/x):\nfine', model: 'openrouter:m/x' });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).not.toContain('product_audit');
+  });
+  it('falls back on empty model output', async () => {
+    const s = createSummarizer({ store, model, generate: async () => ({ text: '  ' }) });
+    const r = await s({ texts: ['hello'], purpose: 'handoff', actor: 'u', ref: {} });
+    expect(r).toEqual({ text: 'Summary unavailable. The latest result, shortened:\nhello', model: null });
+    expect(audits()).toEqual([]);
   });
 });
