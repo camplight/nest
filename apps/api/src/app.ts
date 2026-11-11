@@ -1,4 +1,4 @@
-import {DEFAULT_AGENT_MODEL_ID} from '@nest/orgops-client';
+import {DEFAULT_AGENT_MODEL_ID,defaultModelReference} from '@nest/orgops-client';
 import {registerDashboardActivityRoutes} from './dashboard-activity';
 import {registerModelPickerRoutes} from './model-picker';
 import {createProjectNamingWorker} from './project-naming-worker';
@@ -20,6 +20,7 @@ import { registerCanvasContextRoutes } from './canvas-context';
 import { createContextFiles } from './context-files';
 import { createContextAgents } from './context-agents';
 import { createSwitchyard } from './flows/identity';
+import { createSummarizer, type Summarize } from './flows/summarize';
 import { registerFlowRoutes } from './flows/routes';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
@@ -29,7 +30,7 @@ import { openProductDb, type ProductDb } from '@nest/db';
 import { BrandingSchema } from '@nest/schemas';
 import { createOrgOpsClient, productHeaders, type OrgOpsClient } from '@nest/orgops-client';
 
-export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string; canvasEnabled?: boolean; contextFilesDir?: string; contextSetupWaitMs?: number; switchyardName?: string; switchyardWorkspaceRoot?: string } = {}) {
+export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string; canvasEnabled?: boolean; contextFilesDir?: string; contextSetupWaitMs?: number; switchyardName?: string; switchyardWorkspaceRoot?: string; summarize?: Summarize } = {}) {
   const store = config.store ?? openProductDb(config.dbPath ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_PRODUCT_DB_PATH ?? '.nest-product/nest.sqlite'));
   const orgops = config.orgops ?? createOrgOpsClient(config.orgopsUrl ?? process.env.ORGOPS_URL ?? 'http://127.0.0.1:8788');
   const app = new Hono();
@@ -98,6 +99,16 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     name: config.switchyardName ?? process.env.NEST_SWITCHYARD_AGENT_NAME, defaultModelId: defaultAgentModelId,
     workspaceRoot: config.switchyardWorkspaceRoot ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_ENGINE_DATA_DIR ?? '.nest-data', 'workspaces/managed'),
   });
+  // Summaries reuse the project-naming model path: the default model and its provider keys only.
+  const summarize = config.summarize ?? createSummarizer({store, model: async () => {
+    if (!managementKey || !namingSource) return null;
+    const response = await orgops.request('/api/models', {headers: {'x-orgops-runner-token': managementKey}});
+    if (!response.ok) return null;
+    const reference = defaultModelReference(defaultAgentModelId, orgops.nativeModels(await response.json()));
+    if (!reference) return null;
+    const env = await orgops.projectNamingEnv({model: reference, token: managementKey, agentName: namingSource, agentId: namingSource === managementName ? managementId : undefined});
+    return {model: reference, env};
+  }});
   registerFlowRoutes(app, {store, orgops, enabled: canvasEnabled, switchyard});
   // Before the canvas routes, whose /api/canvases/* catch-all would otherwise answer 404 first.
   registerCanvasContextRoutes(app, {store, orgops, enabled: canvasEnabled, files: contextFiles, agents: contextAgents});
@@ -127,5 +138,5 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     const env=config.projectNamer?undefined:await orgops.projectNamingEnv({model:input.model,token:managementKey,agentName:namingSource,agentId:namingSource===managementName?managementId:undefined});
     return {...input,env};
   }});
-  return { app, store, orgops, projectNaming, contextAgents, switchyard };
+  return { app, store, orgops, projectNaming, contextAgents, switchyard, summarize };
 }
