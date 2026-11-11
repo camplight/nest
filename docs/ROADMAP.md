@@ -641,9 +641,10 @@ service token; no engine change is needed. Plan:
 and routes: [SPEC.md, Switchyard canvas (Phase 3)](SPEC.md#switchyard-canvas-phase-3).
 
 Done so far: the service agent, the link store (migration `014_links_forks.sql`),
-the link API with its permissions (`/api/flows/links`, `/api/flows/availability`)
-and links and fork parents on the board. Not yet built: the hand-off worker,
-summaries, the canvas UI for links, Needs you items, forks, schedules and webhooks.
+the link API with its permissions (`/api/flows/links`, `/api/flows/availability`),
+links and fork parents on the board, summaries, and the hand-off worker with Send
+now, approvals and the Needs you items it serves (`/api/flows/needs`). Not yet
+built: the canvas UI for links and Needs you, forks, schedules and webhooks.
 Access that comes only through a team counts as no access for flows.
 
 ## First-visit visual orientation

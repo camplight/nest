@@ -114,10 +114,13 @@ export function createFlowStore(db: Database.Database, clock: () => number = Dat
   const leaseExpired = (now: number): Delivery[] =>
     (db.prepare("SELECT * FROM product_link_deliveries WHERE status='claimed' AND lease_until IS NOT NULL AND lease_until<? ORDER BY created_at, id").all(now) as DeliveryRow[]).map(toDelivery);
 
-  /** Settles a delivery that is still open. Returns false when it was already terminal (or missing). */
-  function finishDelivery(id: string, result: { status: 'delivered' | 'declined' | 'failed'; targetEventId?: string }): boolean {
+  /**
+   * Settles a delivery that is still open. Returns false when it was already terminal (or missing).
+   * `now` stamps `updated_at`, which the hourly cap counts; it defaults to the store clock.
+   */
+  function finishDelivery(id: string, result: { status: 'delivered' | 'declined' | 'failed'; targetEventId?: string }, now: number = clock()): boolean {
     const changed = db.prepare("UPDATE product_link_deliveries SET status=?,target_event_id=COALESCE(?,target_event_id),lease_until=NULL,updated_at=? WHERE id=? AND status IN ('claimed','awaiting')")
-      .run(result.status, result.targetEventId ?? null, clock(), id).changes;
+      .run(result.status, result.targetEventId ?? null, now, id).changes;
     if (changed) audit('delivery-finished', 'system', { deliveryId: id, status: result.status });
     return changed > 0;
   }
@@ -133,6 +136,11 @@ export function createFlowStore(db: Database.Database, clock: () => number = Dat
 
   const deliveredSince = (linkId: string, since: number): number =>
     (db.prepare("SELECT COUNT(*) n FROM product_link_deliveries WHERE link_id=? AND status='delivered' AND updated_at>=?").get(linkId, since) as { n: number }).n;
+
+  /** The creator's links that the worker paused (a reason is set), oldest first, with when they last changed. */
+  const pausedLinks = (createdBy: string): (Link & { pausedAt: number })[] =>
+    (db.prepare(`SELECT ${LINK_COLS},updated_at FROM product_links WHERE created_by=? AND on_flag=0 AND paused_reason IS NOT NULL ORDER BY updated_at, id`).all(createdBy) as (LinkRow & { updated_at: number })[])
+      .map(r => ({ ...toLink(r), pausedAt: r.updated_at }));
 
   const awaiting = (createdBy: string): Delivery[] =>
     (db.prepare("SELECT d.* FROM product_link_deliveries d JOIN product_links l ON l.id=d.link_id WHERE d.status='awaiting' AND l.created_by=? ORDER BY d.created_at, d.id").all(createdBy) as DeliveryRow[]).map(toDelivery);
@@ -161,6 +169,6 @@ export function createFlowStore(db: Database.Database, clock: () => number = Dat
       .run(name, holder, now + ms, now).changes > 0;
   }
 
-  return { createLink, link, linksTouching, activeSources, patchLink, pause, removeLink, scannedTo, advance, claimDelivery, leaseExpired, finishDelivery, reclaim, deliveredSince, awaiting, delivery, recordFork, forkOf, forksOf, lease };
+  return { createLink, link, linksTouching, activeSources, patchLink, pause, removeLink, scannedTo, advance, claimDelivery, leaseExpired, finishDelivery, reclaim, deliveredSince, awaiting, pausedLinks, delivery, recordFork, forkOf, forksOf, lease };
 }
 export type FlowStore = ReturnType<typeof createFlowStore>;

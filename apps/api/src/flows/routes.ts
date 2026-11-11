@@ -4,15 +4,17 @@ import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import { CanvasConflictError, CanvasLimitError, type ProductDb } from '@nest/db';
 import { isEngineOutage, type EngineEvent, type Human, type OrgOpsClient } from '@nest/orgops-client';
-import { LinkPatchSchema, NewLinkSchema, type Link } from '@nest/schemas';
+import { LinkPatchSchema, NewLinkSchema, type FlowNeed, type Link } from '@nest/schemas';
 import type { Channel } from '../canvases';
 import { channelAccess, linkRights } from './access';
 import type { Switchyard, SwitchyardState } from './identity';
+import { FlowActionError, NOTHING_TO_SEND, pausedWhy, type HandoffWorker } from './handoff';
 
 const NOT_SET_UP = 'Hand-offs are not set up on this server';
 /** The title of a chat the viewer cannot read. */
 export const PRIVATE_CHAT_TITLE = 'a private chat';
 const uuid = z.string().uuid();
+const DecisionSchema = z.object({ decision: z.enum(['approve', 'decline']) }).strict();
 
 export type Availability = {
   enabled: boolean; reason?: string; serviceAgent: string | null;
@@ -23,13 +25,14 @@ export type Availability = {
  * Links between chats. Engine chats, participants and events are read through the viewer's own
  * session; Switchyard joins and posts with the service token. Flag off: every route answers 404.
  */
-export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchyard }: {
-  store: ProductDb; orgops: OrgOpsClient; enabled: boolean; switchyard: Switchyard;
+export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchyard, worker }: {
+  store: ProductDb; orgops: OrgOpsClient; enabled: boolean; switchyard: Switchyard; worker: HandoffWorker;
 }) {
   const routes = new Hono<{ Variables: { human: Human } }>();
   routes.onError((error, c) => {
     if (error instanceof HTTPException) return c.json({ error: error.message }, error.status);
     if (error instanceof CanvasLimitError) return c.json({ error: error.message }, 400);
+    if (error instanceof FlowActionError) return c.json({ error: error.message }, error.status);
     console.error('Flow request failed:', error.name);
     return c.json({ error: 'The engine is unavailable. Links are kept; refresh and retry.' }, 502);
   });
@@ -132,7 +135,8 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
       console.error('Switchyard could not join a linked chat:', (error as Error).name);
       throw fail(503, NOT_SET_UP);
     }
-    // Only turns after the newest finished one are handed off.
+    // Only turns after the newest finished one are handed off. With none, the scan starts at 0: every
+    // turn it finds completed after this read, including one that completes while the link is created.
     const newest = (await orgops.humanJson<EngineEvent[]>(
       `/api/events?channelId=${encodeURIComponent(input.from)}&type=agent.turn.completed&order=desc&limit=1`, c.req.raw.headers))[0];
     const existed = store.flows.link(input.id) !== null;
@@ -140,7 +144,7 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
     try {
       link = store.flows.createLink({
         id: input.id, from: input.from, to: input.to, what: input.what, when: input.when, who: input.who ?? null, label: input.label,
-        kind: 'link', createdBy: human.id, now: Date.now(), scannedTo: newest?.createdAt,
+        kind: 'link', createdBy: human.id, now: Date.now(), scannedTo: newest?.createdAt ?? 0,
       });
     } catch (error) {
       if (error instanceof CanvasConflictError) throw fail(409, 'Link ID already used');
@@ -188,6 +192,59 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
     if (link.version !== version) return conflict(c, link.id);
     store.flows.removeLink(link.id, human.id);
     return c.body(null, 204);
+  });
+
+  // Send now: the newest finished result not yet handed off on this link.
+  routes.post('/api/flows/links/:id/send', async c => {
+    const { link, human, rights } = await linkFor(c);
+    if (!rights.canManage) throw fail(403, 'Only the person who set up this hand-off or a member of the receiving chat can send it');
+    const status = await worker.deliverNow(link.id, human);
+    if (status === 'nothing') throw fail(409, NOTHING_TO_SEND);
+    return c.json({ status });
+  });
+
+  routes.post('/api/flows/deliveries/:id/decision', async c => {
+    if (!uuid.safeParse(c.req.param('id')).success) throw notFound();
+    const { decision } = parse(DecisionSchema, await body(c));
+    await worker.decide(c.req.param('id'), decision, c.get('human'));
+    return c.body(null, 204);
+  });
+
+  /** The viewer's hand-offs awaiting their OK and their links the worker paused. */
+  routes.get('/api/flows/needs', async c => {
+    const human = c.get('human');
+    const channels = await viewerChannels(c.req.raw.headers);
+    const awaiting = store.flows.awaiting(human.id).flatMap(d => {
+      const link = store.flows.link(d.linkId);
+      return link ? [{ delivery: d, link }] : [];
+    });
+    const paused = store.flows.pausedLinks(human.id);
+    const title = titles(channels, [...awaiting.map(a => a.link), ...paused].flatMap(l => [l.from, l.to]));
+    // The finished turn's agent, read with the viewer's own session.
+    const agents = await Promise.all(awaiting.map(({ delivery }) =>
+      orgops.humanJson<EngineEvent>(`/api/events/${encodeURIComponent(delivery.sourceTurnId)}`, c.req.raw.headers)
+        .then(turn => turn.source.startsWith('agent:') ? turn.source.slice('agent:'.length) : null, () => null)));
+    const items: FlowNeed[] = [
+      ...awaiting.map(({ delivery, link }, i): FlowNeed => {
+        const short = `Approve hand-off to ${title(link.to)}`;
+        return {
+          key: `approval:${delivery.id}`, kind: 'approval', channelId: link.from, at: delivery.createdAt, from: agents[i],
+          short, reason: short,
+          detail: `${agents[i] ?? 'An agent'} finished something in ${title(link.from)}. It goes to ${title(link.to)} after your OK.`,
+          gate: { kind: 'approval', deliveryId: delivery.id, linkId: link.id },
+        };
+      }),
+      ...paused.map((link): FlowNeed => {
+        const why = pausedWhy(link.pausedReason!, link.who);
+        return {
+          key: `paused:${link.id}`, kind: 'paused', channelId: link.from, at: link.pausedAt, from: null,
+          short: `Hand-off to ${title(link.to)} paused · ${why}`, reason: why,
+          detail: `Nothing passes from ${title(link.from)} to ${title(link.to)} until you resume it.`,
+          gate: { kind: 'paused', linkId: link.id },
+        };
+      }),
+    ];
+    return c.json({ items: items.sort((a, b) => b.at - a.at) });
   });
 
   // Unknown flow endpoints never fall through to the engine proxy.

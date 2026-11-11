@@ -68,6 +68,25 @@ describe('flow store', () => {
     expect(store.flows.delivery(d.id)).toMatchObject({ status: 'delivered', targetEventId: 'e1' });
     expect(store.flows.deliveredSince(l.id, 0)).toBe(1);
   });
+  it('stamps a finished delivery with the given time, which the hourly count uses', () => {
+    const l = mk('a', 'b');
+    const d = store.flows.claimDelivery(l.id, 't1', 'claimed', 1000)!;
+    expect(store.flows.finishDelivery(d.id, { status: 'delivered', targetEventId: 'e1' }, 5000)).toBe(true);
+    expect(store.flows.delivery(d.id)).toMatchObject({ updatedAt: 5000 });
+    expect(store.flows.deliveredSince(l.id, 5000)).toBe(1);
+    expect(store.flows.deliveredSince(l.id, 5001)).toBe(0);
+  });
+  it('lists the creator\'s links paused with a reason', () => {
+    const paused = mk('a', 'b');
+    const byHand = mk('a', 'c');
+    mk('a', 'd');
+    const other = store.flows.createLink({ id: randomUUID(), from: 'x', to: 'y', kind: 'link', createdBy: 'v', now: 1000 });
+    store.flows.pause(paused.id, 'cap', 'system');
+    store.flows.pause(other.id, 'access', 'system');
+    store.flows.patchLink(byHand.id, { on: false }, 0, 'u');
+    expect(store.flows.pausedLinks('u')).toEqual([expect.objectContaining({ id: paused.id, pausedReason: 'cap', on: false, pausedAt: expect.any(Number) })]);
+    expect(store.flows.pausedLinks('v').map(l => l.id)).toEqual([other.id]);
+  });
   it('refuses to finish a terminal delivery', () => {
     const l = mk('a', 'b');
     const d = store.flows.claimDelivery(l.id, 't1', 'claimed', 1000)!;

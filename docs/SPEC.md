@@ -1200,7 +1200,7 @@ another, forks, schedules and webhook triggers. Design: section 8 of
 plan: [the Phase 3 plan](superpowers/plans/2026-11-11-switchyard-canvas-phase3.md).
 Everything is behind `NEST_ENABLE_CANVAS=1`; with the flag off every `/api/flows/*`
 route answers 404, whoever asks. This section grows as the phase lands; so far it
-covers the service agent, links and how the board shows them.
+covers the service agent, links, how the board shows them and the hand-off worker.
 
 1. Data. Migration `014_links_forks.sql` adds:
    - `product_links`: one row per link, keyed by id and unique per
@@ -1247,8 +1247,8 @@ covers the service agent, links and how the board shows them.
    Link creation applies the same rule to the viewer's own channel list, so a link
    never starts out paused. Limitation: access that comes only through a team, or a
    viewer share, counts as none, although the engine itself grants it. Such a person
-   cannot create the link, and the hand-off worker (still to land) pauses a link
-   (`access`) once its creator's direct access goes.
+   cannot create the link, and the hand-off worker pauses a link (`access`) once its
+   creator's direct access goes.
 
 4. Routes. Each needs a signed-in person (401, or 403 until the password is set),
    answers `Cache-Control: no-store` and takes at most 64 KB.
@@ -1274,7 +1274,9 @@ covers the service agent, links and how the board shows them.
         `Hand-offs are not set up on this server`.
      4. The service agent joins `to`, then `from`.
      5. `scanned_to` is set to the newest `agent.turn.completed` in `from`, read with
-        the creator's session, or to now when there is none.
+        the creator's session, or to 0 when there is none: every turn found later
+        completed after that read, so one that completes while the link is being
+        created is still handed off.
      6. With `intro:true`, the note `Picks up what "{from title}" produces.` is posted
         into `to` as the service agent, waking nobody, with the key
         `nest:note:new-step:<linkId>`. If the note fails, the link stands and the
@@ -1291,9 +1293,34 @@ covers the service agent, links and how the board shows them.
    - `DELETE /api/flows/links/:id?version=N` answers 204, for the creator or a member
      of the target chat. Messages already handed off stay in the engine.
 
-   For `PATCH` and `DELETE`, someone who neither created the link nor can read
-   either chat gets 404, as if it did not exist. These routes create no engine event
-   other than the intro note; joining a chat adds a subscription only.
+   - `POST /api/flows/links/:id/send` (Send now, for manual links and any other):
+     hands off the newest finished turn with results in `from`, unless this link
+     already has a delivery for it. It answers `{status:'sent'}`, or 409
+     `Nothing new to hand off yet.`. Open to the creator and members of the target
+     chat (403 otherwise). A link that may not deliver (see the worker's checks,
+     including the cap) is paused and answers 409 `Hand-off paused · {why}`.
+   - `POST /api/flows/deliveries/:id/decision` takes `{decision:'approve'|'decline'}`
+     and answers 204. Only the link's creator decides (403); a delivery that is not
+     awaiting answers 409. Approving runs the worker's access checks (not the cap),
+     then posts with the delivery's key, so approving again after a crash returns the
+     event already posted. Declining marks the delivery `declined`; it is never posted.
+   - `GET /api/flows/needs` answers `{items: FlowNeed[]}` for the viewer, newest first:
+     - `approval`, one per delivery awaiting the viewer's OK, on the source chat:
+       `short` `Approve hand-off to {to title}`, `detail` `{agent} finished something
+       in {from title}. It goes to {to title} after your OK.`, `from` the turn's agent
+       (read with the viewer's session) and `gate {kind:'approval', deliveryId, linkId}`.
+     - `paused`, one per link of the viewer's that the worker paused, on the source
+       chat: `short` `Hand-off to {to title} paused · {why}`, where `why` is
+       `hit 20 an hour`, `access changed`, `{who} left the chat` or
+       `chat unavailable`, and `gate {kind:'paused', linkId}`. A link paused by a
+       person (no reason) is not listed.
+
+     Titles follow the viewer's own access, as in the links list.
+
+   For `PATCH`, `DELETE` and Send now, someone who neither created the link nor can
+   read either chat gets 404, as if it did not exist. Creating, changing and removing
+   a link creates no engine event other than the intro note; joining a chat adds a
+   subscription only.
 
 5. On the board. `GET /api/canvases/:id/board` adds `links`: the links whose two
    chats both have a card on that canvas. A viewer who can read either chat gets
@@ -1305,9 +1332,64 @@ covers the service agent, links and how the board shows them.
    `null`. The board etag covers links and `forkOf`, so a change to either is never
    answered with `{unchanged:true}`.
 
-6. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
-   `access.test.ts` and the fork case in `canvas-board.test.ts` run against the real
-   engine and Nest handlers with temporary databases.
+6. The hand-off worker (`apps/api/src/flows/handoff.ts`) runs in the Nest API
+   process when the flag is on, every 15 s, under the single-worker lease `flows`
+   (60 s). It authenticates with the service token only. Each tick, in order:
+   1. takes the lease, or returns when another process holds it;
+   2. checks the service agent (`ensure`), and returns when it is not usable;
+   3. drains Switchyard's receipts (one `GET /api/events?agentName=Switchyard&limit=500`
+      read, which marks them delivered, so events can leave `PENDING`);
+   4. retries deliveries whose claim expired (a crash or a lost response), with the
+      same key, so the engine returns the event it already stored. A paused link holds
+      its claim until it is resumed. A retry that keeps being refused (not an outage)
+      is marked `failed` after 5 attempts;
+   5. catches up on each source chat of the links that are on and not manual: it pages
+      through `agent.turn.completed` events after the links' lowest `scanned_to`
+      (`after`, ascending, 100 a page) and handles each turn for each link whose cursor
+      is behind it:
+      - Skipped: turns by the service agent or by a non-agent, `noReply` turns and
+        turns with no results. Results are the turn agent's `message.created` events in
+        that chat after the matching `agent.turn.started` (same `triggerEventId`; the
+        trigger event when no start was recorded) and before the completed event.
+        Messages from the service agent never count.
+      - Checks, by the access rule above: the link pauses with `unavailable` when
+        either chat is gone, `access` when the creator can no longer read `from` or
+        post in `to`, and `agent-left` when `who` is no longer an agent in `to`.
+      - The loop cap: a link with 20 deliveries in the last hour pauses with `cap`.
+      - A delivery row is claimed (with a 60 s lease, or `awaiting` for links that
+        need an OK) before anything is posted, then the hand-off is posted and the
+        row marked `delivered` with the posted event's id.
+      - The cursor moves past a turn only once it has a delivery row or was skipped. A
+        failed read stops that source for the tick; a failed check or post stops that
+        link only. Errors are logged by name or engine status, never with texts.
+
+   A hand-off is posted into `to` as the service agent, targeted at `who` (or at
+   nobody), with the key `nest:handoff:<linkId>:<turnId>` and
+   `payload.nestSwitchyard {kind:'handoff', setBy, linkId, sourceChannelId,
+   sourceTurnId}`. Its text starts `Hand-off from {source title} · set up by
+   {creator}` (the source title is the project name, else the chat name), then a
+   blank line and:
+   - `results`: each result's text cut to 8,000 characters, joined, at most 24,000 in
+     all, with the results' attachments (at most 20);
+   - `summary`: the labelled summary from the default model, or the labelled fallback;
+   - `all`: `The whole conversation is attached.`, with `Transcript - {title}.md`
+     uploaded through the engine: the chat's last 1,000 messages up to the turn, each
+     as `**{author}** · {ISO time}` and its text, at most 2 MiB (oldest dropped). A
+     retried post may upload a second, unused copy.
+
+   Wake-up: `apps/api/src/flows/engine-watch.ts` keeps a `ws` connection to the
+   engine's `/ws` with the service token, subscribed to `org:events`. A completed turn
+   in a source chat schedules a tick 500 ms later (debounced per chat). It reconnects
+   after 1 s, doubling to 30 s. The socket is never needed for correctness.
+
+   Switchyard never takes a turn: it stays stopped, its own posts never route to it,
+   and a "nobody" hand-off targets it, so no agent wakes.
+
+7. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
+   `handoff.test.ts`, `access.test.ts` and the fork case in `canvas-board.test.ts`
+   run against the real engine and Nest handlers with temporary databases.
+   `handoff.test.ts` covers a lost post response followed by a restart (exactly one
+   hand-off), an engine outage, the cap, lost access and the engine watch.
 
 ## Private Community catalog
 

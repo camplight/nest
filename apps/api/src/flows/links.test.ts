@@ -87,13 +87,11 @@ describe('the link API against the unchanged engine', () => {
     expect(await again.json()).toEqual(created);
   });
 
-  it('starts the scan at creation when the first chat has no finished turns', async () => {
-    const before = Date.now();
+  it('starts the scan at 0 when the first chat has no finished turns, so none completing during creation is missed', async () => {
     const res = await link(owner, { from: a, to: b });
     const created = await res.json();
     expect(created.who).toBeNull();
-    expect(product.store.flows.scannedTo(created.id)).toBeGreaterThanOrEqual(before);
-    expect(product.store.flows.scannedTo(created.id)).toBeLessThanOrEqual(Date.now());
+    expect(product.store.flows.scannedTo(created.id)).toBe(0);
   });
 
   it('refuses a creator without read and post access, a missing agent and a link to itself', async () => {
