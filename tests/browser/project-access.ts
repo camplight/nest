@@ -10,6 +10,7 @@ import {createOrgOpsClient} from '../../packages/orgops-client/src/index';
 import {createEngine} from './engine';
 
 const dir=mkdtempSync(join(tmpdir(),'nest-project-access-browser-'));
+const screenshots=mkdtempSync(join(tmpdir(),'nest-project-access-screenshots-'));
 const previousRoot=process.env.ORGOPS_PROJECT_ROOT;process.env.ORGOPS_PROJECT_ROOT=dir;
 const engine=createEngine({dbPath:join(dir,'engine.sqlite'),dataDir:dir,adminUser:'owner',adminPass:'test-password',runnerToken:'fixture-runner'});
 if(previousRoot===undefined)delete process.env.ORGOPS_PROJECT_ROOT;else process.env.ORGOPS_PROJECT_ROOT=previousRoot;
@@ -89,6 +90,11 @@ try{
       await requesterPage.goto(`http://127.0.0.1:5304/?view=projects&project=${projectId}&tab=chat`);
       await requesterPage.getByRole('heading',{name:'This project is private',exact:true}).waitFor();
       assert.equal(await requesterPage.getByText('Project Nightingale',{exact:true}).count(),0,'The access gate does not disclose project metadata');
+      await requesterPage.screenshot({path:join(screenshots,'request-gate-desktop.png'),fullPage:true});
+      await requesterPage.setViewportSize({width:390,height:844});
+      assert(await requesterPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      await requesterPage.screenshot({path:join(screenshots,'request-gate-mobile.png'),fullPage:true});
+      await requesterPage.setViewportSize({width:1280,height:900});
       await requesterPage.getByRole('button',{name:'Request access',exact:true}).click();
       const retryAlert=requesterPage.getByRole('alert').filter({hasText:'Synthetic lost response'});
       await retryAlert.waitFor();await retryAlert.getByRole('button',{name:'Retry',exact:true}).click();
@@ -114,8 +120,26 @@ try{
       await secondNotifications.getByRole('button',{name:'Approve requester@example.com for Project Nightingale',exact:true}).click();
       await secondNotifications.getByText('No pending project access requests.',{exact:true}).waitFor();
       await requesterPage.getByRole('heading',{name:'Project Nightingale',level:1,exact:true}).waitFor({timeout:15_000});
-      await requesterPage.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+      const composer=requesterPage.getByRole('textbox',{name:'Message',exact:true});
+      await composer.waitFor();
       assert.equal(product.store.projects.project(projectId)?.collaboration,'team');
+      await composer.fill('Requester can now use project chat');
+      await requesterPage.getByRole('button',{name:'Send',exact:true}).click();
+      await requesterPage.getByText('Requester can now use project chat',{exact:true}).waitFor();
+      await requesterPage.locator('input[type=file]').setInputFiles({name:'access-brief.txt',mimeType:'text/plain',buffer:Buffer.from('Confirmed project file access')});
+      await requesterPage.getByRole('button',{name:'Send',exact:true}).click();
+      await requesterPage.getByRole('link',{name:'access-brief.txt',exact:true}).waitFor();
+      const projectSections=requesterPage.getByRole('navigation',{name:'Project sections'});
+      await projectSections.getByRole('button',{name:'Files',exact:true}).click();
+      await requesterPage.getByRole('heading',{name:'Files shared in chat',exact:true}).waitFor();
+      await requesterPage.getByRole('link',{name:'access-brief.txt ↗',exact:true}).waitFor();
+      await requesterPage.screenshot({path:join(screenshots,'approved-project-desktop.png'),fullPage:true});
+      await requesterPage.setViewportSize({width:390,height:844});
+      assert(await requesterPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      await requesterPage.screenshot({path:join(screenshots,'approved-project-mobile.png'),fullPage:true});
+      await requesterPage.setViewportSize({width:1280,height:900});
+      await projectSections.getByRole('button',{name:'Chat',exact:true}).click();
+      await requesterPage.getByText('Requester can now use project chat',{exact:true}).waitFor();
 
       await ownerPage.goto(`http://127.0.0.1:5304/?view=projects&project=${projectId}&tab=chat`);
       await ownerPage.getByRole('heading',{name:'Project Nightingale',level:1,exact:true}).waitFor();
@@ -128,10 +152,13 @@ try{
       await requesterPage.reload();
       await requesterPage.getByRole('heading',{name:'This project is private',exact:true}).waitFor();
       assert.equal(await requesterPage.getByText('Project Nightingale',{exact:true}).count(),0,'Revocation returns to the generic metadata-free gate');
+      await requesterPage.getByRole('button',{name:'Request access',exact:true}).click();
+      await requesterPage.getByRole('heading',{name:'Access requested',exact:true}).waitFor();
+      assert.equal((product.store.db.prepare("SELECT COUNT(*) AS count FROM product_project_access_requests WHERE project_id=? AND status IN ('pending','approving')").get(projectId) as {count:number}).count,1,'A revoked member can create one new active request');
       assert.deepEqual(errors,[]);
-      console.log('PASS: project access request retry/idempotency, private denial, owner notification isolation, approval, live unlock and revocation.');
+      console.log(`PASS: project access request retry/idempotency, private denial, owner notification isolation, approval, chat/files, live unlock, revocation and re-request. Screenshots: ${screenshots}`);
     }finally{await ownerContext.close();await requesterContext.close();}
   }finally{await browser.close();}
 }finally{
-  server.kill('SIGTERM');product.store.close();engine.db.close();rmSync(dir,{recursive:true,force:true});
+  server.kill('SIGTERM');product.store.close();engine.db.close();rmSync(dir,{recursive:true,force:true});rmSync(screenshots,{recursive:true,force:true});
 }

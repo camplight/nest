@@ -409,6 +409,11 @@ describe('project access request API against the unchanged engine', () => {
     expect((await call(`/api/projects/${projectId}`, requesterHeaders)).status).toBe(404);
     expect(await (await call(`/api/projects/${projectId}/access-request`, requesterHeaders)).json()).toEqual({status: 'requestable'});
     expect((await call(`/api/projects/${projectId}/access-requests`, requesterHeaders, 'POST', {id: randomUUID()})).status).toBe(201);
-    expect(product.store.db.prepare("SELECT count(*) AS count FROM product_audit WHERE type='audit.project.member.revoked' AND json_extract(payload_json,'$.projectId')=? AND json_extract(payload_json,'$.memberId')=?").get(projectId, requester.id)).toEqual({count: 1});
+    const revocations = () => product.store.db.prepare("SELECT count(*) AS count FROM product_audit WHERE type='audit.project.member.revoked' AND json_extract(payload_json,'$.projectId')=? AND json_extract(payload_json,'$.memberId')=?").get(projectId, requester.id);
+    expect(revocations()).toEqual({count: 1});
+
+    expect((await call(`/api/projects/${projectId}/members`, ownerHeaders, 'POST', {subscriberType: 'HUMAN', subscriberId: 'requester-old'})).status).toBe(200);
+    expect((await call(path, ownerHeaders, 'DELETE')).status).toBe(200);
+    expect(revocations()).toEqual({count: 2});
   });
 });

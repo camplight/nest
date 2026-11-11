@@ -172,7 +172,8 @@ export function registerProjectAccessRoutes(app: Hono, {store, orgops}: {store: 
 
     let channels = await orgops.humanJson<ProjectAccessChannel[]>('/api/channels', c.req.raw.headers);
     if (!canManageProject(project, human, channels)) return c.json({error: 'Project unavailable'}, 404);
-    if (present(channels)) {
+    const wasPresent = present(channels);
+    if (wasPresent) {
       try {
         await orgops.humanJson(`/api/channels/${encodeURIComponent(project.channelId)}/unsubscribe`, c.req.raw.headers, member);
       } catch {
@@ -184,8 +185,8 @@ export function registerProjectAccessRoutes(app: Hono, {store, orgops}: {store: 
         return c.json({error: 'Removal is unconfirmed. Retry safely.'}, 502);
       }
       if (!canManageProject(project, human, channels) || present(channels)) return c.json({error: 'Removal is unconfirmed. Retry safely.'}, 502);
+      store.projectAccess.auditRevocation(project.id, target.id, target.username, human.id, Date.now());
     }
-    store.projectAccess.auditRevocation(project.id, target.id, target.username, human.id, Date.now());
     return c.json({status: 'removed'} as const);
   });
 

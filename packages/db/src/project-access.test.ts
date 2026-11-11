@@ -205,18 +205,22 @@ describe('project access store', () => {
     }
   });
 
-  it('audits one revocation until a later approval permits another revocation', () => {
+  it('records each confirmed revocation event supplied by the membership boundary', () => {
     const store = setup();
     try {
       store.projectAccess.auditRevocation(projectId, requesterId, 'requester', ownerId, now + 10);
       store.projectAccess.auditRevocation(projectId, requesterId, 'requester', ownerId, now + 20);
-      expect(auditRows(store).map(row => row.type)).toEqual(['audit.project.member.revoked']);
+      expect(auditRows(store).map(row => row.type)).toEqual([
+        'audit.project.member.revoked',
+        'audit.project.member.revoked',
+      ]);
 
       store.projectAccess.create(request({createdAt: now + 30}));
       store.projectAccess.claimApproval(requestId, projectId, ownerId, now + 40);
       store.projectAccess.finishApproval(requestId, projectId, ownerId, now + 50);
       store.projectAccess.auditRevocation(projectId, requesterId, 'requester-renamed', ownerId, now + 60);
       expect(auditRows(store).map(row => row.type)).toEqual([
+        'audit.project.member.revoked',
         'audit.project.member.revoked',
         'audit.project.access.requested',
         'audit.project.access.approved',

@@ -503,11 +503,13 @@ uses a UUID idempotency key and reuses it after an uncertain response; matching
 replays return the same request while conflicting UUID reuse returns 409. Pending
 and denied states expose only generic copy and request timestamps. The gate polls
 every ten seconds and loads the live project only after engine membership is
-confirmed. Missing projects and inaccessible archived/deleted channels use the
-same generic unavailable state. Because requester-scoped OrgOps reads cannot
-distinguish an inaccessible active private channel from an archived/deleted one,
-request creation accepts an existing product project; owner listing and decisions
-still require current active manage/post authority.
+confirmed. Missing product projects use the generic unavailable state. Because
+requester-scoped OrgOps reads cannot distinguish an inaccessible active private
+channel from an archived/deleted inaccessible one, request creation accepts an
+existing product project and may remain requestable or pending while its channel
+is unavailable. Owner listing and decisions still require current active
+manage/post authority, so approval cannot grant stale channel access and resumes
+only after the channel is restored.
 
 Owners review pending requests in the Notifications inbox and in Project details.
 Project-access and mention reads fail independently, so one unavailable endpoint

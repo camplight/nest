@@ -188,20 +188,6 @@ export function createProjectAccessStore(db: Database.Database) {
     ownerId: string,
     at: number,
   ) => {
-    const payloadMatch = "json_extract(payload_json,'$.projectId')=? AND json_extract(payload_json,'$.requesterId')=?";
-    const latestApproval = db.prepare(`
-      SELECT id FROM product_audit
-      WHERE type='audit.project.access.approved' AND ${payloadMatch}
-      ORDER BY id DESC LIMIT 1
-    `).get(projectId, memberId) as {id: number} | undefined;
-    const latestRevocation = db.prepare(`
-      SELECT id FROM product_audit
-      WHERE type='audit.project.member.revoked'
-        AND json_extract(payload_json,'$.projectId')=?
-        AND json_extract(payload_json,'$.memberId')=?
-      ORDER BY id DESC LIMIT 1
-    `).get(projectId, memberId) as {id: number} | undefined;
-    if (latestRevocation && (!latestApproval || latestRevocation.id > latestApproval.id)) return;
     audit('audit.project.member.revoked', ownerId, {projectId, memberId, memberUsername}, at);
   });
 
