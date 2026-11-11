@@ -49,9 +49,10 @@ export function ProjectStart(props:{ownerId:string;onCreated:(project:Project)=>
  * Chat-first project creation. `page` is the Projects page composer. `dock` is the canvas bottom box: one row
  * with no intro or Cancel. It shares the page's draft, and its parent decides what happens after `onCreated`.
  * `fileDrop={false}` leaves window-wide file drops to another target, such as a chat open on the canvas.
+ * `fileDropOverlay={false}` hides the drop overlay (the canvas shows its own hint); `onFilesDropped` hears of each accepted drop.
  * `voice` shows voice notes (Phase 2, canvas flag); without it there is no mic.
  */
-export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=true,fileDropAccept,voice:voiceOn=false}:{ownerId:string;onCreated:(project:Project)=>void;onCancel?:()=>void;variant?:'page'|'dock';fileDrop?:boolean;fileDropAccept?:(target:EventTarget|null)=>boolean;voice?:boolean}) {
+export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=true,fileDropAccept,fileDropOverlay=true,onFilesDropped,voice:voiceOn=false}:{ownerId:string;onCreated:(project:Project)=>void;onCancel?:()=>void;variant?:'page'|'dock';fileDrop?:boolean;fileDropAccept?:(target:EventTarget|null)=>boolean;fileDropOverlay?:boolean;onFilesDropped?:(count:number)=>void;voice?:boolean}) {
   const [draft,setDraft]=useState(()=>restore(ownerId));
   const {attachments,setAttachments,uploadFiles,error:attachmentError}=useAttachments(ownerId+':'+draft.id,restoreAttachments(draft.attachments??[]));
   const readyFiles=attachments.flatMap(item=>item.uploaded&&item.status==='ready'?[{fileId:item.uploaded.fileId,name:item.uploaded.name,mime:item.uploaded.mime,size:item.uploaded.size}]:[]);
@@ -110,7 +111,7 @@ export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=tr
   const onTextChange=(event:ChangeEvent<HTMLTextAreaElement>)=>{const text=event.target.value;setDraft(current=>({...current,text,mentions:reconcileMentions(current.text,text,current.mentions)}));picker.sync(event.target);};
   const onTextKey=(event:KeyboardEvent<HTMLTextAreaElement>)=>{if(picker.onKeyDown(event))return;if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing&&event.keyCode!==229){event.preventDefault();event.currentTarget.form?.requestSubmit();}};
   const errorNotice=error&&<div className="notice error" role="alert">{error}<p>Your message is saved. Retry unchanged to finish this project.</p></div>;
-  const dropFiles=<ChatFileDrop scope={ownerId+':'+draft.id} enabled={fileDrop} accept={fileDropAccept} disabledReason={locked?'Finish sending this project before attaching more files.':undefined} onFiles={files=>{if(!locked)uploadFiles(files);}}/>;
+  const dropFiles=<ChatFileDrop scope={ownerId+':'+draft.id} enabled={fileDrop} accept={fileDropAccept} overlay={fileDropOverlay} disabledReason={locked?'Finish sending this project before attaching more files.':undefined} onFiles={files=>{if(locked)return;uploadFiles(files);textareaRef.current?.focus({preventScroll:true});onFilesDropped?.(files.length);}}/>;
   if(variant==='dock')return <section className="project-start-dock" aria-label="Start a chat">
     {dropFiles}
     <form className="project-start-dock-form" onSubmit={submit}>

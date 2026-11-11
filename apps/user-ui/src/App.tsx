@@ -26,7 +26,7 @@ import {apiUrl} from './config';
 import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
 import { Community } from "./Community";
 import { CanvasView, type CanvasChatMode } from "./canvas/CanvasView";
-import { outsideFileDropTargets } from "./components/file-drop";
+import { insideCanvasChat, outsideFileDropTargets } from "./components/file-drop";
 import { canvasAvailability } from "./canvas/api";
 import { usePhoneLayout } from "./canvas/PhoneList";
 import { unseenAppAgents } from "./chat/wrapped";
@@ -1725,7 +1725,7 @@ export default function App() {
   }
 
   const chatWorkspace = <section className={`workspace${view === "workspace" ? " standalone-workspace" : ""}`}>
-        <ChatFileDrop scope={`${userId??''}:${activeChannelId??''}`} accept={outsideFileDropTargets} onFiles={files=>composerRef.current?.enqueueFiles(files)} disabledReason={!activeChannel?'Choose a conversation before attaching files.':activeChannel.archivedAt?'Restore this conversation before attaching files.':!activeChannelCanPost?'This conversation is read-only.':sending?'Wait for this message to finish sending.':undefined}/>
+        <ChatFileDrop scope={`${userId??''}:${activeChannelId??''}`} accept={view==="canvas"&&canvasChat.mode==="split"?insideCanvasChat:outsideFileDropTargets} overlay={!(view==="canvas"&&canvasChat.mode==="split")} onFiles={files=>composerRef.current?.enqueueFiles(files)} disabledReason={!activeChannel?'Choose a conversation before attaching files.':activeChannel.archivedAt?'Restore this conversation before attaching files.':!activeChannelCanPost?'This conversation is read-only.':sending?'Wait for this message to finish sending.':undefined}/>
         {view === "workspace" && <WorkspaceTopbar
           onMenu={() => setMobileSidebarOpen(true)}
           search={<label className="dashboard-search"><DesignIcon name="search" /><input
