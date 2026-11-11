@@ -11,6 +11,7 @@ import {areaSummaries,type CardPulse} from './pulse';
 import type {NeedsItem} from './needs';
 import {ORIGIN,areaMembers,cardCentre,clampZoom,fit,growToFit,isCompact,toCanvas,visible,zoomAt,type Point,type Rect,type Size,type View} from './geometry';
 import {CARD_PLACE_HEIGHT} from './loose';
+import {presentView} from './sheet';
 
 export type SurfaceProps = {
   board: CanvasBoard;
@@ -60,6 +61,8 @@ export type SurfaceProps = {
   /** The new area whose title opens for typing once it is shown. */
   renameAreaId?: string | null;
   onRenameStarted?(areaId: string): void;
+  /** After any render that moved the view, resized the surface or moved or measured a card: an open sheet re-reads its card. */
+  onViewChange?(): void;
 };
 export type FileDropTarget = {kind: 'card'; channelId: string} | {kind: 'area'; areaId: string};
 const carriesFiles = (event: ReactDragEvent) => event.dataTransfer.types.includes('Files');
@@ -68,6 +71,8 @@ export type SurfaceControls = {
   centre(): Point;
   /** Animates the view to a card (at zoom 0.8 or more) or fits an area. False when it is not on this canvas. */
   reveal(target: {channelId: string} | {areaId: string}): boolean;
+  /** Animates the view so a card opened in place sits where its chat sheet fits (zoom 1 or less). False when it is not on this canvas. */
+  present(channelId: string): boolean;
   /** A card's measured height in canvas units, once it has been mounted; undefined before that. */
   cardHeight(channelId: string): number | undefined;
 };
@@ -136,7 +141,7 @@ const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + 
 
 export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null,
   onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onOpenCanvas, onDropFiles,
-  needs = NO_NEEDS, viewer = '', onNotice, onAreaCreated, renameAreaId = null, onRenameStarted}: SurfaceProps) {
+  needs = NO_NEEDS, viewer = '', onNotice, onAreaCreated, renameAreaId = null, onRenameStarted, onViewChange}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
   // Without a known human the view is not remembered, so it can never land under another person's key.
   const key = humanId ? viewKey(humanId, board.canvas.id) : null;
@@ -242,6 +247,8 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     tween.current = requestAnimationFrame(step);
   }, []);
   const cardRectsRef = useRef(cardRects); cardRectsRef.current = cardRects;
+  const viewChangeRef = useRef(onViewChange); viewChangeRef.current = onViewChange;
+  useLayoutEffect(() => { viewChangeRef.current?.(); }, [view, size, cardRects]);
   useEffect(() => {
     if (!controls) return;
     controls.current = {
@@ -262,6 +269,13 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
           next = {zoom, x: viewport.w / 2 - (rect.x + rect.w / 2) * zoom, y: viewport.h / 2 - (rect.y + rect.h / 2) * zoom};
         }
         animateTo(next);
+        return true;
+      },
+      present: channelId => {
+        const element = surfaceRef.current;
+        const rect = cardRectsRef.current.find(c => c.card.channelId === channelId);
+        if (!rect || !element?.clientWidth || !element.clientHeight) return false;
+        animateTo(presentView(rect, {w: element.clientWidth, h: element.clientHeight}));
         return true;
       },
       cardHeight: channelId => heights.current.get(channelId),

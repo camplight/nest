@@ -1,5 +1,5 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
-import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore,type FormEvent,type ReactNode} from 'react';
+import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore,type CSSProperties,type FormEvent,type ReactNode} from 'react';
 import {CanvasTint,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
@@ -31,6 +31,7 @@ import type {AreaContext} from './Area';
 import {CONTEXT_WARNING,ContextPanel} from './ContextPanel';
 import {errorText,getContextSummary,uploadContextFile,type PanelScope} from './context-api';
 import {chatSees,contextLabel,joinNames,type ChatSees} from './context-label';
+import {LOOSE_BOTTOM,cardSheet,looseSheet,samePlace,type SheetPlace} from './sheet';
 import './canvas.css';
 
 export type CanvasHuman = {id?: string; username: string};
@@ -301,6 +302,11 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   // One chat at a time, and only one this person can read: never a locked or unavailable card's.
   const chatShown = Boolean(chat && chatChannelId && chatMode && channels.some(channel => channel.id === chatChannelId));
   const openCard = cards?.find(card => card.channelId === chatChannelId);
+  /**
+   * A focus chat opens in place (the mock's openCard): over its card when it is on this canvas, else as a plain chat over
+   * the bottom box. Phones have no free canvas, so their chat fills the body instead.
+   */
+  const sheetAnchor: SheetAnchor | null = chatShown && chatMode === 'focus' && !phone && board ? openCard?.access === 'open' ? 'card' : 'loose' : null;
   const chatTitle = (openCard?.access === 'open' ? cardTitle(openCard) : null) ?? candidates.find(c => c.channelId === chatChannelId)?.title ?? 'Chat';
   // The header's Area picker: editors only, on a canvas with areas, for a chat on it or in the pile.
   const chatArea = board && chatShown && board.canvas.role !== 'view' && board.areas.length && (openCard ? openCard.access === 'open' : candidates.some(c => c.channelId === chatChannelId))
@@ -332,6 +338,28 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     }
     : undefined;
   const modeRef = useRef(chatMode); modeRef.current = chatShown ? chatMode : null;
+  /** Shows a card: a focus chat's card where its sheet fits, any other centred at a readable zoom. */
+  const showCard = useCallback((channelId: string) => {
+    if (modeRef.current === 'focus' && !phoneRef.current) controls.current?.present(channelId);
+    else controls.current?.reveal({channelId});
+  }, []);
+  // The open chat's sheet follows its card as the view moves: the surface reports each change to the sheet.
+  const viewListeners = useRef(new Set<() => void>());
+  const viewChanged = useCallback(() => { for (const listener of viewListeners.current) listener(); }, []);
+  const watchView = useCallback((listener: () => void) => {
+    viewListeners.current.add(listener);
+    return () => { viewListeners.current.delete(listener); };
+  }, []);
+  // Opening in place moves the camera so the card (and the sheet over it) is in view, once per open; a surface still
+  // mounting (a deep link) is retried for a few frames.
+  const inPlace = sheetAnchor === 'card' ? chatChannelId : null;
+  useEffect(() => {
+    if (!inPlace) return;
+    let frame = 0, tries = 0;
+    const go = () => { if (!controls.current?.present(inPlace) && ++tries < 60) frame = requestAnimationFrame(go); };
+    go();
+    return () => cancelAnimationFrame(frame);
+  }, [inPlace]);
   // Only chats in App's visible list open: a UI-hidden chat is never loaded or marked seen behind the canvas.
   const visibleRef = useRef(channels); visibleRef.current = channels;
   const openRef = useRef(onOpenChat);
@@ -475,11 +503,11 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     const timer = setTimeout(() => setHighlight(null), 4000);
     return () => clearTimeout(timer);
   }, [highlight, chatShown]);
-  /** A chat on this canvas is centred and opened in focus; any other opens in focus and the pile points at it. */
+  /** A chat on this canvas is shown and opened in place; any other opens as a plain chat and the pile points at it. */
   const jumpTo = useCallback((channelId: string) => {
     const card = store.snapshot().board?.cards.find(c => c.channelId === channelId);
     if (card?.access === 'open') {
-      controls.current?.reveal({channelId});
+      controls.current?.present(channelId);
       setSelectedId(channelId);
     } else {
       setHighlight({id: channelId, n: ++highlightCount.current});
@@ -508,9 +536,10 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     await new Promise(resolve => requestAnimationFrame(resolve));
     if (!onBoard) { jumpTo(channelId); return; }
     setSelectedId(channelId);
-    openRef.current(channelId, modeRef.current ?? 'split');
-    // Centre the card once the chat beside it has taken its room.
-    requestAnimationFrame(() => requestAnimationFrame(() => controls.current?.reveal({channelId})));
+    const mode = modeRef.current ?? 'split';
+    openRef.current(channelId, mode);
+    // Centre the card once the chat beside it has taken its room; a focus chat moves the view itself as it opens in place.
+    if (mode === 'split') requestAnimationFrame(() => requestAnimationFrame(() => controls.current?.reveal({channelId})));
   }, [store, place, jumpTo]);
   /**
    * The open chat's header moves its card into an area (a free spot under the title bar; the area
@@ -533,8 +562,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     if (target && grown) void store.apply({kind: 'patchArea', areaId: target.id, patch: grown});
     if (!await saved) return;
     if (target) setSelectedId(channelId);
-    requestAnimationFrame(() => controls.current?.reveal({channelId}));
-  }, [store, applyTracked, measured, heightOf]);
+    requestAnimationFrame(() => showCard(channelId));
+  }, [store, applyTracked, measured, heightOf, showCard]);
   const moveToAreaRef = useRef(moveToArea); moveToAreaRef.current = moveToArea;
   const [searchOpen, setSearchOpen] = useState(false);
   useEffect(() => { setSearchOpen(false); }, [canvasId]);
@@ -657,7 +686,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
           onDropChat={canPlace ? dropChat : undefined} controls={controls} onOpenChat={openFromCard} openChannelId={chatShown ? chatChannelId : null}
           onDropAgent={dropAgent} onRemoveAgent={removeAgent} canManageCard={manageable} onSelectCard={setSelectedId} selectedChannelId={selected?.channelId ?? null}
           areaContext={areaContext} onAreaContext={openAreaContext} contextAreaId={panel?.kind === 'area' ? panel.areaId : null} onOpenCanvas={id => onSelectCanvas(id)} onDropFiles={dropFiles}
-          needs={cardNeeds} viewer={username} onNotice={say} onAreaCreated={setRenameAreaId} renameAreaId={renameAreaId} onRenameStarted={renameStarted}/>
+          needs={cardNeeds} viewer={username} onNotice={say} onAreaCreated={setRenameAreaId} renameAreaId={renameAreaId} onRenameStarted={renameStarted}
+          onViewChange={viewChanged}/>
         <AgentTray tray={tray} suggestedFor={selected ? cardTitle(selected) : null} agents={agents} humanId={humanId} cards={board.cards} areas={board.areas}/>
         {/* Files dropped on empty canvas start a chat here, even beside a split chat; a focus chat takes every drop itself. */}
         {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!focusChat}
@@ -689,7 +719,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       {ownerName ? <span className="canvas-shared-by">Shared by {ownerName}</span> : null}
     </div> : undefined}/>
     {searchOpen && canvasId ? <CanvasSearch items={index} onClose={() => setSearchOpen(false)} onChoose={choose}/> : null}
-    <div className={`canvas-body${chatShown ? ` has-chat is-${chatMode}` : ''}`}>
+    <div className={`canvas-body${chatShown ? ` has-chat is-${chatMode}` : ''}${sheetAnchor ? ` is-${sheetAnchor === 'card' ? 'in-place' : 'plain'}` : ''}`}>
       {sharing && board && board.canvas.role === 'owner' ? <ShareDialog canvasId={board.canvas.id} ownerId={board.canvas.ownerId} humans={humans}
         version={canvasVersion} freshVersion={freshVersion} onSaved={() => { void store.refresh({force: true}); void reloadList().catch(() => {}); }} onClose={() => setSharing(false)}/> : null}
       <CanvasMain inert={chatShown && chatMode === 'focus'}>
@@ -711,7 +741,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         </div>
         {body}
       </CanvasMain>
-      {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} title={chatTitle} sub={chatSub} area={chatArea} onUseHere={useHere}
+      {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} anchor={sheetAnchor} watchView={watchView} title={chatTitle} sub={chatSub} area={chatArea} onUseHere={useHere}
         onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
         {chat}
       </CanvasChat> : null}
@@ -725,8 +755,9 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
 }
 
 /**
- * The canvas side of the body. Behind a focus chat it is inert: no pointer, Tab or screen reader reaches it.
- * A layout effect, so inert is gone before the closing chat's passive cleanup moves focus back here.
+ * The canvas side of the body. Behind a focus chat it is inert: no pointer, Tab or screen reader reaches it, and a press on
+ * it lands on the body, which closes the chat. A layout effect, so inert is gone before the closing chat's passive cleanup
+ * moves focus back here.
  */
 function CanvasMain({inert, children}: {inert: boolean; children: ReactNode}) {
   const ref = useRef<HTMLDivElement>(null);
@@ -742,8 +773,10 @@ const SPLIT_STEP = 2;
 /** Another dialog above the chat (manage channel, the tour) takes Escape for itself, and so does an open context popover. */
 const OTHER_DIALOG = '[aria-modal="true"]:not(.canvas-chat), .dialog-backdrop, .canvas-context';
 
+/** Where a focus chat's sheet is anchored: over its card, or as a plain chat over the bottom box. */
+type SheetAnchor = 'card' | 'loose';
 /**
- * The open chat: enlarged over a dimmed canvas (focus), or on the right with a draggable divider (split).
+ * The open chat: opened in place over the canvas (focus), or on the right with a draggable divider (split).
  * The header holds Split screen, Open in the regular chat view and Close; the chat itself is App's chat workspace.
  */
 type ChatArea = {areas: {id: string; title: string}[]; current: string | null; placed: boolean; onMove(areaId: string | null): void};
@@ -784,14 +817,57 @@ function ChatSubline({sub}: {sub: ChatSub}) {
   </p>;
 }
 
-function CanvasChat({channelId, mode, title, sub, area, onUseHere, onMode, onClose, onOpenRegular, children}: {
-  channelId: string; mode: CanvasChatMode; title: string; sub?: ChatSub; area?: ChatArea; onUseHere?(): Promise<void>; onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
+function CanvasChat({channelId, mode, anchor, watchView, title, sub, area, onUseHere, onMode, onClose, onOpenRegular, children}: {
+  channelId: string; mode: CanvasChatMode; anchor: SheetAnchor | null; watchView(listener: () => void): () => void;
+  title: string; sub?: ChatSub; area?: ChatArea; onUseHere?(): Promise<void>; onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
 }) {
   const panel = useRef<HTMLElement>(null);
   const [split, setSplit] = useState(readSplit);
   const splitRef = useRef(split); splitRef.current = split;
   const resizing = useRef<number | null>(null);
   const closeRef = useRef(onClose); closeRef.current = onClose;
+  const modeRef = useRef(mode); modeRef.current = mode;
+
+  // In place: the sheet's top-left stays on its card's on-screen top-left as the view moves (or centred over the bottom
+  // box for a plain chat). Read before paint, and again after every view change, resize or card move.
+  const [place, setPlace] = useState<SheetPlace | null>(null);
+  useLayoutEffect(() => {
+    if (mode !== 'focus' || !anchor) { setPlace(null); return; }
+    const update = () => {
+      const body = panel.current?.closest<HTMLElement>('.canvas-body');
+      if (!body) return;
+      const b = body.getBoundingClientRect(), region = {w: b.width, h: b.height};
+      let next: SheetPlace;
+      if (anchor === 'card') {
+        const card = body.querySelector<HTMLElement>(`.canvas-card[data-channel-id="${CSS.escape(channelId)}"]`)?.getBoundingClientRect();
+        next = cardSheet(card ? {x: card.left - b.left, y: card.top - b.top} : null, region);
+      } else {
+        const stage = body.querySelector('.canvas-stage')?.getBoundingClientRect(), dock = body.querySelector('.canvas-dock')?.getBoundingClientRect();
+        const centre = stage ? stage.left - b.left + stage.width / 2 : b.width / 2;
+        // Just above the bottom box (which rises above the tray and zoom controls on narrower screens).
+        const bottom = dock?.height ? Math.max(LOOSE_BOTTOM, b.bottom - dock.top + 10) : LOOSE_BOTTOM;
+        next = looseSheet(region, centre, bottom, window.innerHeight);
+      }
+      setPlace(current => samePlace(current, next) ? current : next);
+    };
+    update();
+    const unwatch = watchView(update);
+    window.addEventListener('resize', update);
+    return () => { unwatch(); window.removeEventListener('resize', update); };
+  }, [mode, anchor, channelId, watchView]);
+
+  // A press on the canvas around the sheet closes it, as long as no popover above it takes that press for itself.
+  // The canvas is inert behind it, so the press lands on the body; a drag that starts in the chat never closes it.
+  useEffect(() => {
+    const body = panel.current?.closest<HTMLElement>('.canvas-body');
+    if (mode !== 'focus' || !body) return;
+    let armed = false;
+    const down = (event: PointerEvent) => { armed = event.target === body && event.button === 0 && !document.querySelector(OTHER_DIALOG); };
+    const click = (event: MouseEvent) => { if (armed && event.target === body) closeRef.current(); armed = false; };
+    body.addEventListener('pointerdown', down);
+    body.addEventListener('click', click);
+    return () => { body.removeEventListener('pointerdown', down); body.removeEventListener('click', click); };
+  }, [mode]);
 
   // Focus moves into the chat when it opens. On close it returns to the opened card's Open button when that card
   // is mounted (after a mouse open too), else to what was focused before, else the canvas.
@@ -801,10 +877,13 @@ function CanvasChat({channelId, mode, title, sub, area, onUseHere, onMode, onClo
     panel.current?.focus({preventScroll: true});
     return () => {
       if (!body?.isConnected) return;
-      const card = body.querySelector<HTMLElement>(`.canvas-card[data-channel-id="${CSS.escape(channelId)}"] .canvas-card-open`);
+      const cardElement = body.querySelector<HTMLElement>(`.canvas-card[data-channel-id="${CSS.escape(channelId)}"]`);
+      const card = cardElement?.querySelector<HTMLElement>('.canvas-card-open') ?? null;
       const surface = body.querySelector<HTMLElement>('.canvas-surface');
       const target = [card, previous, surface].find(element => element?.isConnected && body.contains(element));
       target?.focus({preventScroll: true});
+      // The mock's closeCard: the card the chat closed back into flashes once.
+      if (cardElement && modeRef.current === 'focus') flashCard(cardElement);
     };
   }, []);
 
@@ -828,47 +907,57 @@ function CanvasChat({channelId, mode, title, sub, area, onUseHere, onMode, onClo
   const nudge = (delta: number) => { const next = clampSplit(splitRef.current + delta); setSplit(next); writeSplit(next); };
 
   const focus = mode === 'focus';
-  return <>
-    {focus ? <div className="canvas-chat-backdrop" aria-hidden="true" onClick={onClose}/> : null}
-    <section ref={panel} className="canvas-chat" data-mode={mode} tabIndex={-1}
-      role={focus ? 'dialog' : 'region'} aria-label={`Open chat ${title}`}
-      style={focus ? undefined : {width: `${split}%`}}>
-      {focus ? null : <div className="canvas-chat-divider" role="separator" aria-label="Resize chat" aria-orientation="vertical"
-        aria-valuenow={split} aria-valuemin={SPLIT_MIN} aria-valuemax={SPLIT_MAX} aria-valuetext={`Chat ${Math.round(split)}% wide`} tabIndex={0}
-        onPointerDown={event => {
-          if (event.button !== 0) return;
-          event.preventDefault();
-          resizing.current = event.pointerId;
-          try { event.currentTarget.setPointerCapture(event.pointerId); } catch {}
-        }}
-        onPointerMove={event => { if (resizing.current === event.pointerId) resizeTo(event.clientX); }}
-        onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={finish}
-        onKeyDown={event => {
-          if (event.key === 'ArrowLeft') { event.preventDefault(); nudge(SPLIT_STEP); }
-          else if (event.key === 'ArrowRight') { event.preventDefault(); nudge(-SPLIT_STEP); }
-        }}/>}
-      <header className="canvas-chat-bar">
-        <div className="canvas-chat-heading">
-          <h2 className="canvas-chat-title">{title}</h2>
-          {sub ? <ChatSubline sub={sub}/> : null}
-        </div>
-        <div className="canvas-chat-actions">
-          {area ? <label className="canvas-chat-area">
-            <span>Area</span>
-            <select value={area.current ?? ''} onChange={event => area.onMove(event.target.value || null)}>
-              <option value="" disabled={!area.placed}>{area.placed ? 'No area' : 'Not on this canvas'}</option>
-              {area.areas.map(option => <option key={option.id} value={option.id}>{option.title || 'Untitled area'}</option>)}
-            </select>
-          </label> : null}
-          {onUseHere ? <button type="button" className="canvas-chat-action" onClick={() => void onUseHere()}>Use this area's context</button> : null}
-          <button type="button" className="canvas-chat-action" aria-pressed={!focus} onClick={() => onMode(focus ? 'split' : 'focus')}>Split screen</button>
-          <button type="button" className="canvas-chat-action" onClick={onOpenRegular}>Open in the regular chat view</button>
-          <button type="button" className="canvas-chat-action" onClick={onClose}>Close</button>
-        </div>
-      </header>
-      <div className="canvas-chat-body">{children}</div>
-    </section>
-  </>;
+  const vars: Record<string, string> | undefined = focus && place ? {'--sheet-x': `${place.x}px`, '--sheet-w': `${place.w}px`, '--sheet-max-h': `${place.maxH}px`,
+    ...(place.kind === 'card' ? {'--sheet-y': `${place.y}px`} : {'--sheet-bottom': `${place.bottom}px`})} : undefined;
+  const sheet = vars as CSSProperties | undefined;
+  return <section ref={panel} className="canvas-chat" data-mode={mode} data-place={focus ? place?.kind : undefined} tabIndex={-1}
+    role={focus ? 'dialog' : 'region'} aria-label={`Open chat ${title}`}
+    style={focus ? sheet : {width: `${split}%`}}>
+    {focus ? null : <div className="canvas-chat-divider" role="separator" aria-label="Resize chat" aria-orientation="vertical"
+      aria-valuenow={split} aria-valuemin={SPLIT_MIN} aria-valuemax={SPLIT_MAX} aria-valuetext={`Chat ${Math.round(split)}% wide`} tabIndex={0}
+      onPointerDown={event => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        resizing.current = event.pointerId;
+        try { event.currentTarget.setPointerCapture(event.pointerId); } catch {}
+      }}
+      onPointerMove={event => { if (resizing.current === event.pointerId) resizeTo(event.clientX); }}
+      onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={finish}
+      onKeyDown={event => {
+        if (event.key === 'ArrowLeft') { event.preventDefault(); nudge(SPLIT_STEP); }
+        else if (event.key === 'ArrowRight') { event.preventDefault(); nudge(-SPLIT_STEP); }
+      }}/>}
+    <header className="canvas-chat-bar">
+      <div className="canvas-chat-heading">
+        <h2 className="canvas-chat-title">{title}</h2>
+        {sub ? <ChatSubline sub={sub}/> : null}
+      </div>
+      <div className="canvas-chat-actions">
+        {area ? <label className="canvas-chat-area">
+          <span>Area</span>
+          <select value={area.current ?? ''} onChange={event => area.onMove(event.target.value || null)}>
+            <option value="" disabled={!area.placed}>{area.placed ? 'No area' : 'Not on this canvas'}</option>
+            {area.areas.map(option => <option key={option.id} value={option.id}>{option.title || 'Untitled area'}</option>)}
+          </select>
+        </label> : null}
+        {onUseHere ? <button type="button" className="canvas-chat-action" onClick={() => void onUseHere()}>Use this area's context</button> : null}
+        <button type="button" className="canvas-chat-action" aria-pressed={!focus} onClick={() => onMode(focus ? 'split' : 'focus')}>Split screen</button>
+        <button type="button" className="canvas-chat-action" onClick={onOpenRegular}>Open in the regular chat view</button>
+        <button type="button" className="canvas-chat-action" onClick={onClose}>Close</button>
+      </div>
+    </header>
+    <div className="canvas-chat-body">{children}</div>
+  </section>;
+}
+
+/** A short lime ring that fades out (the mock's `.card.flash`). A data attribute, so the card's own re-renders keep it. */
+function flashCard(element: HTMLElement) {
+  element.removeAttribute('data-flash');
+  void element.offsetWidth;
+  element.setAttribute('data-flash', '');
+  element.addEventListener('animationend', () => element.removeAttribute('data-flash'), {once: true});
+  // Reduced motion runs no animation: the marker goes on its own.
+  setTimeout(() => element.removeAttribute('data-flash'), 1400);
 }
 
 function CanvasMessage({text, action, onAction}: {text: string; action?: string; onAction?: () => void}) {

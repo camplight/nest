@@ -44,12 +44,12 @@ await runChatTest('canvas chat: focus, send, reload, realtime, split screen, fil
   const card=cardAt(page,chatId);
   await card.waitFor();
 
-  // A click on the card body opens the chat in focus over the canvas.
+  // A click on the card body opens the chat in focus, in place over its card.
   await card.locator('.canvas-card-title').click();
   const chat=openChat(page);
   await chat.waitFor();
   assert.equal(await chat.getAttribute('data-mode'),'focus');
-  await page.locator('.canvas-chat-backdrop').waitFor();
+  await page.locator('.canvas-chat[data-place="card"]').waitFor();
   assert.deepEqual(params(page),{view:'canvas',chat:chatId,mode:'focus',channel:null});
   assert.equal(await chat.locator('.workspace-topbar').count(),0,'no workspace top bar inside the canvas chat');
   for(const name of ['Split screen','Open in the regular chat view','Close'])await chat.getByRole('button',{name,exact:true}).waitFor();
@@ -155,6 +155,102 @@ await runChatTest('canvas chat: focus, send, reload, realtime, split screen, fil
   await dropFile(page,'.canvas-surface','dock-drop.txt');
   await dock(page).locator('.composer-attachments').getByText('dock-drop.txt').first().waitFor();
 },{canvas:true});
+
+type Box={x:number;y:number;width:number;height:number};
+const boxOf=async(locator:Locator)=>{const b=await locator.boundingBox();if(!b)throw Error('not on screen');return b;};
+/** Polls from Node (a page-side async predicate would resolve at once) until two reads 50 ms apart match. */
+async function settled(read:()=>Promise<string>,what:string,timeout=4000){
+  const end=Date.now()+timeout;
+  let last='';
+  while(Date.now()<end){
+    const now=await read();
+    if(now===last)return now;
+    last=now;
+    await new Promise(resolve=>setTimeout(resolve,50));
+  }
+  throw Error(`${what} did not settle: ${last}`);
+}
+async function until(check:()=>Promise<boolean>,what:string,timeout=4000){
+  const end=Date.now()+timeout;
+  while(Date.now()<end){if(await check())return;await new Promise(resolve=>setTimeout(resolve,50));}
+  throw Error(`timed out waiting for ${what}`);
+}
+const opacity=(locator:Locator)=>locator.evaluate(el=>Number(getComputedStyle(el).opacity));
+const overlap=(a:Box,b:Box)=>a.x<b.x+b.width&&b.x<a.x+a.width&&a.y<b.y+b.height&&b.y<a.y+a.height;
+
+await runChatTest('canvas chat: opens in place over its card, dims the rest, and a plain chat sits over the bottom box',async h=>{
+  const {page,base}=h;
+  const chatId=await standaloneChat(h,'Synthetic in-place chat');
+  const neighbourId=await standaloneChat(h,'Synthetic neighbour chat');
+  const looseId=await standaloneChat(h,'Synthetic plain chat');
+  const id=await canvasWith(h,[{channelId:chatId,x:120,y:120},{channelId:neighbourId,x:520,y:160}]);
+  await page.goto(`${base}/?view=canvas&canvas=${id}`);
+  const card=cardAt(page,chatId),neighbour=cardAt(page,neighbourId);
+  await card.waitFor();
+  // Zoomed out first: opening brings the card to 100%.
+  await page.getByRole('button',{name:'Zoom out',exact:true}).click();
+  await page.getByRole('button',{name:'Zoom out',exact:true}).click();
+  const zoom=page.getByLabel('Zoom level',{exact:true});
+  await until(async()=>await zoom.textContent()!=='100%','zoomed out');
+
+  await card.locator('.canvas-card-title').click();
+  const chat=openChat(page);
+  await page.locator('.canvas-chat[data-place="card"]').waitFor();
+  await until(async()=>await zoom.textContent()==='100%','the camera at 100%');
+  await settled(async()=>JSON.stringify([await boxOf(chat),await boxOf(card)]),'the sheet over its card');
+  const sheet=await boxOf(chat),under=await boxOf(card),body=await boxOf(page.locator('.canvas-body'));
+  assert.ok(Math.abs(sheet.x-under.x)<=24&&Math.abs(sheet.y-under.y)<=24,`the sheet starts on its card: ${JSON.stringify(sheet)} over ${JSON.stringify(under)}`);
+  assert.ok(overlap(sheet,under),'the sheet covers its card');
+  assert.ok(sheet.width<=640&&sheet.width>=480,`a card-sized sheet, not a page-wide one: ${sheet.width}`);
+  assert.ok(sheet.y>=body.y+15&&sheet.y+sheet.height<=body.y+body.height-15,`inside the canvas: ${JSON.stringify(sheet)} in ${JSON.stringify(body)}`);
+  // Everything else on the canvas dims; the open card stays (under the sheet).
+  await until(async()=>await opacity(neighbour)<0.5,'the neighbour card dimmed');
+  assert.equal(await opacity(card),1,'the open card is not dimmed');
+  // No scrim: around the sheet the canvas shows straight through to the body.
+  assert.equal(await page.locator('.canvas-chat-backdrop').count(),0,'no backdrop');
+  const around=await page.evaluate(({x,y})=>{const el=document.elementFromPoint(x,y);return {cls:el?.className??'',bg:el?getComputedStyle(el).backgroundColor:''};},{x:body.x+12,y:body.y+body.height/2});
+  assert.equal(around.cls.split(' ')[0],'canvas-body',`nothing over the canvas beside the sheet: ${around.cls}`);
+  assert.match(around.bg,/rgba\(0, 0, 0, 0\)|transparent/,'the body paints nothing over the canvas');
+
+  // Escape closes it, and the card flashes.
+  await composer(chat).click();
+  await page.keyboard.press('Escape');
+  await chat.waitFor({state:'detached'});
+  assert.equal(await card.getAttribute('data-flash'),'','the card flashes as the chat closes into it');
+  await until(async()=>await opacity(neighbour)===1,'the canvas back at full strength');
+
+  // A click on empty canvas beside the sheet closes it too; a press that starts in the chat does not.
+  await card.locator('.canvas-card-title').click();
+  await chat.waitFor();
+  await settled(async()=>JSON.stringify(await boxOf(chat)),'the sheet');
+  const open=await boxOf(chat);
+  await page.mouse.move(open.x+40,open.y+open.height-30);
+  await page.mouse.down();
+  await page.mouse.move(body.x+12,body.y+body.height/2,{steps:4});
+  await page.mouse.up();
+  assert.equal(await chat.count(),1,'a drag out of the chat keeps it open');
+  await page.mouse.click(body.x+12,body.y+body.height/2);
+  await chat.waitFor({state:'detached'});
+  assert.equal(params(page).chat,null);
+
+  // A chat that is not on this canvas opens as a plain chat over the bottom box, with the canvas faded.
+  await page.goto(`${base}/?view=canvas&canvas=${id}&chat=${looseId}&mode=focus`);
+  await page.locator('.canvas-chat[data-place="loose"]').waitFor();
+  await settled(async()=>JSON.stringify(await boxOf(chat)),'the plain chat');
+  const plain=await boxOf(chat),stage=await boxOf(page.locator('.canvas-stage')),box=await boxOf(dock(page));
+  assert.ok(Math.abs(plain.x+plain.width/2-(stage.x+stage.width/2))<=2,`centred on the canvas: ${JSON.stringify(plain)} in ${JSON.stringify(stage)}`);
+  assert.ok(plain.width<=640,`a plain chat is 560 px at most: ${plain.width}`);
+  const gap=box.y-(plain.y+plain.height);
+  assert.ok(gap>=0&&gap<=40,`just above the bottom box: ${gap}px`);
+  await until(async()=>await opacity(page.locator('.canvas-world'))<0.5,'the canvas faded');
+  assert.equal(await chat.locator('.canvas-chat-sub').getByText('Plain chat · not on this canvas').count(),1);
+
+  // A phone has no free canvas: the chat fills the body.
+  await page.setViewportSize({width:390,height:844});
+  await until(async()=>{const c=await boxOf(chat),b=await boxOf(page.locator('.canvas-body'));return Math.abs(c.width-b.width)<=1&&Math.abs(c.x-b.x)<=1;},'a full-width chat at 390 px');
+  await page.keyboard.press('Escape');
+  await chat.waitFor({state:'detached'});
+},{canvas:true,viewport:{width:1440,height:900}});
 
 await runChatTest('canvas chat: the regular view and Back, and unavailable cards never open',async h=>{
   const {page,base}=h;

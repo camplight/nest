@@ -1197,12 +1197,21 @@
   min-width: 40%;
 }
 
-/* Focus: the chat enlarged over a dimmed canvas. */
-.canvas-chat-backdrop {
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-  background: color-mix(in srgb, var(--nest-forest) 42%, transparent);
+/*
+ * Focus: the chat opens in place (the mock's `.card.open`). A placed card's chat is a 560 px sheet over the card itself,
+ * its top-left on the card's (CanvasView keeps --sheet-x/--sheet-y on it as the view moves), with every other card, area
+ * and link dimmed to .28 and no scrim. A chat that is not on the canvas is the mock's `.qchat`: a plain chat over the
+ * bottom box, with the whole canvas at .3.
+ */
+.canvas-world,
+.canvas-world > :is(.canvas-area, .canvas-card, .canvas-context-lines) {
+  transition: opacity .2s;
+}
+.canvas-body.is-in-place .canvas-world > :is(.canvas-area, .canvas-card:not(.is-open), .canvas-context-lines) {
+  opacity: .28;
+}
+.canvas-body.is-plain .canvas-world {
+  opacity: .3;
 }
 .canvas-chat {
   min-width: 0;
@@ -1217,14 +1226,87 @@
 }
 .canvas-chat[data-mode="focus"] {
   position: absolute;
-  inset: 20px 0;
+  /* Until it is measured (a canvas still loading), centred at the top. */
+  left: var(--sheet-x, calc(50% - min(280px, 50% - 16px)));
+  top: var(--sheet-y, 16px);
   z-index: 21;
-  width: min(1080px, calc(100% - 40px));
-  margin-inline: auto;
+  width: var(--sheet-w, min(560px, calc(100% - 32px)));
+  max-height: var(--sheet-max-h, min(720px, calc(100% - 32px)));
+  /* Room for the header, a few messages and the composer even while the thread loads. */
+  min-height: min(440px, var(--sheet-max-h, 440px));
   border: 1px solid var(--nest-border);
-  border-radius: 20px;
-  box-shadow: var(--canvas-shadow);
+  border-radius: 16px;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--nest-forest) 10%, transparent), 0 24px 60px color-mix(in srgb, var(--nest-forest) 22%, transparent);
   overflow: hidden;
+}
+.canvas-chat[data-place="loose"] {
+  top: auto;
+  bottom: var(--sheet-bottom, 84px);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .canvas-chat[data-place="loose"] {
+    animation: canvas-chat-rise .25s cubic-bezier(.2, .9, .3, 1);
+  }
+  .canvas-card[data-flash] {
+    animation: canvas-card-flash 1.2s ease-out;
+  }
+}
+@keyframes canvas-chat-rise {
+  from { opacity: 0; transform: translateY(16px); }
+}
+@keyframes canvas-card-flash {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--nest-lime) 70%, transparent); }
+  100% { box-shadow: 0 0 0 22px transparent; }
+}
+/* The open card lies under its sheet: its ring would show around the sheet's corner. */
+.canvas-body.is-in-place .canvas-card.is-open {
+  outline-color: transparent;
+}
+/*
+ * At 560 px the header reads like the mock's open card: the title with Close at its right, then one compact row of
+ * actions under it, instead of three wrapped rows of full-size buttons.
+ */
+.canvas-chat[data-place] .canvas-chat-bar {
+  gap: 8px;
+  padding: 12px 12px 10px 18px;
+}
+.canvas-chat[data-place] .canvas-chat-heading {
+  flex: 1 1 calc(100% - 96px);
+}
+.canvas-chat[data-place] .canvas-chat-actions {
+  display: contents;
+}
+.canvas-chat[data-place] .canvas-chat-actions > * {
+  order: 2;
+}
+.canvas-chat[data-place] .canvas-chat-actions > :last-child {
+  order: 1;
+  align-self: flex-start;
+}
+.canvas-chat[data-place] :is(.canvas-chat-action, .canvas-chat-area select) {
+  min-height: 30px;
+  font-size: 12.5px;
+}
+.canvas-chat[data-place] .canvas-chat-action {
+  padding: 0 10px;
+}
+.canvas-chat[data-place] .canvas-chat-area {
+  font-size: 12.5px;
+}
+/* At 560 px a demo preview stacks under the chat (its narrow layout) instead of squeezing two columns. */
+.canvas-chat[data-mode="focus"] .artifact-chat-layout.has-preview {
+  flex-direction: column;
+  overflow: auto;
+}
+.canvas-chat[data-mode="focus"] .artifact-chat-layout.has-preview > .chat-stack {
+  min-height: 420px;
+  flex: none;
+}
+.canvas-chat[data-mode="focus"] .demo-artifact {
+  flex: none;
+}
+.canvas-chat[data-mode="focus"] :is(.demo-artifact-canvas, .demo-artifact iframe) {
+  min-height: 460px;
 }
 /* Split: the canvas stays on the left; the chat sits on the right with a draggable divider. */
 .canvas-chat[data-mode="split"] {
@@ -1362,9 +1444,13 @@
     inset: 0;
     z-index: 21;
     width: auto !important;
+    max-height: none;
+    min-height: 0;
     margin: 0;
     border: 0;
     border-radius: 0;
+    box-shadow: none;
+    animation: none;
   }
   .canvas-chat-divider {
     display: none;

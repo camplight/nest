@@ -269,6 +269,8 @@ await runChatTest('canvas files: a file dropped on an area joins its context and
   await openChat(page).waitFor();
   await openChat(page).getByRole('button',{name:'Split screen',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('.canvas-chat')?.getAttribute('data-mode')==='split');
+  // Opening in place brought the card to 100%; Fit shows both areas again.
+  await page.getByRole('button',{name:'Fit',exact:true}).click();
   await dropFile(page,'.canvas-area[data-area-id="'+emptyId+'"]','more.txt');
   await notice.getByText(/^Added 1 file to Quiet's context/).waitFor();
   assert.equal(await openChat(page).getAttribute('data-mode'),'split','the chat stays open');

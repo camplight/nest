@@ -165,6 +165,8 @@ await runChatTest('canvas context: notes, files, links, used by, view-only and n
   assert.equal(await chat.getAttribute('data-mode'),'focus','the focus chat stays open');
   await chat.getByRole('button',{name:'Split screen',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('.canvas-chat')?.getAttribute('data-mode')==='split');
+  // Opening in place brought the card to 100%; Fit shows both areas again.
+  await page.getByRole('button',{name:'Fit',exact:true}).click();
 
   // Area context: the warning (Launch holds the harness chat), then an upload with progress.
   const panel=await openAreaContext(page,'Launch');

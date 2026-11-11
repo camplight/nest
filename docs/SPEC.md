@@ -750,8 +750,18 @@ Phase 1 is built from
    chats pile.
 
 5. Using it. A shared canvas syncs every 5 seconds while visible and on window
-   focus. One chat opens at a time, in focus (over a dimmed canvas) or in split
-   screen beside it, and "Open in the regular chat view" leaves the canvas. Only
+   focus. One chat opens at a time, in focus or in split screen beside it, and
+   "Open in the regular chat view" leaves the canvas. Focus opens the chat in place:
+   the view moves to 100% (less only to fit a very tall card) with the card where a
+   560 px sheet fits, and the chat opens as that sheet over the card, its top-left
+   on the card's and following it as the view or window changes (at most
+   min(720 px, canvas height − 32 px) tall). Every other card, area and link dims
+   to 28%; there is no scrim. A chat that is not on this canvas opens as a plain
+   560 px chat centred just above the bottom box (at most min(640 px, 100vh −
+   190 px) tall), with the canvas at 30%. Escape (after any popover or picker in
+   the chat) or a click on the canvas beside the sheet closes it, and the card it
+   closes into flashes once. A demo preview inside the sheet stacks under the chat
+   rather than beside it. Phones keep a full-width chat. Only
    chats in the user UI's visible chat list open; if the open chat leaves that list,
    it closes. Only cards near the viewport are mounted, and below 50% zoom cards
    switch to a compact form. A chat dragged from the pile lands centred on the
