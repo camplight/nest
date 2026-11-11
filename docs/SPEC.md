@@ -762,7 +762,9 @@ Phase 1 is built from
    bar, agent tray and bottom box work, and Fit closes the chat, then fits. A
    press on empty canvas without dragging (the canvas's 3 px threshold) closes it,
    unless it is closing a popover, which then closes alone. While a focus chat is
-   open the canvas is hidden from screen readers and Tab stays in the chat; file
+   open the canvas is hidden from screen readers and Tab stays in the chat (focus
+   in another dialog, such as the Huddle, is left alone). A pointer can still reach
+   the bottom box and agent tray then, though screen readers do not; file
    drops on the canvas are ignored and drops on the chat attach. A chat that is not
    on this canvas opens as a plain 560 px chat centred just above the bottom box (at
    most min(640 px, 100vh − 190 px) tall), with the canvas at 30%. Escape (after
@@ -770,7 +772,8 @@ Phase 1 is built from
    flashes once. The chat's header is one row, as in the mock: title, faces and
    `in <area> · sees N contexts` (plus Archived or Read-only), then icon buttons
    for Split screen, Huddle, Open in the regular chat view, a More menu (Area,
-   Use this area's context, Sharing, Export chat) and Close. A demo preview inside
+   Use this area's context, Sharing, Export chat; hidden when it would be empty)
+   and Close. A demo preview inside
    the chat stacks above it rather than beside it. Phones keep a full-width chat. Only
    chats in the user UI's visible chat list open; if the open chat leaves that list,
    it closes. Only cards near the viewport are mounted, and below 50% zoom cards

@@ -229,6 +229,7 @@ await runChatTest('canvas chat: opens in place over its card, dims the rest, and
   assert.equal(await page.evaluate(({x,y})=>document.elementFromPoint(x,y)?.className.split(' ')[0],beside),'canvas-surface','the live canvas beside the sheet');
   assert.equal(await page.locator('.canvas-main').getAttribute('aria-hidden'),'true','hidden from screen readers');
   assert.equal(await page.locator('.canvas-main[inert]').count(),0,'but not inert');
+  assert.equal(await chat.getAttribute('aria-modal'),'true','the sheet is modal for screen readers');
 
   // The More menu: Area, Sharing and Export chat. Escape closes the menu first, then the sheet.
   const more=chat.getByRole('button',{name:'More chat actions',exact:true});
@@ -236,16 +237,48 @@ await runChatTest('canvas chat: opens in place over its card, dims the rest, and
   const menu=chat.getByRole('group',{name:'More chat actions',exact:true});
   await menu.getByRole('button',{name:'Sharing',exact:true}).waitFor();
   await menu.getByRole('button',{name:'Export chat',exact:true}).waitFor();
+  assert.equal(await more.getAttribute('aria-haspopup'),null,'a disclosure, not a menu');
   await page.keyboard.press('Escape');
   await menu.waitFor({state:'hidden'});
   assert.equal(await chat.count(),1,'Escape closed only the menu');
   assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')),'More chat actions','focus back on ⋯');
+  // Choosing Sharing (portaled from the thread) closes the panel; its dialog takes Escape, and the sheet stays.
+  await more.click();
+  await menu.getByRole('button',{name:'Sharing',exact:true}).click();
+  const sharing=page.locator('.participants-dialog');
+  await sharing.waitFor();
+  await menu.waitFor({state:'hidden'});
+  await page.locator('.dialog-backdrop').click({position:{x:5,y:5}});
+  await sharing.waitFor({state:'detached'});
+  assert.equal(await chat.count(),1,'the sheet stays after Sharing');
 
-  // Tab stays in the sheet.
+  // Tab and Shift+Tab stay in the sheet, wrapping at both ends.
+  const inSheet=()=>page.evaluate(()=>Boolean(document.activeElement?.closest('.canvas-chat')));
   for(let n=0;n<25;n++){
     await page.keyboard.press('Tab');
-    assert.equal(await page.evaluate(()=>Boolean(document.activeElement?.closest('.canvas-chat'))),true,`Tab ${n+1} stays in the sheet`);
+    assert.equal(await inSheet(),true,`Tab ${n+1} stays in the sheet`);
   }
+  await chat.getByRole('button',{name:'Split screen',exact:true}).focus();
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await inSheet(),true,'Shift+Tab from the first control wraps inside the sheet');
+  assert.notEqual(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')),'Split screen');
+
+  // The Huddle opened from the sheet keeps its own Tab order: the sheet's trap never pulls focus back.
+  await chat.locator('.canvas-chat-bar').getByRole('button',{name:'Huddle',exact:true}).click();
+  const huddle=page.locator('.huddle-dialog');
+  await huddle.waitFor();
+  await until(async()=>page.evaluate(()=>Boolean(document.activeElement?.closest('.huddle-dialog'))),'focus in the Huddle');
+  const seen=new Set<string>();
+  for(let n=0;n<3;n++){
+    await page.keyboard.press('Tab');
+    const at=await page.evaluate(()=>{const el=document.activeElement;return el?.closest('.huddle-dialog')?(el.getAttribute('aria-label')??el.textContent??'')+'|'+Array.from(el.parentElement?.children??[]).indexOf(el):'';});
+    assert.ok(at,`Tab ${n+1} stays in the Huddle`);
+    seen.add(at);
+  }
+  assert.ok(seen.size>1,`Tab moves within the Huddle: ${[...seen].join(', ')}`);
+  await huddle.getByRole('button',{name:'Close huddle',exact:true}).click();
+  await huddle.waitFor({state:'detached'});
+  assert.equal(await chat.count(),1,'the sheet stays after the Huddle');
 
   // The canvas stays live: a wheel zoom, a drag-pan and the zoom bar move the view and the sheet follows its card.
   const follows=async(what:string)=>{
@@ -277,14 +310,14 @@ await runChatTest('canvas chat: opens in place over its card, dims the rest, and
   const resized=await boxOf(chat);
   assert.ok(resized.y+resized.height<=(await dockOf()).y-7,'still above the bottom box');
 
-  // Drops on the canvas are ignored while the sheet is open; the sheet itself still takes them.
+  // Drops on the canvas are ignored while the sheet is open; the sheet itself still takes them. The drop handlers run
+  // synchronously, so once the sheet's own drop has landed the two earlier ones have been handled too.
   await dropFile(page,`.canvas-card[data-channel-id="${neighbourId}"]`,'ignored.txt');
   await dropFile(page,'.canvas-surface','ignored-too.txt');
-  await page.waitForTimeout(300);
-  assert.equal(params(page).chat,chatId,'no other chat opened');
-  assert.equal(await page.locator('.composer-attachments').getByText(/ignored/).count(),0,'neither file was taken');
   await dropFile(page,'.canvas-chat .chat-stack','sheet-drop.txt');
   await chat.locator('.composer-attachments').getByText('sheet-drop.txt').first().waitFor();
+  assert.equal(params(page).chat,chatId,'no other chat opened');
+  assert.equal(await page.locator('.composer-attachments').getByText(/ignored/).count(),0,'neither canvas drop was taken');
   await chat.getByRole('button',{name:'Remove sheet-drop.txt',exact:true}).click();
 
   // The bottom box keeps working beside the sheet.
@@ -300,9 +333,17 @@ await runChatTest('canvas chat: opens in place over its card, dims the rest, and
   await page.mouse.click(empty.x+12,empty.y+empty.height/2);
   await popover.waitFor({state:'detached'});
   assert.equal(await chat.count(),1,'the sheet stays while the popover closes');
+  // A drag that starts in the chat and ends over the canvas keeps it open.
+  const inside=await boxOf(chat.locator('.messages-panel'));
+  await page.mouse.move(inside.x+40,inside.y+20);
+  await page.mouse.down();
+  await page.mouse.move(empty.x+12,empty.y+empty.height/2,{steps:4});
+  await page.mouse.up();
+  assert.equal(await chat.count(),1,'a drag out of the chat keeps it open');
   await page.mouse.click(empty.x+12,empty.y+empty.height/2);
   await chat.waitFor({state:'detached'});
   assert.equal(params(page).chat,null);
+  assert.equal(await page.locator('.canvas-main').getAttribute('aria-hidden'),null,'the canvas is back for screen readers');
   assert.equal(await card.getAttribute('data-flash'),'','the card flashes as the chat closes into it');
   await until(async()=>await opacity(neighbour)===1,'the canvas back at full strength');
 

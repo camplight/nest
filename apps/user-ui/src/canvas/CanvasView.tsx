@@ -605,7 +605,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'k') return;
       const target = event.target;
       if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) && !target.closest('.canvas-search')) return;
-      if (document.querySelector('[aria-modal="true"]:not([aria-label="Search the canvas"])')) return;
+      if (document.querySelector('[aria-modal="true"]:not([aria-label="Search the canvas"]):not(.canvas-chat)')) return;
       event.preventDefault();
       setSearchOpen(true);
     };
@@ -799,7 +799,7 @@ const SPLIT_STEP = 2;
 /** Another dialog above the chat (manage channel, the tour) takes Escape and Tab for itself, and so does an open context popover. */
 const OTHER_DIALOG = '[aria-modal="true"]:not(.canvas-chat), .dialog-backdrop, .canvas-context';
 /** An open popover a press on the canvas closes first: the sheet stays open under it (the mock's anyPop). */
-export const CANVAS_POPOVER = '.canvas-context, .canvas-chat-menu:not([hidden])';
+export const CANVAS_POPOVER = '.canvas-context, .canvas-chat-menu:not([hidden]), .canvas-menu, .canvas-picker';
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
 
 /** Where a focus chat's sheet is anchored: over its card, or as a plain chat over the bottom box. */
@@ -887,8 +887,9 @@ function CanvasChat({channelId, mode, anchor, watchView, title, sub, area, onUse
     return () => { unwatch(); window.removeEventListener('resize', update); };
   }, [mode, anchor, channelId, watchView]);
 
-  // Tab stays inside a focus chat (the canvas behind it is hidden from screen readers), unless a dialog or popover above
-  // it has its own focus to manage.
+  // Tab stays inside a focus chat (the canvas behind it is hidden from screen readers). It acts only when focus is in the
+  // sheet, on the page body or in the hidden canvas: focus in any other dialog or portal (the Huddle, Manage channel, a
+  // popover) is that dialog's to move, and is never pulled back here.
   useEffect(() => {
     if (mode !== 'focus') return;
     const key = (event: KeyboardEvent) => {
@@ -898,6 +899,7 @@ function CanvasChat({channelId, mode, anchor, watchView, title, sub, area, onUse
       if (!items.length) return;
       const first = items[0], last = items[items.length - 1], active = document.activeElement;
       const inside = active instanceof Node && sheet.contains(active);
+      if (!inside && active && active !== document.body && !active.closest('.canvas-main')) return;
       if (!inside || (event.shiftKey ? active === first || active === sheet : active === last)) {
         event.preventDefault();
         (event.shiftKey ? last : first).focus();
@@ -922,9 +924,18 @@ function CanvasChat({channelId, mode, anchor, watchView, title, sub, area, onUse
       menuButton.current?.focus();
     };
     const press = (event: PointerEvent) => { if (!(event.target instanceof Node && menuRef.current?.contains(event.target))) setMenu(false); };
+    // Choosing an action closes it. A native listener: Sharing and Export are portaled from the thread, so their clicks
+    // travel React's tree (the thread), not this panel's.
+    const panelElement = menuRef.current?.querySelector('.canvas-chat-menu');
+    const choose = (event: Event) => { if (event.target instanceof Element && event.target.closest('button')) setMenu(false); };
     window.addEventListener('keydown', key, true);
     window.addEventListener('pointerdown', press, true);
-    return () => { window.removeEventListener('keydown', key, true); window.removeEventListener('pointerdown', press, true); };
+    panelElement?.addEventListener('click', choose);
+    return () => {
+      window.removeEventListener('keydown', key, true);
+      window.removeEventListener('pointerdown', press, true);
+      panelElement?.removeEventListener('click', choose);
+    };
   }, [menu]);
   // Huddle goes on the title row; Sharing and Export chat into the More menu (ChatThread portals them).
   const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
@@ -973,7 +984,7 @@ function CanvasChat({channelId, mode, anchor, watchView, title, sub, area, onUse
     ...(place.kind === 'card' ? {'--sheet-y': `${place.y}px`} : {'--sheet-bottom': `${place.bottom}px`})} : undefined;
   const sheet = vars as CSSProperties | undefined;
   return <section ref={panel} className="canvas-chat" data-mode={mode} data-place={focus ? place?.kind : undefined} tabIndex={-1}
-    role={focus ? 'dialog' : 'region'} aria-label={`Open chat ${title}`}
+    role={focus ? 'dialog' : 'region'} aria-modal={focus ? true : undefined} aria-label={`Open chat ${title}`}
     style={focus ? sheet : {width: `${split}%`}}>
     {focus ? null : <div className="canvas-chat-divider" role="separator" aria-label="Resize chat" aria-orientation="vertical"
       aria-valuenow={split} aria-valuemin={SPLIT_MIN} aria-valuemax={SPLIT_MAX} aria-valuetext={`Chat ${Math.round(split)}% wide`} tabIndex={0}
@@ -1004,9 +1015,8 @@ function CanvasChat({channelId, mode, anchor, watchView, title, sub, area, onUse
           onClick={onOpenRegular}><SquareArrowOutUpRight size={16} aria-hidden="true"/></button>
         <div ref={menuRef} className="canvas-chat-more">
           <button ref={menuButton} type="button" className="canvas-chat-icon" aria-label="More chat actions" title="More: area, sharing and export"
-            aria-haspopup="true" aria-expanded={menu} aria-controls={menuId} onClick={() => setMenu(open => !open)}><Ellipsis size={16} aria-hidden="true"/></button>
-          <div id={menuId} className="canvas-chat-menu" role="group" aria-label="More chat actions" hidden={!menu}
-            onClick={event => { if (event.target instanceof Element && event.target.closest('button')) setMenu(false); }}>
+            aria-expanded={menu} aria-controls={menuId} onClick={() => setMenu(open => !open)}><Ellipsis size={16} aria-hidden="true"/></button>
+          <div id={menuId} className="canvas-chat-menu" role="group" aria-label="More chat actions" hidden={!menu}>
             {area ? <label className="canvas-chat-area">
               <span>Area</span>
               <select value={area.current ?? ''} onChange={event => { setMenu(false); area.onMove(event.target.value || null); }}>

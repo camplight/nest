@@ -1333,6 +1333,7 @@
 }
 /* The mock's `.ch-acts`: 30 px icon buttons, then Close. */
 .canvas-chat-actions {
+  position: relative;
   flex: none;
   display: flex;
   align-items: center;
@@ -1383,6 +1384,19 @@
   background: var(--nest-lime);
   color: var(--nest-forest);
 }
+/* "Loading huddle…" drops below the icon row instead of widening it. */
+.canvas-chat-actions .huddle-load-notice {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  border: 1px solid var(--nest-border);
+  border-radius: 10px;
+  padding: 0 10px;
+  background: var(--nest-surface);
+  box-shadow: var(--canvas-shadow);
+  white-space: nowrap;
+}
 /* The mock's `.x`: Close sits apart, on a quiet fill. */
 .canvas-chat-close {
   border-color: transparent;
@@ -1390,6 +1404,10 @@
 }
 .canvas-chat-more {
   position: relative;
+}
+/* Nothing to offer (a viewer's chat with no messages yet): no ⋯ at all. */
+.canvas-chat-more:not(:has(.canvas-chat-menu :is(button, select))) {
+  display: none;
 }
 .canvas-chat-menu {
   position: absolute;

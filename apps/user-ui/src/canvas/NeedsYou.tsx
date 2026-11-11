@@ -66,7 +66,7 @@ export function NeedsYou({pulses, titles, projects, reviews, onOpenChange, onJum
     if (!open) return;
     const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
     const key = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
+      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('[aria-modal="true"]:not(.canvas-chat)')) return;
       event.preventDefault();
       setOpen(false);
       trigger.current?.focus({preventScroll: true});

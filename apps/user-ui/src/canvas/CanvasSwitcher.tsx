@@ -28,7 +28,7 @@ export function CanvasSwitcher({canvases, current, open, onOpenChange, onSelect,
     if (!open) return;
     const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) closeRef.current(false); };
     const key = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
+      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('[aria-modal="true"]:not(.canvas-chat)')) return;
       event.preventDefault();
       closeRef.current(false);
       trigger.current?.focus({preventScroll: true});
