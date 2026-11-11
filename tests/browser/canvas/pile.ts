@@ -424,20 +424,26 @@ await runChatTest('canvas drawer: a loose chat is placed on the canvas with the 
   await page.keyboard.press('Escape');
   await sheet.waitFor({state:'detached'});
 
-  // The Area picker's No area (on the canvas) does the same for another loose chat.
+  // The Area picker's No area (on the canvas) does the same for another loose chat. It comes after the areas, so a
+  // first arrow press (which commits a closed select on Windows and Linux) never places the chat by accident.
+  const zoneId=crypto.randomUUID();
+  await call(h,'POST',`/api/canvases/${id}/areas`,{id:zoneId,title:'Far zone',x:4000,y:4000,w:400,h:300,tint:'pip'});
   await page.goto(`${base}/?view=canvas&canvas=${id}&chat=${second.channelId}&mode=focus`);
   await page.locator('.canvas-chat[data-place="loose"]').waitFor();
   await tabTo('.canvas-chat [aria-label="More chat actions"]','More chat actions');
   await page.keyboard.press('Enter');
   await tabTo('.canvas-chat-area select','the Area picker');
+  assert.deepEqual(await area.locator('option').allTextContents(),['Not on this canvas','Far zone','No area (on the canvas)'],'the canvas comes last');
   const onCanvas=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith(`/api/canvases/${id}/cards`));
-  await area.selectOption({label:'No area (on the canvas)'});
+  await page.keyboard.press('End');
   assert.equal((await onCanvas).status(),201);
   await page.locator(`.canvas-card[data-channel-id="${second.channelId}"]`).waitFor();
   await page.locator('.canvas-chat[data-place="card"]').waitFor();
   const cards=(await board(h,id)).cards;
   const a=cards.find(c=>c.channelId===first.channelId)!, b=cards.find(c=>c.channelId===second.channelId)!;
   assert.ok(Math.abs(a.x-b.x)>=280||Math.abs(a.y-b.y)>=160,'the second card is placed clear of the first');
+  const zone=(await board(h,id)).areas.find(z=>z.id===zoneId)!;
+  assert.equal(inside(zone,b),false,'on the canvas, in no area');
   await countIs(page,0);
 },{canvas:true});
 

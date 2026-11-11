@@ -17,7 +17,7 @@ import {AgentAvatar} from '../components/AgentAvatar';
 import {ChatHeaderSlotsContext,type ChatHeaderSlots} from '../chat/header-slots';
 import {nudgeMessage,type CanvasLive} from './live';
 import {LooseDrawer,LooseToggle,MAX_BULK} from './LooseDrawer';
-import {CARD_PLACE_HEIGHT,areaAround,clearOfCards,dropLayout,gridPlacement,looseChats,slotInArea,slotOutsideAreas,type Placed} from './loose';
+import {CARD_PLACE_HEIGHT,areaAround,clearOfCards,dropLayout,gridPlacement,looseChats,looseNeedsYou,slotInArea,slotOutsideAreas,type Placed} from './loose';
 import {SPLIT_MAX,SPLIT_MIN,clampSplit,readSplit,splitAt,writeSplit} from './split';
 import {cardTitle} from './Card';
 import {AgentTray} from './AgentTray';
@@ -298,7 +298,12 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   // Phones have no drawer: the toggle selects the phone list's own Loose chats segment instead.
   const [phoneLoose, setPhoneLoose] = useState(0);
   const toggleDrawer = useCallback(() => {
-    if (phoneRef.current) { setPhoneLoose(n => n + 1); return; }
+    // A phone chat covers the list, so it closes first.
+    if (phoneRef.current) {
+      if (modeRef.current) closeRef.current();
+      setPhoneLoose(n => n + 1);
+      return;
+    }
     const open = !drawerRef.current;
     showDrawer(open);
     if (open) setDrawerFocus(n => n + 1);
@@ -582,8 +587,10 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   }, [cards, candidates]);
   // Cards show their chat's Needs you items too (mentions and reviews), so the reviews are read here for both.
   const [needsOpen, setNeedsOpen] = useState(false);
-  // Read only for a shown canvas on a wide screen; the phone list reads its own.
-  const reviews = useReviews(needsOpen, Boolean(canvasId) && !phone);
+  // Read once for a shown canvas, phones included: the phone list's Needs you takes them from here, and a loose chat
+  // that only waits on a review turns the top-bar count coral there too. Read again as either Needs you opens.
+  const [phoneNeedsOpen, setPhoneNeedsOpen] = useState(false);
+  const reviews = useReviews(needsOpen || phoneNeedsOpen, Boolean(canvasId));
   const needsCache = useRef<ReadonlyMap<string, NeedsItem[]>>(new Map());
   const cardNeeds = useMemo(() => {
     const next = needsByChannel(needsYouItems({pulses, titles, reviews, projects}), needsCache.current);
@@ -594,7 +601,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const loose = useMemo(() => cards ? looseChats({channels, projects, boardChannelIds: boardIds, hidden, username, userId: humanId, pulses, needs: cardNeeds, showHidden}) : [],
     [cards, channels, projects, boardIds, hidden, username, humanId, pulses, cardNeeds, showHidden]);
   const shownLoose = useMemo(() => showHidden ? loose.filter(chat => !hidden.has(chat.channelId)) : loose, [loose, hidden, showHidden]);
-  const looseHot = useMemo(() => shownLoose.some(chat => chat.needsYou), [shownLoose]);
+  const looseHot = useMemo(() => shownLoose.some(looseNeedsYou), [shownLoose]);
   const [highlight, setHighlight] = useState<{id: string; n: number} | null>(null);
   const highlightCount = useRef(0);
   useEffect(() => { setHighlight(null); }, [canvasId]);
@@ -782,7 +789,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     // The bottom box stays on phones, under the list.
     body = <div className="canvas-phone-stage">
       <PhoneList key={board.canvas.id} board={board} pulses={pulses} loose={shownLoose} titles={titles} projects={projects}
-        onOpenChat={openLoose} openChannelId={chatShown ? chatChannelId : null} areaContext={areaContext} onAreaContext={openAreaContext} looseKey={phoneLoose}/>
+        onOpenChat={openLoose} openChannelId={chatShown ? chatChannelId : null} areaContext={areaContext} onAreaContext={openAreaContext} looseKey={phoneLoose}
+        reviews={reviews} onNeedsShown={setPhoneNeedsOpen}/>
       {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!chatShown} fileDropAccept={outsideCanvasChat} onFilesDropped={dockFiles}/></div> : null}
     </div>;
   } else {
@@ -1124,8 +1132,9 @@ function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub,
               <span>Area</span>
               <select value={area.current ?? ''} onChange={event => { setMenu(false); area.onMove(event.target.value === ON_CANVAS ? null : event.target.value || null); }}>
                 <option value="" disabled={!area.placed}>{area.placed ? 'No area' : 'Not on this canvas'}</option>
-                {!area.placed && area.onCanvas ? <option value={ON_CANVAS}>No area (on the canvas)</option> : null}
                 {area.areas.map(option => <option key={option.id} value={option.id}>{option.title || 'Untitled area'}</option>)}
+                {/* Last, so a first arrow press (which commits on Windows and Linux) never lands on it. */}
+                {!area.placed && area.onCanvas ? <option value={ON_CANVAS}>No area (on the canvas)</option> : null}
               </select>
             </label> : null}
             {onPlace ? <button type="button" className="canvas-chat-menu-item" title="Put this chat on the canvas at the centre of the view"

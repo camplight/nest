@@ -179,6 +179,15 @@ await runChatTest('canvas devices: a phone gets the list with areas, needs you a
   const tabsBox=(await tabs.boundingBox())!,shown=(await page.locator('.canvas-body').boundingBox())!;
   assert.ok(tabsBox.y>=shown.y-1&&tabsBox.y<shown.y+shown.height,`the segments are in view: ${JSON.stringify(tabsBox)}`);
   assert.equal(await page.locator('.canvas-drawer').count(),0,'no second, full-screen drawer');
+  // With a chat open over the list, the toggle closes it first, then shows the segment.
+  await looseList.getByRole('button',{name:/^Synthetic loose chat/}).tap();
+  await chat.waitFor();
+  await toggle.tap();
+  await chat.waitFor({state:'detached'});
+  assert.equal(new URL(page.url()).searchParams.get('chat'),null,'the chat closed');
+  assert.equal(await looseTab.getAttribute('aria-selected'),'true');
+  for(let i=0;i<50&&!await looseTab.evaluate(el=>document.activeElement===el);i++)await page.waitForTimeout(100);
+  assert.equal(await looseTab.evaluate(el=>document.activeElement===el),true,'focus is on the Loose chats tab, not lost under the chat');
 
   // Needs you lists a real mention from the mate, and opens its chat.
   await tabs.getByRole('tab',{name:/^Needs you/}).tap();

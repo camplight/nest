@@ -816,7 +816,8 @@ Phase 1 is built from
    the Area picker puts its card in the first free spot under the chosen area's title
    bar (the area grows to fit), places a loose chat there directly, or with No area
    moves the card just outside its area; the view follows the card. For a loose chat the
-   picker also offers `No area (on the canvas)`, shown even on a canvas without areas,
+   picker also offers `No area (on the canvas)` after the areas (so a first arrow press
+   never places it), shown even on a canvas without areas,
    and the More menu has `Place on canvas` (desktop editors only): both place it at the
    viewport centre, moved below any card it would cover, and the chat then opens in
    place over its new card. This is the keyboard and single-pointer way to place one
@@ -843,7 +844,8 @@ Phase 1 is built from
    Working / Done` with counts (archived chats left out, as in the header), and rows in day groups by last activity on the local
    calendar (`Today · n`, `Yesterday · n`, `This week · n` for the five days before,
    `Older · n`; Older folds behind Show/Hide when there is no search, chip or agent
-   filter). A chat needs you when it has a Needs you item (mention or review), else is
+   filter). A chat needs you when it has a Needs you item (mention or review; reviews are
+   read on phones too), the one test behind the Needs you chip and the coral count; else it is
    working while an agent's turn is live (working, or quiet for a while), else is done, from the same pulses and
    items as the cards. A row has a checkbox, the first agent's face, the title, a second
    line and the last activity (`5m`): the line is `Needs you: {reason}` in coral for the
@@ -931,8 +933,8 @@ Phase 1 is built from
    then the chats in no area), Needs you and Loose chats. Tapping a chat opens it in
    focus over the whole body, and the bottom box stays under the list. The top bar's
    Loose chats toggle (icon and count, coral while one needs the person) has no drawer
-   there: it selects the list's Loose chats segment, focuses its tab and scrolls the
-   segments into view. Tablets keep
+   there: it closes an open chat, then selects the list's Loose chats segment, focuses
+   its tab and scrolls the segments into view. Tablets keep
    the canvas with pinch and pan. Colours come from the Nest brand tokens with
    light and dark variants under `:root[data-theme="dark"]`; the Pip and Pom tints
    and the quiet and alert text colours, which have no brand token, are canvas

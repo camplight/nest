@@ -3,7 +3,7 @@ import type {Project} from '@nest/schemas';
 import type {Channel} from '../types';
 import type {AgentPulse,CardPulse} from './pulse';
 import type {NeedsItem} from './needs';
-import {CARD_PLACE_HEIGHT,GRID_STEP,PLACE_GAP,areaAround,clearOfCards,dayGroup,drawerLayout,dropPlacement,filterLoose,gridPlacement,looseChats,looseCounts,looseStatus,slotInArea,slotOutsideAreas,type LooseChat,type LooseFilter} from './loose';
+import {CARD_PLACE_HEIGHT,GRID_STEP,PLACE_GAP,areaAround,clearOfCards,dayGroup,drawerLayout,dropPlacement,filterLoose,gridPlacement,looseChats,looseCounts,looseNeedsYou,looseStatus,slotInArea,slotOutsideAreas,type LooseChat,type LooseFilter} from './loose';
 
 const NOW=Date.UTC(2026,10,8,12);
 const HOUR=3_600_000,DAY=24*HOUR;
@@ -37,9 +37,9 @@ describe('looseChats',()=>{
 
   it('titles a project chat by its project name and lists its agents, needs-you and activity',()=>{
     const [item]=looseChats({...base,channels:[chat('c1')],projects:[project('p1','c1','Invoice cleanup')],pulses:new Map([['c1',pulse(NOW-HOUR,2)]])});
-    expect(item).toMatchObject({channelId:'c1',projectId:'p1',title:'Invoice cleanup',agents:['Pip'],needsYou:true,lastActivityAt:NOW-HOUR});
+    expect(item).toMatchObject({channelId:'c1',projectId:'p1',title:'Invoice cleanup',agents:['Pip'],state:'need',lastActivityAt:NOW-HOUR});
     const [plain]=looseChats({...base,channels:[chat('c2')]});
-    expect(plain).toMatchObject({projectId:null,title:'chat-c2',needsYou:false,lastActivityAt:null});
+    expect(plain).toMatchObject({projectId:null,title:'chat-c2',state:'done',lastActivityAt:null});
   });
 
   it('sorts by lastActivityAt descending, then by title',()=>{
@@ -50,11 +50,11 @@ describe('looseChats',()=>{
 });
 
 const looseItem=(channelId:string,patch:Partial<LooseChat>):LooseChat=>({channelId,projectId:null,title:`Chat ${channelId}`,participants:[],lastActivityAt:null,
-  needsYou:false,agents:[],state:'done',reason:null,line:'',...patch});
+  agents:[],state:'done',reason:null,line:'',...patch});
 
 describe('filterLoose',()=>{
   const items:LooseChat[]=[
-    looseItem('1',{title:'Invoice run',agents:['Pip'],needsYou:true,state:'need',reason:'approve refund'}),
+    looseItem('1',{title:'Invoice run',agents:['Pip'],state:'need',reason:'approve refund'}),
     looseItem('2',{title:'Launch plan',agents:['Moss'],state:'working'}),
     looseItem('3',{title:'Old notes',participants:[{subscriberType:'HUMAN',subscriberId:'invoice-team'}]}),
     looseItem('4',{title:'Silent',agents:['Invoicer']}),
@@ -75,6 +75,7 @@ describe('filterLoose',()=>{
   });
   it('counts every chat and each state for the chips',()=>{
     expect(looseCounts(items)).toEqual({all:4,need:1,working:1,done:2});
+    expect(items.filter(looseNeedsYou).length).toBe(looseCounts(items).need);
   });
 
   it('filters 250 chats in under 10 ms',()=>{
@@ -122,9 +123,11 @@ describe('looseStatus',()=>{
   });
   it('looseChats uses the chat\'s Needs you items when given, reviews included',()=>{
     const [item]=looseChats({...base,channels:[chat('c1')],needs:new Map([['c1',[review]]])});
-    expect(item).toMatchObject({needsYou:true,state:'need',reason:'Approve refund'});
+    expect(item).toMatchObject({state:'need',reason:'Approve refund'});
+    expect(looseNeedsYou(item)).toBe(true);
     const [quiet]=looseChats({...base,channels:[chat('c1')],pulses:new Map([['c1',pulse(NOW,1)]]),needs:new Map()});
-    expect(quiet).toMatchObject({needsYou:false,state:'done',reason:null});
+    expect(quiet).toMatchObject({state:'done',reason:null});
+    expect(looseNeedsYou(quiet)).toBe(false);
   });
 });
 

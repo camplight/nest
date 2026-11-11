@@ -9,7 +9,7 @@ import {AREA_FIT_PAD,overlaps,type Point,type Rect} from './geometry';
 /** The drawer's chips: it has a Needs you item, else an agent is working, else it is done. */
 export type LooseState = 'need' | 'working' | 'done';
 export type LooseChat = {
-  channelId: string; projectId: string | null; title: string; participants: ChannelParticipant[]; lastActivityAt: number | null; needsYou: boolean; agents: string[];
+  channelId: string; projectId: string | null; title: string; participants: ChannelParticipant[]; lastActivityAt: number | null; agents: string[];
   state: LooseState;
   /** The newest Needs you reason (a mention's first line or the reviewed task's title); null when nothing needs the person. */
   reason: string | null;
@@ -71,7 +71,6 @@ export function looseChats({channels, projects, boardChannelIds, hidden, usernam
       title: project?.name || channel.name,
       participants,
       lastActivityAt: pulse?.lastActivityAt ?? project?.createdAt ?? null,
-      needsYou: status.state === 'need',
       agents,
       ...status,
     });
@@ -91,9 +90,15 @@ export function filterLoose(items: LooseChat[], {query, state, agent}: LooseFilt
 }
 
 /** The chip counts: every chat, and how many are in each state. */
+/**
+ * Whether a loose chat needs the person (a mention or a review waiting): the one test behind the Needs you chip, the
+ * top-bar toggle's coral count and the phone list's dot.
+ */
+export const looseNeedsYou = (chat: LooseChat) => chat.state === 'need';
+
 export function looseCounts(items: readonly LooseChat[]): Record<LooseStateFilter, number> {
   const counts = {all: items.length, need: 0, working: 0, done: 0};
-  for (const item of items) counts[item.state]++;
+  for (const item of items) counts[looseNeedsYou(item) ? 'need' : item.state]++;
   return counts;
 }
 

@@ -1,11 +1,10 @@
 // Phones (760 px wide or less): a list in place of the free canvas. Areas expand to their chats, and
 // Needs you and Loose chats sit beside them. Tapping a chat opens it in focus. No surface, tray or drag.
 import {useEffect,useId,useMemo,useRef,useState,useSyncExternalStore,type KeyboardEvent} from 'react';
-import type {BoardCard,CanvasBoard,Project} from '@nest/schemas';
+import type {BoardCard,CanvasBoard,DashboardTask,Project} from '@nest/schemas';
 import {ago,cardTitle,statusText} from './Card';
-import {filterLoose,type LooseChat} from './loose';
+import {filterLoose,looseNeedsYou,type LooseChat} from './loose';
 import {needsYouItems} from './needs';
-import {useReviews} from './NeedsYou';
 import {NO_AREA,phoneGroups} from './phone';
 import type {CardPulse} from './pulse';
 import type {AreaContext} from './Area';
@@ -47,6 +46,10 @@ export type PhoneListProps = {
   onAreaContext?(areaId: string, opener: HTMLElement): void;
   /** Changes each time the top bar's Loose chats toggle is pressed: the Loose chats segment is selected and scrolled into view. */
   looseKey?: number;
+  /** Tasks waiting for review, read by the canvas (which also colours the toggle's count from them). */
+  reviews: DashboardTask[];
+  /** Whether the Needs you segment is shown, so the reviews are read again as it opens. */
+  onNeedsShown?(shown: boolean): void;
 };
 
 const agentList = (names: string[]) => names.length ? names.slice(0, 2).join(', ') + (names.length > 2 ? ` +${names.length - 2}` : '') : 'No agents';
@@ -74,7 +77,7 @@ function CardRow({card, pulse, open, onOpen}: {card: BoardCard; pulse?: CardPuls
   </li>;
 }
 
-export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, openChannelId, areaContext, onAreaContext, looseKey = 0}: PhoneListProps) {
+export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, openChannelId, areaContext, onAreaContext, looseKey = 0, reviews, onNeedsShown}: PhoneListProps) {
   const base = useId();
   const [segment, setSegment] = useState<Segment>('areas');
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
@@ -92,7 +95,11 @@ export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, o
     tab?.closest('.canvas-phone-segments')?.scrollIntoView({block: 'start'});
   }, [looseKey]);
   const groups = useMemo(() => phoneGroups(board.cards, board.areas), [board.cards, board.areas]);
-  const reviews = useReviews(segment === 'needs');
+  const needsShown = useRef(onNeedsShown); needsShown.current = onNeedsShown;
+  useEffect(() => {
+    needsShown.current?.(segment === 'needs');
+    return () => needsShown.current?.(false);
+  }, [segment]);
   const needs = useMemo(() => needsYouItems({pulses, titles, reviews, projects}), [pulses, titles, reviews, projects]);
   const now = Date.now();
   const shownLoose = useMemo(() => filterLoose(loose, {query, ...ANY_LOOSE}), [loose, query]);
@@ -168,7 +175,7 @@ export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, o
               <span className="canvas-phone-title">{chat.title || 'Untitled chat'}</span>
               <span className="canvas-phone-meta">{agentList(chat.agents)}{chat.lastActivityAt !== null ? ` · ${ago(chat.lastActivityAt, now)}` : ''}</span>
             </span>
-            {chat.needsYou ? <span className="canvas-phone-dot" role="img" aria-label="Needs you"/> : null}
+            {looseNeedsYou(chat) ? <span className="canvas-phone-dot" role="img" aria-label="Needs you"/> : null}
           </button>
         </li>)}
       </ul> : <p className="canvas-phone-empty">{loose.length ? 'No loose chats match.' : 'Every chat of yours is on this canvas.'}</p>}
