@@ -837,21 +837,26 @@ Phase 1 is built from
 
    Agent tray and picker. The tray (bottom left) reads `Pinned`, then the person's
    pinned agents in their order, then `All N` (`Search all agents`), as in the mock.
-   Until the person first pins or unpins, it shows a default instead: their own agents
-   by name, then the team's, up to 7. Once saved it shows exactly their pins, an empty
-   list included; pins for agents no longer on the roster drop out. With a card selected,
+   Until the person first pins or unpins, their pins are a seed: their own agents by
+   name, then the team's, up to 7, starred like any pin. The first star or unstar saves
+   that list with the one change (unstarring removes the agent and keeps the rest,
+   starring appends), so the tray never collapses. Once saved it shows exactly their
+   pins, an empty list included; pins for agents no longer on the roster drop out. With a card selected,
    up to 3 agents from the other chats in its area who are not in it lead the tray as
    `Suggested for this chat` (accent), then a separator and the pins, without the `Pinned`
    label. `All N` opens the picker: `Agents · N` with a ✕, a search over name (ranked like
-   @mentions), role (the engine description) and owner name, a compact area filter, the
+   @mentions), role (the engine description) and owner name (`Search by name, role or
+   owner`), a compact area filter, the
    chips `All / Yours / Free now / Working`, and rows grouped by owner (`Yours · n` first,
    then `{owner}'s team · n`, or `Team · n` without a known owner). A row has the face,
    the name, the role, a live status and a star. The status reads `in N chat(s)` (accent)
    for the placed cards on this canvas where the agent is a participant and working now
    (from the same live pulses as the card rows) or `free`. The star is a toggle button
-   (`aria-pressed`, `Pin {name} to tray` or `Unpin {name}`); an eighth pin is refused with
-   the notice `You can pin up to 7 agents. Unpin one first.` The footer says `Drag any
-   agent onto a chat or an area · ☆ pins it to the tray`. A face dragged far enough off
+   named `Pin {name} to tray` with `aria-pressed` for its state (titled `Pin to tray` or
+   `Unpin`); an eighth pin is refused with the notice `You can pin up to 7 agents. Unpin
+   one first.` The footer says `Drag any agent onto a chat · ☆ pins it to the tray`;
+   areas take no agent drops. App grants are not shown or searched (the agent list
+   carries none). A face dragged far enough off
    its card to remove the agent shows `Remove {agent} from "{title}"` in coral.
 
    Area summaries. At compact zoom an area's title has a summary under it, counting the

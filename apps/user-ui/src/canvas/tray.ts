@@ -23,8 +23,8 @@ export function areaAgentNames(areaId: string, cards: BoardCard[], areas: Canvas
 }
 
 /**
- * The tray before a person saves any pins: their own agents by name, then the team's by name, up to the pin
- * limit, so a new person never sees an empty tray. The engine may give public agents an owner too.
+ * The pins before a person saves any: their own agents by name, then the team's by name, up to the pin limit,
+ * so a new person never sees an empty tray. The engine may give public agents an owner too.
  */
 export function seedPins(agents: Agent[], humanId: string): string[] {
   const mine = owns(humanId);
@@ -32,14 +32,30 @@ export function seedPins(agents: Agent[], humanId: string): string[] {
 }
 
 /**
+ * The pin list the person sees and stars: their saved pins, or the seed until they save any (the seeded agents
+ * count as pinned). Empty while the saved pins are still loading, so they never flash the seed first.
+ */
+export function effectivePins(saved: {agentNames: readonly string[]; saved: boolean} | null, agents: Agent[], humanId: string): string[] {
+  if (!saved) return [];
+  return saved.saved ? [...saved.agentNames] : seedPins(agents, humanId);
+}
+
+/**
+ * One star press on the visible pin list: unstarring removes that agent and keeps the rest, starring appends.
+ * Null when it would pass the pin limit (the caller shows the limit notice and saves nothing).
+ */
+export function togglePin(current: readonly string[], name: string): string[] | null {
+  if (current.includes(name)) return current.filter(pin => pin !== name);
+  return current.length >= AGENT_PIN_MAX ? null : [...current, name];
+}
+
+/**
  * The tray: for the selected card, up to SUGGESTION_MAX agents from its area's other cards who are not in it,
- * then the person's pins in their order (the seed until they save any), minus those suggested.
+ * then the person's pins in their order (see effectivePins), minus those suggested.
  * Only roster agents appear, so a pin for an agent that is gone or no longer visible drops out silently.
  */
-export function trayAgents({agents, humanId, cards, areas, selectedId, pins}: {
-  agents: Agent[]; humanId: string; cards: BoardCard[]; areas: CanvasArea[]; selectedId: string | null;
-  /** The saved pins, or null before the person has saved any. */
-  pins: readonly string[] | null;
+export function trayAgents({agents, cards, areas, selectedId, pins}: {
+  agents: Agent[]; cards: BoardCard[]; areas: CanvasArea[]; selectedId: string | null; pins: readonly string[];
 }): TrayAgents {
   const selected = cards.find(card => card.channelId === selectedId && card.access === 'open');
   const present = new Set(agentsIn(selected));
@@ -48,7 +64,7 @@ export function trayAgents({agents, humanId, cards, areas, selectedId, pins}: {
   const nearby = area ? areaAgentNames(area.id, cards, areas) : new Set<string>();
   const suggested = [...nearby].filter(name => !present.has(name)).flatMap(name => roster.get(name) ?? []).sort(byName).slice(0, SUGGESTION_MAX);
   const shown = new Set(suggested.map(agent => agent.name));
-  const pinned = (pins ?? seedPins(agents, humanId)).filter(name => !shown.has(name)).flatMap(name => roster.get(name) ?? []);
+  const pinned = pins.filter(name => !shown.has(name)).flatMap(name => roster.get(name) ?? []);
   return {suggested, pinned};
 }
 

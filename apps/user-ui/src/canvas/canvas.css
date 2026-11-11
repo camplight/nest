@@ -1683,7 +1683,11 @@
   flex: 1;
   min-width: 0;
   padding: 8px 10px;
-  font-size: 15px;
+  font-size: 14px;
+}
+/* The empty field gives the clear button's room to the placeholder. */
+.canvas-picker-search:placeholder-shown::-webkit-search-cancel-button {
+  display: none;
 }
 .canvas-picker-search:focus {
   border-color: var(--nest-accent);
@@ -1694,7 +1698,7 @@
 }
 .canvas-picker-area {
   flex: none;
-  max-width: 108px;
+  max-width: 96px;
   padding: 0 6px;
   font-size: 12px;
   color: var(--nest-muted);

@@ -237,52 +237,58 @@ await runChatTest('canvas agents: stars pin agents to the tray across reloads, u
   const tray=page.getByRole('region',{name:'Agents',exact:true});
   const pinsSaved=()=>call<{agentNames:string[];saved:boolean}>(h,'GET','/api/canvases/agent-pins');
 
-  // Nothing pinned yet: the tray seeds itself under the Pinned label.
-  const seeded=await until(()=>pinnedTray(tray),tray=>tray.names.length===7,'the seeded tray');
+  // Nothing saved yet: the tray seeds 7 of the 8 agents under the Pinned label.
+  const seeded=(await until(()=>pinnedTray(tray),tray=>tray.names.length===7,'the seeded tray')) as {label:string|null;names:string[]};
   assert.equal(seeded.label,'Pinned');
   assert.deepEqual(await pinsSaved(),{agentNames:[],saved:false});
+  const outside=[agentName,...helpers].find(name=>!seeded.names.includes(name))!;
 
   await tray.getByRole('button',{name:'All 8 agents',exact:true}).click();
   const picker=page.getByRole('dialog',{name:'All agents',exact:true});
   await picker.getByRole('heading',{name:'Agents · 8',exact:true}).waitFor();
-  await picker.getByText('Drag any agent onto a chat or an area · ☆ pins it to the tray',{exact:true}).waitFor();
-  assert.equal(await picker.getByRole('searchbox',{name:'Search agents',exact:true}).getAttribute('placeholder'),'Search by name, skill, app or owner');
+  await picker.getByText('Drag any agent onto a chat · ☆ pins it to the tray',{exact:true}).waitFor();
+  assert.equal(await picker.getByRole('searchbox',{name:'Search agents',exact:true}).getAttribute('placeholder'),'Search by name, role or owner');
   const row=(name:string)=>picker.locator(`.canvas-picker-row[data-agent="${name}"]`);
   const status=(name:string)=>row(name).locator('.canvas-picker-status');
   assert.equal(await status(agentName).innerText(),'free');
+  // One constant name per star; aria-pressed carries the state, and the seeded agents count as pinned.
+  const star=(name:string)=>picker.getByRole('button',{name:`Pin ${name} to tray`,exact:true});
+  for(const name of seeded.names)assert.equal(await star(name).getAttribute('aria-pressed'),'true',`${name} is seeded as pinned`);
+  assert.equal(await star(outside).getAttribute('aria-pressed'),'false');
+  assert.equal(await star(outside).getAttribute('title'),'Pin to tray');
+  assert.equal(await star(seeded.names[0]).getAttribute('title'),'Unpin');
 
-  // Star Helper 03: the tray shows exactly that pin after the Pinned label, and the server keeps it.
-  const pin=picker.getByRole('button',{name:'Pin Helper 03 to tray',exact:true});
-  assert.equal(await pin.getAttribute('aria-pressed'),'false');
-  await pin.click();
-  const unpin=picker.getByRole('button',{name:'Unpin Helper 03',exact:true});
-  assert.equal(await unpin.getAttribute('aria-pressed'),'true');
-  await until(()=>pinnedTray(tray),tray=>tray.names.join()==='Helper 03'&&tray.afterLabel==='pinned','Helper 03 pinned after the label');
-  await until(pinsSaved,pins=>pins.saved&&pins.agentNames.join()==='Helper 03','Helper 03 saved');
-
-  // Unstar it: it leaves the tray, and an emptied list stays empty (no seed again).
-  await unpin.click();
-  await until(()=>pinnedTray(tray),tray=>tray.names.length===0,'the tray after unpinning');
-  await until(pinsSaved,pins=>pins.saved&&pins.agentNames.length===0,'empty pins saved');
-
-  // Pin seven, in order; the eighth is refused with the notice and nothing changes.
-  const order=[agentName,...helpers.slice(0,6)];
-  for(const name of order){
-    await picker.getByRole('button',{name:`Pin ${name} to tray`,exact:true}).click();
-    await picker.getByRole('button',{name:`Unpin ${name}`,exact:true}).waitFor();
-  }
-  await until(pinsSaved,pins=>pins.agentNames.join()===order.join(),'seven pins saved in order');
-  await picker.getByRole('button',{name:'Pin Helper 07 to tray',exact:true}).click();
+  // Seven seeded: an eighth is refused with the notice, and nothing is saved.
+  await star(outside).click();
   await page.getByRole('status').filter({hasText:'You can pin up to 7 agents. Unpin one first.'}).waitFor();
-  assert.equal(await picker.getByRole('button',{name:'Pin Helper 07 to tray',exact:true}).getAttribute('aria-pressed'),'false');
-  assert.deepEqual((await pinsSaved()).agentNames,order);
+  assert.equal(await star(outside).getAttribute('aria-pressed'),'false');
+  assert.deepEqual(await pinsSaved(),{agentNames:[],saved:false});
+
+  // The first unstar saves the seed without that agent: the tray keeps the other six, never one face.
+  const dropped=seeded.names[2],kept=seeded.names.filter(name=>name!==dropped);
+  await star(dropped).click();
+  assert.equal(await star(dropped).getAttribute('aria-pressed'),'false');
+  await until(()=>pinnedTray(tray),tray=>tray.names.join()===kept.join()&&tray.afterLabel==='pinned','the seed minus one after the label');
+  await until(pinsSaved,pins=>pins.saved&&pins.agentNames.join()===kept.join(),'the seed minus one saved');
+
+  // Starring appends after the Pinned label's existing faces; unstarring takes it out again.
+  await star(outside).click();
+  assert.equal(await star(outside).getAttribute('aria-pressed'),'true');
+  const order=[...kept,outside];
+  await until(()=>pinnedTray(tray),tray=>tray.names.join()===order.join(),`${outside} appended`);
+  await until(pinsSaved,pins=>pins.agentNames.join()===order.join(),`${outside} saved`);
+  await star(outside).click();
+  await until(()=>pinnedTray(tray),tray=>tray.names.join()===kept.join(),`${outside} unpinned`);
+  await star(outside).click();
+  await until(pinsSaved,pins=>pins.agentNames.join()===order.join(),`${outside} pinned again`);
 
   // Pins survive a reload, in their order, with their stars.
   await page.reload();
   await page.locator('.canvas-card').first().waitFor();
   await until(()=>pinnedTray(tray),tray=>tray.names.join()===order.join(),'pins after reload');
   await tray.getByRole('button',{name:'All 8 agents',exact:true}).click();
-  await picker.getByRole('button',{name:`Unpin ${agentName}`,exact:true}).waitFor();
+  await until(()=>star(outside).getAttribute('aria-pressed'),pressed=>pressed==='true',`${outside} starred after reload`);
+  assert.equal(await star(dropped).getAttribute('aria-pressed'),'false');
 
   // Pip starts working on the placed project chat: its row says so, and the chips split working from free.
   await startTurn(h,h.project.channelId);

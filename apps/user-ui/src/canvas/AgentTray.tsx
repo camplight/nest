@@ -25,9 +25,9 @@ const roleOf = (agent: Agent) => oneLine(agent.description);
 export type AgentTrayProps = {
   /** Up to three agents from the selected chat's area, shown first. */
   suggested: Agent[];
-  /** The person's pins in order, or the seeded default before they save any. */
+  /** The person's pins in order (the seed before they save any), minus the suggestions. */
   pinned: Agent[];
-  /** The saved pins (what the picker's stars show); empty before the person saves any. */
+  /** The pin list the picker's stars show: saved pins, or the seed before the person saves any. */
   pins: readonly string[];
   onTogglePin(name: string): void;
   agents: Agent[];
@@ -117,7 +117,7 @@ function AgentPicker({agents, humanId, owners, busy, pins, onTogglePin, cards, a
       <button type="button" className="canvas-picker-close" aria-label="Close" title="Close" onClick={onClose}><span aria-hidden="true">✕</span></button>
     </header>
     <div className="canvas-picker-find">
-      <input ref={search} type="search" className="canvas-picker-search" aria-label="Search agents" placeholder="Search by name, skill, app or owner"
+      <input ref={search} type="search" className="canvas-picker-search" aria-label="Search agents" placeholder="Search by name, role or owner"
         autoComplete="off" value={query} onChange={event => setQuery(event.target.value)}/>
       <select className="canvas-picker-area" aria-label="Area" title="Only agents in this area's chats" value={area?.id ?? ''} onChange={event => setAreaId(event.target.value)}>
         <option value="">All areas</option>
@@ -144,7 +144,7 @@ function AgentPicker({agents, humanId, owners, busy, pins, onTogglePin, cards, a
               </span>
               <span className={`canvas-picker-status${count ? ' is-busy' : ''}`}>{busyLabel(count)}</span>
               <button type="button" className={`canvas-picker-star${on ? ' is-on' : ''}`} aria-pressed={on}
-                aria-label={on ? `Unpin ${agent.name}` : `Pin ${agent.name} to tray`} title={on ? 'Unpin' : 'Pin to tray'}
+                aria-label={`Pin ${agent.name} to tray`} title={on ? 'Unpin' : 'Pin to tray'}
                 onClick={() => onTogglePin(agent.name)}>
                 <span aria-hidden="true">{on ? '★' : '☆'}</span>
               </button>
@@ -153,6 +153,6 @@ function AgentPicker({agents, humanId, owners, busy, pins, onTogglePin, cards, a
         </ul>
       </section>)}
     </div> : <p className="canvas-picker-empty">No agents match.</p>}
-    <p className="canvas-picker-foot">Drag any agent onto a chat or an area · ☆ pins it to the tray</p>
+    <p className="canvas-picker-foot">Drag any agent onto a chat · ☆ pins it to the tray</p>
   </div>;
 }

@@ -2,7 +2,7 @@ import {describe,expect,it} from 'vitest';
 import {AGENT_PIN_MAX,type BoardCard,type CanvasArea} from '@nest/schemas';
 import type {Agent} from '../types';
 import type {AgentPulse,CardPulse} from './pulse';
-import {SUGGESTION_MAX,areaAgentNames,busyCounts,busyLabel,pickerGroups,seedPins,trayAgents} from './tray';
+import {SUGGESTION_MAX,areaAgentNames,busyCounts,busyLabel,effectivePins,pickerGroups,seedPins,togglePin,trayAgents} from './tray';
 
 const me='h1';
 const agent=(name:string,ownerHumanId:string|null='h2',description?:string):Agent=>({name,ownerHumanId,visibility:'PUBLIC',...(description?{description}:{})});
@@ -18,9 +18,10 @@ describe('trayAgents',()=>{
   const roster=[agent('Zed',me),agent('Moss'),agent('Pip'),agent('Ash',me),agent('Kit',me)];
   const areas=[area('review',0,1000),area('later',2000,600)];
   const cards=[open('a',40,['Pip','Kit']),open('b',400,['Moss','Pip']),open('far',2100,['Ash'])];
+  const seeded=effectivePins({agentNames:[],saved:false},roster,me);
 
   it('seeds the tray with the person\'s own agents by name, then the team\'s, until they save pins',()=>{
-    const tray=trayAgents({agents:roster,humanId:me,cards,areas,selectedId:null,pins:null});
+    const tray=trayAgents({agents:roster,cards,areas,selectedId:null,pins:seeded});
     expect(names(tray.pinned)).toEqual(['Ash','Kit','Zed','Moss','Pip']);
     expect(tray.suggested).toEqual([]);
   });
@@ -32,22 +33,49 @@ describe('trayAgents',()=>{
   });
 
   it('shows exactly the saved pins in their order, an emptied list included, and drops agents not on the roster',()=>{
-    expect(names(trayAgents({agents:roster,humanId:me,cards,areas,selectedId:null,pins:['Pip','Gone','Zed']}).pinned)).toEqual(['Pip','Zed']);
-    expect(trayAgents({agents:roster,humanId:me,cards,areas,selectedId:null,pins:[]}).pinned).toEqual([]);
+    expect(names(trayAgents({agents:roster,cards,areas,selectedId:null,pins:effectivePins({agentNames:['Pip','Gone','Zed'],saved:true},roster,me)}).pinned)).toEqual(['Pip','Zed']);
+    expect(trayAgents({agents:roster,cards,areas,selectedId:null,pins:effectivePins({agentNames:[],saved:true},roster,me)}).pinned).toEqual([]);
+  });
+
+  it('shows no pins while they load, so saved pins never flash the seed',()=>{
+    expect(effectivePins(null,roster,me)).toEqual([]);
   });
 
   it('leads with the selected card\'s area suggestions and leaves them out of the pins',()=>{
     // Card a has Pip and Kit; card b in the same area brings Moss.
-    const tray=trayAgents({agents:roster,humanId:me,cards,areas,selectedId:'a',pins:['Moss','Ash']});
+    const tray=trayAgents({agents:roster,cards,areas,selectedId:'a',pins:['Moss','Ash']});
     expect(names(tray.suggested)).toEqual(['Moss']);
     expect(names(tray.pinned)).toEqual(['Ash']);
   });
 
   it('suggests at most three agents and skips names not on the roster',()=>{
     const crowd=['Ada','Bo','Cy','Di','Nobody'];
-    const list=trayAgents({agents:[...roster,...crowd.slice(0,4).map(n=>agent(n))],humanId:me,cards:[open('a',40,[]),open('b',400,crowd)],areas,selectedId:'a',pins:[]});
+    const list=trayAgents({agents:[...roster,...crowd.slice(0,4).map(n=>agent(n))],cards:[open('a',40,[]),open('b',400,crowd)],areas,selectedId:'a',pins:[]});
     expect(SUGGESTION_MAX).toBe(3);
     expect(names(list.suggested)).toEqual(['Ada','Bo','Cy']);
+  });
+});
+
+describe('togglePin',()=>{
+  const roster=[agent('Zed',me),agent('Moss'),agent('Pip'),agent('Ash',me),agent('Kit',me)];
+  const seeded=effectivePins({agentNames:[],saved:false},roster,me);
+
+  it('counts the seed as pinned: the first unstar keeps the others, the first star appends, and the tray never collapses to one face',()=>{
+    expect(seeded).toEqual(['Ash','Kit','Zed','Moss','Pip']);
+    expect(togglePin(seeded,'Kit')).toEqual(['Ash','Zed','Moss','Pip']);
+    // Wren joined after the seed was shown (an agent the seed does not hold): starring appends it.
+    const more=[...roster,agent('Wren')];
+    const withWren=togglePin(seeded,'Wren')!;
+    expect(withWren).toEqual(['Ash','Kit','Zed','Moss','Pip','Wren']);
+    expect(trayAgents({agents:more,cards:[],areas:[],selectedId:null,pins:withWren}).pinned).toHaveLength(6);
+  });
+
+  it('refuses an eighth pin, also over a full seed of seven',()=>{
+    const many=Array.from({length:8},(_,n)=>agent(`Helper ${n}`,me));
+    const full=effectivePins({agentNames:[],saved:false},many,me);
+    expect(full).toHaveLength(7);
+    expect(togglePin(full,'Helper 7')).toBeNull();
+    expect(togglePin(full,'Helper 0')).toEqual(full.slice(1));
   });
 });
 
