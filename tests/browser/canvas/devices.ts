@@ -161,20 +161,24 @@ await runChatTest('canvas devices: a phone gets the list with areas, needs you a
   await chat.getByRole('button',{name:'Close',exact:true}).tap();
   await chat.waitFor({state:'detached'});
 
-  // The top bar's Loose chats toggle shrinks to its icon and count; its drawer takes the full width under the top bar.
+  // The top bar's Loose chats toggle shrinks to its icon and count. A phone has no drawer: the toggle selects the
+  // list's own Loose chats segment and brings it into view.
   const toggle=page.locator('.canvas-loose-button');
   assert.equal(await toggle.locator('.canvas-loose-count').innerText(),'1');
   assert.equal(await toggle.locator('.canvas-loose-label').evaluate(el=>el.getBoundingClientRect().width<=1),true,'the label is visually hidden');
   assert.ok((await toggle.boundingBox())!.width<=72,'icon and count only');
+  assert.equal(await toggle.getAttribute('aria-expanded'),null,'nothing to expand on a phone');
+  await tabs.getByRole('tab',{name:/^Areas/}).tap();
+  await list.evaluate(el=>el.closest('.canvas-phone-stage')?.scrollTo?.(0,10_000));
   await toggle.tap();
-  const drawer=page.getByRole('complementary',{name:'Loose chats',exact:true});
-  await drawer.waitFor();
-  const drawerBox=(await drawer.boundingBox())!,top=(await page.locator('.canvas-body').boundingBox())!,width=page.viewportSize()!.width;
-  assert.ok(drawerBox.x<=1&&Math.abs(drawerBox.width-width)<=1,`full width: ${JSON.stringify(drawerBox)}`);
-  assert.ok(Math.abs(drawerBox.y-top.y)<=1,'right under the top bar');
-  await drawer.getByRole('checkbox',{name:'Select Synthetic loose chat',exact:true}).waitFor();
-  await drawer.getByRole('button',{name:'Close',exact:true}).tap();
-  await drawer.waitFor({state:'detached'});
+  const looseTab=tabs.getByRole('tab',{name:/^Loose chats/});
+  for(let i=0;i<50&&await looseTab.getAttribute('aria-selected')!=='true';i++)await page.waitForTimeout(100);
+  assert.equal(await looseTab.getAttribute('aria-selected'),'true','the toggle selects Loose chats');
+  assert.equal(await looseTab.evaluate(el=>document.activeElement===el),true,'focus moves to the tab');
+  await looseList.getByRole('button',{name:/^Synthetic loose chat/}).waitFor();
+  const tabsBox=(await tabs.boundingBox())!,shown=(await page.locator('.canvas-body').boundingBox())!;
+  assert.ok(tabsBox.y>=shown.y-1&&tabsBox.y<shown.y+shown.height,`the segments are in view: ${JSON.stringify(tabsBox)}`);
+  assert.equal(await page.locator('.canvas-drawer').count(),0,'no second, full-screen drawer');
 
   // Needs you lists a real mention from the mate, and opens its chat.
   await tabs.getByRole('tab',{name:/^Needs you/}).tap();

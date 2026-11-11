@@ -25,9 +25,12 @@ const CHIPS: {value: LooseStateFilter; label: string}[] = [
 const DRAWER_YIELDS = '[aria-modal="true"]:not(.canvas-chat), .dialog-backdrop, .canvas-context, .canvas-chat-menu:not([hidden]), .canvas-menu, .canvas-picker, .canvas-needs-panel, .canvas-tool[aria-pressed="true"]';
 const typing = (element: Element) => element instanceof HTMLElement && (element.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName));
 
-/** The top-bar button: `Loose chats {n}`, the count coral while any loose chat needs the person. Phones show the icon and count. */
+/**
+ * The top-bar button: `Loose chats {n}`, the count coral while any loose chat needs the person. Phones show the icon and
+ * count, and have no drawer (`open` undefined): there it selects the phone list's Loose chats segment.
+ */
 export function LooseToggle({count, hot, open, controls, onClick, buttonRef}: {
-  count: number; hot: boolean; open: boolean; controls: string; onClick(): void; buttonRef?: Ref<HTMLButtonElement>;
+  count: number; hot: boolean; open?: boolean; controls: string; onClick(): void; buttonRef?: Ref<HTMLButtonElement>;
 }) {
   return <button ref={buttonRef} type="button" className="canvas-share-button canvas-loose-button" aria-expanded={open} aria-controls={open ? controls : undefined}
     title="Plain chats that aren't on the canvas yet" onClick={onClick}>

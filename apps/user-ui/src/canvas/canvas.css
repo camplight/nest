@@ -1361,17 +1361,6 @@
     padding: 0 10px;
   }
 }
-@media (max-width: 760px) {
-  /* Phones: the drawer takes the full width under the top bar. */
-  .canvas-drawer {
-    inset: 0;
-    width: auto;
-    max-height: none;
-    border-width: 0;
-    border-radius: 0;
-    box-shadow: none;
-  }
-}
 
 /* Opening a chat (Task 8). Clicking an open card's body opens it; the open one is marked. */
 .canvas-card.is-openable {

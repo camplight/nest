@@ -1,6 +1,6 @@
 // Phones (760 px wide or less): a list in place of the free canvas. Areas expand to their chats, and
 // Needs you and Loose chats sit beside them. Tapping a chat opens it in focus. No surface, tray or drag.
-import {useId,useMemo,useRef,useState,useSyncExternalStore,type KeyboardEvent} from 'react';
+import {useEffect,useId,useMemo,useRef,useState,useSyncExternalStore,type KeyboardEvent} from 'react';
 import type {BoardCard,CanvasBoard,Project} from '@nest/schemas';
 import {ago,cardTitle,statusText} from './Card';
 import {filterLoose,type LooseChat} from './loose';
@@ -45,6 +45,8 @@ export type PhoneListProps = {
   areaContext?: ReadonlyMap<string, AreaContext>;
   /** Opens an area's context (a bottom sheet on phones) under the pressed button. */
   onAreaContext?(areaId: string, opener: HTMLElement): void;
+  /** Changes each time the top bar's Loose chats toggle is pressed: the Loose chats segment is selected and scrolled into view. */
+  looseKey?: number;
 };
 
 const agentList = (names: string[]) => names.length ? names.slice(0, 2).join(', ') + (names.length > 2 ? ` +${names.length - 2}` : '') : 'No agents';
@@ -72,12 +74,23 @@ function CardRow({card, pulse, open, onOpen}: {card: BoardCard; pulse?: CardPuls
   </li>;
 }
 
-export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, openChannelId, areaContext, onAreaContext}: PhoneListProps) {
+export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, openChannelId, areaContext, onAreaContext, looseKey = 0}: PhoneListProps) {
   const base = useId();
   const [segment, setSegment] = useState<Segment>('areas');
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [query, setQuery] = useState('');
   const tabs = useRef(new Map<Segment, HTMLButtonElement>());
+  // The top bar's Loose chats toggle: phones have no drawer, so it selects this list's own segment, brings the
+  // segments into view and puts focus on the tab.
+  const shownKey = useRef(looseKey);
+  useEffect(() => {
+    if (shownKey.current === looseKey) return;
+    shownKey.current = looseKey;
+    setSegment('loose');
+    const tab = tabs.current.get('loose');
+    tab?.focus({preventScroll: true});
+    tab?.closest('.canvas-phone-segments')?.scrollIntoView({block: 'start'});
+  }, [looseKey]);
   const groups = useMemo(() => phoneGroups(board.cards, board.areas), [board.cards, board.areas]);
   const reviews = useReviews(segment === 'needs');
   const needs = useMemo(() => needsYouItems({pulses, titles, reviews, projects}), [pulses, titles, reviews, projects]);

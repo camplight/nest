@@ -838,7 +838,7 @@ Phase 1 is built from
    press on it leaves the drawer open. The drawer and the agent picker take turns:
    opening one closes the other. ✕ (`Close`) or Escape closes it, focus returning to the
    toggle when it was in the drawer; opening it from the toggle focuses the search
-   (except on phones). It has `Loose chats · {n}`, a search over titles and agent names
+   (phones have no drawer; see below). It has `Loose chats · {n}`, a search over titles and agent names
    (`Search loose chats`), a compact `All agents` filter, the chips `All / Needs you /
    Working / Done` with counts (archived chats left out, as in the header), and rows in day groups by last activity on the local
    calendar (`Today · n`, `Yesterday · n`, `This week · n` for the five days before,
@@ -930,8 +930,9 @@ Phase 1 is built from
    A list takes its place with three segments: Areas (each area opens to its chats,
    then the chats in no area), Needs you and Loose chats. Tapping a chat opens it in
    focus over the whole body, and the bottom box stays under the list. The top bar's
-   Loose chats toggle (icon and count) opens the drawer over the full width under the
-   top bar; its rows do not drag. Tablets keep
+   Loose chats toggle (icon and count, coral while one needs the person) has no drawer
+   there: it selects the list's Loose chats segment, focuses its tab and scrolls the
+   segments into view. Tablets keep
    the canvas with pinch and pan. Colours come from the Nest brand tokens with
    light and dark variants under `:root[data-theme="dark"]`; the Pip and Pom tints
    and the quiet and alert text colours, which have no brand token, are canvas

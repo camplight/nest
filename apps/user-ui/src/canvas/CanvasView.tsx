@@ -295,11 +295,13 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const showDrawer = useCallback((open: boolean) => { setDrawerOpen(open); if (open) setPickerOpen(false); }, []);
   const showPicker = useCallback((open: boolean) => { setPickerOpen(open); if (open) setDrawerOpen(false); }, []);
   const drawerRef = useRef(drawerOpen); drawerRef.current = drawerOpen;
+  // Phones have no drawer: the toggle selects the phone list's own Loose chats segment instead.
+  const [phoneLoose, setPhoneLoose] = useState(0);
   const toggleDrawer = useCallback(() => {
+    if (phoneRef.current) { setPhoneLoose(n => n + 1); return; }
     const open = !drawerRef.current;
     showDrawer(open);
-    // The search takes focus, except on a phone, where that would raise the keyboard over the list.
-    if (open && !phoneRef.current) setDrawerFocus(n => n + 1);
+    if (open) setDrawerFocus(n => n + 1);
   }, [showDrawer]);
   const closeDrawer = useCallback((returnFocus: boolean) => {
     setDrawerOpen(false);
@@ -610,7 +612,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       setSelectedId(channelId);
     } else {
       setHighlight({id: channelId, n: ++highlightCount.current});
-      // Phones list loose chats in their own segment; the drawer is opened only from the toggle there.
+      // Phones have no drawer: they list loose chats in their own segment.
       if (!phoneRef.current) showDrawer(true);
     }
     openRef.current(channelId, 'focus');
@@ -780,7 +782,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     // The bottom box stays on phones, under the list.
     body = <div className="canvas-phone-stage">
       <PhoneList key={board.canvas.id} board={board} pulses={pulses} loose={shownLoose} titles={titles} projects={projects}
-        onOpenChat={openLoose} openChannelId={chatShown ? chatChannelId : null} areaContext={areaContext} onAreaContext={openAreaContext}/>
+        onOpenChat={openLoose} openChannelId={chatShown ? chatChannelId : null} areaContext={areaContext} onAreaContext={openAreaContext} looseKey={phoneLoose}/>
       {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!chatShown} fileDropAccept={outsideCanvasChat} onFilesDropped={dockFiles}/></div> : null}
     </div>;
   } else {
@@ -820,7 +822,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         {/* Narrower windows show the mock's shorter `Context`; the name stays `Canvas context`. */}
         <span className="canvas-context-long">Canvas context</span><span className="canvas-context-short" aria-hidden="true">Context</span>{contextSummary?.canvas.hasContext ? <span className="canvas-context-count"> · {contextLabel(contextSummary.canvas)}</span> : null}
       </button> : null}
-      {board ? <LooseToggle count={shownLoose.length} hot={looseHot} open={drawerOpen} controls={drawerId} onClick={toggleDrawer} buttonRef={looseButton}/> : null}
+      {board ? <LooseToggle count={shownLoose.length} hot={looseHot} open={phone ? undefined : drawerOpen} controls={drawerId} onClick={toggleDrawer} buttonRef={looseButton}/> : null}
       {ownerName ? <span className="canvas-shared-by">Shared by {ownerName}</span> : null}
     </div> : undefined}/>
     {searchOpen && canvasId ? <CanvasSearch items={index} onClose={() => setSearchOpen(false)} onChoose={choose}/> : null}
@@ -852,8 +854,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         * aria-modal keep keyboard and screen-reader users in the chat until it closes. A press on the canvas leaves it
         * open: it is not a popover.
         */}
-      {board ? <LooseDrawer id={drawerId} open={drawerOpen} chats={loose} count={shownLoose.length} hidden={hidden} showHidden={showHidden} onShowHidden={setShowHidden}
-        canPlace={board.canvas.role !== 'view'} draggable={!phone} onNewArea={newArea} onArchive={hide} onClose={closeDrawer} now={Date.now}
+      {board && !phone ? <LooseDrawer id={drawerId} open={drawerOpen} chats={loose} count={shownLoose.length} hidden={hidden} showHidden={showHidden} onShowHidden={setShowHidden}
+        canPlace={board.canvas.role !== 'view'} draggable onNewArea={newArea} onArchive={hide} onClose={closeDrawer} now={Date.now}
         onOpenChat={openLoose} highlight={highlight} focusKey={drawerFocus}/> : null}
       {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} anchor={sheetAnchor} drawerOpen={drawerOpen} watchView={watchView} title={chatTitle} sub={chatSub} area={chatArea} onPlace={placeHere} onUseHere={useHere}
         onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
