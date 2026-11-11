@@ -99,7 +99,7 @@ const VERBS:Record<string,[string,string,string]>={
   send:['sending','sent','send'],fetch:['fetching','fetched','fetch'],get:['getting','got','get'],find:['finding','found','find'],
   list:['listing','listed','list'],search:['searching','searched','search'],read:['reading','read','read'],query:['querying','queried','query'],
   create:['creating','created','create'],add:['adding','added','add'],update:['updating','updated','update'],delete:['deleting','deleted','delete'],
-  remove:['removing','removed','remove'],move:['moving','moved','move'],archive:['archiving','archived','archive'],reply:['replying to','replied to','reply to'],
+  remove:['removing','removed','remove'],move:['moving','moved','move'],archive:['archiving','archived','archive'],reply:['replying','replied','reply'],
   forward:['forwarding','forwarded','forward'],post:['posting','posted','post'],upload:['uploading','uploaded','upload'],download:['downloading','downloaded','download'],
   merge:['merging','merged','merge'],close:['closing','closed','close'],view:['viewing','viewed','view'],set:['setting','set','set'],
   patch:['patching','patched','patch'],export:['exporting','exported','export'],check:['checking','checked','check'],diff:['diffing','diffed','diff'],
@@ -109,7 +109,13 @@ const ACRONYMS=new Set(['pr','url','api','id','csv','pdf','sql','ci','html','jso
 const GH_NOUNS:Record<string,string>={pr:'a PR',issue:'an issue',repo:'a repo',run:'a run',release:'a release',workflow:'a workflow',gist:'a gist',label:'a label',project:'a project'};
 /** A lowercase label with acronyms (PR, URL, API, ID) kept upper case. */
 const humanise=(text:string)=>text.toLowerCase().split(/\s+/).filter(Boolean).map(word=>ACRONYMS.has(word)?word.toUpperCase():word).join(' ');
-const article=(noun:string)=>/^[aeiou]/i.test(noun)?`an ${noun}`:`a ${noun}`;
+const GH_PLURALS:Record<string,string>={pr:'PRs',issue:'issues',repo:'repos',run:'runs',release:'releases',workflow:'workflows',gist:'gists',label:'labels',project:'projects'};
+const PREPOSITIONS=new Set(['to','in','on','from','for','with','of','at','by','into','the','a','an']);
+/** An article goes only before a lone singular noun straight after the verb: not before a plural, a preposition or a longer phrase. */
+const withArticle=(object:string)=>{
+  if(!object||object.includes(' ')||object.endsWith('s')||PREPOSITIONS.has(object))return object;
+  return /^[aeiou]/i.test(object)?`an ${object}`:`a ${object}`;
+};
 /** What the agent did, as the clause that follows its name: "sent an email", "merged a PR in acme/web". */
 export function appLinePhrase(call:AppCall):string{
   const form=call.state==='running'?0:call.state==='failed'?2:1;
@@ -120,14 +126,14 @@ export function appLinePhrase(call:AppCall):string{
   if(gh){
     const [group,sub]=words;
     if(group==='api')return `${['calling','called','tried to call'][form]} the GitHub API${place}`;
-    const verb=VERBS[sub??''],noun=GH_NOUNS[group];
+    const verb=VERBS[sub??''],noun=sub==='list'?GH_PLURALS[group]:GH_NOUNS[group];
     if(verb&&noun)return `${form===2?'tried to '+verb[2]:verb[form]} ${noun}${place}`;
     return `${form===2?'tried to use':form===0?'using':'used'} gh ${humanise(call.action)}${place}`;
   }
   const verb=VERBS[(words[0]??'').toLowerCase()];
   const rest=humanise(words.slice(1).join(' '));
-  // Singular objects take "a"/"an" ("send email" reads "sent an email"); plurals stay bare ("fetched emails").
-  const object=rest&&!rest.endsWith('s')&&verb?article(rest):rest;
+  // "send email" reads "sent an email"; plurals, prepositional and longer objects stay bare ("replied to thread").
+  const object=withArticle(rest);
   if(!verb)return `${form===2?'tried to use':form===0?'using':'used'} ${humanise(call.action)}${place}`;
   return `${form===2?'tried to '+verb[2]:verb[form]}${object?' '+object:''}${place}`;
 }

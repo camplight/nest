@@ -70,6 +70,12 @@ describe('app lines in the timeline',()=>{
   expect(phrase('g1')).toBe('called the GitHub API in acme/web');
   expect(phrase('p1')).toBe('creating an issue in acme/web');
   expect(phrase('x1')).toBe('tried to list things');
+  const named=(app:string,action:string,state:'done'|'failed'='done')=>appLinePhrase({...apps.lines.get('s1')!,app,appName:app,action,state});
+  expect(named('gmail','Reply to thread')).toBe('replied to thread');
+  expect(named('gmail','Move to trash')).toBe('moved to trash');
+  expect(named('trello','Add labels to an issue')).toBe('added labels to an issue');
+  expect(named('gmail','Reply to thread','failed')).toBe('tried to reply to thread');
+  expect(appLinePhrase({...apps.lines.get('r1')!,action:'pr list'})).toBe('listed PRs in acme/web');
   expect(appLinePhrase({...apps.lines.get('s1')!,state:'running'})).toBe('sending an email');
   expect(appLinePhrase({...apps.lines.get('s1')!,state:'failed'})).toBe('tried to send an email');
   expect(appLinePhrase({...apps.lines.get('s1')!,action:'Frobnicate URL'})).toBe('used frobnicate URL');
