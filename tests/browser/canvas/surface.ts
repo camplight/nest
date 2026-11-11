@@ -45,17 +45,33 @@ await runChatTest('canvas surface: draw, rename and move an area; culling and Fi
   assert.match(await page.locator('.canvas-surface').evaluate(el=>getComputedStyle(el).backgroundImage),/^url\("data:image\/svg\+xml/);
 
   const surface=await box(page,'.canvas-surface');
+  // Arming the tool shows the mock's guidance.
   await page.getByRole('button',{name:'Area',exact:true}).click();
+  const notice=page.locator('.canvas-notice');
+  await notice.getByText('Drag on the canvas to draw an area. Chats in it can share its context. Esc cancels.',{exact:true}).waitFor();
   const created=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith(`/api/canvases/${id}/areas`));
   await drag(page,{x:surface.x+300,y:surface.y+160},{x:surface.x+1000,y:surface.y+620});
   assert.equal((await created).status(),201);
   const drawn=page.locator('[aria-label="Area New area"]');
   await drawn.waitFor();
 
-  await drawn.getByText('New area',{exact:true}).dblclick();
+  // A drawn area opens its title for typing at once, all selected, and says what to do next.
   const title=page.getByRole('textbox',{name:'Area title',exact:true});
+  await title.waitFor();
+  await notice.getByText('New area. Name it, then drop chats into it.',{exact:true}).waitFor();
+  assert.deepEqual(await title.evaluate(el=>{const input=el as HTMLInputElement;return {focused:document.activeElement===input,value:input.value,start:input.selectionStart,end:input.selectionEnd};}),
+    {focused:true,value:'New area',start:0,end:8},'the title is focused and selected');
+  await page.keyboard.type('Launch');
+  let renamed=page.waitForResponse(r=>r.request().method()==='PATCH'&&r.url().includes(`/api/canvases/${id}/areas/`));
+  await page.keyboard.press('Enter');
+  assert.equal((await renamed).status(),200);
+  const launch=page.locator('[aria-label="Area Launch"]');
+  await launch.waitFor();
+
+  // Double-click still renames.
+  await launch.getByText('Launch',{exact:true}).dblclick();
   await title.fill('Launch content');
-  const renamed=page.waitForResponse(r=>r.request().method()==='PATCH'&&r.url().includes(`/api/canvases/${id}/areas/`));
+  renamed=page.waitForResponse(r=>r.request().method()==='PATCH'&&r.url().includes(`/api/canvases/${id}/areas/`));
   await title.press('Enter');
   assert.equal((await renamed).status(),200);
   await page.locator('[aria-label="Area Launch content"]').waitFor();

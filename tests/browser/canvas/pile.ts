@@ -71,6 +71,13 @@ await runChatTest('canvas pile: 220 loose chats stay windowed, search, new area,
   const body=JSON.parse((await placed).request().postData()!) as {cards:unknown[];area?:{title:string}};
   assert.equal(body.cards.length,3);assert.equal(body.area?.title,'New area');
   await page.locator('[aria-label="Area New area"]').waitFor();
+  // The new area is framed with its title open for typing (the mock's areaFromChats), and the toast says what to do next.
+  await page.locator('.canvas-notice').getByText('New area with 3 chats. Rename it, and add context they should all share.',{exact:true}).waitFor();
+  const areaTitle=page.getByRole('textbox',{name:'Area title',exact:true});
+  await areaTitle.waitFor();
+  assert.equal(await areaTitle.evaluate(el=>document.activeElement===el),true,'the new area\'s title has focus');
+  await areaTitle.press('Enter');
+  await areaTitle.waitFor({state:'detached'});
   const after=await board(h,id);
   assert.equal(after.areas.length,1,'one area');
   const placedCards=after.cards.filter(card=>picks.some(p=>p.channelId===card.channelId));

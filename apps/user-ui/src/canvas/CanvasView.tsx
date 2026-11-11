@@ -242,6 +242,10 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     return ok;
   }, [store, say]);
   const controls = useRef<SurfaceControls | null>(null);
+  /** A new area whose title opens for typing as soon as it is shown (drawn, or made from chats). */
+  const [renameAreaId, setRenameAreaId] = useState<string | null>(null);
+  useEffect(() => { setRenameAreaId(null); }, [canvasId]);
+  const renameStarted = useCallback((areaId: string) => setRenameAreaId(current => current === areaId ? null : current), []);
   /**
    * Places the chats in a 3-wide grid at the viewport centre, optionally inside a new area, in one call.
    * A grid (or its area) that would cover existing cards moves down below them.
@@ -254,8 +258,15 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     const dy = clearOfCards(withArea ? areaAround(first.bounds) : first.bounds, current.cards);
     const {cards: placed, bounds} = dy ? gridPlacement(channelIds, clampPoint({x: centre.x, y: centre.y + dy})) : first;
     const area: NewArea | undefined = withArea ? {id: crypto.randomUUID(), title: 'New area', ...areaAround(bounds), tint: TINTS[current.areas.length % TINTS.length]} : undefined;
-    return applyTracked({kind: 'placeCards', cards: placed, ...(area ? {area} : {})});
-  }, [store, applyTracked]);
+    const saved = applyTracked({kind: 'placeCards', cards: placed, ...(area ? {area} : {})});
+    // The mock's areaFromChats: frame the new area, open its title for typing and say what to do next.
+    if (area) void saved.then(ok => {
+      if (!ok) return;
+      say(`New area with ${channelIds.length} chat${channelIds.length === 1 ? '' : 's'}. Rename it, and add context they should all share.`);
+      requestAnimationFrame(() => { controls.current?.reveal({areaId: area.id}); setRenameAreaId(area.id); });
+    });
+    return saved;
+  }, [store, applyTracked, say]);
   /** Chats dropped from the pile; dropped into an area, that area grows so they all fit inside it. */
   const dropChat = useCallback((channelIds: string[], at: Point) => {
     const current = store.snapshot().board;
@@ -640,7 +651,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
           onDropChat={canPlace ? dropChat : undefined} controls={controls} onOpenChat={openFromCard} openChannelId={chatShown ? chatChannelId : null}
           onDropAgent={dropAgent} onRemoveAgent={removeAgent} canManageCard={manageable} onSelectCard={setSelectedId} selectedChannelId={selected?.channelId ?? null}
           areaContext={areaContext} onAreaContext={openAreaContext} contextAreaId={panel?.kind === 'area' ? panel.areaId : null} onOpenCanvas={id => onSelectCanvas(id)} onDropFiles={dropFiles}
-          needs={cardNeeds} viewer={username}/>
+          needs={cardNeeds} viewer={username} onNotice={say} onAreaCreated={setRenameAreaId} renameAreaId={renameAreaId} onRenameStarted={renameStarted}/>
         <AgentTray tray={tray} suggestedFor={selected ? cardTitle(selected) : null} agents={agents} humanId={humanId} cards={board.cards} areas={board.areas}/>
         {/* Files dropped on empty canvas start a chat here, even beside a split chat; a focus chat takes every drop itself. */}
         {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!focusChat}

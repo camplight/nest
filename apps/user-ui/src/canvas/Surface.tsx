@@ -52,6 +52,13 @@ export type SurfaceProps = {
   needs?: ReadonlyMap<string, NeedsItem[]>;
   /** The signed-in person's username: their own row on a card reads `You`. */
   viewer?: string;
+  /** Guidance while drawing an area, and after one is drawn (the mock's toasts). */
+  onNotice?(text: string): void;
+  /** An area was just drawn: the owner asks for its title to open (renameAreaId). */
+  onAreaCreated?(areaId: string): void;
+  /** The new area whose title opens for typing once it is shown. */
+  renameAreaId?: string | null;
+  onRenameStarted?(areaId: string): void;
 };
 export type FileDropTarget = {kind: 'card'; channelId: string} | {kind: 'area'; areaId: string};
 const carriesFiles = (event: ReactDragEvent) => event.dataTransfer.types.includes('Files');
@@ -74,6 +81,17 @@ export const AGENT_DRAG_TYPE = 'application/x-nest-agent';
 const NO_PULSES: ReadonlyMap<string, CardPulse> = new Map();
 const NO_NEEDS: ReadonlyMap<string, NeedsItem[]> = new Map();
 const NONE: NeedsItem[] = [];
+/** The mock's drawing guidance, shown when the Area tool is armed. */
+export const DRAW_HINT = 'Drag on the canvas to draw an area. Chats in it can share its context. Esc cancels.';
+/**
+ * After drawing. Drawing never moves a card, so a chat's home (and the context it reads) changes only when a member moves
+ * it or picks "Use this area's context"; the toast says so instead of the mock's "They now share its context".
+ */
+export function drawnNotice(inside: number) {
+  return inside
+    ? `New area around ${inside} conversation${inside === 1 ? '' : 's'}. Name it. Chats share its context once a member moves them in or picks "Use this area's context".`
+    : 'New area. Name it, then drop chats into it.';
+}
 
 type Tool = 'select' | 'area';
 type Mode = 'pan' | 'card' | 'area' | 'resize' | 'draw' | 'face';
@@ -115,7 +133,7 @@ const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + 
 
 export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null,
   onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onOpenCanvas, onDropFiles,
-  needs = NO_NEEDS, viewer = ''}: SurfaceProps) {
+  needs = NO_NEEDS, viewer = '', onNotice, onAreaCreated, renameAreaId = null, onRenameStarted}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
   // Without a known human the view is not remembered, so it can never land under another person's key.
   const key = humanId ? viewKey(humanId, board.canvas.id) : null;
@@ -505,13 +523,17 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       if (area) apply({kind: 'patchArea', areaId: area.id, patch: {w: clampSize(g.base!.w + dx), h: clampSize(g.base!.h + dy)}});
     } else if (g.mode === 'draw') {
       const a = toCanvas(g.startView, g.start), b = toCanvas(viewRef.current, point);
-      apply({kind: 'createArea', area: {
+      const area = {
         id: crypto.randomUUID(), title: 'New area',
         x: clampCoord(Math.min(a.x, b.x)), y: clampCoord(Math.min(a.y, b.y)),
         w: clampSize(Math.abs(b.x - a.x)), h: clampSize(Math.abs(b.y - a.y)),
         tint: TINTS[current.areas.length % TINTS.length],
-      }});
+      };
+      apply({kind: 'createArea', area});
       setTool('select');
+      // The mock's createArea: say what happened, then open the title for typing.
+      noticeRef.current?.(drawnNotice(current.cards.filter(card => areaFor(cardCentre(card), [{...area, canvasId: current.canvas.id, version: 0}])).length));
+      createdRef.current?.(area.id);
     }
   }
 
@@ -554,6 +576,10 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     areaContextRef.current?.(areaId, opener);
   }, [animateTo]);
 
+  const noticeRef = useRef(onNotice); noticeRef.current = onNotice;
+  const createdRef = useRef(onAreaCreated); createdRef.current = onAreaCreated;
+  const renameStartedRef = useRef(onRenameStarted); renameStartedRef.current = onRenameStarted;
+  const renameStarted = useCallback((areaId: string) => renameStartedRef.current?.(areaId), []);
   const nudgeRef = useRef(onNudge); nudgeRef.current = onNudge;
   const nudge = useCallback(async (channelId: string, agent: string) => { await nudgeRef.current?.(channelId, agent); }, []);
   const openRef = useRef(onOpenChat); openRef.current = onOpenChat;
@@ -640,7 +666,8 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
         return <Area key={area.id} area={area} dx={shift?.dx ?? 0} dy={shift?.dy ?? 0} w={resize?.w ?? area.w} h={resize?.h ?? area.h}
           canEdit={canEdit} compact={compact} summary={summaries?.get(area.id)} dropTarget={dropArea?.id === area.id ? dropArea.kind : null} onRename={rename} onDelete={remove}
           empty={!occupied.has(area.id)} contextOpen={area.id === contextAreaId}
-          context={areaContext?.get(area.id)} onContext={onAreaContext ? openAreaContext : undefined} onLinkOpen={openLink} onLinkHover={hoverLink}/>;
+          context={areaContext?.get(area.id)} onContext={onAreaContext ? openAreaContext : undefined} onLinkOpen={openLink} onLinkHover={hoverLink}
+          renaming={area.id === renameAreaId} onRenameStarted={renameStarted}/>;
       })}
       {lines.map(line => <ContextLine key={line.key} from={line.from} to={line.to}/>)}
       {preview?.kind === 'draw' ? <div className="canvas-area-draft" style={{transform: `translate(${preview.rect.x}px, ${preview.rect.y}px)`, width: Math.max(MIN_AREA, preview.rect.w), height: Math.max(MIN_AREA, preview.rect.h)}}/> : null}
@@ -667,7 +694,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     <div className="canvas-chrome canvas-tools" role="toolbar" aria-label="Canvas tools">
       <button type="button" className="canvas-tool" aria-pressed={tool === 'area'} disabled={!canEdit}
         title={canEdit ? 'Drag on the canvas to draw an area' : 'You can view this canvas but not change it.'}
-        onClick={() => setTool(t => t === 'area' ? 'select' : 'area')}>Area</button>
+        onClick={() => { const arming = toolRef.current !== 'area'; setTool(arming ? 'area' : 'select'); if (arming) onNotice?.(DRAW_HINT); }}>Area</button>
     </div>
     <div className="canvas-chrome canvas-zoom" role="group" aria-label="Zoom">
       <button type="button" aria-label="Zoom out" onClick={() => zoomBy(1 / ZOOM_STEP)}><span aria-hidden="true">−</span></button>

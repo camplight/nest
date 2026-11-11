@@ -37,9 +37,14 @@ export type AreaProps = {
   onLinkOpen?(areaId: string, link: ContextLink, opener: HTMLElement): void;
   /** A link chip is hovered or focused (sourceAreaId), or no longer is (null). */
   onLinkHover?(areaId: string, sourceAreaId: string | null): void;
+  /** A new area (drawn, or made from chats): its title opens for typing, all selected, as soon as it is shown. */
+  renaming?: boolean;
+  /** The title opened for typing; the owner stops asking. */
+  onRenameStarted?(areaId: string): void;
 };
 
-export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, summary, dropTarget = null, empty = false, contextOpen = false, onRename, onDelete, context, onContext, onLinkOpen, onLinkHover}: AreaProps) {
+export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, summary, dropTarget = null, empty = false, contextOpen = false, onRename, onDelete, context, onContext, onLinkOpen, onLinkHover,
+  renaming = false, onRenameStarted}: AreaProps) {
   const [editing, setEditing] = useState(false);
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -65,6 +70,11 @@ export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, su
   }, [menu]);
 
   function edit() { committed.current = false; setEditing(true); }
+  useEffect(() => {
+    if (!renaming || !canEdit) return;
+    edit();
+    onRenameStarted?.(area.id);
+  }, [renaming, canEdit, area.id, onRenameStarted]);
   function commit(value: string) {
     if (committed.current) return;
     committed.current = true;
