@@ -449,6 +449,17 @@ async function awaitingTurn(h:ChatHarness,from:string,text:string){
 }
 /** The page reads Needs you on focus (and every 15 s): ask it now. */
 const refocus=(page:Page)=>page.evaluate(()=>{window.dispatchEvent(new Event('focus'));});
+/** Whether a status region with this text is exposed: no aria-hidden or inert ancestor (a focus sheet hides the canvas). */
+async function announced(page:Page,text:string){
+  const region=page.getByRole('status').filter({hasText:text});
+  await region.first().waitFor({state:'attached'});
+  return region.evaluateAll(els=>els.some(el=>!el.closest('[aria-hidden="true"], [inert]')));
+}
+/** The human messages posted in a chat. */
+const humanTexts=async(h:ChatHarness,channelId:string)=>(await call<EngineEvent[]>(h,'GET',`/api/events?channelId=${encodeURIComponent(channelId)}&type=message.created&limit=200`))
+  .filter(e=>e.source==='human:demo-owner').map(e=>e.payload?.text);
+/** The canvas notices on screen (errors from a decision would show here). */
+const notices=(page:Page)=>page.locator('.canvas-notice').allTextContents();
 
 await runChatTest('canvas links: an approval waits in Needs you; Approve hands it off, Request changes declines it with the reply, and a review is approved in the chat',async h=>{
   const {page,base}=h, from=h.project.channelId;
@@ -457,9 +468,12 @@ await runChatTest('canvas links: an approval waits in Needs you; Approve hands i
   await openCanvas(page,base,canvasId);
   const needsButton=page.locator('button.canvas-needs');
   const count=async()=>Number(/\((\d+)\)$/.exec((await needsButton.getAttribute('aria-label'))??'')?.[1]);
+  // A steady baseline: the flow items have answered and two reads 300 ms apart agree.
+  const answered=page.waitForResponse(r=>r.url().endsWith('/api/flows/needs'));
   await refocus(page);
-  await page.waitForTimeout(500);
-  const before=await count();
+  await answered;
+  let before=await count();
+  for(let same=0;same<2;){await page.waitForTimeout(300);const next=await count();same=next===before?same+1:0;before=next;}
 
   // A finished turn waits for the creator's OK: Needs you counts it, and the source card's pill says what it waits for.
   await awaitingTurn(h,from,'Synthetic outline for the blog');
@@ -484,16 +498,46 @@ await runChatTest('canvas links: an approval waits in Needs you; Approve hands i
   const [posted]=await until(()=>handoffs(h,blog),list=>list.length===1,'the approved hand-off arrives');
   assert.match(posted.payload?.text??'',/Synthetic outline for the blog$/);
   await page.locator('.canvas-notice').filter({hasText:'Handed off to "Blog post".'}).waitFor();
+  assert.equal(await announced(page,'Handed off to "Blog post".'),true,'the toast is announced while the sheet is open');
   await until(()=>digest.count(),n=>n===0,'the digest goes after Approve');
+  await until(()=>page.evaluate(()=>document.activeElement?.tagName??'none'),tag=>tag!=='BODY','focus stays in the chat after Approve');
+  assert.equal(await sheet.evaluate(el=>el.contains(document.activeElement)),true,'focus is inside the sheet');
   await until(count,n=>n===before,'the approval left Needs you');
   assert.equal(deliveries(h,link.id)[0]?.status,'delivered');
 
-  // The next turn: Request changes asks in the reply box; the reply is posted here and the hand-off is declined.
+  // Request changes, then Approve instead: the request is cancelled, so an unrelated message decides nothing.
+  const box=sheet.getByRole('textbox',{name:'Message',exact:true});
   await awaitingTurn(h,from,'Synthetic second draft');
   await refocus(page);
   await digest.waitFor();
   await digest.getByRole('button',{name:'Request changes',exact:true}).click();
-  const box=sheet.getByRole('textbox',{name:'Message',exact:true});
+  await until(()=>box.getAttribute('placeholder'),p=>p==='What should change?','armed');
+  await digest.getByRole('button',{name:'Approve',exact:true}).click();
+  await until(()=>box.getAttribute('placeholder'),p=>p==='Message to Synthetic chat project','the placeholder is back after Approve');
+  await until(()=>handoffs(h,blog),list=>list.length===2,'the second hand-off arrives');
+  await until(()=>digest.count(),n=>n===0,'the digest goes after the second Approve');
+  await box.fill('Synthetic unrelated note');
+  await box.press('Enter');
+  await until(()=>humanTexts(h,from),texts=>texts.includes('Synthetic unrelated note'),'the unrelated note is posted');
+  for(let n=0;n<3;n++)await h.flowsTick();
+  assert.deepEqual(deliveries(h,link.id).map(d=>d.status),['delivered','delivered'],'nothing declined');
+  assert.equal((await notices(page)).some(t=>/Could not|already decided|paused/.test(t)),false,'no refusal toast');
+
+  // Request changes, then the regular chat view: the request ends there too.
+  await awaitingTurn(h,from,'Synthetic third draft');
+  await refocus(page);
+  await digest.waitFor();
+  await digest.getByRole('button',{name:'Request changes',exact:true}).click();
+  await until(()=>box.getAttribute('placeholder'),p=>p==='What should change?','armed again');
+  await sheet.getByRole('button',{name:'Open in the regular chat view',exact:true}).click();
+  await sheet.waitFor({state:'detached'});
+  const regular=page.getByRole('textbox',{name:'Message',exact:true});
+  await until(()=>regular.getAttribute('placeholder'),p=>p==='Message to Synthetic chat project','the regular chat view does not ask');
+  await page.goBack();
+  await digest.waitFor();
+
+  // Request changes asks in the reply box; the reply is posted here and the hand-off is declined.
+  await digest.getByRole('button',{name:'Request changes',exact:true}).click();
   await until(()=>box.getAttribute('placeholder'),p=>p==='What should change?','the reply box asks what should change');
   assert.equal(await box.evaluate(el=>el===document.activeElement),true,'the reply box has focus');
   await box.fill('Shorter, please');
@@ -504,7 +548,9 @@ await runChatTest('canvas links: an approval waits in Needs you; Approve hands i
   await until(()=>digest.count(),n=>n===0,'the digest goes after Request changes');
   await until(()=>box.getAttribute('placeholder'),p=>p!=='What should change?','the placeholder is back');
   for(let n=0;n<3;n++)await h.flowsTick();
-  assert.equal((await handoffs(h,blog)).length,1,'Blog post got nothing new');
+  assert.equal((await handoffs(h,blog)).length,2,'Blog post got nothing new');
+  assert.deepEqual(deliveries(h,link.id).map(d=>d.status),['declined','delivered','delivered'],'declined once');
+  assert.equal((await notices(page)).some(t=>/Could not|already decided|paused/.test(t)),false,'no refusal toast after the reply');
 
   // A task awaiting review in the open chat (a real deliverable): Approve marks it done.
   const task=await call<{id:string;version:number}>(h,'POST',`/api/projects/${h.project.id}/tasks`,{id:crypto.randomUUID(),title:'Synthetic launch copy',
@@ -515,7 +561,19 @@ await runChatTest('canvas links: an approval waits in Needs you; Approve hands i
   await call(h,'POST',`${taskPath}/deliverables`,{version:working.version,eventId:result.id});
   await refocus(page);
   await until(()=>digest.locator('.wy').textContent().catch(()=>null),t=>t==='Waiting on you: Review Synthetic launch copy','the review waits in the digest',150);
+  // Armed, then Approve: the task is done, and a later message sends nothing back.
+  await digest.getByRole('button',{name:'Request changes',exact:true}).click();
+  await until(()=>box.getAttribute('placeholder'),p=>p==='What should change?','armed for the review');
   await digest.getByRole('button',{name:'Approve',exact:true}).click();
-  await until(async()=>(await call<{tasks:{id:string;status:string}[]}>(h,'GET',`/api/projects/${h.project.id}`)).tasks.find(t=>t.id===task.id)?.status,s=>s==='done','the task is done');
+  type Detail={tasks:{id:string;status:string}[];reviews:{taskId:string;decision:string}[]};
+  await until(async()=>(await call<Detail>(h,'GET',`/api/projects/${h.project.id}`)).tasks.find(t=>t.id===task.id)?.status,s=>s==='done','the task is done');
   await until(()=>digest.count(),n=>n===0,'the digest goes after the review');
+  await until(()=>box.getAttribute('placeholder'),p=>p==='Message to Synthetic chat project','the placeholder is back after the review');
+  await box.fill('Synthetic thanks');
+  await box.press('Enter');
+  await until(()=>humanTexts(h,from),texts=>texts.includes('Synthetic thanks'),'the thanks is posted');
+  await page.waitForTimeout(500);
+  const detail=await call<Detail>(h,'GET',`/api/projects/${h.project.id}`);
+  assert.equal(detail.tasks.find(t=>t.id===task.id)?.status,'done','still done');
+  assert.deepEqual(detail.reviews.filter(r=>r.taskId===task.id).map(r=>r.decision),['approve'],'no request_changes');
 },{canvas:true,flows:true});

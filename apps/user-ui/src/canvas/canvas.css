@@ -3556,7 +3556,7 @@ li.canvas-phone-row[data-access] {
 .digest .btn, .canvas-needs-run { border: 1px solid var(--nest-border); background: var(--nest-surface); color: var(--nest-text); border-radius: 9px; padding: 4px 11px; font: 500 12.5px Inter, sans-serif; white-space: nowrap; cursor: pointer; }
 .digest .btn:hover, .canvas-needs-run:hover { border-color: var(--nest-accent); }
 .digest .btn.pri { background: var(--nest-text); color: var(--nest-bg); border-color: var(--nest-text); font-weight: 600; }
-.digest .btn:disabled, .canvas-needs-run:disabled { opacity: .6; cursor: default; }
+.digest .btn[aria-disabled="true"], .canvas-needs-run:disabled { opacity: .6; cursor: default; }
 .digest .btn:focus-visible, .canvas-needs-run:focus-visible { outline: 2px solid var(--nest-lime); outline-offset: 2px; }
 /* A missed run's row in Needs you: the row, then Run now. */
 :is(.canvas-needs-row, .canvas-phone-need) { display: flex; gap: 6px; align-items: center; }

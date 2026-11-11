@@ -1523,9 +1523,18 @@ the canvas UI for links (lines, labels and the Hand-off popover).
      and its placeholder reads `What should change?`. The next message the person
      sends in that chat is posted as usual, and then declines the hand-off
      (`{decision:'decline'}`) or sends the task back with the message as feedback
-     (`{decision:'request_changes', feedback}`), once; the placeholder returns.
-     Opening another chat cancels it. Nothing about the reply box changes unless the
-     canvas calls it, so the chat outside the canvas is unchanged.
+     (`{decision:'request_changes', feedback}`), once; the placeholder returns. A
+     send already under way when it is armed does not count. It is cancelled (and the
+     placeholder returns) by Approve, by its item leaving the chat's Needs you, by
+     opening another chat, changing the chat's mode, closing it or opening the regular
+     chat view. Nothing about the reply box changes unless the canvas calls it, so the
+     chat outside the canvas is unchanged.
+   - While a focus chat hides the canvas (aria-hidden, or inert on phones), the sheet
+     carries its own `role=status` region that repeats the canvas's newest notice, so
+     toasts from the digest and the Hand-off popover are announced. When the digest
+     goes while it holds focus (after Approve), focus moves to the reply box, else the
+     chat; the digest's buttons use `aria-disabled` while busy, so focus is never lost
+     to the page body.
    - Only the link's creator gets an approval item and may decide it; only the
      project's owner may review its task, so another member's digest says what waits
      with no buttons. A refusal (already decided, the link paused, not the person's

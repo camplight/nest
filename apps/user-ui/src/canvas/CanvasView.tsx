@@ -36,7 +36,8 @@ import {errorText,getContextSummary,uploadContextFile,type PanelScope} from './c
 import {chatSees,contextLabel,joinNames,type ChatSees} from './context-label';
 import {cardSheet,clearOfDrawer,looseSheet,samePlace,stageBounds,type SheetPlace} from './sheet';
 import {isServiceAgent,useFlows} from './useFlows';
-import {LinkConflict,createLink,decideHandoff,deleteLink,flowError,getLinks,patchLatest,reviewTask,runScheduleNow,sendNow,type LinkView} from './flows-api';
+import {LinkConflict,createLink,deleteLink,flowError,getLinks,patchLatest,sendNow,type LinkView} from './flows-api';
+import {useDigestActions,type ChangeRequests} from './useDigestActions';
 import {ChatDigest,agentLine} from './ChatDigest';
 import {participantRows} from './rows';
 import {HandoffPopover,type HandoffChange} from './HandoffPopover';
@@ -72,8 +73,11 @@ export type CanvasViewProps = {
   refreshChannels(): Promise<void>;
   /** The confirmed channel list after an agent is added or removed here (App's setChannels). */
   onChannels(channels: Channel[]): void;
-  /** Request changes in the open chat's digest: App's reply box asks `What should change?` and hands the next message sent to onSent. */
-  onRequestChanges?(onSent: (text: string) => Promise<void>): void;
+  /**
+   * Request changes in the open chat's digest: App's reply box asks `What should change?` and hands the next message sent to
+   * the armed callback; cancel restores it.
+   */
+  changeRequests?: ChangeRequests;
 };
 /** A short message over the canvas about a membership change, with Undo after a removal. */
 type MemberNotice = {id: number; text: string; undo?: () => void};
@@ -108,7 +112,7 @@ async function sendNudge(channelId: string, agent: string) {
   await apiJson('/api/messages', {method: 'POST', headers: getApiHeaders(), body: JSON.stringify(nudgeMessage(channelId, agent))});
 }
 
-export function CanvasView({canvasId, humanId, username, humans, channels, projects, agents, onSelectCanvas, onMenu, chat, chatChannelId, chatMode, onOpenChat, onCloseChat, onOpenRegular, onChatFiles, live, refreshChannels, onChannels, onRequestChanges}: CanvasViewProps) {
+export function CanvasView({canvasId, humanId, username, humans, channels, projects, agents, onSelectCanvas, onMenu, chat, chatChannelId, chatMode, onOpenChat, onCloseChat, onOpenRegular, onChatFiles, live, refreshChannels, onChannels, changeRequests}: CanvasViewProps) {
   const store = useMemo(() => createBoardStore({api: boardApi, now: Date.now, intervalMs: SYNC_INTERVAL_MS}), []);
   // Phones get a list in place of the free canvas.
   const phone = usePhoneLayout();
@@ -984,49 +988,9 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const chatConnect = canLink && chatOnBoard && chatChannelId ? (anchor: HTMLElement) => openLinkPick(chatChannelId, anchor) : undefined;
   // Where it stands: what in the open chat waits on the person, with Approve / Request changes or Run now in place. A refusal
   // (already decided, the link paused, not theirs to decide) is a toast, and the items are read again.
-  const setupLinksRef = useRef(setupLinks); setupLinksRef.current = setupLinks;
-  const approveNeed = useCallback(async (item: NeedsItem) => {
-    const gate = item.gate;
-    if (gate?.kind === 'approval') {
-      const target = setupLinksRef.current.find(l => l.id === gate.linkId)?.toTitle ?? item.short.replace(/^Approve hand-off to /, '');
-      try { await decideHandoff(gate.deliveryId, 'approve'); say(`Handed off to "${target}".`); }
-      catch (error) { say(flowError(error, 'Could not approve the hand-off. Try again.')); }
-      finally { flows.refresh(); }
-    } else if (gate?.kind === 'review') {
-      try { await reviewTask(gate.projectId, gate.taskId, 'approve', ''); }
-      catch (error) { say(flowError(error, 'Could not approve it. Try again.')); }
-      finally { rereadReviews(); }
-    }
-  }, [say, flows.refresh]);
-  const requestChanges = useCallback((item: NeedsItem) => {
-    const gate = item.gate;
-    if (gate?.kind !== 'approval' && gate?.kind !== 'review') return;
-    // The reply is posted in the chat as usual; once it is sent, the hand-off is declined or the task goes back with it.
-    onRequestChanges?.(async text => {
-      if (gate.kind === 'approval') {
-        try { await decideHandoff(gate.deliveryId, 'decline'); }
-        catch (error) { say(flowError(error, 'Could not decline the hand-off. Try again.')); }
-        finally { flows.refresh(); }
-      } else {
-        try { await reviewTask(gate.projectId, gate.taskId, 'request_changes', text); }
-        catch (error) { say(flowError(error, 'Could not send the changes to the task. Try again.')); }
-        finally { rereadReviews(); }
-      }
-    });
-  }, [onRequestChanges, say, flows.refresh]);
-  /** Run now on a missed run (Task 10 serves the route). */
-  const runNow = useCallback(async (item: NeedsItem) => {
-    if (item.gate?.kind !== 'missed') return;
-    try { await runScheduleNow(item.gate.scheduleId); }
-    catch (error) { say(flowError(error, 'Could not start the run. Try again.')); }
-    finally { flows.refresh(); }
-  }, [say, flows.refresh]);
-  // Decisions follow the server: an approval item is only ever the link creator's own; a review is the project owner's.
-  const canDecide = useCallback((item: NeedsItem) => {
-    const gate = item.gate;
-    return gate?.kind !== 'review' || projects.find(p => p.id === gate.projectId)?.ownerId === humanId;
-  }, [projects, humanId]);
   const chatNeeds = chatShown && chatChannelId ? cardNeeds.get(chatChannelId) : undefined;
+  const {approve: approveNeed, requestChanges, runNow, canDecide} = useDigestActions({say, refreshFlows: flows.refresh, rereadReviews, changeRequests,
+    links: setupLinks, projects, humanId, chatNeeds, chatKey: chatShown ? `${chatChannelId}:${chatMode}` : ''});
   const chatDigest = chatNeeds ? <ChatDigest key={`digest:${chatChannelId}`} items={chatNeeds} onApprove={approveNeed} onRequestChanges={requestChanges} onRunNow={runNow} canDecide={canDecide}
     agentLine={agentLine(participantRows({participants: chatPeople, pulse: pulses.get(chatChannelId!), needs: [], viewer: username, service}).find(row => row.kind === 'agent'))}/> : null;
   const flowCards = flowPop?.view && board ? {from: board.cards.find(c => c.channelId === flowPop.view!.from), to: board.cards.find(c => c.channelId === flowPop.view!.to)} : null;
@@ -1164,6 +1128,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         onOpenChat={openLoose} highlight={highlight} focusKey={drawerFocus}/> : null}
       {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} anchor={sheetAnchor} drawerOpen={drawerOpen} watchView={watchView} title={chatTitle} sub={chatSub} area={chatArea} onPlace={placeHere} onUseHere={useHere}
         digest={chatDigest} setup={chatSetup} onConnect={chatConnect}
+        announce={memberNotice && board ? {id: memberNotice.id, text: memberNotice.text} : state.notice && state.canvasId === canvasId ? {id: `store:${state.notice}`, text: state.notice} : null}
         onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
         {chat}
       </CanvasChat> : null}
@@ -1264,13 +1229,18 @@ function ChatSubline({sub}: {sub: ChatSub}) {
   </p>;
 }
 
-function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub, area, onPlace, onUseHere, digest, setup, onConnect, onMode, onClose, onOpenRegular, children}: {
+function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub, area, onPlace, onUseHere, digest, setup, announce, onConnect, onMode, onClose, onOpenRegular, children}: {
   channelId: string; mode: CanvasChatMode; anchor: SheetAnchor | null; drawerOpen: boolean; watchView(listener: () => void): () => void;
   title: string; sub?: ChatSub; area?: ChatArea; onPlace?(): void; onUseHere?(): Promise<void>;
   /** Where it stands, above the Setup line (the mock's digest before cfgBlock). */
   digest?: ReactNode;
   /** The Setup line, at the top of the chat body. */
   setup?: ReactNode;
+  /**
+   * The canvas's newest notice. A focus sheet hides the canvas behind it (aria-hidden, or inert on phones), notices
+   * included, so the sheet carries its own live region that says it too.
+   */
+  announce?: {id: number | string; text: string} | null;
   /** A chat on this canvas, with hand-offs set up: the header's connect button opens the chat picker under it. */
   onConnect?(anchor: HTMLElement): void;
   onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
@@ -1464,6 +1434,7 @@ function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub,
     </header>
     <ChatHeaderSlotsContext.Provider value={slots}>
       <div className="canvas-chat-body">{digest}{setup}{children}</div>
+      {focus ? <div className="canvas-visually-hidden canvas-chat-announce" role="status">{announce ? <span key={announce.id}>{announce.text}</span> : null}</div> : null}
     </ChatHeaderSlotsContext.Provider>
   </section>;
 }

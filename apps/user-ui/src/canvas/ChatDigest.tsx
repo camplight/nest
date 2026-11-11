@@ -2,7 +2,7 @@
 // (a hand-off awaiting their OK, a task awaiting their review, or a missed run). Its first line is the chat's first agent
 // row; there are no generated digests. Approve / Request changes appear when the reason starts with Approve or Review, as
 // the mock's regex has it; a missed run gets Run now.
-import {useState} from 'react';
+import {useLayoutEffect,useRef,useState} from 'react';
 import type {NeedsItem} from './needs';
 
 /** The kinds the digest shows: the person can settle them here. Mentions are answered in the chat; a paused link from its chip. */
@@ -47,17 +47,41 @@ export function RunNowButton({item, onRunNow, className = 'btn', named = false}:
     onClick={() => { setBusy(true); void onRunNow(item).finally(() => setBusy(false)); }}>Run now</button>;
 }
 
-export function ChatDigest({items, agentLine, onApprove, onRequestChanges, onRunNow, canDecide}: ChatDigestProps) {
-  const item = digestItem(items);
+export function ChatDigest(props: ChatDigestProps) {
+  const item = digestItem(props.items);
+  return item ? <Digest {...props} item={item}/> : null;
+}
+
+/**
+ * Where focus goes when the digest goes while it held focus (an Approve that settled the item): the chat's reply box when
+ * it can be typed in, else the chat itself, never the page body.
+ */
+function refocus(chat: HTMLElement | null) {
+  requestAnimationFrame(() => {
+    const now = document.activeElement;
+    if (now && now !== document.body && now.isConnected) return;
+    const box = chat?.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]:not(:disabled)');
+    (box ?? chat)?.focus({preventScroll: true});
+  });
+}
+
+function Digest({item, agentLine, onApprove, onRequestChanges, onRunNow, canDecide}: ChatDigestProps & {item: NeedsItem}) {
+  const root = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  if (!item) return null;
-  const approve = () => { setBusy(item.key); void onApprove(item).finally(() => setBusy(null)); };
-  return <div className="digest" role="region" aria-label="Where it stands">
+  // Runs before the digest leaves the page, while it still holds focus.
+  useLayoutEffect(() => () => {
+    const node = root.current;
+    if (node?.contains(document.activeElement)) refocus(node.closest<HTMLElement>('.canvas-chat'));
+  }, []);
+  // aria-disabled, not disabled: a disabled button drops focus to the page body.
+  const waiting = busy === item.key;
+  const approve = () => { if (waiting) return; setBusy(item.key); void onApprove(item).finally(() => setBusy(null)); };
+  return <div ref={root} className="digest" role="region" aria-label="Where it stands">
     <b>Where it stands</b>{agentLine}
     <div className="wy">Waiting on you: {item.short}</div>
     {canDecide && !canDecide(item) ? null : hasGate(item) ? <div className="gate">
-      <button type="button" className="btn pri" disabled={busy === item.key} onClick={approve}>Approve</button>
-      <button type="button" className="btn" disabled={busy === item.key} onClick={() => onRequestChanges(item)}>Request changes</button>
+      <button type="button" className="btn pri" aria-disabled={waiting || undefined} onClick={approve}>Approve</button>
+      <button type="button" className="btn" aria-disabled={waiting || undefined} onClick={() => { if (!waiting) onRequestChanges(item); }}>Request changes</button>
     </div> : item.gate?.kind === 'missed' ? <div className="gate"><RunNowButton key={item.key} item={item} onRunNow={onRunNow}/></div> : null}
   </div>;
 }

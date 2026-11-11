@@ -32,7 +32,9 @@ export type ChatComposerHandle={insertText(text:string):void;enqueueFiles(files:
    * Request changes (the canvas digest): focuses the reply box and asks `What should change?`; the next message sent in
    * this chat is passed to onSent once, and the placeholder returns. Opening another chat cancels it. Nothing changes until it is called.
    */
-  requestChanges(onSent:(text:string)=>Promise<void>):void};
+  requestChanges(onSent:(text:string)=>Promise<void>):void;
+  /** Cancels an armed Request changes (the item was decided or went away, or the chat view changed): the placeholder returns. */
+  cancelRequestChanges():void};
 export type ComposerSessionOptions={
   userId:string|null;channel:Channel|null;canPost:boolean;
   // onSent may return a promise; the send stays in progress until it settles (the classic post-send refresh).
@@ -87,7 +89,8 @@ export function useComposerSession(options:ComposerSessionOptions){
   const [changeRequest,setChangeRequest]=useState<{channelId:string;onSent(text:string):Promise<void>}|null>(null);
   const changeRequestRef=useRef(changeRequest);changeRequestRef.current=changeRequest;
   useEffect(()=>{setChangeRequest(null);},[activeChannelId]);
-  function requestChanges(onSent:(text:string)=>Promise<void>){if(activeChannelId)setChangeRequest({channelId:activeChannelId,onSent});}
+  function requestChanges(onSent:(text:string)=>Promise<void>){if(!activeChannelId)return;const next={channelId:activeChannelId,onSent};changeRequestRef.current=next;setChangeRequest(next);}
+  function cancelRequestChanges(){changeRequestRef.current=null;setChangeRequest(null);}
   const [sending, setSendingState] = useState(false);
   function setSending(value:boolean){setSendingState(value);options.onStateChange({sending:value});}
   const {attachments:pendingAttachments,setAttachments:setPendingAttachments,uploadFiles:enqueueFiles,error:attachmentError}=useAttachments(`${userId??''}:${activeChannelId??''}`);
@@ -147,12 +150,13 @@ export function useComposerSession(options:ComposerSessionOptions){
       if(sendRequestRef.current?.fingerprint!==fingerprint)sendRequestRef.current={fingerprint,id:crypto.randomUUID()};
       const request=sendRequestRef.current;
       const saved:ChatDraft={...draftState,attachments:message.attachments,request,...(replyTo?{replyTo}:{})};
+      // The request armed when this send began: one armed while it was under way waits for the next message.
+      const asked=changeRequestRef.current;
       if(userId)setDraftStored(saveChatDraft(userId,activeChannelId,saved));
       await apiFetch('/api/messages',{method:'POST',headers:getApiHeaders(),body:JSON.stringify({id:request.id,...message})});
       if(userId)clearSentDraft(userId,activeChannelId,saved);
       if(activeChannelIdRef.current!==activeChannelId)return;
-      const asked=changeRequestRef.current;
-      if(asked?.channelId===activeChannelId){changeRequestRef.current=null;setChangeRequest(null);void asked.onSent(effectiveText).catch(()=>{});}
+      if(asked&&asked===changeRequestRef.current&&asked.channelId===activeChannelId){changeRequestRef.current=null;setChangeRequest(null);void asked.onSent(effectiveText).catch(()=>{});}
       if(activeChannelIdRef.current===activeChannelId){
         if(sendRequestRef.current?.id===request.id)sendRequestRef.current=null;
         setDraftState({text:'',mentions:[]});setPendingAttachments([]);setReplyTo(null);
@@ -208,7 +212,7 @@ export function useComposerSession(options:ComposerSessionOptions){
     draft,draftState,draftStored,setDraft,chooseMention,sending,disabled,mentions,
     pendingAttachments,setPendingAttachments,attachmentError,uploadingAttachmentCount,readyAttachments,hasAttachmentErrors,
     handleSubmit,uploadFiles,removeAttachment,insertText,bindCommands,replyTo,setReplyTarget,
-    requestChanges,changesAsked:Boolean(activeChannelId&&changeRequest?.channelId===activeChannelId),
+    requestChanges,cancelRequestChanges,changesAsked:Boolean(activeChannelId&&changeRequest?.channelId===activeChannelId),
   };
 }
 
@@ -299,6 +303,7 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
     setReplyTarget:session.setReplyTarget,
     focus(){composerTextareaRef.current?.focus();},
     requestChanges(onSent){session.requestChanges(onSent);composerTextareaRef.current?.focus();},
+    cancelRequestChanges:session.cancelRequestChanges,
   }));
 
   // .nest-chat-composer is the scope for assistant-ui's composer look (spec 7.4); the rules are plain CSS in styles.css,
