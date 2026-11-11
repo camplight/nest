@@ -13,19 +13,39 @@ export const ContextLinkSchema = z.object({ sourceAreaId: z.string().uuid() }).s
 export const UseHomeSchema = z.object({ channelId: z.string().min(1).max(200) }).strict();
 
 export type ContextFile = { id: string; name: string; mime: string; size: number; uploadedBy: string; uploadedAt: number };
-export type ContextLink = { sourceAreaId: string; title: string; canvasName: string | null; available: boolean };
+/** Whether a scope has notes and how many files it holds: what an area's `◱ Notes · 2 files` chip reads. */
+export type ContextCounts = { notes: boolean; fileCount: number };
+/** The most files the board summary lists per area, for the file shelf on an area with no chats. */
+export const SUMMARY_SHELF_FILES = 8;
+/**
+ * A link to another area's context. `canvasId`/`canvasName` name the source canvas and `counts` its notes and files,
+ * only for viewers who can read that canvas (null otherwise); `counts` is also null while the link is unavailable.
+ */
+export type ContextLink = {
+  sourceAreaId: string; title: string; canvasId: string | null; canvasName: string | null; available: boolean; counts: ContextCounts | null;
+};
+/** An area that uses this one's context. Its title is null when the viewer cannot read its canvas. */
+export type ContextUse = { areaId: string; title: string | null };
 export type ScopeContext = {
   notes: string; version: number; files: ContextFile[]; links: ContextLink[];
-  usedBy: { areaId: string; title: string | null }[];
+  usedBy: ContextUse[];
   /** Whether any chat's (available) home context includes this scope, including chats homed in areas that link here. */
   inChats: boolean;
 };
 export type ChatHome = { canvasId: string; areaId: string | null };
-/** One board load's context markers: which scopes hold notes or files, and each area's links (for its `↳` chips). */
+/** A file on an area's shelf: enough for a tile and its download link. */
+export type ContextShelfFile = { id: string; name: string; mime: string };
+/**
+ * One board load's context markers: each scope's notes flag and file count (the chips), an area's first
+ * SUMMARY_SHELF_FILES files (the shelf), its links with their own counts (the `↳` chips) and the areas that
+ * use it (the "Used by …" footer). `hasContext` is notes or files.
+ */
 export type ContextSummary = {
-  areas: { areaId: string; hasContext: boolean; links: { sourceAreaId: string; title: string; available: boolean }[] }[];
-  canvas: { hasContext: boolean };
+  areas: ({ areaId: string; hasContext: boolean; files: ContextShelfFile[]; links: ContextLink[]; usedBy: ContextUse[] } & ContextCounts)[];
+  canvas: { hasContext: boolean } & ContextCounts;
 };
+/** An area another person could link: one row of the "Use context from another area" picker. */
+export type ContextSource = { canvasId: string; canvasName: string; areaId: string; title: string; counts: ContextCounts };
 /** An agent in a chat homed in an area, and whether it can read context there. */
 export type ContextReader = { agentName: string; state: 'ready' | 'wrapped' | 'unconfigured' };
 

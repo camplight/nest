@@ -8,7 +8,8 @@ import { CanvasConflictError, CanvasForbiddenError, CanvasLimitError } from '@ne
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
 import {
   areaFor, CARD_HEIGHT, ContextLinkSchema, ContextNotesSchema, MAX_CONTEXT_BYTES_PER_CANVAS, MAX_CONTEXT_FILE_BYTES, MAX_MESSAGE_ATTACHMENTS,
-  type Canvas, type ChatHome, type ContextFile, type ContextLink, type ContextReader, type ContextScope, type ContextSummary, type ScopeContext,
+  SUMMARY_SHELF_FILES, type Canvas, type ChatHome, type ContextCounts, type ContextFile, type ContextLink, type ContextReader, type ContextScope,
+  type ContextSource, type ContextSummary, type ContextUse, type ScopeContext,
 } from '@nest/schemas';
 import { ContextFileTooLargeError, removeStored, type ContextFiles } from './context-files';
 
@@ -164,30 +165,37 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     }
   };
 
-  // A source area is named only to viewers who can read its canvas.
+  const countsOf = (saved: { notes: string; files: unknown[] }): ContextCounts => ({ notes: saved.notes.length > 0, fileCount: saved.files.length });
+  const areaScope = (canvasId: string, areaId: string): ContextScope => ({ kind: 'area', canvasId, areaId });
+  // A source area is named, and its notes and files counted, only to viewers who can read its canvas; an
+  // unavailable link (its linker lost the source) shows no counts, since its chats read nothing from it.
   const linksFor = (areaId: string, viewerId: string) => linkSources(store, areaId).map(({ sourceAreaId, source, available }): ContextLink => {
     const readable = canvases.get(source.canvasId, viewerId);
-    return { sourceAreaId, title: readable ? source.title : 'Unavailable area', canvasName: readable ? readable.name : null, available };
+    if (!readable) return { sourceAreaId, title: 'Unavailable area', canvasId: null, canvasName: null, available, counts: null };
+    return {
+      sourceAreaId, title: source.title, canvasId: readable.id, canvasName: readable.name, available,
+      counts: available ? countsOf(context.get(areaScope(source.canvasId, sourceAreaId))) : null,
+    };
   });
-  const filled = (scope: ContextScope) => { const saved = context.get(scope); return saved.notes.length > 0 || saved.files.length > 0; };
+  // The areas using this one, titled only for viewers who can read their canvas.
+  const usesOf = (areaId: string, viewerId: string) => context.usedBy(areaId).map((use): ContextUse => ({
+    areaId: use.areaId,
+    title: canvases.get(use.canvasId, viewerId) ? areaById(store, use.areaId)?.title ?? null : null,
+  }));
 
   function scopeContext(scope: ContextScope, viewerId: string): ScopeContext {
     const saved = context.get(scope);
     // For the panel's warning: chats whose agents read this scope, wherever their cards are (no chat is named).
     const inChats = chatsUsing(store, scope).some(channelId => availableHome(store, channelId));
     if (scope.kind === 'canvas') return { ...saved, links: [], usedBy: [], inChats };
-    const links = linksFor(scope.areaId, viewerId);
-    const usedBy = context.usedBy(scope.areaId).map(use => ({
-      areaId: use.areaId,
-      title: canvases.get(use.canvasId, viewerId) ? areaById(store, use.areaId)?.title ?? null : null,
-    }));
-    return { ...saved, links, usedBy, inChats };
+    return { ...saved, links: linksFor(scope.areaId, viewerId), usedBy: usesOf(scope.areaId, viewerId), inChats };
   }
 
   routes.get('/api/canvases/context-sources', c => {
     const human = c.get('human');
-    return c.json(canvases.list(human.id).flatMap(canvas =>
-      canvases.areas(canvas.id).map(area => ({ canvasId: canvas.id, canvasName: canvas.name, areaId: area.id, title: area.title }))));
+    return c.json(canvases.list(human.id).flatMap(canvas => canvases.areas(canvas.id).map((area): ContextSource => ({
+      canvasId: canvas.id, canvasName: canvas.name, areaId: area.id, title: area.title, counts: countsOf(context.get(areaScope(canvas.id, area.id))),
+    }))));
   });
 
   const read = (c: Context<Env>) => {
@@ -273,17 +281,25 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     return c.body(null, 204);
   };
 
-  // The board's chips and context dots in one request, rather than one context read per area.
+  // Everything the board's chips, shelves and "Used by" footers need, in one request rather than one context read per area.
   routes.get('/api/canvases/:id/context/summary', c => {
     const canvas = canvasOf(c);
     const viewerId = c.get('human').id;
+    const own = context.get({ kind: 'canvas', canvasId: canvas.id });
     const summary: ContextSummary = {
-      areas: canvases.areas(canvas.id).map(area => ({
-        areaId: area.id,
-        hasContext: filled({ kind: 'area', canvasId: canvas.id, areaId: area.id }),
-        links: linksFor(area.id, viewerId).map(({ sourceAreaId, title, available }) => ({ sourceAreaId, title, available })),
-      })),
-      canvas: { hasContext: filled({ kind: 'canvas', canvasId: canvas.id }) },
+      areas: canvases.areas(canvas.id).map(area => {
+        const saved = context.get(areaScope(canvas.id, area.id));
+        const counts = countsOf(saved);
+        return {
+          areaId: area.id,
+          hasContext: counts.notes || counts.fileCount > 0,
+          ...counts,
+          files: saved.files.slice(0, SUMMARY_SHELF_FILES).map(({ id, name, mime }) => ({ id, name, mime })),
+          links: linksFor(area.id, viewerId),
+          usedBy: usesOf(area.id, viewerId),
+        };
+      }),
+      canvas: { hasContext: own.notes.length > 0 || own.files.length > 0, ...countsOf(own) },
     };
     return c.json(summary);
   });
