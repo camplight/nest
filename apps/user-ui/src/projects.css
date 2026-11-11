@@ -3,6 +3,16 @@
 .project-access-gate p { max-width:54ch; line-height:1.65; color:var(--nest-muted); }
 .project-access-gate .dashboard-action { margin-top:12px; }
 .project-access-error { margin-top:20px; }
+.project-access-request-list { display:grid; gap:12px; }
+.project-access-request { padding:14px; border:1px solid var(--nest-border); border-radius:9px; background:var(--nest-surface); }
+.project-access-request>strong { display:block; overflow-wrap:anywhere; }
+.project-access-request p { margin:8px 0 0; color:var(--nest-muted); font-size:12px; line-height:1.5; }
+.project-access-request .project-access-policy { color:var(--nest-text); font-weight:600; }
+.project-access-request-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+.project-access-request-actions .dashboard-action { margin:0; }
+.project-access-progress { font-weight:600; }
+.project-access-pending { margin-top:24px; padding-top:4px; border-top:1px solid var(--nest-border); }
+.project-remove-access { margin-left:auto; flex-shrink:0; font-size:12px; }
 @media(max-width:600px) { .project-access-gate { padding:22px; } }
 
 .project-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(290px,100%),1fr)); gap: 20px; }

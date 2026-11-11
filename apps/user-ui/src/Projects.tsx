@@ -13,7 +13,7 @@ import {ProjectContext} from './ProjectContext';
 import {ProjectAccessGate} from './ProjectAccessGate';
 import './projects.css';
 
-type Props = {userId:string; participants:ChannelParticipant[]; existingChats: {id:string;name:string;archived:boolean}[]; onChat:(id:string)=>void; projectId: string | null; taskId: string | null; tab: string; agents: Agent[]; onSelect: (project: string | null, task?: string | null, tab?: string) => void; onLoaded: (project: Project) => void; onMenu: () => void; chat: ReactNode; onMembersChanged:()=>Promise<void>};
+type Props = {userId:string; username:string; participants:ChannelParticipant[]; existingChats: {id:string;name:string;archived:boolean}[]; onChat:(id:string)=>void; projectId: string | null; taskId: string | null; tab: string; agents: Agent[]; onSelect: (project: string | null, task?: string | null, tab?: string) => void; onLoaded: (project: Project) => void; onMenu: () => void; chat: ReactNode; onMembersChanged:()=>Promise<void>};
 const statusLabel: Record<Task['status'],string> = {queued:'Ready to send',working:'Awaiting deliverable',needs_review:'Needs review',changes_requested:'Changes requested',done:'Approved'};
 function message(reason: unknown) {
   const text=reason instanceof Error ? reason.message : 'Unable to complete request';
@@ -79,7 +79,7 @@ export function Projects(props: Props) {
         {taskId && !selected && <p role="alert">Task not found in this project.</p>}
         {selected && <TaskPanel key={`${selected.id}:${selected.version}`} task={selected} detail={detail} onChanged={task=>setDetail(current=>current ? {...current,tasks:current.tasks.map(t=>t.id===task.id ? task : t)} : current)} onRefresh={()=>setRefresh(n=>n+1)} />}
       </>}
-      </div><ProjectContext key={detail.id} project={detail} participants={props.participants} agents={agents} owner={detail.ownerId===props.userId} onSaved={updated=>setDetail(current=>current?{...current,...updated}:current)} onMembersChanged={props.onMembersChanged}/></div></>}
+      </div><ProjectContext key={detail.id} project={detail} participants={props.participants} agents={agents} owner={detail.ownerId===props.userId} ownerUsername={props.username} onSaved={updated=>setDetail(current=>current?{...current,...updated}:current)} onMembersChanged={props.onMembersChanged}/></div></>}
     </div>
   </section>;
 }
