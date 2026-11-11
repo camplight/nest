@@ -6,6 +6,7 @@ import {foldCalls,summarise,type AppCall} from '../app-activity';
 import {IntegrationLogo} from '../components/IntegrationLogo';
 import type {EventRow} from '../types';
 
+const count=(n:number,word:string)=>`${n} ${word}${n===1?'':'s'}`;
 export const WRAPPED_LIMIT="Codex and Claude Code agents only report their messages, so their app use isn't shown here.";
 /** How often a still-running call is checked against the 10 minute limit. */
 const TICK_MS=30_000;
@@ -17,12 +18,12 @@ export function AppsHere({calls,wrappedAgents}:{calls:AppCall[];wrappedAgents:st
   <strong className="apps-here-title">Apps here</strong>
   {calls.length>0&&<>
    <ul className="apps-here-chips">{summary.apps.map(app=>{
-    const text=`${app.appName}: ${app.reads} reads · ${app.changes} changes`;
+    const text=`${app.appName}: ${count(app.reads,'read')} · ${count(app.changes,'change')}`;
     return <li key={app.app} className={`apps-here-chip${app.running?' is-live':''}`} title={text} aria-label={text}>
      <IntegrationLogo toolkit={app.app}/><span className="apps-here-name">{app.appName}</span><span className="apps-here-count">{app.reads+app.changes}</span>
     </li>;
    })}</ul>
-   <span className="apps-here-total">{summary.reads} reads · {summary.changes} changes outside Nest</span>
+   <span className="apps-here-total">{count(summary.reads,'read')}{summary.changes?` · ${count(summary.changes,'change')} outside Nest`:' · nothing changed outside Nest'}</span>
   </>}
   {wrappedAgents.length>0&&<p className="apps-here-limit">{WRAPPED_LIMIT}</p>}
  </section>;

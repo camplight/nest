@@ -1025,8 +1025,16 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    and label, as the tool event's do. A `process.output` whose start is not in the
    loaded history shows no text until older messages load, since it may belong to an
    app call.
+   With the canvas flag on, each app call (a `tool.started` paired with its result,
+   as `foldCalls` pairs them) is a slim timeline line, not an icon chip: the agent's
+   28 px avatar, the app icon, "**Agent** Action label · App", a `running` tag with a
+   live dot or a `failed` tag, a text `changed` pill on changes, and the time. The
+   line is a button with `aria-expanded`; its details are monospace lines of agent,
+   app, action, repo (gh), read or changed, state and time, never a command, argument
+   or output. Non-app events keep the chip strip, and with the flag off the timeline
+   is unchanged.
    Running and failed calls are counted. Cards show the apps used, and the chat's
-   "Apps here" bar shows "N reads · M changes outside Nest" for the loaded history
+   "Apps here" bar shows "N reads · M changes outside Nest" (singular for one, "nothing changed outside Nest" for none) for the loaded history
    only, so long chats under-report until older pages load. A call still running
    after 10 minutes counts as failed; that window uses a server clock taken from
    response `Date` headers and realtime events, not the browser clock. Wrapped agents

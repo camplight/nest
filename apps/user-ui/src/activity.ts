@@ -1,5 +1,5 @@
 import type {EventRow} from './types';
-import {classifyCommand,classifyToolEvent,type Classified} from './app-activity';
+import {classifyCommand,classifyToolEvent,foldCalls,type AppCall,type Classified} from './app-activity';
 export type ActivityTone='neutral'|'success'|'danger'|'muted';
 export type ActivityIcon='thinking'|'check'|'error'|'terminal'|'output'|'tool'|'context'|'progress';
 /** What a process event's command did outside Nest, when it was an app call. */
@@ -8,7 +8,13 @@ type ProcessCall={agent:string;kind:'read'|'change';label:string|null};
  * App calls in a chat's loaded events, for naming and redacting them in the timeline (Phase 2, behind the canvas
  * flag). Null means the flag is off: titles and details are exactly as before Phase 2.
  */
-export type AppRedaction={calls:ReadonlyMap<string,ProcessCall>;started:ReadonlySet<string>};
+export type AppRedaction={
+  calls:ReadonlyMap<string,ProcessCall>;started:ReadonlySet<string>;
+  /** Each app call of the chat, by the id of the event that begins it (its tool.started, or a lone result). */
+  lines:ReadonlyMap<string,AppCall>;
+  /** Every tool event that is part of an app call, including results paired to a start: none is drawn as a chip. */
+  appEvents:ReadonlySet<string>;
+};
 const record=(payload:unknown):Record<string,unknown>=>payload&&typeof payload==='object'&&!Array.isArray(payload)?payload as Record<string,unknown>:{};
 const processIdOf=(event:EventRow)=>{const id=record(event.payload).processId;return typeof id==='string'&&id?id:null;};
 /** The agent a process belongs to: the engine names it in the payload (the source is the process runner). */
@@ -24,8 +30,11 @@ function startedCall(event:EventRow):ProcessCall|null{
   return call?{agent:processAgent(event),kind:call.kind,label:call.label}:null;
 }
 /** Every `shell_run` also emits process.started (its command), process.output (its output) and process.exited, by processId. */
-export function appRedaction(events:EventRow[]):AppRedaction{
-  const calls=new Map<string,ProcessCall>(),started=new Set<string>();
+export function appRedaction(events:EventRow[],now:number=Date.now()):AppRedaction{
+  const calls=new Map<string,ProcessCall>(),started=new Set<string>(),appEvents=new Set<string>();
+  const tools=events.filter(event=>event.type.startsWith('tool.'));
+  for(const event of tools)if(appCall(event))appEvents.add(event.id);
+  const lines=new Map(foldCalls(tools,now).map(call=>[call.id,call]));
   for(const event of events){
     const id=event.type==='process.started'?processIdOf(event):null;
     if(!id)continue;
@@ -33,7 +42,7 @@ export function appRedaction(events:EventRow[]):AppRedaction{
     const call=startedCall(event);
     if(call)calls.set(id,call);
   }
-  return {calls,started};
+  return {calls,started,lines,appEvents};
 }
 const PROCESS_TYPES=new Set(['process.started','process.output','process.exited']);
 /** The app call behind a process event: its own command, or the start that shares its processId. */
@@ -79,6 +88,16 @@ function baseActivity(event:EventRow):{title:string;tone:ActivityTone;icon:Activ
     case 'telemetry.context.window.updated':return {title:'Conversation context updated',tone:'muted',icon:'context'};
     default:return {title:'Agent progress',tone:'neutral',icon:'progress'};
   }
+}
+/** The label of an app line: the action name, plus the repo for gh. Never the command, arguments or output. */
+export function appLineLabel(call:AppCall):string{
+  const action=call.action.charAt(0).toUpperCase()+call.action.slice(1);
+  return call.label?`${action} ${call.label}`:action;
+}
+/** An expanded app line: agent, app, action, read or change, state and time only. */
+export function appLineDetails(call:AppCall):string{
+  return [`agent: ${call.agent}`,`app: ${call.appName}`,`action: ${call.action}`,...(call.label?[`repo: ${call.label}`]:[]),
+    `kind: ${call.kind==='read'?'read':'changed'}`,`state: ${call.state}`,`time: ${new Date(call.at).toISOString()}`].join('\n');
 }
 export function activityDetails(event:EventRow,apps:AppRedaction|null=null){
   // App calls show tool, time, agent, read or change and the label only; never the command, arguments or output.

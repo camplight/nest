@@ -1,7 +1,10 @@
 import {useId,useState,type MouseEvent,type FocusEvent} from 'react';
 import {createPortal} from 'react-dom';
 import type {EventRow} from '../types';
-import {activity,activityDetails,type ActivityIcon,type AppRedaction} from '../activity';
+import {activity,activityDetails,appLineDetails,appLineLabel,type ActivityIcon,type AppRedaction} from '../activity';
+import type {AppCall} from '../app-activity';
+import {AgentAvatar} from './AgentAvatar';
+import {IntegrationLogo} from './IntegrationLogo';
 
 function ActivityIconView({name}:{name:ActivityIcon}){
   const paths:Record<ActivityIcon,React.ReactNode>={
@@ -16,26 +19,63 @@ function ActivityIconView({name}:{name:ActivityIcon}){
   };
   return <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
+/** One app call as a slim line (the mock's `.act`): avatar, app icon, "Agent action · App", state, `changed`, time. */
+function AppLine({call,open,onToggle,detailId,formatTime}:{call:AppCall;open:boolean;onToggle():void;detailId:string;formatTime:(time?:number)=>string}){
+  return <div className={`app-line${call.state==='failed'?' is-failed':''}`} data-state={call.state}>
+    <AgentAvatar name={call.agent} size={28}/>
+    <div className="app-line-main">
+      <button type="button" className="app-line-row" aria-expanded={open} aria-controls={open?detailId:undefined} onClick={onToggle}>
+        <IntegrationLogo toolkit={call.app}/>
+        <span className="app-line-text"><b>{call.agent}</b> {appLineLabel(call)} · {call.appName}</span>
+        {call.state==='running'&&<span className="app-line-live"><span className="app-line-dot" aria-hidden="true"/>running</span>}
+        {call.state==='failed'&&<span className="app-line-failed">failed</span>}
+        {call.kind==='change'&&<span className="app-line-changed">changed</span>}
+        <time className="app-line-time">{formatTime(call.at)}</time>
+      </button>
+      {open&&<pre className="app-line-details" id={detailId}>{appLineDetails(call)}</pre>}
+    </div>
+  </div>;
+}
+type Segment={kind:'chips';events:EventRow[]}|{kind:'line';call:AppCall};
+/** With the canvas flag on, app calls leave the chip strip and stand as their own lines, in order. */
+function segments(events:EventRow[],apps:AppRedaction|null):Segment[]{
+  if(!apps)return [{kind:'chips',events}];
+  const out:Segment[]=[];
+  for(const event of events){
+    const call=apps.lines.get(event.id);
+    if(call){out.push({kind:'line',call});continue;}
+    // A result paired to an earlier start belongs to that line.
+    if(apps.appEvents.has(event.id))continue;
+    const last=out[out.length-1];
+    if(last?.kind==='chips')last.events.push(event);else out.push({kind:'chips',events:[event]});
+  }
+  return out;
+}
 /** `apps` names and redacts app calls (canvas flag on); null shows every event as before Phase 2. */
 export function AgentActivity({events,tone,formatTime,apps=null}:{events:EventRow[];tone:'agent'|'system';formatTime:(time?:number)=>string;apps?:AppRedaction|null}){
   const id=useId();
   const [selected,setSelected]=useState<string|null>(null);
   const [tooltip,setTooltip]=useState<{event:EventRow;x:number;y:number;below:boolean}|null>(null);
-  const current=events.find(event=>event.id===selected);
+  const current=events.find(event=>event.id===selected&&!apps?.appEvents.has(event.id));
   function showLabel(event:MouseEvent<HTMLButtonElement>|FocusEvent<HTMLButtonElement>,row:EventRow){
     const bounds=event.currentTarget.getBoundingClientRect(),below=bounds.top<70;
     setTooltip({event:row,x:Math.max(8,Math.min(bounds.left,window.innerWidth-248)),y:below?bounds.bottom+6:bounds.top-6,below});
   }
+  const parts=segments(events,apps);
+  if(!parts.length)return null;
   return <article className={`trace-group trace-group-${tone}`} aria-label="Agent activity">
-    <div className="trace-chips" role="group" aria-label="Agent activity events">{events.map(event=>{
-      const info=activity(event,apps),active=selected===event.id;
-      return <button type="button" key={event.id} className={`trace-chip trace-chip-${info.tone}${active?' trace-chip-active':''}`}
-        aria-label={info.title} aria-expanded={active} aria-controls={active?`${id}-detail`:undefined} aria-describedby={tooltip?.event.id===event.id?`${id}-label`:undefined}
-        onMouseEnter={e=>showLabel(e,event)} onMouseLeave={()=>setTooltip(null)} onFocus={e=>showLabel(e,event)} onBlur={()=>setTooltip(null)}
-        onClick={()=>{setTooltip(null);setSelected(active?null:event.id);}}>
-        <ActivityIconView name={info.icon}/>
-      </button>;
-    })}</div>
+    {parts.map((part,index)=>part.kind==='line'?
+      <AppLine key={part.call.id} call={part.call} open={selected===part.call.id} detailId={`${id}-line-${index}`} formatTime={formatTime}
+        onToggle={()=>setSelected(selected===part.call.id?null:part.call.id)}/>:
+      <div className="trace-chips" role="group" aria-label="Agent activity events" key={part.events[0].id}>{part.events.map(event=>{
+        const info=activity(event,apps),active=selected===event.id;
+        return <button type="button" key={event.id} className={`trace-chip trace-chip-${info.tone}${active?' trace-chip-active':''}`}
+          aria-label={info.title} aria-expanded={active} aria-controls={active?`${id}-detail`:undefined} aria-describedby={tooltip?.event.id===event.id?`${id}-label`:undefined}
+          onMouseEnter={e=>showLabel(e,event)} onMouseLeave={()=>setTooltip(null)} onFocus={e=>showLabel(e,event)} onBlur={()=>setTooltip(null)}
+          onClick={()=>{setTooltip(null);setSelected(active?null:event.id);}}>
+          <ActivityIconView name={info.icon}/>
+        </button>;
+      })}</div>)}
     {current&&<div className="trace-detail-card" id={`${id}-detail`} key={current.id}>
       <div className="trace-detail-meta"><strong>{activity(current,apps).title}</strong><span>{formatTime(current.createdAt)}</span></div>
       <details><summary>Details</summary><pre>{activityDetails(current,apps)}</pre></details>

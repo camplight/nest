@@ -108,30 +108,56 @@ await runChatTest('chat apps bar: counts, honest timeline lines without the comm
   await h.emit('tool.executed',{tool:'shell_run',args:{command:'node scripts/connections.mjs execute c1 GMAIL_FETCH_EMAILS < a.json'},output:'x'});
   await h.emit('tool.executed',{tool:'shell_run',args:{command:'gh pr merge 5 -R acme/web'},output:'y'});
   await bar.waitFor();
-  await bar.getByText('1 reads · 2 changes outside Nest',{exact:true}).waitFor();
+  await bar.getByText('1 read · 2 changes outside Nest',{exact:true}).waitFor();
   assert.equal(await bar.getByText('Apps here',{exact:true}).count(),1);
-  await bar.locator('[title="Gmail: 1 reads · 1 changes"]').waitFor();
-  await bar.locator('[title="GitHub: 0 reads · 1 changes"]').waitFor();
+  await bar.locator('[title="Gmail: 1 read · 1 change"]').waitFor();
+  await bar.locator('[title="GitHub: 0 reads · 1 change"]').waitFor();
   assert.equal(await bar.locator('img[src$="/gmail.svg"]').count(),1,'the Gmail logo');
   assert.equal(await bar.getByText('Codex and Claude Code agents',{exact:false}).count(),0,'no limitation line without a wrapped agent');
 
   // A call still running counts, with a live chip.
   await h.emit('tool.started',{tool:'shell_run',args:{command:'node scripts/connections.mjs execute c1 SLACK_SEND_MESSAGE < a.json'}});
-  await bar.getByText('1 reads · 3 changes outside Nest',{exact:true}).waitFor();
+  await bar.getByText('1 read · 3 changes outside Nest',{exact:true}).waitFor();
   assert.equal(await bar.locator('.apps-here-chip.is-live').count(),1);
 
-  // The timeline line is honest, and its details never show the command or output.
-  const line=page.getByRole('button',{name:'Pip · Gmail · Send email · changed',exact:true});
-  await line.first().click();
-  const detail=page.locator('.trace-detail-card');
-  await detail.getByText('Pip · Gmail · Send email · changed',{exact:true}).waitFor();
-  await detail.locator('summary').click();
-  const shown=await detail.innerText();
-  assert.match(shown,/Send email/);
-  assert.match(shown,/"kind": "change"/);
+  // Each app call is a slim line (the mock's .act): agent, action label and app, `changed` on writes, time.
+  const lines=page.locator('.app-line');
+  assert.equal(await lines.count(),4,'one line per app call, none as an icon chip');
+  assert.equal(await page.locator('.trace-chip[aria-label*="Gmail"]').count(),0,'app calls are not chips');
+  const sendLine=lines.filter({hasText:'Send email · Gmail'});
+  assert.equal((await sendLine.locator('.app-line-text').innerText()).replace(/\s+/g,' '),'Pip Send email · Gmail');
+  assert.equal(await sendLine.locator('.app-line-changed').innerText(),'changed');
+  assert.equal(await sendLine.locator('img[src$="/gmail.svg"]').count(),1,'the app icon');
+  assert.ok((await sendLine.locator('.app-line-time').innerText()).trim().length>0,'the time');
+  const sendButton=sendLine.getByRole('button');
+  assert.equal(await sendButton.getAttribute('aria-expanded'),'false');
+  const readLine=lines.filter({hasText:'Fetch emails · Gmail'});
+  assert.equal((await readLine.locator('.app-line-text').innerText()).replace(/\s+/g,' '),'Pip Fetch emails · Gmail');
+  assert.equal(await readLine.locator('.app-line-changed').count(),0,'a read has no changed tag');
+  assert.equal(await readLine.locator('.app-line-failed, .app-line-live').count(),0);
+  const ghLine=lines.filter({hasText:'GitHub'});
+  assert.equal((await ghLine.locator('.app-line-text').innerText()).replace(/\s+/g,' '),'Pip Pr merge acme/web · GitHub');
+  const runningLine=lines.filter({hasText:'Send message · Slack'});
+  assert.equal(await runningLine.locator('.app-line-live').innerText(),'running');
+  assert.equal(await runningLine.locator('.app-line-dot').count(),1,'a live dot');
+  // Expanding shows agent, app, action, kind, state and time only.
+  assert.equal(await sendLine.locator('.app-line-details').count(),0);
+  await sendButton.click();
+  assert.equal(await sendButton.getAttribute('aria-expanded'),'true');
+  const shown=await sendLine.locator('.app-line-details').innerText();
+  assert.match(shown,/agent: Pip/);
+  assert.match(shown,/app: Gmail/);
+  assert.match(shown,/action: Send email/);
+  assert.match(shown,/kind: changed/);
+  assert.match(shown,/state: done/);
+  assert.match(shown,/time: \d{4}-\d\d-\d\dT/);
   const html=await page.evaluate(()=>document.body.innerHTML);
-  for(const leak of ['a.json','connections.mjs','SYNTHETIC-SECRET-BODY','acme/web'])assert.ok(!html.includes(leak),`${leak} is not in the page`);
-  assert.ok(!shown.includes('a.json'));
+  for(const leak of ['a.json','connections.mjs','SYNTHETIC-SECRET-BODY'])assert.ok(!html.includes(leak),`${leak} is not in the page`);
+  for(const leak of ['a.json','connections.mjs','shell_run','SYNTHETIC-SECRET-BODY'])assert.ok(!shown.includes(leak),`${leak} is not in the details`);
+  await sendLine.scrollIntoViewIfNeeded();
+  await page.screenshot({path:'/tmp/claude-1000/-home-slamnation-www-nest/838a10bf-04f0-475f-8c78-5cf50aec1660/scratchpad/batch-c/timeline-lines.png'});
+  await sendButton.click();
+  assert.equal(await sendLine.locator('.app-line-details').count(),0,'a second click collapses it');
 
   // The same call also runs as a process (R22): its start, output and end are redacted like the tool event,
   // while a plain shell process keeps its full details (the control: the page check below can see output).
@@ -200,6 +226,7 @@ await runChatTest('canvas flag off: no voice notes, no Apps here bar, and the ti
   assert.equal(await page.getByRole('region',{name:'Apps here',exact:true}).count(),0,'no Apps here bar');
   assert.equal(await page.getByText('Codex and Claude Code agents',{exact:false}).count(),0,'no wrapped-agent line');
   assert.equal(await page.getByRole('button',{name:/· Gmail ·/}).count(),0,'no app-call titles');
+  assert.equal(await page.locator('.app-line').count(),0,'no app lines');
   assert.equal(await page.getByRole('button',{name:'Record a voice note',exact:true}).count(),0,'no mic in the composer');
 
   // Details show the recorded payload exactly as before Phase 2.

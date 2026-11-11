@@ -8,6 +8,7 @@ import {AgentAvatar} from '../components/AgentAvatar';
 import type {Agent,EventRow} from '../types';
 import {AssistantRuntimeProvider,ThreadPrimitive,useAuiState,useExternalStoreRuntime} from './aui';
 import type {ChannelEventsCore,ChannelEventsSnapshot} from './channel-events';
+import {serverClock} from '../server-clock';
 import {ChatAppsHere} from './AppsHere';
 import {ExportButton} from './ExportButton';
 import {formatTime} from './format';
@@ -214,7 +215,7 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  const focusedRef=useRef<string|null>(null);
  const focused=useCallback((eventId:string)=>{focusedRef.current=eventId;},[]);
  // App calls and their processes are linked across the whole loaded window, not one activity group.
- const apps=useMemo(()=>props.appActivity?appRedaction(snapshot.events):null,[props.appActivity,snapshot.events]);
+ const apps=useMemo(()=>props.appActivity?appRedaction(snapshot.events,serverClock.serverNow()):null,[props.appActivity,snapshot.events]);
  const view=useMemo<ThreadView>(()=>({byId:new Map(items.map(item=>[item.id,item])),turns,props,apps,focused}),[items,turns,props,apps,focused]);
  const runtime=useExternalStoreRuntime({
   messages:items,convertMessage:toThreadMessage,isRunning:false,onNew:NO_ERROR,

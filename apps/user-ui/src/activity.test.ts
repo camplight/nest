@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {activity,activityDetails,activeAgentProgress,appRedaction} from './activity';
+import {activity,activityDetails,activeAgentProgress,appLineDetails,appLineLabel,appRedaction} from './activity';
 import type {EventRow} from './types';
 const event=(type:string,payload:unknown)=>({id:'fixture',type,payload,source:'agent:Demo',createdAt:1,channelId:'demo'} as EventRow);
 describe('activity status meaning',()=>{
@@ -45,6 +45,29 @@ describe('app calls in the timeline',()=>{
   expect(activity(send,null).title).toBe('shell_run completed');
   expect(JSON.parse(activityDetails(send))).toEqual({event:send.type,source:send.source,payload:send.payload});
   expect(JSON.parse(activityDetails(send,null))).toEqual({event:send.type,source:send.source,payload:send.payload});
+ });
+});
+
+describe('app lines in the timeline',()=>{
+ const tool=(id:string,type:string,command:string,at:number)=>({...event(type,{tool:'shell_run',args:{command},output:'SECRET-OUT'}),id,source:'agent:Pip',createdAt:at});
+ const send='node scripts/connections.mjs execute c1 GMAIL_SEND_EMAIL < a.json';
+ it('makes one line per call, paired with its result, and keeps non-app tools out of it',()=>{
+  const rows=[tool('s1','tool.started',send,10),tool('e1','tool.executed',send,20),tool('r1','tool.executed','gh pr view 1 -R acme/web',30),tool('l1','tool.executed','ls -la',40),tool('s2','tool.started',send.replace('SEND','FETCH'),50)];
+  const apps=appRedaction(rows,60);
+  expect([...apps.lines.keys()]).toEqual(['s1','r1','s2']);
+  expect([...apps.appEvents].sort()).toEqual(['e1','r1','s1','s2']);
+  expect(apps.lines.get('s1')).toMatchObject({agent:'Pip',appName:'Gmail',action:'Send email',kind:'change',state:'done'});
+  expect(apps.lines.get('s2')).toMatchObject({kind:'read',state:'running'});
+  expect(appRedaction(rows,60+11*60_000).lines.get('s2')?.state).toBe('failed');
+ });
+ it('labels and details show only agent, app, action, repo, kind, state and time',()=>{
+  const apps=appRedaction([tool('r1','tool.executed','gh pr view 1 -R acme/web',30),tool('s1','tool.executed',send,40)],60);
+  const gh=apps.lines.get('r1')!,mail=apps.lines.get('s1')!;
+  expect(appLineLabel(gh)).toBe('Pr view acme/web');
+  expect(appLineLabel(mail)).toBe('Send email');
+  const text=appLineDetails(mail);
+  expect(text).toBe('agent: Pip\napp: Gmail\naction: Send email\nkind: changed\nstate: done\ntime: 1970-01-01T00:00:00.040Z');
+  for(const shown of [text,appLineDetails(gh),appLineLabel(gh),appLineLabel(mail)])for(const leak of ['a.json','connections.mjs','SECRET-OUT','shell_run'])expect(shown).not.toContain(leak);
  });
 });
 
