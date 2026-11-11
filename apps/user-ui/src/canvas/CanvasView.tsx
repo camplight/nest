@@ -20,7 +20,8 @@ import {SPLIT_MAX,SPLIT_MIN,clampSplit,readSplit,splitAt,writeSplit} from './spl
 import {cardTitle} from './Card';
 import {AgentTray} from './AgentTray';
 import {trayAgents} from './tray';
-import {NeedsYou} from './NeedsYou';
+import {NeedsYou,useReviews} from './NeedsYou';
+import {needsByChannel,needsYouItems,type NeedsItem} from './needs';
 import {CanvasSearch} from './CanvasSearch';
 import {PHONE_QUERY,PhoneList,usePhoneLayout} from './PhoneList';
 import {searchIndex,type SearchItem} from './search';
@@ -440,6 +441,15 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     for (const chat of candidates) map.set(chat.channelId, chat.title || 'Untitled chat');
     return map;
   }, [cards, candidates]);
+  // Cards show their chat's Needs you items too (mentions and reviews), so the reviews are read here for both.
+  const [needsOpen, setNeedsOpen] = useState(false);
+  const reviews = useReviews(needsOpen, !phone);
+  const needsCache = useRef<ReadonlyMap<string, NeedsItem[]>>(new Map());
+  const cardNeeds = useMemo(() => {
+    const next = needsByChannel(needsYouItems({pulses, titles, reviews, projects}), needsCache.current);
+    needsCache.current = next;
+    return next;
+  }, [pulses, titles, reviews, projects]);
   const [highlight, setHighlight] = useState<{id: string; n: number} | null>(null);
   const highlightCount = useRef(0);
   useEffect(() => { setHighlight(null); }, [canvasId]);
@@ -629,7 +639,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={applyTracked} pulses={pulses} onNudge={sendNudge}
           onDropChat={canPlace ? dropChat : undefined} controls={controls} onOpenChat={openFromCard} openChannelId={chatShown ? chatChannelId : null}
           onDropAgent={dropAgent} onRemoveAgent={removeAgent} canManageCard={manageable} onSelectCard={setSelectedId} selectedChannelId={selected?.channelId ?? null}
-          areaContext={areaContext} onAreaContext={openAreaContext} contextAreaId={panel?.kind === 'area' ? panel.areaId : null} onOpenCanvas={id => onSelectCanvas(id)} onDropFiles={dropFiles}/>
+          areaContext={areaContext} onAreaContext={openAreaContext} contextAreaId={panel?.kind === 'area' ? panel.areaId : null} onOpenCanvas={id => onSelectCanvas(id)} onDropFiles={dropFiles}
+          needs={cardNeeds} viewer={username}/>
         <AgentTray tray={tray} suggestedFor={selected ? cardTitle(selected) : null} agents={agents} humanId={humanId} cards={board.cards} areas={board.areas}/>
         {/* Files dropped on empty canvas start a chat here, even beside a split chat; a focus chat takes every drop itself. */}
         {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!focusChat}
@@ -646,7 +657,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   return <section className="canvas-view" aria-label="Canvas">
     <WorkspaceTopbar onMenu={onMenu} search={canvasId ? <div className="canvas-tools">
       {/* On phones Needs you is a segment of the list instead. */}
-      {phone ? null : <NeedsYou pulses={pulses} titles={titles} projects={projects} onJump={jumpTo}/>}
+      {phone ? null : <NeedsYou pulses={pulses} titles={titles} projects={projects} reviews={reviews} onOpenChange={setNeedsOpen} onJump={jumpTo}/>}
       <button type="button" className="canvas-search-button" title="Search the canvas (Ctrl+K)" onClick={() => setSearchOpen(true)}>Search</button>
     </div> : undefined} leading={canvasId ? <div className="canvas-heading">
       <h1 className="canvas-name">{name}</h1>

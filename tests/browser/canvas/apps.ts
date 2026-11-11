@@ -1,7 +1,7 @@
 // App activity on cards (Phase 2 Task 9): logos from the chat's tool.* events on the real engine, API and WS. Synthetic data.
 import assert from 'node:assert/strict';
 import type {Page} from 'playwright';
-import {runChatTest,type ChatHarness} from '../support/chat-harness';
+import {agentName,runChatTest,type ChatHarness} from '../support/chat-harness';
 
 async function call<T>(h:ChatHarness,method:string,path:string,body?:unknown):Promise<T>{
   const response=await fetch(h.apiUrl+path,{method,headers:{cookie:h.cookie,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
@@ -23,7 +23,15 @@ await runChatTest('canvas apps: logos, live ring, read/change counts, no command
   await card.waitFor();
   assert.equal(await card.locator('.canvas-card-apps').count(),0,'no apps row before any app call');
 
-  // A call in flight: the Gmail logo with a live ring.
+  // Pip is mid-turn (running and heartbeating), so its row shows the app it is using.
+  const now=Date.now();
+  h.engineDb.prepare("UPDATE agents SET desired_state='RUNNING', runtime_state='RUNNING', last_heartbeat_at=?, updated_at=? WHERE name=?").run(now,now,agentName);
+  const trigger=await h.emit('message.created',{text:'Synthetic trigger'},{source:'human:demo-owner'});
+  await h.emit('agent.turn.started',{triggerEventId:trigger.id},{source:`agent:${agentName}`,channelId:h.project.channelId});
+  const pipRow=card.locator('.canvas-card-row[data-kind="agent"]');
+  await pipRow.locator('.canvas-card-what').getByText('working',{exact:true}).waitFor();
+
+  // A call in flight: the Gmail logo with a live ring, and Pip's row names the app and action only.
   const sendStarted=await h.emit('tool.started',{tool:'shell_run',args:{command:connection('GMAIL_SEND_EMAIL')}});
   const gmail=card.locator('.canvas-card-app').first();
   await gmail.waitFor();
@@ -32,12 +40,19 @@ await runChatTest('canvas apps: logos, live ring, read/change counts, no command
   const live=await gmail.evaluate(el=>{const s=getComputedStyle(el,'::after');return {content:s.content,animation:s.animationName};});
   assert.notEqual(live.content,'none','the ring is drawn');
   assert.equal(live.animation,'canvas-app-ring','the ring animates with motion allowed');
+  await pipRow.locator('.canvas-card-what').getByText('Gmail · Send email',{exact:true}).waitFor();
+  assert.equal(await pipRow.locator('.canvas-card-row-app img[src$="/gmail.svg"]').count(),1,'the row shows the app in use');
+  assert.equal(await pipRow.getAttribute('data-state'),'working');
+  await card.locator('.canvas-card-apps-name').getByText('Gmail',{exact:true}).waitFor();
 
   // Done: no ring, and the title counts the change.
   await h.emit('tool.executed',{tool:'shell_run',args:{command:connection('GMAIL_SEND_EMAIL')},output:'Dear Alice, SYNTHETIC-SECRET-BODY'},{parentEventId:sendStarted.id});
   await page.waitForFunction(id=>{const el=document.querySelector(`.canvas-card[data-channel-id="${id}"] .canvas-card-app`);return !!el&&!el.classList.contains('is-live');},h.project.channelId);
   assert.equal(await gmail.getAttribute('title'),'Gmail: 0 reads · 1 changes');
   assert.equal(await gmail.getAttribute('aria-label'),'Gmail: 0 reads · 1 changes');
+  // The call is done: the row is back to the turn's own activity, with no app.
+  await pipRow.locator('.canvas-card-what').getByText('working',{exact:true}).waitFor();
+  assert.equal(await pipRow.locator('.canvas-card-row-app').count(),0);
 
   // A read, a gh read and a non-app command: the count and a second logo; the shell command adds nothing.
   await h.emit('tool.started',{tool:'shell_run',args:{command:connection('GMAIL_FETCH_EMAILS')}});
@@ -50,14 +65,16 @@ await runChatTest('canvas apps: logos, live ring, read/change counts, no command
   assert.equal(await gmail.getAttribute('title'),'Gmail: 1 reads · 1 changes');
   assert.equal(await card.locator('.canvas-card-app').count(),2);
   assert.equal(await card.locator('.canvas-card-app.is-live').count(),0);
+  await card.locator('.canvas-card-apps-name').getByText('2 apps',{exact:true}).waitFor();
 
-  // Five apps: four logos, then +1.
+  // Five apps: four logos, then `5 apps` (the mock's c-apps); its title names every app.
   for(const slug of ['SLACK_LIST_CHANNELS','TRELLO_LIST_BOARDS','MIRO_GET_BOARD'])await h.emit('tool.executed',{tool:'shell_run',args:{command:connection(slug)}});
-  await card.locator('.canvas-card-apps-more').getByText('+1',{exact:true}).waitFor();
+  await card.locator('.canvas-card-apps-name').getByText('5 apps',{exact:true}).waitFor();
   assert.equal(await card.locator('.canvas-card-app').count(),4);
+  assert.match(await card.locator('.canvas-card-apps-name').getAttribute('title')??'',/^Apps used in this chat: .*Miro/);
   // The generic mark stands in for an app with no logo, and it still has its name.
   await h.emit('tool.executed',{tool:'shell_run',args:{command:connection('NOTION_UPDATE_PAGE')}});
-  await card.locator('.canvas-card-apps-more').getByText('+2',{exact:true}).waitFor();
+  await card.locator('.canvas-card-apps-name').getByText('6 apps',{exact:true}).waitFor();
 
   // Privacy: no command text or output reaches the page.
   const text=await page.evaluate(()=>document.body.innerHTML);

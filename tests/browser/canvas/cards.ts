@@ -38,9 +38,13 @@ await runChatTest('canvas cards: a started turn shows working without a reload',
   page.on('framenavigated',frame=>{if(frame===page.mainFrame())navigations.push(frame.url());});
   const trigger=await h.emit('message.created',{text:'Synthetic trigger'},{source:'human:demo-owner'});
   await h.emit('agent.turn.started',{triggerEventId:trigger.id},{source:`agent:${agentName}`,channelId:h.project.channelId});
-  await card.getByText(`${agentName} is working`,{exact:true}).waitFor();
+  const row=card.locator('.canvas-card-row[data-kind="agent"]');
+  await card.locator('.canvas-card-row[data-state="working"]').waitFor();
   assert.deepEqual(navigations,[],'no reload');
-  assert.equal(await card.locator(`[data-agent="${agentName}"]`).getAttribute('data-state'),'working','the face carries the state dot');
+  assert.equal(await card.locator(`[data-agent="${agentName}"]`).getAttribute('data-state'),'working','the face carries the state');
+  assert.equal(await row.locator('.canvas-card-who').innerText(),agentName);
+  assert.equal(await row.locator('.canvas-card-what').innerText(),'working','no progress line yet');
+  await card.locator('.canvas-card-calm').getByText('Moving',{exact:true}).waitFor();
 },{canvas:true});
 
 await runChatTest('canvas cards: a 25 minute old turn reads quiet, never done, and Nudge posts a targeted message',async h=>{
@@ -57,11 +61,13 @@ await runChatTest('canvas cards: a 25 minute old turn reads quiet, never done, a
   assert.ok(agent.updated>began);
 
   const card=await openCanvas(page,base,id,h.project.channelId);
-  await card.getByText(`${agentName} quiet for 25 min`,{exact:true}).waitFor();
-  assert.equal(await card.getByText('Done',{exact:true}).count(),0,'elapsed time never reads as done');
+  const what=card.locator('.canvas-card-row[data-kind="agent"] .canvas-card-what');
+  await what.getByText('quiet for 25 min',{exact:true}).waitFor();
+  assert.equal(await card.locator('.canvas-card-row[data-kind="agent"]').getAttribute('data-state'),'quiet','elapsed time never reads as done');
+  assert.equal(await card.locator('.canvas-card-zz').count(),1,'a quiet row shows z z instead of a dot');
 
   const held=h.holdNext('/api/messages');
-  const nudge=card.getByRole('button',{name:`Nudge ${agentName}`,exact:true});
+  const nudge=card.locator('.canvas-card-foot').getByRole('button',{name:`Nudge ${agentName}`,exact:true});
   await nudge.click();
   await held.started;
   assert.equal(await nudge.isDisabled(),true,'disabled while the request is in flight');
@@ -76,18 +82,18 @@ await runChatTest('canvas cards: a 25 minute old turn reads quiet, never done, a
   assert.equal(found.payload?.text,`@${agentName} are you still on this? Please post a short status update.`);
   assert.equal(found.source,'human:demo-owner');
   await nudge.and(page.locator(':enabled')).waitFor();
-  assert.equal(await card.getByText('Done',{exact:true}).count(),0);
+  assert.notEqual(await card.locator('.canvas-card-row[data-kind="agent"]').getAttribute('data-state'),'done');
 
   // A tool event is a mid-turn signal from Pip (Ruling R13): the card is working again, and stays so across a refresh.
   await h.emit('tool.executed',{tool:'synthetic'},{source:`agent:${agentName}`,channelId:h.project.channelId});
-  await card.getByText(`${agentName} is working`,{exact:true}).waitFor();
+  await card.locator('.canvas-card-row[data-kind="agent"][data-state="working"]').waitFor();
   const seed=(part:string)=>page.waitForResponse(r=>r.url().includes(part));
   const reseeded=Promise.all(['/api/events?typePrefix=agent.turn.','/api/events?type=message.created&order=desc&limit=500','/api/events?type=agent.lifecycle.started','/api/mentions'].map(seed));
   await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
   await reseeded;
   await page.waitForTimeout(500); // the refresh settles and publishes on the next frame
-  assert.equal(await card.getByText(`${agentName} is working`,{exact:true}).count(),1,'still working after a refresh');
-  assert.equal(await card.getByText(`${agentName} quiet for`,{exact:false}).count(),0);
+  assert.equal(await card.locator('.canvas-card-row[data-kind="agent"]').getAttribute('data-state'),'working','still working after a refresh');
+  assert.equal(await what.getByText('quiet for',{exact:false}).count(),0);
 },{canvas:true});
 
 await runChatTest('canvas cards: an uploaded file shows as a chip, and compact zoom keeps only the title and faces',async h=>{
@@ -104,8 +110,8 @@ await runChatTest('canvas cards: an uploaded file shows as a chip, and compact z
 
   const trigger=await h.emit('message.created',{text:'Synthetic trigger'},{source:'human:demo-owner'});
   await h.emit('agent.turn.started',{triggerEventId:trigger.id},{source:`agent:${agentName}`,channelId:h.project.channelId});
-  const status=card.locator('.canvas-card-status');
-  await status.getByText(`${agentName} is working`,{exact:true}).waitFor();
+  const status=card.locator('.canvas-card-row[data-kind="agent"] .canvas-card-what');
+  await card.locator('.canvas-card-row[data-kind="agent"][data-state="working"]').waitFor();
 
   const zoomOut=page.getByRole('button',{name:'Zoom out',exact:true});
   for(let i=0;i<4;i++)await zoomOut.click();
@@ -114,4 +120,7 @@ await runChatTest('canvas cards: an uploaded file shows as a chip, and compact z
   assert.equal(await card.locator('.canvas-card-title').isVisible(),true,'the title stays');
   assert.equal(await card.locator(`[data-agent="${agentName}"]`).isVisible(),true,'the faces stay');
   assert.equal(await chip.isVisible(),false,'the artifact strip is hidden');
+  assert.ok(((await card.locator('.canvas-card-foot').boundingBox())?.width??0)<=1,'the footer is clipped until it has focus');
+  const face=await card.locator(`[data-agent="${agentName}"] .agent-portrait`).boundingBox();
+  assert.ok(face&&Math.abs(face.width-40*0.41)<2,`40 px faces at compact zoom: ${face?.width}`);
 },{canvas:true});

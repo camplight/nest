@@ -9,10 +9,14 @@ import type {CardPulse} from './pulse';
 const REVIEWS_MS = 60_000;
 const NO_REVIEWS: DashboardTask[] = [];
 
-/** Tasks awaiting review: read on mount, when the list opens, on focus, and once a minute while visible. */
-export function useReviews(open: boolean) {
+/**
+ * Tasks awaiting review: read on mount, when `refresh` changes (a list opens), on focus, and once a minute while visible.
+ * Nothing is read while `enabled` is false.
+ */
+export function useReviews(refresh: unknown, enabled = true) {
   const [reviews, setReviews] = useState<DashboardTask[]>(NO_REVIEWS);
   useEffect(() => {
+    if (!enabled) return;
     let current = true;
     const load = () => {
       apiJson<ProjectDashboard>('/api/projects/dashboard')
@@ -24,7 +28,7 @@ export function useReviews(open: boolean) {
     const timer = setInterval(tick, REVIEWS_MS);
     window.addEventListener('focus', load);
     return () => { current = false; clearInterval(timer); window.removeEventListener('focus', load); };
-  }, [open]);
+  }, [refresh, enabled]);
   return reviews;
 }
 
@@ -33,14 +37,19 @@ export type NeedsYouProps = {
   /** The chats the person can see (open cards and loose chats) with their titles. */
   titles: ReadonlyMap<string, string>;
   projects: Project[];
+  /** Tasks awaiting review, from the canvas's useReviews (cards show them too). */
+  reviews: DashboardTask[];
+  /** The list opened or closed: the owner re-reads the reviews on open. */
+  onOpenChange?(open: boolean): void;
   onJump(channelId: string): void;
 };
 
-export function NeedsYou({pulses, titles, projects, onJump}: NeedsYouProps) {
+export function NeedsYou({pulses, titles, projects, reviews, onOpenChange, onJump}: NeedsYouProps) {
   const [open, setOpen] = useState(false);
+  const changeRef = useRef(onOpenChange); changeRef.current = onOpenChange;
+  useEffect(() => { changeRef.current?.(open); }, [open]);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const reviews = useReviews(open);
   const items = useMemo(() => needsYouItems({pulses, titles, reviews, projects}), [pulses, titles, reviews, projects]);
   // Ages move by the minute.
   const [now, setNow] = useState(Date.now);

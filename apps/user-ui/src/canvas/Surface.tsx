@@ -8,6 +8,7 @@ import {Card} from './Card';
 import {droppedFiles,outsideFileDropTargets} from '../components/file-drop';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {areaSummaries,type CardPulse} from './pulse';
+import type {NeedsItem} from './needs';
 import {ORIGIN,areaMembers,cardCentre,clampZoom,fit,growToFit,isCompact,toCanvas,visible,zoomAt,type Point,type Rect,type Size,type View} from './geometry';
 
 export type SurfaceProps = {
@@ -47,6 +48,10 @@ export type SurfaceProps = {
    * Anywhere else on the canvas, file drags are left to the bottom box or the open chat.
    */
   onDropFiles?(target: FileDropTarget, files: File[], folders: boolean): void;
+  /** Each open card's Needs you items (mentions and reviews), newest first; a card's array is stable while unchanged. */
+  needs?: ReadonlyMap<string, NeedsItem[]>;
+  /** The signed-in person's username: their own row on a card reads `You`. */
+  viewer?: string;
 };
 export type FileDropTarget = {kind: 'card'; channelId: string} | {kind: 'area'; areaId: string};
 const carriesFiles = (event: ReactDragEvent) => event.dataTransfer.types.includes('Files');
@@ -67,6 +72,8 @@ export const CHAT_DRAG_TYPE = 'application/x-nest-chat';
 /** The drag data type a tray or picker face carries: the agent's name. */
 export const AGENT_DRAG_TYPE = 'application/x-nest-agent';
 const NO_PULSES: ReadonlyMap<string, CardPulse> = new Map();
+const NO_NEEDS: ReadonlyMap<string, NeedsItem[]> = new Map();
+const NONE: NeedsItem[] = [];
 
 type Tool = 'select' | 'area';
 type Mode = 'pan' | 'card' | 'area' | 'resize' | 'draw' | 'face';
@@ -107,7 +114,8 @@ const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + b.y) / 2});
 
 export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null,
-  onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onOpenCanvas, onDropFiles}: SurfaceProps) {
+  onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onOpenCanvas, onDropFiles,
+  needs = NO_NEEDS, viewer = ''}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
   // Without a known human the view is not remembered, so it can never land under another person's key.
   const key = humanId ? viewKey(humanId, board.canvas.id) : null;
@@ -565,13 +573,13 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   const summaries = useMemo(() => {
     if (!compact) return null;
     const next = new Map<string, AreaSummary>();
-    for (const [id, summary] of areaSummaries(board.cards, board.areas, pulses)) {
+    for (const [id, summary] of areaSummaries(board.cards, board.areas, pulses, needs)) {
       const previous = summaryCache.current.get(id);
-      next.set(id, previous && previous.needYou === summary.needYou && previous.moving === summary.moving ? previous : summary);
+      next.set(id, previous && previous.needYou === summary.needYou && previous.moving === summary.moving && previous.quiet === summary.quiet && previous.chats === summary.chats ? previous : summary);
     }
     summaryCache.current = next;
     return next;
-  }, [compact, board.cards, board.areas, pulses]);
+  }, [compact, board.cards, board.areas, pulses, needs]);
   const shownCards = useMemo(() => new Set(visible(cardRects, view, size).map(r => r.card.channelId)), [cardRects, view, size]);
   const shownAreas = useMemo(() => new Set(visible(board.areas, view, size).map(a => a.id)), [board.areas, view, size]);
   // Which area each card sits in (by centre, like the API), for the tinted stripe on cards in an area.
@@ -642,6 +650,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
         return <Card key={card.channelId} card={card} draggable={canEdit} dx={shift?.dx ?? 0} dy={shift?.dy ?? 0}
           dragging={preview?.kind === 'card' && preview.id === card.channelId} measure={measure}
           pulse={card.access === 'open' ? pulses.get(card.channelId) : undefined}
+          needs={card.access === 'open' ? needs.get(card.channelId) ?? NONE : NONE} viewer={viewer}
           onNudge={onNudge ? nudge : undefined} onRemove={canEdit ? removeCard : undefined}
           onOpen={onOpenChat ? openCard : undefined} open={card.channelId === openChannelId}
           facesDraggable={Boolean(onRemoveAgent && canManageCard?.(card))}

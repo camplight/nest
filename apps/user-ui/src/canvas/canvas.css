@@ -199,12 +199,17 @@
   background: var(--nest-muted-surface);
 }
 .canvas-area-summary {
-  position: absolute;
-  left: 34px;
-  top: 64px;
+  order: 5;
+  flex-basis: 100%;
   margin: 0;
   color: var(--nest-muted);
   font: 500 22px Inter, sans-serif;
+  white-space: nowrap;
+}
+/* The need count reads in coral (the text-safe mix, as on card alerts). */
+.canvas-area-summary b {
+  color: var(--canvas-alert);
+  font-weight: 700;
 }
 .canvas-area-resize {
   position: absolute;
@@ -233,10 +238,9 @@
 .canvas-world.is-compact .canvas-area-bar {
   top: -14px;
   right: auto;
+  flex-wrap: wrap;
+  row-gap: 4px;
   transform: translateY(-100%);
-}
-.canvas-world.is-compact .canvas-area-summary {
-  top: 24px;
 }
 
 /* Cards: title, faces with a state dot, status lines with Nudge, file chips, last activity, needs-you. */
@@ -273,8 +277,8 @@
   overflow-wrap: anywhere;
 }
 .canvas-world.is-compact .canvas-card-title {
-  font-size: 30px;
-  line-height: 1.15;
+  font: 500 26px/1.15 Unbounded, sans-serif;
+  letter-spacing: -.03em;
 }
 
 .canvas-card {
@@ -292,88 +296,213 @@
   flex: 1;
   min-width: 0;
 }
-.canvas-card-needs {
+/* Last activity: compact, top right of the title (the mock's c-last). */
+.canvas-card-activity {
   flex: none;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 6px;
-  box-sizing: border-box;
-  border-radius: 999px;
-  background: var(--nest-coral);
-  color: var(--nest-forest);
-  font: 700 12px/22px Inter, sans-serif;
-  text-align: center;
+  padding-top: 2px;
+  color: var(--nest-muted);
+  font: 500 12px Inter, sans-serif;
+  white-space: nowrap;
 }
-.canvas-card-faces {
+/* Participant rows (the mock's partRow): face, name, live activity with the app in use, and a state dot. */
+.canvas-card-rows {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.canvas-card-row {
+  display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  min-height: 24px;
+  min-width: 0;
+  font: 400 12.5px/1.3 Inter, sans-serif;
 }
 .canvas-card-face {
   position: relative;
   display: inline-flex;
+  flex: none;
 }
-.canvas-card-dot {
-  position: absolute;
-  right: -2px;
-  bottom: -2px;
-  width: 10px;
-  height: 10px;
-  border: 2px solid var(--nest-surface);
-  border-radius: 999px;
-  background: var(--nest-muted);
-}
-.canvas-card-face[data-state="working"] .canvas-card-dot { background: var(--nest-lime); }
-.canvas-card-face[data-state="quiet"] .canvas-card-dot { background: var(--canvas-quiet); }
-.canvas-card-face[data-state="interrupted"] .canvas-card-dot,
-.canvas-card-face[data-state="failed"] .canvas-card-dot { background: var(--nest-coral); }
-.canvas-card-face[data-state="done"] .canvas-card-dot { background: var(--nest-accent); }
-.canvas-card-face[data-state="unavailable"] .canvas-card-dot { background: var(--nest-border); }
-.canvas-card-human,
-.canvas-card-more {
+.canvas-card-face.is-human {
   display: inline-grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: 999px;
   background: var(--nest-muted-surface);
   color: var(--nest-muted);
-  font: 600 11px Inter, sans-serif;
+  font: 600 10px Inter, sans-serif;
 }
-.canvas-card-status {
-  display: grid;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font: 500 13px/1.35 Inter, sans-serif;
+.canvas-card-who {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
 }
-.canvas-card-status li {
+/* One line with an ellipsis; the logo sits inline before the text, and the title holds the full line. */
+.canvas-card-what {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--nest-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.canvas-card-row-app {
+  display: inline-block;
+  margin-right: 5px;
+  vertical-align: -3px;
+}
+.canvas-card-row-app .connection-app-logo {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+.canvas-card-row-app .connection-app-logo img,
+.canvas-card-row-app .connection-app-logo svg { width: 13px; height: 13px; }
+.canvas-card-row[data-state="waiting"] .canvas-card-what { color: var(--canvas-alert); }
+.canvas-card-row[data-state="quiet"] .canvas-card-what { color: var(--canvas-quiet); font-style: italic; }
+.canvas-card-row:is([data-state="interrupted"], [data-state="failed"]) .canvas-card-what { color: var(--canvas-alert); }
+.canvas-card-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: var(--nest-muted);
+  opacity: .5;
+}
+.canvas-card-row[data-state="working"] .canvas-card-dot { background: var(--nest-lime); opacity: 1; }
+.canvas-card-row[data-state="waiting"] .canvas-card-dot { background: var(--nest-coral); opacity: 1; }
+.canvas-card-row:is([data-state="done"], [data-state="posted"]) .canvas-card-dot { background: var(--nest-accent); opacity: .55; }
+.canvas-card-row:is([data-state="interrupted"], [data-state="failed"]) .canvas-card-dot { background: transparent; border: 1.5px solid var(--nest-coral); opacity: 1; }
+.canvas-card-row[data-state="unavailable"] .canvas-card-dot { background: var(--nest-border); opacity: 1; }
+@media (prefers-reduced-motion: no-preference) {
+  .canvas-card-row[data-state="working"] .canvas-card-dot { animation: canvas-card-pulse 1.6s infinite; }
+  .canvas-card-zz { animation: canvas-card-zz 2.4s ease-in-out infinite; }
+}
+@keyframes canvas-card-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--nest-lime) 60%, transparent); }
+  70%, 100% { box-shadow: 0 0 0 6px transparent; }
+}
+.canvas-card-zz {
+  flex: none;
+  display: inline-block;
+  color: var(--canvas-quiet);
+  font: 600 10px Unbounded, sans-serif;
+}
+@keyframes canvas-card-zz {
+  50% { transform: translateY(-3px); opacity: .4; }
+}
+.canvas-card-rows-more {
+  color: var(--nest-muted);
+  font: 400 12px Inter, sans-serif;
+}
+/* Footer: the newest Needs you reason, Nudge {name}, or Moving / All quiet; then Remove (on hover) and Open. */
+.canvas-card-foot {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--nest-border);
 }
-.canvas-card-status li[data-state="quiet"] { color: var(--canvas-quiet); }
-.canvas-card-status li[data-state="interrupted"],
-.canvas-card-status li[data-state="failed"] { color: var(--canvas-alert); }
-.canvas-card-status li[data-state="unavailable"],
-.canvas-card-more-lines { color: var(--nest-muted); }
+.canvas-card-foot-end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.canvas-card-need {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 190px;
+  min-height: 26px;
+  padding: 0 10px 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--nest-coral) 12%, var(--nest-surface));
+  color: var(--canvas-alert);
+  font: 600 12px Inter, sans-serif;
+  cursor: pointer;
+}
+.canvas-card-need i {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--nest-coral);
+}
+.canvas-card-need-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-card-need-more { flex: none; opacity: .8; }
+.canvas-card-calm {
+  color: var(--nest-muted);
+  font: 400 12px Inter, sans-serif;
+}
 .canvas-card-nudge,
-.canvas-card-remove {
-  min-height: 28px;
-  padding: 0 12px;
+.canvas-card-remove,
+.canvas-card-open {
+  min-height: 26px;
+  padding: 0 10px;
   border: 1px solid var(--nest-border);
   border-radius: 8px;
   background: var(--nest-surface);
   color: var(--nest-text);
-  font: 600 12px Inter, sans-serif;
+  font: 500 12px Inter, sans-serif;
   cursor: pointer;
+  white-space: nowrap;
+}
+.canvas-card-nudge {
+  border: 1px dashed var(--nest-muted);
+  border-radius: 999px;
+  color: var(--nest-muted);
 }
 .canvas-card-nudge:disabled {
   opacity: .6;
   cursor: progress;
+}
+.canvas-card-open:hover,
+.canvas-card-remove:hover { border-color: var(--nest-accent); }
+/*
+ * Remove from canvas (not in the mock) stays out of the way: a small icon that takes no room until the card is
+ * hovered or has keyboard focus inside it, so the Needs you pill keeps its width. It stays in the Tab order.
+ */
+.canvas-card-foot .canvas-card-remove {
+  width: 26px;
+  padding: 0;
+  color: var(--nest-muted);
+  font-size: 13px;
+}
+.canvas-card:not(:hover):not(:focus-within) .canvas-card-foot .canvas-card-remove {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  border: 0;
+}
+@media (hover: none) {
+  .canvas-card:not(:hover):not(:focus-within) .canvas-card-foot .canvas-card-remove {
+    position: static;
+    width: 26px;
+    height: auto;
+    min-height: 26px;
+    clip-path: none;
+    border: 1px solid var(--nest-border);
+  }
 }
 .canvas-card-error {
   color: var(--canvas-alert);
@@ -401,29 +530,34 @@
   white-space: nowrap;
 }
 .canvas-card-chip:hover { text-decoration: underline; }
-.canvas-card-activity,
 .canvas-card-owner,
 .canvas-card-home {
   margin: 0;
   color: var(--nest-muted);
   font: 400 12px Inter, sans-serif;
 }
-.canvas-card-marker {
+.canvas-card-far {
   display: none;
-  margin: 0;
 }
 /* Semantic zoom: a big title, faces and a needs-you or quiet marker only. */
-.canvas-world.is-compact .canvas-card-status,
 .canvas-world.is-compact .canvas-card-artifacts,
-.canvas-world.is-compact .canvas-card-apps,
+.canvas-world.is-compact .canvas-card-apps-row,
 .canvas-world.is-compact .canvas-card-activity,
-.canvas-world.is-compact .canvas-card-owner {
+.canvas-world.is-compact .canvas-card-owner,
+.canvas-world.is-compact .canvas-card-rows-more,
+.canvas-world.is-compact .canvas-card-row > :not(.canvas-card-face) {
   display: none;
 }
 .canvas-card-home {
   overflow-wrap: anywhere;
 }
-/* Apps agents used here: small logos in one row, then +N. A ring marks an app with a call in flight. */
+/* Apps agents used here, under the title: up to four logos, then the app's name or `N apps`. A ring marks a call in flight. */
+.canvas-card-apps-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .canvas-card-apps {
   display: flex;
   flex-wrap: nowrap;
@@ -432,8 +566,14 @@
   margin: 0;
   padding: 0;
   list-style: none;
+}
+.canvas-card-apps-name {
+  min-width: 0;
+  overflow: hidden;
   color: var(--nest-muted);
-  font: 600 12px Inter, sans-serif;
+  font: italic 500 12px Inter, sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .canvas-card-app {
   position: relative;
@@ -457,7 +597,6 @@
   border: 2px solid var(--canvas-pip);
   pointer-events: none;
 }
-.canvas-card-apps-more { white-space: nowrap; }
 @media (prefers-reduced-motion: no-preference) {
   .canvas-card-app.is-live::after { animation: canvas-app-ring 1.6s ease-in-out infinite; }
 }
@@ -465,8 +604,8 @@
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: .35; transform: scale(1.12); }
 }
-/* Compact cards keep Remove from canvas in the Tab order: hidden until it has keyboard focus. */
-.canvas-world.is-compact .canvas-card-actions:not(:focus-within) {
+/* Compact cards keep their footer (Open, Remove from canvas) in the Tab order: hidden until it has keyboard focus. */
+.canvas-world.is-compact :is(.canvas-card-actions, .canvas-card-foot):not(:focus-within) {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -474,16 +613,45 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.canvas-world.is-compact .canvas-card-marker {
-  display: block;
-  color: var(--canvas-quiet);
-  font: 700 22px Inter, sans-serif;
+/* The mock's far card: 40 px faces in a stack, then a coral dot when something needs you or an italic `quiet`. */
+.canvas-world.is-compact .canvas-card-rows {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
 }
-.canvas-world.is-compact .canvas-card-needs {
-  min-width: 40px;
-  height: 40px;
-  font-size: 20px;
-  line-height: 40px;
+.canvas-world.is-compact .canvas-card-row { gap: 0; }
+.canvas-world.is-compact .canvas-card-row + .canvas-card-row { margin-left: -6px; }
+.canvas-world.is-compact .canvas-card-face {
+  border: 2px solid var(--nest-surface);
+  border-radius: 999px;
+  background: var(--nest-surface);
+}
+.canvas-world.is-compact .canvas-card-face .agent-portrait,
+.canvas-world.is-compact .canvas-card-face.is-human {
+  width: 40px !important;
+  height: 40px !important;
+  font-size: 15px;
+}
+.canvas-world.is-compact .canvas-card-people {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.canvas-world.is-compact .canvas-card-far {
+  display: block;
+  flex: none;
+}
+.canvas-world.is-compact .canvas-card-far[data-kind="needs"] {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--nest-coral);
+}
+.canvas-world.is-compact .canvas-card-far[data-kind="quiet"] {
+  color: var(--canvas-quiet);
+  font: italic 500 20px Inter, sans-serif;
 }
 
 /* Floating controls: tools top-left, zoom bottom-right. */
@@ -1019,16 +1187,7 @@
   outline: 2px solid var(--nest-lime);
   outline-offset: 2px;
 }
-/* The keyboard route to Open stays visually hidden; its focus ring is drawn on the card, so it never covers the title. */
-.canvas-card-open {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  pointer-events: none;
-}
+/* Open is a visible footer button (the mock's open-btn); a keyboard focus also rings the whole card. */
 .canvas-card:has(.canvas-card-open:focus-visible) {
   box-shadow: 0 0 0 2px var(--nest-surface), 0 0 0 4px var(--nest-lime), var(--canvas-shadow);
 }
@@ -2094,6 +2253,13 @@ li.canvas-phone-row[data-access] {
 .canvas-card.in-area {
   border-color: color-mix(in srgb, var(--tint) 45%, var(--nest-border));
   border-top: 4px solid var(--tint);
+}
+/* Something needs you here: a coral border (the mock's `.card.att`); a card in an area keeps its tinted top stripe. */
+.canvas-card.needs-you {
+  border-color: color-mix(in srgb, var(--nest-coral) 55%, var(--nest-border));
+}
+.canvas-card.in-area.needs-you {
+  border-top-color: var(--tint);
 }
 
 /* While a card or pile chat is dragged over an area, the area lights up and says where it will land. */

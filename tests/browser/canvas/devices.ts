@@ -238,17 +238,23 @@ await runChatTest('canvas devices: card text keeps 4.5:1 contrast in light and d
     attachments:[{fileId,name:'synthetic-brief.txt',mime:'text/plain'}]})).ok,true);
   const mate=await h.loginAs('mate');
   await shareWith(h,id,'mate','view');
+  // The mate joins the failing chat and mentions the owner there: its card gets the coral Needs you pill.
+  assert.equal((await h.post(`/api/channels/${failing.channelId}/subscribe`,{subscriberType:'HUMAN',subscriberId:'mate'})).ok,true);
+  const mentioned=await mate.page.evaluate(async channelId=>(await fetch('/api/messages',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
+    id:crypto.randomUUID(),channelId,text:'@demo-owner pick a hook',mentions:[{kind:'HUMAN',name:'demo-owner',start:0,end:11}],attachments:[]})})).status,failing.channelId);
+  assert.equal(mentioned,201);
 
   await page.goto(`${base}/?view=canvas&canvas=${id}`);
   const ratios:Record<string,number>={};
   for(const theme of ['dark','light'] as const){
     await useTheme(page,theme);
     const quiet=cardAt(page,h.project.channelId);
-    await quiet.getByText(`${agentName} quiet for 25 min`,{exact:true}).waitFor();
-    await cardAt(page,failing.channelId).getByText(`${agentName} ran into an error`,{exact:true}).waitFor();
+    await quiet.getByText('quiet for 25 min',{exact:true}).waitFor();
+    await cardAt(page,failing.channelId).getByText('ran into an error',{exact:true}).waitFor();
     await quiet.getByRole('link',{name:'synthetic-brief.txt',exact:true}).waitFor();
     await quiet.locator('.canvas-card-activity').waitFor();
-    ratios[`owner ${theme}`]=await assertContrast(page,`owner, ${theme}`,['Synthetic chat project',`${agentName} quiet for`,`${agentName} ran into an error`,'synthetic-brief.txt','Active']);
+    await cardAt(page,failing.channelId).locator('.canvas-card-need').getByText('mate: @demo-owner pick a hook',{exact:true}).waitFor();
+    ratios[`owner ${theme}`]=await assertContrast(page,`owner, ${theme}`,['Synthetic chat project','quiet for 25 min','ran into an error','synthetic-brief.txt','Nudge Pip','mate: @demo-owner','Open']);
 
     await useTheme(mate.page,theme);
     await mate.page.goto(`${base}/?view=canvas&canvas=${id}`);

@@ -5,9 +5,10 @@ import type {CanvasArea,ContextLink,ContextSummary} from '@nest/schemas';
 import {contextFileHref} from './context-api';
 import {contextLabel,linkElsewhere,usedByList} from './context-label';
 import {FileTile} from './FileTile';
+import {summaryParts} from './area-summary';
 
-/** Counts for the compact summary line. Task 6 supplies them from live card state. */
-export type AreaSummary = {needYou: number; moving: number};
+/** Counts for the compact summary line, from live card state: cards that need you, are moving or have gone quiet, and all chats. */
+export type AreaSummary = {needYou: number; moving: number; quiet: number; chats: number};
 /** The area's context markers from the board's context summary. */
 export type AreaContext = Omit<ContextSummary['areas'][number], 'areaId'>;
 export type AreaProps = {
@@ -91,6 +92,10 @@ export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, su
         ? <input className="canvas-area-input" aria-label="Area title" defaultValue={area.title} maxLength={120} autoFocus
             onFocus={event => event.currentTarget.select()} onKeyDown={key} onBlur={event => commit(event.currentTarget.value)}/>
         : <h3 className="canvas-area-title" onDoubleClick={canEdit ? edit : undefined}>{area.title}</h3>}
+      {/* Compact zoom: under the title, above the area (the mock's area-sum). */}
+      {compact && summary ? <p className="canvas-area-summary">
+        {summaryParts(summary, Boolean(context?.usedBy.length)).map((part, i) => <span key={part.text}>{i ? ' · ' : ''}{part.need ? <b>{part.text}</b> : part.text}</span>)}
+      </p> : null}
       {label && onContext && !compact ? <button type="button" className={`canvas-area-ctx${context!.hasContext ? ' has-context' : ''}`}
         aria-label={`Context for ${title}: ${label}`} aria-haspopup="dialog" aria-expanded={contextOpen}
         title="Notes and files every chat in this area can see" onClick={event => onContext(area.id, event.currentTarget)}>
@@ -120,7 +125,6 @@ export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, su
         </div> : null}
       </div> : null}
     </div>
-    {compact ? <p className="canvas-area-summary">{summary ? `${summary.needYou} need you · ${summary.moving} moving` : ''}</p> : null}
     {shelf ? <ul className="canvas-area-shelf canvas-file-tiles" aria-label={`Files in ${title}`}>
       {shelf.map(file => <FileTile key={file.id} name={file.name} mime={file.mime} href={contextFileHref(area.canvasId, file.id)}/>)}
       {context!.fileCount > shelf.length && onContext ? <li className="canvas-file-tile is-more">

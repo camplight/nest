@@ -399,8 +399,8 @@ await runChatTest('canvas homes: labels, Use this area\'s context and the drop w
   const trigger=await h.emit('message.created',{text:'Synthetic trigger'},{source:'human:demo-owner'});
   await h.emit('agent.turn.started',{triggerEventId:trigger.id},{source:`agent:${agentName}`,channelId:chat});
   events=await chatEvents(h);
-  const status=second.locator('.canvas-card-status');
-  await status.getByText(`${agentName} is working`,{exact:true}).waitFor();
+  const status=second.locator('.canvas-card-row[data-kind="agent"] .canvas-card-what');
+  await second.locator('.canvas-card-row[data-kind="agent"][data-state="working"]').waitFor();
   for(let i=0;i<4;i++)await page.getByRole('button',{name:'Zoom out',exact:true}).click();
   await page.getByLabel('Zoom level',{exact:true}).getByText('41%',{exact:true}).waitFor();
   await status.waitFor({state:'hidden'});

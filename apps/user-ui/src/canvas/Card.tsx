@@ -1,11 +1,14 @@
-// A chat card on the surface: title, faces with live state, a status line with Nudge, artifacts,
-// last activity and needs-you. Memoized: it re-renders only when its card, pulse or drag offset changes.
+// A chat card on the surface (the mock's `cardInner`): title and last activity, the apps used here, one row per
+// participant with what they are doing now and a state dot, files, and a footer with the newest Needs you reason
+// (or Nudge, or Moving / All quiet) and Open. Memoized: it re-renders only when its card, pulse, needs or drag offset changes.
 import {memo,useCallback,useState,useSyncExternalStore} from 'react';
 import type {BoardCard} from '@nest/schemas';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {fileHref} from '../attachments';
 import {IntegrationLogo} from '../components/IntegrationLogo';
 import type {AgentPulse,CardPulse} from './pulse';
+import type {NeedsItem} from './needs';
+import {participantRows,shownRows,type ParticipantRow,type RowState} from './rows';
 
 export type CardProps = {
   card: BoardCard;
@@ -19,6 +22,10 @@ export type CardProps = {
   measure(channelId: string, element: HTMLElement | null): void;
   /** Live state for an open card; absent until the first seed arrives. */
   pulse?: CardPulse;
+  /** This chat's Needs you items (unread mentions and reviews for the viewer), newest first. */
+  needs?: readonly NeedsItem[];
+  /** The signed-in person's username: their row reads `You`. */
+  viewer?: string;
   onNudge?(channelId: string, agent: string): Promise<void>;
   /** Editors and owners only (never viewers): takes any card, open, locked or unavailable, off the canvas. */
   onRemove?(channelId: string): void;
@@ -39,19 +46,19 @@ export type CardProps = {
   areaTint?: string;
 };
 
-const MAX_FACES = 5;
-/** Clicks here act on their own control, never open the chat. */
-const OWN_CLICK = 'button, a, input, textarea, select, .canvas-card-faces';
-const MAX_LINES = 3;
+const NO_NEEDS: readonly NeedsItem[] = [];
+/** Clicks here act on their own control (or start a face drag), never open the chat. */
+const OWN_CLICK = 'button, a, input, textarea, select, .canvas-card-face';
 
 export function cardTitle(card: BoardCard) {
   return card.access === 'open' ? card.title || 'Untitled chat' : card.access === 'locked' ? 'Private chat' : 'This chat is no longer available';
 }
 
-const STATE_LABEL: Record<AgentPulse['state'], string> = {
-  working: 'working', quiet: 'quiet', interrupted: 'stopped unexpectedly', done: 'done', failed: 'ran into an error', idle: 'idle', unavailable: 'unavailable',
+const STATE_LABEL: Record<RowState, string> = {
+  working: 'working', quiet: 'gone quiet', interrupted: 'stopped unexpectedly', done: 'done', failed: 'ran into an error', idle: 'idle',
+  unavailable: 'unavailable', waiting: 'waiting on you', posted: 'posted here',
 };
-/** The status line for an agent, or null for idle and done (shown once per card instead). */
+/** One line for an agent, or null for idle and done. The phone list uses it; cards show participant rows instead. */
 export function statusText(agent: AgentPulse) {
   switch (agent.state) {
     case 'working': return `${agent.name} is working`;
@@ -89,9 +96,20 @@ export function ago(at: number, now: number) {
   if (hours < 24) return `${hours} h ago`;
   return `${Math.floor(hours / 24)} d ago`;
 }
+/** The mock's compact `c-last`: `now`, `5m`, `2h`, `3d`. */
+export function shortAgo(at: number, now: number) {
+  const minutes = Math.floor(Math.max(0, now - at) / 60_000);
+  if (minutes < 1) return 'now';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+}
 function LastActivity({at}: {at: number}) {
   useSyncExternalStore(subscribeMinute, () => minute);
-  return <p className="canvas-card-activity"><time dateTime={new Date(at).toISOString()}>Active {ago(at, Date.now())}</time></p>;
+  const now = Date.now();
+  return <time className="canvas-card-activity" dateTime={new Date(at).toISOString()} title={`Active ${ago(at, now)}`}>
+    <span className="canvas-visually-hidden">Active {ago(at, now)}</span><span aria-hidden="true">{shortAgo(at, now)}</span>
+  </time>;
 }
 
 function NudgeButton({channelId, agent, onNudge}: {channelId: string; agent: string; onNudge(channelId: string, agent: string): Promise<void>}) {
@@ -103,74 +121,105 @@ function NudgeButton({channelId, agent, onNudge}: {channelId: string; agent: str
     try { await onNudge(channelId, agent); } catch { setFailed(true); } finally { setBusy(false); }
   }
   return <>
-    <button type="button" className="canvas-card-nudge" aria-label={`Nudge ${agent}`} disabled={busy} onClick={() => void nudge()}>Nudge</button>
+    <button type="button" className="canvas-card-nudge" disabled={busy} onClick={() => void nudge()}>Nudge {agent}</button>
     {failed ? <span className="canvas-card-error" role="alert">Could not send. Try again.</span> : null}
   </>;
 }
 
 const MAX_APP_LOGOS = 4;
-/** The apps this chat's agents used: logos in one row with +N, each named by how many reads and changes. */
+/**
+ * The apps this chat's agents used, under the title (the mock's `c-apps`): up to four logos, each named by how many reads
+ * and changes, then the app's name or `N apps`. A ring marks an app with a call in flight.
+ */
 function AppLogos({apps}: {apps: CardPulse['apps']['apps']}) {
-  return <ul className="canvas-card-apps" aria-label="Apps used">
-    {apps.slice(0, MAX_APP_LOGOS).map(app => {
-      const text = `${app.appName}: ${app.reads} reads · ${app.changes} changes`;
-      return <li key={app.app} className={`canvas-card-app${app.running ? ' is-live' : ''}`} role="img" aria-label={text} title={text}>
-        <IntegrationLogo toolkit={app.app}/>
-      </li>;
-    })}
-    {apps.length > MAX_APP_LOGOS ? <li className="canvas-card-apps-more" title={apps.slice(MAX_APP_LOGOS).map(app => app.appName).join(', ')}>+{apps.length - MAX_APP_LOGOS}</li> : null}
-  </ul>;
+  const names = apps.map(app => `${app.appName}${app.running ? ' (now)' : ''}`).join(', ');
+  return <div className="canvas-card-apps-row">
+    <ul className="canvas-card-apps" aria-label="Apps used">
+      {apps.slice(0, MAX_APP_LOGOS).map(app => {
+        const text = `${app.appName}: ${app.reads} reads · ${app.changes} changes`;
+        return <li key={app.app} className={`canvas-card-app${app.running ? ' is-live' : ''}`} role="img" aria-label={text} title={text}>
+          <IntegrationLogo toolkit={app.app}/>
+        </li>;
+      })}
+    </ul>
+    <em className="canvas-card-apps-name" title={`Apps used in this chat: ${names}`}>{apps.length === 1 ? apps[0].appName : `${apps.length} apps`}</em>
+  </div>;
 }
 
-function OpenBody({card, pulse, onNudge, facesDraggable, draggingFace}: {
-  card: Extract<BoardCard, {access: 'open'}>; pulse?: CardPulse; onNudge?: CardProps['onNudge']; facesDraggable: boolean; draggingFace: string | null;
+/** One participant (the mock's `partRow`): face, name, live activity (with the app in use) and a state dot. */
+function Row({row, facesDraggable, lifted}: {row: ParticipantRow; facesDraggable: boolean; lifted: boolean}) {
+  const agent = row.kind === 'agent';
+  return <li className="canvas-card-row" data-state={row.state} data-kind={row.kind}>
+    {agent
+      ? <span className={`canvas-card-face${lifted ? ' is-lifted' : ''}`} role="img" data-agent={row.name} data-state={row.state}
+          data-drag={facesDraggable ? 'face' : undefined} aria-label={`${row.name}, ${STATE_LABEL[row.state]}`}
+          title={facesDraggable ? `Drag ${row.name} off the card to remove` : row.name}>
+          <AgentAvatar name={row.name} size={24}/>
+        </span>
+      : <span className="canvas-card-face is-human" role="img" aria-label={`${row.label}, ${STATE_LABEL[row.state]}`} title={row.name}>{initials(row.name)}</span>}
+    <span className="canvas-card-who">{row.label}</span>
+    <span className="canvas-card-what" title={row.text || undefined}>
+      {row.app ? <span className="canvas-card-row-app"><IntegrationLogo toolkit={row.app.app}/></span> : null}{row.text}
+    </span>
+    {row.state === 'quiet' ? <span className="canvas-card-zz" aria-hidden="true">z z</span> : <i className="canvas-card-dot" aria-hidden="true"/>}
+  </li>;
+}
+
+function OpenBody({card, pulse, needs, viewer, onNudge, facesDraggable, draggingFace, onOpen, onRemove}: {
+  card: Extract<BoardCard, {access: 'open'}>; pulse?: CardPulse; needs: readonly NeedsItem[]; viewer: string; onNudge?: CardProps['onNudge'];
+  facesDraggable: boolean; draggingFace: string | null; onOpen?(channelId: string): void; onRemove?(channelId: string): void;
 }) {
-  const agents = pulse?.agents ?? card.participants.filter(p => p.subscriberType === 'AGENT').map(p => ({name: p.subscriberId, state: 'idle' as const, since: 0}));
-  const humans = card.participants.filter(p => p.subscriberType === 'HUMAN').map(p => p.subscriberId);
-  const faces = agents.length + humans.length, hidden = Math.max(0, faces - MAX_FACES);
-  const shownAgents = agents.slice(0, MAX_FACES), shownHumans = humans.slice(0, MAX_FACES - shownAgents.length);
-  const lines = agents.filter(agent => statusText(agent) !== null);
-  const done = !lines.length && agents.some(agent => agent.state === 'done');
-  const quiet = agents.some(agent => agent.state === 'quiet');
+  const title = cardTitle(card);
+  const rows = participantRows({participants: card.participants, pulse, needs, viewer});
+  const {shown, hidden} = shownRows(rows);
+  const quiet = rows.find(row => row.kind === 'agent' && row.state === 'quiet');
+  const newest = needs[0];
+  // The mock's footer: the newest reason first, else Nudge for a quiet agent, else whether anything is moving.
+  const foot = newest
+    ? <button type="button" className="canvas-card-need" aria-label={`Needs you: ${newest.short}${needs.length > 1 ? `, and ${needs.length - 1} more` : ''}. Open the chat`}
+        title={needs.map(item => item.detail).join('\n')} disabled={!onOpen} onClick={() => onOpen?.(card.channelId)}>
+        <i aria-hidden="true"/><span className="canvas-card-need-text">{newest.short}</span>
+        {needs.length > 1 ? <span className="canvas-card-need-more" aria-hidden="true">+{needs.length - 1}</span> : null}
+      </button>
+    : quiet && onNudge ? <NudgeButton channelId={card.channelId} agent={quiet.name} onNudge={onNudge}/>
+    : <span className="canvas-card-calm">{rows.some(row => row.state === 'working') ? 'Moving' : 'All quiet'}</span>;
   return <>
-    {faces ? <div className="canvas-card-faces" aria-label="Participants">
-      {shownAgents.map(agent => <span key={agent.name} className={`canvas-card-face${agent.name === draggingFace ? ' is-lifted' : ''}`} role="img"
-        data-agent={agent.name} data-state={agent.state} data-drag={facesDraggable ? 'face' : undefined}
-        aria-label={`${agent.name}, ${STATE_LABEL[agent.state]}`}
-        title={`${agent.name}: ${STATE_LABEL[agent.state]}${facesDraggable ? '. Drag off the card to remove' : ''}`}>
-        <AgentAvatar name={agent.name} size={28}/><i className="canvas-card-dot" aria-hidden="true"/>
-      </span>)}
-      {shownHumans.map(name => <span key={name} className="canvas-card-human" role="img" aria-label={name} title={name}>{initials(name)}</span>)}
-      {hidden ? <span className="canvas-card-more">+{hidden}</span> : null}
+    {pulse?.apps.apps.length ? <AppLogos apps={pulse.apps.apps}/> : null}
+    {rows.length || newest || quiet ? <div className="canvas-card-people">
+      {rows.length ? <ul className="canvas-card-rows" aria-label="Participants">
+        {shown.map(row => <Row key={`${row.kind}:${row.name}`} row={row} facesDraggable={facesDraggable && row.kind === 'agent'} lifted={row.kind === 'agent' && row.name === draggingFace}/>)}
+        {hidden ? <li className="canvas-card-rows-more">+{hidden} more</li> : null}
+      </ul> : null}
+      {/* Compact zoom only: a coral dot when something needs you, else `quiet` (the mock's far card). */}
+      {newest ? <span className="canvas-card-far" data-kind="needs" role="img" aria-label={`Needs you: ${needs.length}`}/>
+        : quiet ? <span className="canvas-card-far" data-kind="quiet">quiet</span> : null}
     </div> : null}
-    {quiet ? <p className="canvas-card-marker" data-kind="quiet">Quiet</p> : null}
-    {lines.length || done ? <ul className="canvas-card-status">
-      {lines.slice(0, MAX_LINES).map(agent => <li key={agent.name} data-state={agent.state}>
-        <span>{statusText(agent)}</span>
-        {agent.state === 'quiet' && onNudge ? <NudgeButton channelId={card.channelId} agent={agent.name} onNudge={onNudge}/> : null}
-      </li>)}
-      {lines.length > MAX_LINES ? <li className="canvas-card-more-lines">+{lines.length - MAX_LINES} more</li> : null}
-      {done ? <li data-state="done">Done</li> : null}
-    </ul> : null}
     {pulse?.artifacts.length ? <ul className="canvas-card-artifacts" aria-label="Files">
       {pulse.artifacts.map(file => <li key={file.fileId}>
         <a className="canvas-card-chip" href={fileHref(file.fileId)} target="_blank" rel="noreferrer" title={file.name}>{file.name}</a>
       </li>)}
     </ul> : null}
-    {pulse?.apps.apps.length ? <AppLogos apps={pulse.apps.apps}/> : null}
-    {pulse?.lastActivityAt ? <LastActivity at={pulse.lastActivityAt}/> : null}
+    <div className="canvas-card-foot">
+      {foot}
+      <span className="canvas-card-foot-end">
+        {onRemove ? <button type="button" className="canvas-card-remove" aria-label="Remove from canvas" title="Remove from canvas (the chat stays)"
+          onClick={() => onRemove(card.channelId)}><span aria-hidden="true">✕</span></button> : null}
+        {/* The body opens the chat too; this is the visible and keyboard route. */}
+        {onOpen ? <button type="button" className="canvas-card-open" aria-label={`Open chat ${title}`} onClick={() => onOpen(card.channelId)}>Open</button> : null}
+      </span>
+    </div>
   </>;
 }
 
-export const Card = memo(function Card({card, draggable, dx, dy, dragging, measure, pulse, onNudge, onRemove, onOpen, open = false,
+export const Card = memo(function Card({card, draggable, dx, dy, dragging, measure, pulse, needs = NO_NEEDS, viewer = '', onNudge, onRemove, onOpen, open = false,
   facesDraggable = false, draggingFace = null, dropping = false, selected = false, areaTitle, areaTint}: CardProps) {
   const title = cardTitle(card);
   const ref = useCallback((element: HTMLElement | null) => measure(card.channelId, element), [card.channelId, measure]);
-  const needs = card.access === 'open' ? pulse?.needsYou.length ?? 0 : 0;
   const opens = card.access === 'open' && onOpen ? onOpen : undefined;
+  const attention = card.access === 'open' && needs.length > 0;
   return <article
     ref={ref}
-    className={`canvas-card${dragging ? ' is-dragging' : ''}${opens ? ' is-openable' : ''}${open ? ' is-open' : ''}${dropping ? ' is-drop-target' : ''}${selected ? ' is-selected' : ''}${areaTitle ? ' in-area' : ''}`}
+    className={`canvas-card${dragging ? ' is-dragging' : ''}${opens ? ' is-openable' : ''}${open ? ' is-open' : ''}${dropping ? ' is-drop-target' : ''}${selected ? ' is-selected' : ''}${areaTitle ? ' in-area' : ''}${attention ? ' needs-you' : ''}`}
     data-channel-id={card.channelId}
     data-tint={areaTitle ? areaTint : undefined}
     data-access={card.access}
@@ -181,18 +230,17 @@ export const Card = memo(function Card({card, draggable, dx, dy, dragging, measu
     style={{width: card.w, transform: `translate(${card.x + dx}px, ${card.y + dy}px)`}}>
     <div className="canvas-card-head">
       <h3 className="canvas-card-title">{title}</h3>
-      {/* Keyboard route to the same action; a pointer opens the card by clicking its body. */}
-      {opens ? <button type="button" className="canvas-card-open" onClick={() => opens(card.channelId)}>Open chat {title}</button> : null}
-      {needs ? <span className="canvas-card-needs" role="img" aria-label={`Needs you: ${needs}`} title="Needs you">{needs}</span> : null}
+      {card.access === 'open' && pulse?.lastActivityAt ? <LastActivity at={pulse.lastActivityAt}/> : null}
     </div>
     {areaTitle ? <p className="canvas-visually-hidden">In area {areaTitle}</p> : null}
     {card.access === 'open' && card.home && !card.home.isHere && card.home.label ? <p className="canvas-card-home">context from {card.home.label}</p> : null}
     {/* The home's setter can no longer read its canvas, so agents read nothing from it; same tag as an unavailable link. */}
     {card.access === 'open' && card.home?.available === false ? <p className="canvas-card-home" title="Agents in this chat read no context until a member uses an area's context again">context <span className="canvas-context-tag">unavailable</span></p> : null}
-    {card.access === 'open' ? <OpenBody card={card} pulse={pulse} onNudge={onNudge} facesDraggable={facesDraggable} draggingFace={draggingFace}/> : null}
+    {card.access === 'open' ? <OpenBody card={card} pulse={pulse} needs={needs} viewer={viewer} onNudge={onNudge} facesDraggable={facesDraggable}
+      draggingFace={draggingFace} onOpen={opens} onRemove={onRemove}/> : null}
     {card.access === 'locked' ? <p className="canvas-card-owner">Owner: {card.ownerLabel}</p> : null}
     {/* Every card can come off the canvas; the chat itself is untouched and an open one returns to the pile. */}
-    {onRemove ? <div className="canvas-card-actions">
+    {card.access !== 'open' && onRemove ? <div className="canvas-card-actions">
       <button type="button" className="canvas-card-remove" onClick={() => onRemove(card.channelId)}>Remove from canvas</button>
     </div> : null}
   </article>;

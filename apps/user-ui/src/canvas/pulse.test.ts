@@ -1,7 +1,8 @@
 import {describe,expect,it} from 'vitest';
 import type {MentionNotification} from '@nest/schemas';
 import type {Agent,EventRow} from '../types';
-import {QUIET_AFTER_MS,areaSummaries,cardPulse,type CardPulse} from './pulse';
+import {QUIET_AFTER_MS,areaSummaries,cardPulse,oneLine,type CardPulse} from './pulse';
+import type {AppCall} from '../app-activity';
 
 const now=Date.UTC(2026,10,8,12,0,0);
 const min=60_000;
@@ -83,26 +84,61 @@ describe('cardPulse',()=>{
     expect(result.get('c1')!.lastActivityAt).toBeNull();
   });
 
+  it('a working agent carries its turn\'s latest progress line, and its newest running app call (app and action only)',()=>{
+    const phase=(id:string,at:number,text:string)=>ev(id,'agent.turn.phase','agent:Pom',at,{triggerEventId:'m1',phase:'codex-progress',text});
+    const call=(id:string,at:number,state:'running'|'done'):AppCall=>({id,channelId:'c1',agent:'Pom',at,app:'gmail',appName:'Gmail',action:'Fetch emails',kind:'read',label:null,state});
+    const events=[started('s1','Pom','m1',now-5*min),phase('p1',now-4*min,'Reading the brief'),phase('p2',now-3*min,'## Drafting **the** post\nsecond line')];
+    const working=cardPulse({events,agents:[running('Pom')],starts:{},mentions:[],cards,now,apps:new Map([['c1',[call('a1',now-2*min,'running'),call('a0',now-3*min,'done')]]])});
+    expect(working.get('c1')!.agents[0]).toEqual({name:'Pom',state:'working',since:now-5*min,activity:'Drafting the post',app:{app:'gmail',appName:'Gmail',action:'Fetch emails'}});
+    const finished=cardPulse({events,agents:[running('Pom')],starts:{},mentions:[],cards,now,apps:new Map([['c1',[call('a0',now-3*min,'done')]]])});
+    expect(finished.get('c1')!.agents[0].app).toBeUndefined();
+  });
+
+  it('keeps each agent\'s and person\'s latest message line, and how many files a person\'s carried',()=>{
+    const result=pulse([
+      message('m1','human:demo-owner',now-9*min),
+      ev('m2','message.created','agent:Pom',now-8*min,{text:'> Posted the summary\nmore'}),
+      message('m3','human:mate',now-7*min,[{fileId:'f1',name:'a.txt'},{fileId:'f2',name:'b.txt'}]),
+      started('s1','Pom','m1',now-30*min),ended('e1','agent.turn.completed','Pom','m1',now-29*min),
+    ]);
+    const card=result.get('c1')!;
+    expect(card.agents[0]).toEqual({name:'Pom',state:'done',since:now-29*min,said:'Posted the summary'});
+    expect(card.people).toEqual([{name:'demo-owner',at:now-9*min,said:'Synthetic message',files:0},{name:'mate',at:now-7*min,said:'Synthetic message',files:2}]);
+  });
+
   it('ignores events from channels that are not cards',()=>{
     const result=pulse([started('s1','Pom','m1',now-min,'c2'),message('m1','agent:Pom',now-min,[{fileId:'x',name:'x.txt'}],'c2')]);
     expect([...result.keys()]).toEqual(['c1']);
-    expect(result.get('c1')).toEqual({agents:[{name:'Pom',state:'idle',since:0}],lastActivityAt:null,artifacts:[],needsYou:[],apps:{apps:[],reads:0,changes:0}});
+    expect(result.get('c1')).toEqual({agents:[{name:'Pom',state:'idle',since:0}],people:[],lastActivityAt:null,artifacts:[],needsYou:[],apps:{apps:[],reads:0,changes:0}});
   });
 });
 
 describe('areaSummaries',()=>{
-  it('counts cards that need you and cards with a working agent, including nested areas',()=>{
-    const area=(id:string,x:number,y:number,w:number,h:number)=>({id,canvasId:'cv',title:id,x,y,w,h,tint:'moss' as const,version:1});
+  const area=(id:string,x:number,y:number,w:number,h:number)=>({id,canvasId:'cv',title:id,x,y,w,h,tint:'moss' as const,version:1});
+  const p=(state:'working'|'idle'|'quiet',needs:number):CardPulse=>({agents:[{name:'Pom',state,since:1}],people:[],lastActivityAt:null,artifacts:[],needsYou:Array.from({length:needs},(_,i)=>({kind:'mention' as const,id:`n${i}`,at:1,sender:'x',text:'hi'})),apps:{apps:[],reads:0,changes:0}});
+  const placed=(channelId:string,x:number,y:number)=>({channelId,x,y,w:280});
+  it('counts cards that need you, are moving or have gone quiet, including nested areas',()=>{
     const outer=area('outer',0,0,2000,1000),inner=area('inner',100,100,800,600),apart=area('apart',3000,0,600,600);
-    const p=(state:'working'|'idle',needs:number):CardPulse=>({agents:[{name:'Pom',state,since:1}],lastActivityAt:null,artifacts:[],needsYou:Array.from({length:needs},(_,i)=>({kind:'mention' as const,id:`n${i}`,at:1,sender:'x',text:'hi'})),apps:{apps:[],reads:0,changes:0}});
-    const placed=(channelId:string,x:number,y:number)=>({channelId,x,y,w:280});
     const result=areaSummaries(
-      [placed('a',200,200),placed('b',1200,200),placed('c',1200,600),placed('d',3100,100)],
+      [placed('a',200,200),placed('b',1200,200),placed('c',1200,600),placed('d',3100,100),placed('e',400,300)],
       [outer,inner,apart],
-      new Map([['a',p('working',1)],['b',p('idle',2)],['c',p('working',0)],['d',p('idle',0)]]),
+      new Map([['a',p('working',1)],['b',p('idle',2)],['c',p('working',0)],['d',p('idle',0)],['e',p('quiet',0)]]),
     );
-    expect(result.get('inner')).toEqual({needYou:1,moving:1});
-    expect(result.get('outer')).toEqual({needYou:2,moving:2});
-    expect(result.get('apart')).toEqual({needYou:0,moving:0});
+    expect(result.get('inner')).toEqual({needYou:1,moving:1,quiet:1,chats:2});
+    expect(result.get('outer')).toEqual({needYou:2,moving:2,quiet:1,chats:4});
+    expect(result.get('apart')).toEqual({needYou:0,moving:0,quiet:0,chats:1});
+  });
+  it('counts a card\'s Needs you items (mentions and reviews) when given, instead of its mentions alone',()=>{
+    const only=area('only',0,0,1000,1000);
+    const result=areaSummaries([placed('a',100,100),placed('b',500,100)],[only],new Map([['a',p('idle',1)],['b',p('idle',0)]]),new Map([['b',[{}]]]));
+    expect(result.get('only')).toEqual({needYou:1,moving:0,quiet:0,chats:2});
+  });
+});
+
+describe('oneLine',()=>{
+  it('keeps the first non-empty line without Markdown marks, at most 140 characters',()=>{
+    expect(oneLine('\n\n- **Done:** shipped `v2`\nnext')).toBe('Done: shipped v2');
+    expect(oneLine('x'.repeat(200))).toHaveLength(140);
+    expect(oneLine(undefined)).toBe('');
   });
 });
