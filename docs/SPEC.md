@@ -826,8 +826,10 @@ Phase 1 is built from
    every other view (which start expanded) and whether the sidebar's agent list is
    shown are remembered per browser. Phones keep the full slide-in menu. Search (Ctrl/Cmd+K)
    finds cards, areas, loose chats and canvases; loose chats the person has archived
-   are not searchable unless Show archived is on. Needs you lists unread mentions and
-   tasks waiting for review on chats the person can see.
+   are not searchable unless Show archived is on. Needs you lists unread mentions,
+   tasks waiting for review and, with flows set up, the person's flow items (Phase 3:
+   hand-offs awaiting their OK, their paused links and missed runs) on chats the person
+   can see.
 
    Loose chats. The person's chats that are not on this canvas (theirs as a member or
    owner, not archived in the engine, not lifecycle channels) sit behind the top bar's
@@ -877,8 +879,8 @@ Phase 1 is built from
    `quiet for N min · last: <progress>` with `z z`; done and idle agents show the first
    line of their latest message. A person shows the first line of their latest message
    or `shared N files`. A participant is **waiting on you** only when one of the chat's
-   Needs you items comes from them: an unread mention they sent you, or a task of theirs
-   (by agent name) awaiting your review. Message text is never read for it, and waiting
+   Needs you items comes from them: an unread mention they sent you, a task of theirs
+   (by agent name) awaiting your review, or a hand-off of their result awaiting your OK. Message text is never read for it, and waiting
    replaces only done, idle and "posted"; working, quiet, stopped and failed win. Files
    posted in the loaded history follow as one row of 56 px tiles, newest first: a typed
    glyph (document, spreadsheet, slides, image, audio or video, chosen by the file's
@@ -1493,7 +1495,42 @@ the canvas UI for links (lines, labels and the Hand-off popover).
      placed beside its chat's card, as on desktop). A new step whose placement or
      link fails after its chat was created leaves that chat (loose, or on the canvas
      unlinked) and says so in a toast.
-9. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
+9. Needs you and the open chat's Where it stands (`needs.ts`, `NeedsYou.tsx`,
+   `PhoneList.tsx`, `ChatDigest.tsx`, `CanvasView.tsx`, `chat/ChatComposer.tsx`).
+   - The client polls `GET /api/flows/needs` every 15 s while the page is visible and
+     on focus, and again after an approve, a decline, Run now or a link change. Its
+     items join the mentions and reviews in `needsYouItems`, newest first, with the
+     server's `detail`, `short`, `reason`, `from` and `gate`; an item for a chat the
+     person cannot see (not an open card or a loose chat of theirs) is dropped. A
+     review item carries `gate {kind:'review', projectId, taskId}`. Cards show the
+     newest item's `short` as their pill, so a source chat reads `Approve hand-off to
+     {target}`, and the turn's agent row reads `needs you · {reason}`.
+   - A missed run's row (desktop list and the phone's Needs you segment) ends with
+     `Run now` (`POST /api/flows/schedules/:id/run`, served by the schedules work);
+     the other rows jump to their chat.
+   - The open chat's digest (the mock's `.digest`, above the Setup line) shows only
+     while the chat has an approval, a review or a missed run: `Where it stands`, then
+     `{agent}: {activity}.` from its first agent row (left out when it has no agent),
+     then `Waiting on you: {short}` for the newest of them. Paused links and mentions
+     never open it; there are no generated digests. When `short` starts with
+     `Approve` or `Review` (the mock's regex) it has Approve and Request changes; a
+     missed run has `Run now` alone.
+   - Approve on an approval posts `{decision:'approve'}` and toasts `Handed off to
+     "{target}".`; on a review it reads the task's version from
+     `GET /api/projects/:id` and posts `{decision:'approve', feedback:''}` to
+     `/api/projects/:id/tasks/:taskId/reviews` (the project owner's route).
+   - Request changes calls the chat reply box's `requestChanges`: it focuses the box
+     and its placeholder reads `What should change?`. The next message the person
+     sends in that chat is posted as usual, and then declines the hand-off
+     (`{decision:'decline'}`) or sends the task back with the message as feedback
+     (`{decision:'request_changes', feedback}`), once; the placeholder returns.
+     Opening another chat cancels it. Nothing about the reply box changes unless the
+     canvas calls it, so the chat outside the canvas is unchanged.
+   - Only the link's creator gets an approval item and may decide it; only the
+     project's owner may review its task, so another member's digest says what waits
+     with no buttons. A refusal (already decided, the link paused, not the person's
+     to decide) is a toast with the API's text, and the items are read again.
+10. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
    `handoff.test.ts`, `access.test.ts` and the fork case in `canvas-board.test.ts`
    run against the real engine and Nest handlers with temporary databases.
    `handoff.test.ts` covers a lost post response followed by a restart (exactly one
@@ -1502,7 +1539,10 @@ the canvas UI for links (lines, labels and the Hand-off popover).
    against the real engine, API and worker (the harness's `flows` option ticks the
    worker every 200 ms), through pause, a delivered hand-off and disconnect, then
    connecting by dragging the port onto a card and onto empty canvas (a new step),
-   the chat picker, the Setup line and its links row, loose chats and a phone.
+   the chat picker, the Setup line and its links row, loose chats and a phone, and
+   an approval link through Needs you, Approve, Request changes with a reply, and a
+   project review approved from the open chat. `needs.test.ts` and
+   `ChatDigest.test.tsx` cover the merge and the digest, missed runs included.
 
 ## Private Community catalog
 

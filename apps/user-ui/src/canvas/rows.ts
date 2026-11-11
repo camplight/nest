@@ -48,7 +48,8 @@ export function agentText(agent: AgentPulse): string {
 
 /**
  * Waiting on you: a participant waits on the viewer only when one of this chat's Needs you items (addressed to the viewer)
- * comes from them: an unread mention they sent, or a task of theirs awaiting the viewer's review. Message text is never
+ * comes from them: an unread mention they sent, a task of theirs awaiting the viewer's review, or a hand-off of their
+ * result awaiting the viewer's OK. Message text is never
  * read for it. Waiting replaces only done, idle and "posted"; a live turn (working or quiet) and a problem (interrupted,
  * failed, unavailable) say more about the agent right now.
  */
@@ -59,8 +60,8 @@ const PRIORITY: Record<RowState, number> = {waiting: 0, working: 1, quiet: 2, in
 /** Every participant's row: agents in roster order, then people, with the viewer last. */
 export function participantRows({participants, pulse, needs, viewer, service = null}: RowsInput): ParticipantRow[] {
   const newestFrom = new Map<string, NeedsItem>();
-  // Mentions come from people and reviews from agents, so an agent and a person with the same name never mix.
-  const whoFrom = (item: NeedsItem) => `${item.kind === 'review' ? 'agent' : 'human'}:${item.from}`;
+  // Mentions come from people; reviews, hand-offs and runs from agents. An agent and a person with the same name never mix.
+  const whoFrom = (item: NeedsItem) => `${item.kind === 'mention' ? 'human' : 'agent'}:${item.from}`;
   for (const item of needs) if (item.from && !newestFrom.has(whoFrom(item))) newestFrom.set(whoFrom(item), item);
   const agents = (pulse?.agents ?? participants.filter(p => p.subscriberType === 'AGENT').map((p): AgentPulse => ({name: p.subscriberId, state: 'idle', since: 0})))
     .filter(agent => agent.name !== service);

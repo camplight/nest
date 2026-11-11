@@ -36,7 +36,9 @@ import {errorText,getContextSummary,uploadContextFile,type PanelScope} from './c
 import {chatSees,contextLabel,joinNames,type ChatSees} from './context-label';
 import {cardSheet,clearOfDrawer,looseSheet,samePlace,stageBounds,type SheetPlace} from './sheet';
 import {isServiceAgent,useFlows} from './useFlows';
-import {LinkConflict,createLink,deleteLink,flowError,getLinks,patchLatest,sendNow,type LinkView} from './flows-api';
+import {LinkConflict,createLink,decideHandoff,deleteLink,flowError,getLinks,patchLatest,reviewTask,runScheduleNow,sendNow,type LinkView} from './flows-api';
+import {ChatDigest,agentLine} from './ChatDigest';
+import {participantRows} from './rows';
 import {HandoffPopover,type HandoffChange} from './HandoffPopover';
 import {LinkPicker} from './LinkPicker';
 import {ChatSetup} from './ChatSetup';
@@ -70,6 +72,8 @@ export type CanvasViewProps = {
   refreshChannels(): Promise<void>;
   /** The confirmed channel list after an agent is added or removed here (App's setChannels). */
   onChannels(channels: Channel[]): void;
+  /** Request changes in the open chat's digest: App's reply box asks `What should change?` and hands the next message sent to onSent. */
+  onRequestChanges?(onSent: (text: string) => Promise<void>): void;
 };
 /** A short message over the canvas about a membership change, with Undo after a removal. */
 type MemberNotice = {id: number; text: string; undo?: () => void};
@@ -104,7 +108,7 @@ async function sendNudge(channelId: string, agent: string) {
   await apiJson('/api/messages', {method: 'POST', headers: getApiHeaders(), body: JSON.stringify(nudgeMessage(channelId, agent))});
 }
 
-export function CanvasView({canvasId, humanId, username, humans, channels, projects, agents, onSelectCanvas, onMenu, chat, chatChannelId, chatMode, onOpenChat, onCloseChat, onOpenRegular, onChatFiles, live, refreshChannels, onChannels}: CanvasViewProps) {
+export function CanvasView({canvasId, humanId, username, humans, channels, projects, agents, onSelectCanvas, onMenu, chat, chatChannelId, chatMode, onOpenChat, onCloseChat, onOpenRegular, onChatFiles, live, refreshChannels, onChannels, onRequestChanges}: CanvasViewProps) {
   const store = useMemo(() => createBoardStore({api: boardApi, now: Date.now, intervalMs: SYNC_INTERVAL_MS}), []);
   // Phones get a list in place of the free canvas.
   const phone = usePhoneLayout();
@@ -605,13 +609,16 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   // Read once for a shown canvas, phones included: the phone list's Needs you takes them from here, and a loose chat
   // that only waits on a review turns the top-bar count coral there too. Read again as either Needs you opens.
   const [phoneNeedsOpen, setPhoneNeedsOpen] = useState(false);
-  const reviews = useReviews(needsOpen || phoneNeedsOpen, Boolean(canvasId));
+  // Bumped after a review decided in the open chat's digest, so the reviews are read again at once.
+  const [reviewsRead, rereadReviews] = useReducer((n: number) => n + 1, 0);
+  const reviews = useReviews(needsOpen || phoneNeedsOpen, Boolean(canvasId), reviewsRead);
   const needsCache = useRef<ReadonlyMap<string, NeedsItem[]>>(new Map());
+  // Flow items (approvals, paused links, missed runs) join from useFlows; cards show them as their pill too.
   const cardNeeds = useMemo(() => {
-    const next = needsByChannel(needsYouItems({pulses, titles, reviews, projects}), needsCache.current);
+    const next = needsByChannel(needsYouItems({pulses, titles, reviews, projects, flows: flows.needs}), needsCache.current);
     needsCache.current = next;
     return next;
-  }, [pulses, titles, reviews, projects]);
+  }, [pulses, titles, reviews, projects, flows.needs]);
   // The drawer's rows read the same pulses and Needs you items as the cards: a row's reason, activity and chip.
   const loose = useMemo(() => cards ? looseChats({channels, projects, boardChannelIds: boardIds, hidden, username, userId: humanId, pulses, needs: cardNeeds, showHidden}) : [],
     [cards, channels, projects, boardIds, hidden, username, humanId, pulses, cardNeeds, showHidden]);
@@ -975,6 +982,53 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     agents={chatPeople.filter(p => p.subscriberType === 'AGENT' && !isServiceAgent(p.subscriberId, service)).map(p => p.subscriberId)} viewer={humanId}
     onConnect={canLink ? anchor => openLinkPick(chatChannelId, anchor) : undefined} onOpenLink={openChatLink}/> : null;
   const chatConnect = canLink && chatOnBoard && chatChannelId ? (anchor: HTMLElement) => openLinkPick(chatChannelId, anchor) : undefined;
+  // Where it stands: what in the open chat waits on the person, with Approve / Request changes or Run now in place. A refusal
+  // (already decided, the link paused, not theirs to decide) is a toast, and the items are read again.
+  const setupLinksRef = useRef(setupLinks); setupLinksRef.current = setupLinks;
+  const approveNeed = useCallback(async (item: NeedsItem) => {
+    const gate = item.gate;
+    if (gate?.kind === 'approval') {
+      const target = setupLinksRef.current.find(l => l.id === gate.linkId)?.toTitle ?? item.short.replace(/^Approve hand-off to /, '');
+      try { await decideHandoff(gate.deliveryId, 'approve'); say(`Handed off to "${target}".`); }
+      catch (error) { say(flowError(error, 'Could not approve the hand-off. Try again.')); }
+      finally { flows.refresh(); }
+    } else if (gate?.kind === 'review') {
+      try { await reviewTask(gate.projectId, gate.taskId, 'approve', ''); }
+      catch (error) { say(flowError(error, 'Could not approve it. Try again.')); }
+      finally { rereadReviews(); }
+    }
+  }, [say, flows.refresh]);
+  const requestChanges = useCallback((item: NeedsItem) => {
+    const gate = item.gate;
+    if (gate?.kind !== 'approval' && gate?.kind !== 'review') return;
+    // The reply is posted in the chat as usual; once it is sent, the hand-off is declined or the task goes back with it.
+    onRequestChanges?.(async text => {
+      if (gate.kind === 'approval') {
+        try { await decideHandoff(gate.deliveryId, 'decline'); }
+        catch (error) { say(flowError(error, 'Could not decline the hand-off. Try again.')); }
+        finally { flows.refresh(); }
+      } else {
+        try { await reviewTask(gate.projectId, gate.taskId, 'request_changes', text); }
+        catch (error) { say(flowError(error, 'Could not send the changes to the task. Try again.')); }
+        finally { rereadReviews(); }
+      }
+    });
+  }, [onRequestChanges, say, flows.refresh]);
+  /** Run now on a missed run (Task 10 serves the route). */
+  const runNow = useCallback(async (item: NeedsItem) => {
+    if (item.gate?.kind !== 'missed') return;
+    try { await runScheduleNow(item.gate.scheduleId); }
+    catch (error) { say(flowError(error, 'Could not start the run. Try again.')); }
+    finally { flows.refresh(); }
+  }, [say, flows.refresh]);
+  // Decisions follow the server: an approval item is only ever the link creator's own; a review is the project owner's.
+  const canDecide = useCallback((item: NeedsItem) => {
+    const gate = item.gate;
+    return gate?.kind !== 'review' || projects.find(p => p.id === gate.projectId)?.ownerId === humanId;
+  }, [projects, humanId]);
+  const chatNeeds = chatShown && chatChannelId ? cardNeeds.get(chatChannelId) : undefined;
+  const chatDigest = chatNeeds ? <ChatDigest key={`digest:${chatChannelId}`} items={chatNeeds} onApprove={approveNeed} onRequestChanges={requestChanges} onRunNow={runNow} canDecide={canDecide}
+    agentLine={agentLine(participantRows({participants: chatPeople, pulse: pulses.get(chatChannelId!), needs: [], viewer: username, service}).find(row => row.kind === 'agent'))}/> : null;
   const flowCards = flowPop?.view && board ? {from: board.cards.find(c => c.channelId === flowPop.view!.from), to: board.cards.find(c => c.channelId === flowPop.view!.to)} : null;
   const agentsOf = (card: BoardCard | undefined) => card?.access === 'open'
     ? card.participants.filter(p => p.subscriberType === 'AGENT' && !isServiceAgent(p.subscriberId, service)).map(p => p.subscriberId) : [];
@@ -1024,7 +1078,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     body = <div className="canvas-phone-stage">
       <PhoneList key={board.canvas.id} board={board} pulses={pulses} loose={shownLoose} titles={titles} projects={projects}
         onOpenChat={openLoose} openChannelId={chatShown ? chatChannelId : null} areaContext={areaContext} onAreaContext={openAreaContext} looseKey={phoneLoose}
-        reviews={reviews} onNeedsShown={setPhoneNeedsOpen}/>
+        reviews={reviews} flows={flows.needs} onRunNow={runNow} onNeedsShown={setPhoneNeedsOpen}/>
       {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!chatShown} fileDropAccept={outsideCanvasChat} onFilesDropped={dockFiles}/></div> : null}
     </div>;
   } else {
@@ -1053,7 +1107,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   return <section ref={viewRoot} className="canvas-view" aria-label="Canvas">
     <WorkspaceTopbar onMenu={onMenu} search={canvasId ? <div className="canvas-tools">
       {/* On phones Needs you is a segment of the list instead. */}
-      {phone ? null : <NeedsYou pulses={pulses} titles={titles} projects={projects} reviews={reviews} onOpenChange={setNeedsOpen} onJump={jumpTo}/>}
+      {phone ? null : <NeedsYou pulses={pulses} titles={titles} projects={projects} reviews={reviews} flows={flows.needs} onRunNow={runNow} onOpenChange={setNeedsOpen} onJump={jumpTo}/>}
       {/* Top-bar labels collapse to their icons as the bar narrows (canvas.css); the text stays as the name. */}
       <button type="button" className="canvas-search-button" title="Search the canvas (Ctrl+K)" onClick={() => setSearchOpen(true)}>
         <Search size={16} aria-hidden="true"/><span className="canvas-bar-label">Search</span>
@@ -1109,7 +1163,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         canPlace={board.canvas.role !== 'view'} draggable onNewArea={newArea} onArchive={hide} onClose={closeDrawer} now={Date.now}
         onOpenChat={openLoose} highlight={highlight} focusKey={drawerFocus}/> : null}
       {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} anchor={sheetAnchor} drawerOpen={drawerOpen} watchView={watchView} title={chatTitle} sub={chatSub} area={chatArea} onPlace={placeHere} onUseHere={useHere}
-        setup={chatSetup} onConnect={chatConnect}
+        digest={chatDigest} setup={chatSetup} onConnect={chatConnect}
         onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
         {chat}
       </CanvasChat> : null}
@@ -1210,9 +1264,11 @@ function ChatSubline({sub}: {sub: ChatSub}) {
   </p>;
 }
 
-function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub, area, onPlace, onUseHere, setup, onConnect, onMode, onClose, onOpenRegular, children}: {
+function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub, area, onPlace, onUseHere, digest, setup, onConnect, onMode, onClose, onOpenRegular, children}: {
   channelId: string; mode: CanvasChatMode; anchor: SheetAnchor | null; drawerOpen: boolean; watchView(listener: () => void): () => void;
   title: string; sub?: ChatSub; area?: ChatArea; onPlace?(): void; onUseHere?(): Promise<void>;
+  /** Where it stands, above the Setup line (the mock's digest before cfgBlock). */
+  digest?: ReactNode;
   /** The Setup line, at the top of the chat body. */
   setup?: ReactNode;
   /** A chat on this canvas, with hand-offs set up: the header's connect button opens the chat picker under it. */
@@ -1407,7 +1463,7 @@ function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub,
       </div>
     </header>
     <ChatHeaderSlotsContext.Provider value={slots}>
-      <div className="canvas-chat-body">{setup}{children}</div>
+      <div className="canvas-chat-body">{digest}{setup}{children}</div>
     </ChatHeaderSlotsContext.Provider>
   </section>;
 }

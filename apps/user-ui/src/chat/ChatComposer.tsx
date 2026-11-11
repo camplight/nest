@@ -27,7 +27,12 @@ import {useVoiceNote} from '../voice/useVoiceNote';
 import {voiceCapError} from '../voice/voice-note';
 import {VoiceButton,VoiceStatus} from '../voice/VoiceButton';
 
-export type ChatComposerHandle={insertText(text:string):void;enqueueFiles(files:File[]):void;setReplyTarget(target:ReplyTarget|null,quotedText?:string):void;focus():void};
+export type ChatComposerHandle={insertText(text:string):void;enqueueFiles(files:File[]):void;setReplyTarget(target:ReplyTarget|null,quotedText?:string):void;focus():void;
+  /**
+   * Request changes (the canvas digest): focuses the reply box and asks `What should change?`; the next message sent in
+   * this chat is passed to onSent once, and the placeholder returns. Opening another chat cancels it. Nothing changes until it is called.
+   */
+  requestChanges(onSent:(text:string)=>Promise<void>):void};
 export type ComposerSessionOptions={
   userId:string|null;channel:Channel|null;canPost:boolean;
   // onSent may return a promise; the send stays in progress until it settles (the classic post-send refresh).
@@ -78,6 +83,11 @@ export function useComposerSession(options:ComposerSessionOptions){
   // The quote-reply target (spec 7.3): stored with the draft, sent as replyTo and part of the send fingerprint.
   const [replyTo,setReplyTo]=useState<ReplyTarget|null>(null);
   const sendRequestRef=useRef<{fingerprint:string;id:string}|null>(null);
+  // Request changes: the chat it was asked in and what to do with the next message sent there.
+  const [changeRequest,setChangeRequest]=useState<{channelId:string;onSent(text:string):Promise<void>}|null>(null);
+  const changeRequestRef=useRef(changeRequest);changeRequestRef.current=changeRequest;
+  useEffect(()=>{setChangeRequest(null);},[activeChannelId]);
+  function requestChanges(onSent:(text:string)=>Promise<void>){if(activeChannelId)setChangeRequest({channelId:activeChannelId,onSent});}
   const [sending, setSendingState] = useState(false);
   function setSending(value:boolean){setSendingState(value);options.onStateChange({sending:value});}
   const {attachments:pendingAttachments,setAttachments:setPendingAttachments,uploadFiles:enqueueFiles,error:attachmentError}=useAttachments(`${userId??''}:${activeChannelId??''}`);
@@ -141,6 +151,8 @@ export function useComposerSession(options:ComposerSessionOptions){
       await apiFetch('/api/messages',{method:'POST',headers:getApiHeaders(),body:JSON.stringify({id:request.id,...message})});
       if(userId)clearSentDraft(userId,activeChannelId,saved);
       if(activeChannelIdRef.current!==activeChannelId)return;
+      const asked=changeRequestRef.current;
+      if(asked?.channelId===activeChannelId){changeRequestRef.current=null;setChangeRequest(null);void asked.onSent(effectiveText).catch(()=>{});}
       if(activeChannelIdRef.current===activeChannelId){
         if(sendRequestRef.current?.id===request.id)sendRequestRef.current=null;
         setDraftState({text:'',mentions:[]});setPendingAttachments([]);setReplyTo(null);
@@ -196,6 +208,7 @@ export function useComposerSession(options:ComposerSessionOptions){
     draft,draftState,draftStored,setDraft,chooseMention,sending,disabled,mentions,
     pendingAttachments,setPendingAttachments,attachmentError,uploadingAttachmentCount,readyAttachments,hasAttachmentErrors,
     handleSubmit,uploadFiles,removeAttachment,insertText,bindCommands,replyTo,setReplyTarget,
+    requestChanges,changesAsked:Boolean(activeChannelId&&changeRequest?.channelId===activeChannelId),
   };
 }
 
@@ -285,6 +298,7 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
     enqueueFiles:uploadFiles,
     setReplyTarget:session.setReplyTarget,
     focus(){composerTextareaRef.current?.focus();},
+    requestChanges(onSent){session.requestChanges(onSent);composerTextareaRef.current?.focus();},
   }));
 
   // .nest-chat-composer is the scope for assistant-ui's composer look (spec 7.4); the rules are plain CSS in styles.css,
@@ -335,7 +349,7 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
                 : activeChannel && !activeChannelCanPost
                   ? "This channel is shared with you as read-only"
                 : activeChannel
-                  ? `Message to ${activeConversationName}`
+                  ? session.changesAsked ? "What should change?" : `Message to ${activeConversationName}`
                   : "Select a channel first"
             }
             disabled={!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending}

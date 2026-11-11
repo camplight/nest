@@ -1,10 +1,12 @@
-// Links between chats (Phase 3, Task 6): the mock's link lines and labels, the Hand-off popover (what, when, pause,
-// resume, disconnect), a real hand-off posted by the stopped Switchyard agent and its line in the target chat, on the
-// real engine, API, worker and WS. Synthetic data only.
+// Links between chats (Phase 3, Tasks 6-8): the mock's link lines and labels, the Hand-off popover (what, when, pause,
+// resume, disconnect), a real hand-off posted by the stopped Switchyard agent and its line in the target chat, connecting
+// chats, and approvals in Needs you with Approve / Request changes in the open chat, on the real engine, API, worker and
+// WS. Synthetic data only.
 import assert from 'node:assert/strict';
 import {mkdtempSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {dirname,join} from 'node:path';
+import Database from 'better-sqlite3';
 import type {Page} from 'playwright';
 import type {FlowNeed,Link} from '@nest/schemas';
 import {agentName,runChatTest,type ChatHarness} from '../support/chat-harness';
@@ -432,4 +434,88 @@ await runChatTest('canvas links: a view-role member cannot connect, but keeps th
   await pop.getByRole('button',{name:'Pause',exact:true}).click();
   await until(()=>chip.getAttribute('class'),c=>/\boff\b/.test(c??''),'the viewer paused the chip');
   assert.equal(await page.getByRole('dialog',{name:'Connect chats',exact:true}).count(),0,'no picker');
+},{canvas:true,flows:true});
+
+/** The deliveries on a link, newest first, read from the product database (fixtures only). */
+function deliveries(h:ChatHarness,linkId:string){
+  const product=new Database(join(dirname(h.engineDb.name),'product.sqlite'),{readonly:true});
+  try{return product.prepare('SELECT status FROM product_link_deliveries WHERE link_id=? ORDER BY created_at DESC, rowid DESC').all(linkId) as {status:string}[];}
+  finally{product.close();}
+}
+/** A Pip turn in the source chat, then worker ticks until its hand-off waits for the creator's OK. */
+async function awaitingTurn(h:ChatHarness,from:string,text:string){
+  await turn(h,from,text);
+  await until(async()=>{await h.flowsTick();return (await call<{items:FlowNeed[]}>(h,'GET','/api/flows/needs')).items.filter(n=>n.kind==='approval').length;},n=>n===1,'one approval waits');
+}
+/** The page reads Needs you on focus (and every 15 s): ask it now. */
+const refocus=(page:Page)=>page.evaluate(()=>{window.dispatchEvent(new Event('focus'));});
+
+await runChatTest('canvas links: an approval waits in Needs you; Approve hands it off, Request changes declines it with the reply, and a review is approved in the chat',async h=>{
+  const {page,base}=h, from=h.project.channelId;
+  const {canvasId,blog,link}=await linkedBoard(h);
+  await call(h,'PATCH',`/api/flows/links/${link.id}`,{when:'approve',version:link.version});
+  await openCanvas(page,base,canvasId);
+  const needsButton=page.locator('button.canvas-needs');
+  const count=async()=>Number(/\((\d+)\)$/.exec((await needsButton.getAttribute('aria-label'))??'')?.[1]);
+  await refocus(page);
+  await page.waitForTimeout(500);
+  const before=await count();
+
+  // A finished turn waits for the creator's OK: Needs you counts it, and the source card's pill says what it waits for.
+  await awaitingTurn(h,from,'Synthetic outline for the blog');
+  await refocus(page);
+  await until(count,n=>n===before+1,'Needs you counts the approval');
+  await until(()=>cardOf(page,from).locator('.canvas-card-need-text').innerText(),t=>t==='Approve hand-off to Blog post','the source card\'s pill');
+  assert.equal((await handoffs(h,blog)).length,0,'nothing handed off before the OK');
+
+  // The open chat says where it stands, above the Setup line.
+  await page.getByRole('button',{name:'Open chat Synthetic chat project',exact:true}).click();
+  const sheet=page.getByRole('dialog',{name:'Open chat Synthetic chat project',exact:true});
+  const digest=sheet.getByRole('region',{name:'Where it stands',exact:true});
+  await digest.waitFor();
+  assert.equal(await digest.locator('b').textContent(),'Where it stands');
+  assert.match((await digest.textContent())??'',new RegExp(`^Where it stands${agentName}: .+\\.Waiting on you: `),'the agent line under the heading');
+  assert.equal(await digest.locator('.wy').textContent(),'Waiting on you: Approve hand-off to Blog post');
+  assert.deepEqual(await digest.locator('.gate button').allTextContents(),['Approve','Request changes']);
+  assert.equal(await sheet.locator('.canvas-chat-body > .digest + .cfg').count(),1,'the digest sits above the Setup line');
+
+  // Approve: Blog post gets the hand-off, the toast names it, and the item is gone.
+  await digest.getByRole('button',{name:'Approve',exact:true}).click();
+  const [posted]=await until(()=>handoffs(h,blog),list=>list.length===1,'the approved hand-off arrives');
+  assert.match(posted.payload?.text??'',/Synthetic outline for the blog$/);
+  await page.locator('.canvas-notice').filter({hasText:'Handed off to "Blog post".'}).waitFor();
+  await until(()=>digest.count(),n=>n===0,'the digest goes after Approve');
+  await until(count,n=>n===before,'the approval left Needs you');
+  assert.equal(deliveries(h,link.id)[0]?.status,'delivered');
+
+  // The next turn: Request changes asks in the reply box; the reply is posted here and the hand-off is declined.
+  await awaitingTurn(h,from,'Synthetic second draft');
+  await refocus(page);
+  await digest.waitFor();
+  await digest.getByRole('button',{name:'Request changes',exact:true}).click();
+  const box=sheet.getByRole('textbox',{name:'Message',exact:true});
+  await until(()=>box.getAttribute('placeholder'),p=>p==='What should change?','the reply box asks what should change');
+  assert.equal(await box.evaluate(el=>el===document.activeElement),true,'the reply box has focus');
+  await box.fill('Shorter, please');
+  await box.press('Enter');
+  await until(async()=>(await call<EngineEvent[]>(h,'GET',`/api/events?channelId=${encodeURIComponent(from)}&type=message.created&limit=200`))
+    .some(e=>e.source==='human:demo-owner'&&e.payload?.text==='Shorter, please'),ok=>ok,'the reply is posted in the source chat');
+  await until(async()=>deliveries(h,link.id)[0]?.status,status=>status==='declined','the hand-off is declined');
+  await until(()=>digest.count(),n=>n===0,'the digest goes after Request changes');
+  await until(()=>box.getAttribute('placeholder'),p=>p!=='What should change?','the placeholder is back');
+  for(let n=0;n<3;n++)await h.flowsTick();
+  assert.equal((await handoffs(h,blog)).length,1,'Blog post got nothing new');
+
+  // A task awaiting review in the open chat (a real deliverable): Approve marks it done.
+  const task=await call<{id:string;version:number}>(h,'POST',`/api/projects/${h.project.id}/tasks`,{id:crypto.randomUUID(),title:'Synthetic launch copy',
+    instructions:'Synthetic instructions',acceptanceCriteria:'Synthetic criteria',agentName});
+  const taskPath=`/api/projects/${h.project.id}/tasks/${task.id}`;
+  const working=await call<{version:number}>(h,'POST',`${taskPath}/dispatch`,{version:task.version});
+  const result=await h.emit('message.created',{text:'Synthetic launch copy, ready'});
+  await call(h,'POST',`${taskPath}/deliverables`,{version:working.version,eventId:result.id});
+  await refocus(page);
+  await until(()=>digest.locator('.wy').textContent().catch(()=>null),t=>t==='Waiting on you: Review Synthetic launch copy','the review waits in the digest',150);
+  await digest.getByRole('button',{name:'Approve',exact:true}).click();
+  await until(async()=>(await call<{tasks:{id:string;status:string}[]}>(h,'GET',`/api/projects/${h.project.id}`)).tasks.find(t=>t.id===task.id)?.status,s=>s==='done','the task is done');
+  await until(()=>digest.count(),n=>n===0,'the digest goes after the review');
 },{canvas:true,flows:true});

@@ -67,6 +67,13 @@ describe('participantRows',()=>{
     expect(result.map(r=>[r.kind,r.state])).toEqual([['agent','working'],['agent','failed'],['human','idle']]);
   });
 
+  it('a hand-off awaiting your OK waits on the agent that finished it, never on a person with that name',()=>{
+    const approval:NeedsItem={key:'approval:d1',kind:'approval',channelId:'c1',chatTitle:'Launch',detail:'x',at:5,from:'Pip',
+      short:'Approve hand-off to Blog post',reason:'Approve hand-off to Blog post',gate:{kind:'approval',deliveryId:'d1',linkId:'l1'}};
+    const result=rows({agents:[{name:'Pip',state:'done',since:1}]},[agent('Pip'),human('Pip')],[approval]);
+    expect(result.map(r=>[r.kind,r.state,r.text])).toEqual([['agent','waiting','needs you · Approve hand-off to Blog post'],['human','idle','']]);
+  });
+
   it('without a pulse yet, every agent is idle',()=>{
     expect(participantRows({participants:[agent('Pip')],needs:[],viewer:'me'}).map(r=>[r.name,r.state])).toEqual([['Pip','idle']]);
   });

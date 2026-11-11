@@ -646,8 +646,9 @@ links and fork parents on the board, summaries, and the hand-off worker with Sen
 now, approvals and the Needs you items it serves (`/api/flows/needs`), and on the
 canvas the link lines and labels, the Hand-off popover, Switchyard lines in
 chats, and connecting chats (the `+` port, the chat picker, a new step and the open
-chat's Setup line with its links row). Not yet built: flow items in Needs you,
-forks, schedules and webhooks.
+chat's Setup line with its links row), and flow items in Needs you with the open
+chat's Where it stands (Approve, Request changes, and Run now for missed runs). Not
+yet built: forks, schedules and webhooks.
 Access that comes only through a team counts as no access for flows.
 
 ## First-visit visual orientation

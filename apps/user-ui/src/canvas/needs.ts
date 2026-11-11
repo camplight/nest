@@ -1,15 +1,20 @@
-// The Needs you list: unread mentions and project reviews, for chats the person can see. Pure; no DOM.
-import type {DashboardTask,Project} from '@nest/schemas';
+// The Needs you list: unread mentions, project reviews and the server's flow items (hand-offs awaiting the person's OK,
+// their paused links and missed runs), for chats the person can see. Pure; no DOM.
+import type {DashboardTask,FlowNeed,Project} from '@nest/schemas';
 import {oneLine,type CardPulse} from './pulse';
 
+/** What an item lets the person decide: a flow item's gate from the server, or a project task's review. */
+export type NeedsGate = FlowNeed['gate'] | {kind: 'review'; projectId: string; taskId: string};
 export type NeedsItem = {
-  key: string; kind: 'mention' | 'review'; channelId: string; chatTitle: string; detail: string; at: number;
+  key: string; kind: 'mention' | 'review' | FlowNeed['kind']; channelId: string; chatTitle: string; detail: string; at: number;
   /** Who the item is from: the mention's sender or the reviewed task's agent (null when the task names none). */
   from: string | null;
   /** The reason as a card's pill reads it: `{sender}: {text}` or `Review {task}`. */
   short: string;
   /** The reason alone, for the sender's row: the mention's first line or the task's title. */
   reason: string;
+  /** Absent for a mention: there is nothing to decide in place. */
+  gate?: NeedsGate;
 };
 export type NeedsInput = {
   pulses: ReadonlyMap<string, CardPulse>;
@@ -17,10 +22,12 @@ export type NeedsInput = {
   titles: ReadonlyMap<string, string>;
   reviews: DashboardTask[];
   projects: Project[];
+  /** The viewer's flow items from GET /api/flows/needs: detail, short, reason and from are the server's. */
+  flows: readonly FlowNeed[];
 };
 
-/** One item per unread mention and per task awaiting review, newest first. */
-export function needsYouItems({pulses, titles, reviews, projects}: NeedsInput): NeedsItem[] {
+/** One item per unread mention, per task awaiting review and per flow item, newest first. */
+export function needsYouItems({pulses, titles, reviews, projects, flows}: NeedsInput): NeedsItem[] {
   const items: NeedsItem[] = [];
   for (const [channelId, pulse] of pulses) {
     const chatTitle = titles.get(channelId);
@@ -36,7 +43,13 @@ export function needsYouItems({pulses, titles, reviews, projects}: NeedsInput): 
     const chatTitle = channelId === undefined ? undefined : titles.get(channelId);
     if (channelId === undefined || chatTitle === undefined) continue;
     items.push({key: `review:${task.id}`, kind: 'review', channelId, chatTitle, detail: `${task.title} needs review${task.agentName ? ` · ${task.agentName}` : ''}`, at: task.updatedAt,
-      from: task.agentName || null, short: `Review ${task.title}`, reason: task.title});
+      from: task.agentName || null, short: `Review ${task.title}`, reason: task.title, gate: {kind: 'review', projectId: task.projectId, taskId: task.id}});
+  }
+  for (const need of flows) {
+    const chatTitle = titles.get(need.channelId);
+    if (chatTitle === undefined) continue;
+    items.push({key: need.key, kind: need.kind, channelId: need.channelId, chatTitle, detail: need.detail, at: need.at,
+      from: need.from, short: need.short, reason: need.reason, gate: need.gate});
   }
   return items.sort((a, b) => b.at - a.at);
 }

@@ -1,10 +1,11 @@
 // Phones (760 px wide or less): a list in place of the free canvas. Areas expand to their chats, and
 // Needs you and Loose chats sit beside them. Tapping a chat opens it in focus. No surface, tray or drag.
 import {useEffect,useId,useMemo,useRef,useState,useSyncExternalStore,type KeyboardEvent} from 'react';
-import type {BoardCard,CanvasBoard,DashboardTask,Project} from '@nest/schemas';
+import type {BoardCard,CanvasBoard,DashboardTask,FlowNeed,Project} from '@nest/schemas';
 import {ago,cardTitle,statusText} from './Card';
 import {filterLoose,looseNeedsYou,type LooseChat} from './loose';
-import {needsYouItems} from './needs';
+import {needsYouItems,type NeedsItem} from './needs';
+import {RunNowButton} from './ChatDigest';
 import {NO_AREA,phoneGroups} from './phone';
 import type {CardPulse} from './pulse';
 import type {AreaContext} from './Area';
@@ -48,6 +49,9 @@ export type PhoneListProps = {
   looseKey?: number;
   /** Tasks waiting for review, read by the canvas (which also colours the toggle's count from them). */
   reviews: DashboardTask[];
+  /** The viewer's flow items (useFlows), and Run now on a missed run's row. */
+  flows: readonly FlowNeed[];
+  onRunNow(item: NeedsItem): Promise<void>;
   /** Whether the Needs you segment is shown, so the reviews are read again as it opens. */
   onNeedsShown?(shown: boolean): void;
 };
@@ -77,7 +81,7 @@ function CardRow({card, pulse, open, onOpen}: {card: BoardCard; pulse?: CardPuls
   </li>;
 }
 
-export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, openChannelId, areaContext, onAreaContext, looseKey = 0, reviews, onNeedsShown}: PhoneListProps) {
+export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, openChannelId, areaContext, onAreaContext, looseKey = 0, reviews, flows, onRunNow, onNeedsShown}: PhoneListProps) {
   const base = useId();
   const [segment, setSegment] = useState<Segment>('areas');
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
@@ -100,7 +104,7 @@ export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, o
     needsShown.current?.(segment === 'needs');
     return () => needsShown.current?.(false);
   }, [segment]);
-  const needs = useMemo(() => needsYouItems({pulses, titles, reviews, projects}), [pulses, titles, reviews, projects]);
+  const needs = useMemo(() => needsYouItems({pulses, titles, reviews, projects, flows}), [pulses, titles, reviews, projects, flows]);
   const now = Date.now();
   const shownLoose = useMemo(() => filterLoose(loose, {query, ...ANY_LOOSE}), [loose, query]);
   const counts: Record<Segment, number> = {areas: board.areas.length, needs: needs.length, loose: loose.length};
@@ -155,7 +159,7 @@ export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, o
     </ul> : <p className="canvas-phone-empty">Nothing on this canvas yet. Start a chat below, or lay out chats on a larger screen.</p>;
   } else if (segment === 'needs') {
     panel = needs.length ? <ul className="canvas-phone-rows" aria-label="Needs you">
-      {needs.map(item => <li key={item.key}>
+      {needs.map(item => <li key={item.key} className="canvas-phone-need">
         <button type="button" className="canvas-phone-row" onClick={() => onOpenChat(item.channelId)}>
           <span className="canvas-phone-main">
             <span className="canvas-phone-title">{item.chatTitle}</span>
@@ -163,6 +167,7 @@ export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, o
           </span>
           <span className="canvas-phone-age">{ago(item.at, now)}</span>
         </button>
+        {item.gate?.kind === 'missed' ? <RunNowButton item={item} onRunNow={onRunNow} className="canvas-needs-run" named/> : null}
       </li>)}
     </ul> : <p className="canvas-phone-empty">Nothing needs you right now.</p>;
   } else {

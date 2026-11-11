@@ -1,5 +1,6 @@
-// Typed helpers for the product /api/flows routes (apps/api/src/flows/routes.ts): availability, links and needs.
-import type {FlowNeed,Link,LinkPatch,NewLink} from '@nest/schemas';
+// Typed helpers for the product /api/flows routes (apps/api/src/flows/routes.ts): availability, links, needs and the
+// decisions taken from Needs you (a hand-off's OK, a project task's review, Run now).
+import type {FlowNeed,Link,LinkPatch,NewLink,ProjectDetail,Task} from '@nest/schemas';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 
 export type FlowsAvailability = {enabled: boolean; reason?: string; serviceAgent: string | null; summaries: 'model' | 'fallback'; webhooks: boolean};
@@ -56,3 +57,22 @@ export async function deleteLink(id: string, version: number): Promise<void> {
   try { await apiFetch(`${linkPath(id)}?version=${version}`, {method: 'DELETE'}); } catch (error) { throw conflict(error); }
 }
 export const sendNow = (id: string) => apiJson<{status: string}>(`${linkPath(id)}/send`, {method: 'POST', headers: getApiHeaders()});
+
+/** Approves or declines a hand-off awaiting the viewer's OK (only its link's creator may). 409: already decided or the link is paused. */
+export const decideHandoff = (deliveryId: string, decision: 'approve' | 'decline') =>
+  apiFetch(`/api/flows/deliveries/${encodeURIComponent(deliveryId)}/decision`, write('POST', {decision})).then(() => undefined);
+
+/**
+ * Reviews a project task awaiting review (the project owner's POST /api/projects/:id/tasks/:taskId/reviews), at the task's
+ * current version as the project reads now.
+ */
+export async function reviewTask(projectId: string, taskId: string, decision: 'approve' | 'request_changes', feedback: string): Promise<Task> {
+  const project = `/api/projects/${encodeURIComponent(projectId)}`;
+  const task = (await apiJson<ProjectDetail>(project)).tasks.find(t => t.id === taskId);
+  if (!task) throw new Error('This task is no longer in the project.');
+  return apiJson<Task>(`${project}/tasks/${encodeURIComponent(taskId)}/reviews`, write('POST', {version: task.version, decision, feedback}));
+}
+
+/** Run now for a missed scheduled run: `POST /api/flows/schedules/:id/run` (Task 10 serves it). */
+export const runScheduleNow = (scheduleId: string) =>
+  apiJson<{runId: string}>(`/api/flows/schedules/${encodeURIComponent(scheduleId)}/run`, {method: 'POST', headers: getApiHeaders()});

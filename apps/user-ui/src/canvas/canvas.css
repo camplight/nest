@@ -3545,6 +3545,23 @@ li.canvas-phone-row[data-access] {
 .links-row .lnk.off { color: var(--canvas-faint-text); text-decoration: line-through; }
 .links-row .add { border: 1px dashed var(--nest-accent); color: var(--nest-accent); background: transparent; border-radius: 999px; padding: 2px 9px; font: inherit; font-size: 12px; cursor: pointer; }
 .links-row :is(.lnk, .add):focus-visible { outline: 2px solid var(--nest-lime); outline-offset: 2px; }
+/*
+ * Where it stands (the mock's `.digest`, `.wy` and `.gate`, CSS copied): above the Setup line while something in the chat
+ * waits on the person. The mock's lime-soft is the lime mix used elsewhere; its `.wy` red is the card pill's alert text.
+ */
+.canvas-chat-body > .digest { margin: 12px 18px 0; padding: 12px 14px; border-radius: 12px; flex: none; background: color-mix(in srgb, var(--nest-lime) 18%, var(--nest-surface)); color: var(--nest-text); font-size: 13px; line-height: 1.5; }
+.digest > b { display: block; font: 600 11px Inter, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: var(--nest-accent); margin-bottom: 4px; }
+.digest .wy { margin-top: 8px; color: var(--canvas-alert); font-weight: 600; }
+.digest .gate { display: flex; gap: 6px; margin-top: 8px; }
+.digest .btn, .canvas-needs-run { border: 1px solid var(--nest-border); background: var(--nest-surface); color: var(--nest-text); border-radius: 9px; padding: 4px 11px; font: 500 12.5px Inter, sans-serif; white-space: nowrap; cursor: pointer; }
+.digest .btn:hover, .canvas-needs-run:hover { border-color: var(--nest-accent); }
+.digest .btn.pri { background: var(--nest-text); color: var(--nest-bg); border-color: var(--nest-text); font-weight: 600; }
+.digest .btn:disabled, .canvas-needs-run:disabled { opacity: .6; cursor: default; }
+.digest .btn:focus-visible, .canvas-needs-run:focus-visible { outline: 2px solid var(--nest-lime); outline-offset: 2px; }
+/* A missed run's row in Needs you: the row, then Run now. */
+:is(.canvas-needs-row, .canvas-phone-need) { display: flex; gap: 6px; align-items: center; }
+:is(.canvas-needs-row, .canvas-phone-need) > button:first-child { flex: 1; min-width: 0; }
+.canvas-needs-run { flex: none; }
 @media (max-width: 760px) {
-  .canvas-chat-body > .cfg { margin: 8px 12px 0; }
+  .canvas-chat-body > :is(.cfg, .digest) { margin: 8px 12px 0; }
 }
