@@ -1,0 +1,84 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
+import { CanvasConflictError, CanvasLimitError, openProductDb } from './index';
+
+let dir: string;
+let store: ReturnType<typeof openProductDb>;
+beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'nest-flows-')); store = openProductDb(join(dir, 'product.sqlite')); });
+afterEach(() => { store.close(); rmSync(dir, { recursive: true, force: true }); });
+const mk = (from: string, to: string, extra: Record<string, unknown> = {}) =>
+  store.flows.createLink({ id: randomUUID(), from, to, kind: 'link', createdBy: 'u', now: 1000, ...extra });
+
+describe('flow store', () => {
+  it('ends the migration list with 014_links_forks', () => {
+    const names = (store.db.prepare('SELECT name FROM product_migrations').all() as { name: string }[]).map(r => r.name);
+    expect(names.at(-1)).toBe('014_links_forks');
+  });
+  it('returns the existing link for the same pair, and is idempotent by id', () => {
+    const a = mk('a', 'b');
+    expect(mk('a', 'b').id).toBe(a.id);
+    expect(store.flows.createLink({ id: a.id, from: 'a', to: 'b', kind: 'link', createdBy: 'u', now: 5 })).toEqual(a);
+    expect(() => store.flows.createLink({ id: a.id, from: 'a', to: 'c', kind: 'link', createdBy: 'u', now: 5 })).toThrow(CanvasConflictError);
+  });
+  it('caps links per chat at 50', () => {
+    for (let i = 0; i < 50; i++) mk('hub', `t${i}`);
+    expect(() => mk('hub', 'extra')).toThrow(CanvasLimitError);
+    expect(() => mk('x', 'hub')).toThrow(CanvasLimitError);
+  });
+  it('claims a turn once', () => {
+    const l = mk('a', 'b');
+    expect(store.flows.claimDelivery(l.id, 't1', 'claimed', 1000)).not.toBeNull();
+    expect(store.flows.claimDelivery(l.id, 't1', 'claimed', 1000)).toBeNull();
+  });
+  it('patches with compare-and-swap and resets the scan point on resume', () => {
+    const l = mk('a', 'b');
+    store.flows.pause(l.id, 'cap', 'u');
+    const paused = store.flows.link(l.id)!;
+    expect(paused).toMatchObject({ on: false, pausedReason: 'cap' });
+    expect(() => store.flows.patchLink(l.id, { label: 'x' }, l.version, 'u')).toThrow(CanvasConflictError);
+    const resumed = store.flows.patchLink(l.id, { on: true }, paused.version, 'u');
+    expect(resumed).toMatchObject({ on: true, pausedReason: null });
+    expect(store.flows.scannedTo(l.id)).toBeGreaterThan(1000);
+    store.flows.advance(l.id, 5);
+    expect(store.flows.scannedTo(l.id)).toBeGreaterThan(5);
+  });
+  it('cascades deliveries when a link is removed and lists active sources', () => {
+    const l = mk('a', 'b'); mk('c', 'd', { when: 'manual' });
+    expect(store.flows.activeSources().map(s => s.channelId)).toEqual(['a']);
+    store.flows.claimDelivery(l.id, 't1', 'awaiting', 1);
+    expect(store.flows.awaiting('u')).toHaveLength(1);
+    store.flows.removeLink(l.id, 'u');
+    expect(store.db.prepare('SELECT COUNT(*) n FROM product_link_deliveries').get()).toEqual({ n: 0 });
+  });
+  it('finishes deliveries, expires leases and counts delivered', () => {
+    const l = mk('a', 'b');
+    const d = store.flows.claimDelivery(l.id, 't1', 'claimed', 1000)!;
+    expect(store.flows.leaseExpired(1000)).toEqual([]);
+    expect(store.flows.leaseExpired(1000 + 60_001).map(x => x.id)).toEqual([d.id]);
+    store.flows.finishDelivery(d.id, { status: 'delivered', targetEventId: 'e1' });
+    expect(store.flows.delivery(d.id)).toMatchObject({ status: 'delivered', targetEventId: 'e1' });
+    expect(store.flows.deliveredSince(l.id, 0)).toBe(1);
+  });
+  it('records forks once per child and nulls the link on removal', () => {
+    const l = mk('p', 'c', { kind: 'fork' });
+    const f = { childChannelId: 'c', parentChannelId: 'p', parentEventId: 'e', linkId: l.id, createdBy: 'u' };
+    store.flows.recordFork(f); store.flows.recordFork(f);
+    expect(store.flows.forkOf(['c', 'zz'])).toHaveLength(1);
+    expect(store.flows.forksOf('p')).toHaveLength(1);
+    store.flows.removeLink(l.id, 'u');
+    expect(store.flows.forkOf(['c'])[0].linkId).toBeNull();
+  });
+  it('holds a lease for one holder until it expires', () => {
+    expect(store.flows.lease('w', 'A', 1000, 0)).toBe(true);
+    expect(store.flows.lease('w', 'B', 1000, 500)).toBe(false);
+    expect(store.flows.lease('w', 'A', 1000, 500)).toBe(true);
+    expect(store.flows.lease('w', 'B', 1000, 1500)).toBe(true);
+  });
+  it('audits ids only', () => {
+    mk('a', 'b');
+    expect(store.db.prepare("SELECT type FROM product_audit WHERE type LIKE 'audit.flows.%'").all()).toEqual([{ type: 'audit.flows.link-created' }]);
+  });
+});

@@ -17,3 +17,4 @@ export type OpenRouterCatalog = {models:OpenRouterModel[];fetchedAt:number;stale
 export type ModelBenchmarks={models:{id:string;intelligence:number}[];fetchedAt:number;asOf:string|null;stale:boolean};
 export * from './canvas';
 export * from './canvas-context';
+export * from './flows';

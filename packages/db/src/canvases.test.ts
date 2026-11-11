@@ -117,9 +117,4 @@ describe('canvas store', () => {
     expect(store.canvases.hidden('a')).toEqual(['c2']);
     expect(store.canvases.hidden('b')).toEqual(['c1']);
   });
-
-  it('records the latest migration last (013)', () => {
-    const names = (store.db.prepare('SELECT name FROM product_migrations').all() as { name: string }[]).map(r => r.name);
-    expect(names.at(-1)).toBe('013_agent_pins');
-  });
 });
