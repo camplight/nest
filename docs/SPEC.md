@@ -691,8 +691,9 @@ Phase 1 is built from
    (`POST /api/channels/:id/subscribe`, `POST /api/projects/:id/members`,
    `POST /api/channels/:id/unsubscribe`), Nudge (`POST /api/messages`) and starting
    a chat from the bottom box (`POST /api/projects`). Live state on cards (working,
-   quiet for N min, done, stopped, files, last activity, needs you) is worked out in
-   the browser from engine events the person can already read.
+   waiting on you, quiet for N min, done, stopped, files, last activity, needs you) is
+   worked out in the browser from engine events, mentions and reviews the person can
+   already read.
 
 3. Routes. All need a signed-in person and take at most 64 KB.
    - `GET /api/canvases/availability`
@@ -762,7 +763,7 @@ Phase 1 is built from
    opens in split screen (or the mode of the chat already open) and is centred in
    view; on a view-only canvas or a phone it opens in focus and stays in the pile.
    While a card or pile chat is dragged, the area it would join (by its centre)
-   lights up with a "Drop into <area>" label on its top edge. A card in an area
+   lights up with a "Place in <area> · shares its context" label on its top edge. A card in an area
    carries a stripe in the area's tint, and screen readers hear "In area <area>".
    A card or chats dropped into an area grow it, never shrink it, so they fit inside
    with 32 px around them and 72 px above them for the title bar (an ordinary area
@@ -776,6 +777,43 @@ Phase 1 is built from
    finds cards, areas, loose chats and canvases; loose chats the person has hidden
    are not searchable unless Show hidden is on. Needs you lists unread mentions and
    tasks waiting for review on chats the person can see.
+
+   Cards. An open card shows its title with the last activity (`5m`), the apps its
+   agents used (up to four logos, each titled `<app>: N reads · M changes`, then the
+   app's name or `N apps`), then one row per participant: agents in roster order, then
+   people, with the viewer last as `You`. At most four rows show, chosen by what most
+   needs a look, then `+N more`. A row has a face, a name, a one-line activity and a
+   state dot. An agent's activity is the app and action of its newest running app call
+   while its turn is open (`Gmail · Fetch emails`, never the command, arguments or
+   output), else the turn's latest progress line, else `working`; a quiet agent reads
+   `quiet for N min · last: <progress>` with `z z`; done and idle agents show the first
+   line of their latest message. A person shows the first line of their latest message
+   or `shared N files`. A participant is **waiting on you** only when one of the chat's
+   Needs you items comes from them: an unread mention they sent you, or a task of theirs
+   (by agent name) awaiting your review. Message text is never read for it, and waiting
+   replaces only done, idle and "posted"; working, quiet, stopped and failed win. The
+   footer shows the newest Needs you reason as a coral pill (`<sender>: <text>` or
+   `Review <task>`, `+N` for more) that opens the chat, and the card gets a coral
+   border; otherwise it shows `Nudge <agent>` for a quiet agent, else `Moving` or
+   `All quiet`. Open is a visible footer button; Remove from canvas is a small icon
+   shown on hover or keyboard focus. At compact zoom a card keeps its title, 40 px
+   faces and a coral dot (needs you) or `quiet`.
+
+   Area summaries. At compact zoom an area's title has a summary under it, counting the
+   cards in it and in the areas inside it: `2 need you · 3 moving · 1 quiet`, with zero
+   parts left out and the need count in coral. A card can count as both moving and
+   quiet when it has one working and one quiet agent. With nothing to count it reads
+   `all quiet`, and an area with no chats whose context another area uses reads
+   `Shared resources`.
+
+   New areas. Arming the Area tool says "Drag on the canvas to draw an area. Chats in it
+   can share its context. Esc cancels." A drawn area, or one made with "New area from
+   these" (which also frames it), opens its title for typing with the text selected.
+   After drawing, the notice says "New area. Name it, then drop chats into it." or, when
+   cards sit inside, that they share its context once a member moves them in or picks
+   "Use this area's context" (drawing moves no card, so no chat's home changes). "New
+   area from these" says "New area with N chats. Rename it, and add context they should
+   all share." Double-click and the `⋯` menu still rename.
 
 6. Phones and display. On viewports up to 760 px wide there is no free canvas.
    A list takes its place with three segments: Areas (each area opens to its chats,
