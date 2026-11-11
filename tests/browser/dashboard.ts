@@ -447,7 +447,7 @@ try {
       await page
         .getByRole("button", { name: "Notifications", exact: true })
         .click();
-      const inbox = page.getByRole("dialog", { name: "Your mentions" });
+      const inbox = page.getByRole("dialog", { name: "Notifications" });
       await inbox
         .getByText("header-reviewer mentioned you", { exact: true })
         .waitFor();
@@ -484,7 +484,7 @@ try {
       await page
         .getByRole("button", { name: "Notifications", exact: true })
         .click();
-      await page.getByRole("dialog", { name: "Your mentions" }).waitFor();
+      await page.getByRole("dialog", { name: "Notifications" }).waitFor();
       await capture("header-notifications-mobile.png");
       await page.keyboard.press("Escape");
       await page
