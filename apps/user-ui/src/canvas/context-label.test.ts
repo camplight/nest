@@ -56,6 +56,10 @@ describe('context labels', () => {
       expect(fileKind(mime, 'chart.png')).toBe('image');
     }
     expect(fileKind('application/octet-stream', 'deck.key')).toBe('slides');
+    expect(fileKind('application/vnd.apple.keynote', 'deck.key')).toBe('slides');
+    expect(fileKind('application/x-pem-file', 'server.key')).toBe('doc');
+    expect(fileKind('audio/mp4', 'interview.mp4')).toBe('audio');
+    expect(fileKind('application/octet-stream', 'clip.mp4')).toBe('video');
     expect(fileKind('application/octet-stream', 'data.tsv')).toBe('sheet');
     expect(fileKind('application/vnd.openxmlformats-officedocument.presentationml.presentation', 'deck')).toBe('slides');
     expect(fileKind('application/vnd.ms-excel', 'export')).toBe('sheet');
@@ -79,6 +83,9 @@ describe('context labels', () => {
     expect(fileTypeLabel('image/svg+xml', 'diagram')).toBe('Image');
     expect(fileTypeLabel('audio/webm', 'Voice note.webm')).toBe('Audio');
     expect(fileTypeLabel('video/mp4', 'clip.mp4')).toBe('Video');
+    expect(fileTypeLabel('audio/mp4', 'interview.mp4')).toBe('Audio');
+    expect(fileTypeLabel(undefined, 'deck.key')).toBe('Keynote slides');
+    expect(fileTypeLabel('application/x-pem-file', 'server.key')).toBe('KEY');
     expect(fileTypeLabel('application/zip', 'bundle.zip')).toBe('ZIP');
     expect(fileTypeLabel('application/octet-stream', 'README')).toBe('File');
     expect(fileTypeLabel(undefined, '')).toBe('File');

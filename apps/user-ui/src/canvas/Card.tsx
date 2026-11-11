@@ -1,12 +1,13 @@
 // A chat card on the surface (the mock's `cardInner`): title and last activity, the apps used here, one row per
 // participant with what they are doing now and a state dot, file tiles, and a footer with the newest Needs you reason
 // (or Nudge, or Moving / All quiet) and Open. Memoized: it re-renders only when its card, pulse, needs or drag offset changes.
-import {memo,useCallback,useRef,useState,useSyncExternalStore} from 'react';
+import {memo,useCallback,useState,useSyncExternalStore} from 'react';
 import type {BoardCard} from '@nest/schemas';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {fileHref} from '../attachments';
 import {IntegrationLogo} from '../components/IntegrationLogo';
 import {countOf} from '../app-activity';
+import {serverClock} from '../server-clock';
 import {FileTile,fileSlots} from './FileTile';
 import type {AgentPulse,CardPulse} from './pulse';
 import type {NeedsItem} from './needs';
@@ -171,25 +172,29 @@ function Row({row, facesDraggable, lifted}: {row: ParticipantRow; facesDraggable
 export const cardFilesWidth = (cardWidth: number) => cardWidth - 22;
 
 /**
- * The files that arrived after this card first had a pulse: their tiles pop in once. The first pulse's files are the
- * baseline, so opening a canvas animates nothing.
+ * The files posted after this card mounted (by their message's server time): their tiles pop in once. Files already
+ * there when the canvas opens never pop, however late the seed arrives; a tile leaves the set when its pop ends, so a
+ * re-display (compact zoom and back) does not replay it.
  */
-function useFreshFiles(ids: readonly string[] | null): ReadonlySet<string> {
-  const seen = useRef<Set<string> | null>(null), fresh = useRef(new Set<string>());
-  if (ids) {
-    if (!seen.current) seen.current = new Set(ids);
-    else for (const id of ids) if (!seen.current.has(id)) { seen.current.add(id); fresh.current.add(id); }
-  }
-  return fresh.current;
+export function freshFiles(files: readonly {fileId: string; at: number}[], mountedAt: number, popped: ReadonlySet<string>) {
+  return new Set(files.filter(file => file.at > mountedAt && !popped.has(file.fileId)).map(file => file.fileId));
+}
+function useFreshFiles(files: readonly {fileId: string; at: number}[] | undefined) {
+  const [mountedAt] = useState(() => serverClock.serverNow());
+  const [popped, setPopped] = useState<ReadonlySet<string>>(() => new Set());
+  const fresh = freshFiles(files ?? [], mountedAt, popped);
+  const done = useCallback((fileId: string) => setPopped(current => new Set(current).add(fileId)), []);
+  return {fresh, done};
 }
 
 /** The mock's `c-arts`: the newest files as tiles, as many as fit, the last slot `+N` (it opens the chat) when more were posted. */
-function CardFiles({files, total, width, fresh, onMore}: {
-  files: CardPulse['artifacts']; total: number; width: number; fresh: ReadonlySet<string>; onMore?(): void;
+function CardFiles({files, total, width, fresh, onPopped, onMore}: {
+  files: CardPulse['artifacts']; total: number; width: number; fresh: ReadonlySet<string>; onPopped(fileId: string): void; onMore?(): void;
 }) {
   const {shown, more} = fileSlots(cardFilesWidth(width), Math.max(total, files.length), files.length);
   return <ul className="canvas-card-files" aria-label="Files">
-    {files.slice(0, shown).map(file => <FileTile key={file.fileId} name={file.name} mime={file.mime} href={fileHref(file.fileId)} fresh={fresh.has(file.fileId)}/>)}
+    {files.slice(0, shown).map(file => <FileTile key={file.fileId} name={file.name} mime={file.mime} href={fileHref(file.fileId)}
+      fresh={fresh.has(file.fileId)} onPopped={() => onPopped(file.fileId)}/>)}
     {more ? <li className="canvas-file-tile is-more">
       <button type="button" aria-label={`${more} more ${more === 1 ? 'file' : 'files'}`} title="Open the chat to see every file" disabled={!onMore} onClick={onMore}>+{more}</button>
     </li> : null}
@@ -205,7 +210,7 @@ function OpenBody({card, pulse, needs, viewer, onNudge, facesDraggable, dragging
   const {shown, hidden} = shownRows(rows);
   const quiet = rows.find(row => row.kind === 'agent' && row.state === 'quiet');
   const newest = needs[0];
-  const fresh = useFreshFiles(pulse ? pulse.artifacts.map(file => file.fileId) : null);
+  const {fresh, done: popped} = useFreshFiles(pulse?.artifacts);
   // The mock's footer: the newest reason first, else Nudge for a quiet agent, else whether anything is moving.
   const foot = newest
     ? <button type="button" className="canvas-card-need" aria-label={`Needs you: ${newest.short}${needs.length > 1 ? `, and ${needs.length - 1} more` : ''}. Open the chat`}
@@ -226,7 +231,7 @@ function OpenBody({card, pulse, needs, viewer, onNudge, facesDraggable, dragging
       {newest ? <span className="canvas-card-far" data-kind="needs" role="img" aria-label={`Needs you: ${needs.length}`}/>
         : quiet ? <span className="canvas-card-far" data-kind="quiet">quiet</span> : null}
     </div> : null}
-    {pulse?.artifacts.length ? <CardFiles files={pulse.artifacts} total={pulse.fileCount} width={card.w} fresh={fresh}
+    {pulse?.artifacts.length ? <CardFiles files={pulse.artifacts} total={pulse.fileCount} width={card.w} fresh={fresh} onPopped={popped}
       onMore={onOpen ? () => onOpen(card.channelId) : undefined}/> : null}
     <div className="canvas-card-foot">
       {foot}

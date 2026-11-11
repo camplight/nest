@@ -1,6 +1,6 @@
 // A file as an artifact tile (the mock's `.art`): a typed glyph, or an image's own preview, over the file name. Cards,
 // chat messages (canvas flag on), area shelves and the context popover all use this one tile.
-import type {MouseEvent,ReactNode} from 'react';
+import {useState,type MouseEvent,type ReactNode} from 'react';
 import {formatAttachmentSize} from '../attachments';
 import {fileKind,fileTypeLabel,type FileKind} from './context-label';
 import './file-tile.css';
@@ -46,22 +46,27 @@ export type FileTileProps = {
   download?: boolean;
   /** The file arrived while the canvas was open: the tile pops in once (the mock's `.art.new`). */
   fresh?: boolean;
+  /** The pop finished, so the tile can drop `fresh` and never replay it. */
+  onPopped?(): void;
   /** A plain click on an image preview; any other click follows the link. */
   onPreview?(event: MouseEvent<HTMLAnchorElement>): void;
   onRemove?(): void;
 };
 
-export function FileTile({name, mime, href, size, detailed = false, download = false, fresh = false, onPreview, onRemove}: FileTileProps) {
+export function FileTile({name, mime, href, size, detailed = false, download = false, fresh = false, onPopped, onPreview, onRemove}: FileTileProps) {
+  const [failed, setFailed] = useState(false);
   const kind = fileKind(mime, name), type = fileTypeLabel(mime, name), bytes = formatAttachmentSize(size);
-  const preview = kind === 'image' && previewable(mime, name);
+  // A picture that fails to load gives its tile the image glyph back.
+  const preview = kind === 'image' && previewable(mime, name) && !failed;
   const title = detailed ? [type, bytes].filter(Boolean).join(' · ') : `${name} · ${type}`;
   return <li className={`canvas-file-tile${fresh ? ' is-new' : ''}`} data-kind={kind}>
     <a className={`canvas-file-art${preview ? ' has-preview' : ''}`} href={href} title={title}
       aria-label={detailed ? [name, type, bytes].filter(Boolean).join(', ') : undefined}
-      style={preview ? {backgroundImage: `url("${href.replace(/["\\\n]/g, encodeURIComponent)}")`} : undefined}
       {...(download ? {download: name} : {target: '_blank', rel: 'noreferrer'})}
-      onClick={preview && onPreview ? onPreview : undefined}>
+      onClick={preview && onPreview ? onPreview : undefined} onAnimationEnd={fresh ? onPopped : undefined}>
       <FileGlyph kind={kind}/>
+      {/* Loaded only when the tile is near the viewport; the caption names the link, so the picture is decorative. */}
+      {preview ? <img className="canvas-file-preview" src={href} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)}/> : null}
       <span className="canvas-file-name">{name}</span>
     </a>
     {onRemove ? <button type="button" className="canvas-file-remove" aria-label={`Remove ${name}`} onClick={onRemove}><span aria-hidden="true">✕</span></button> : null}

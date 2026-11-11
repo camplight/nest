@@ -78,7 +78,15 @@
 .canvas-file-glyph[data-kind="image"] { color: var(--file-image); }
 .canvas-file-glyph[data-kind="audio"] { color: var(--file-audio); }
 .canvas-file-glyph[data-kind="video"] { color: #b9ec93; }
-/* An image shows itself: the file is the tile's background and the glyph steps aside. */
+/* An image shows itself, cropped to the tile (loaded lazily); the glyph steps aside unless the picture fails. */
+.canvas-file-preview {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 .canvas-file-art.has-preview .canvas-file-glyph {
   display: none;
 }

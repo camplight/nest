@@ -452,9 +452,19 @@ await runChatTest('canvas top bar: one row with a long canvas name from 1024 px 
   await heading.waitFor();
   assert.equal(await heading.getAttribute('title'),name,'the full name is the title');
   await page.getByRole('button',{name:'Needs you (0)',exact:true}).waitFor();
-  for(const width of [1440,1280,1024]){
+  // The collapsed rail at three widths, then the expanded sidebar at 1440 (a narrower bar at the same window width).
+  const cases:[number,string][]=[[1440,'rail'],[1280,'rail'],[1024,'rail'],[1440,'sidebar']];
+  for(const [width,sidebar] of cases){
+    if(sidebar==='sidebar'){
+      await page.evaluate(()=>localStorage.setItem('nest-sidebar-collapsed-canvas','0'));
+      await page.reload();
+      await heading.waitFor();
+      assert.ok((await page.locator('.canvas-view .workspace-topbar').boundingBox())!.x>150,'the sidebar is expanded');
+    }
     await page.setViewportSize({width,height:900});
-    await page.waitForTimeout(200);
+    // Wait for the layout at this width, polled from Node.
+    const header=page.locator('.canvas-view .workspace-topbar');
+    for(let i=0;i<50&&(await header.evaluate(el=>el.getBoundingClientRect().right))>width;i++)await new Promise(r=>setTimeout(r,50));
     const bar=await page.locator('.canvas-view .workspace-topbar').evaluate(header=>{
       const controls=[...header.querySelectorAll('button')].filter(el=>el.getClientRects().length>0).map(el=>{
         const box=el.getBoundingClientRect();
@@ -464,7 +474,7 @@ await runChatTest('canvas top bar: one row with a long canvas name from 1024 px 
       return {controls,title:{top:title.top,bottom:title.bottom,left:title.left,right:title.right},scroll:header.scrollWidth,client:header.clientWidth,
         page:document.documentElement.scrollWidth,inner:innerWidth};
     });
-    const where=`at ${width}: ${JSON.stringify(bar)}`;
+    const where=`at ${width} (${sidebar}): ${JSON.stringify(bar)}`;
     assert.ok(bar.controls.length>=9,`the name, canvas menu, Share, Context, Loose chats, Needs you, Search and the workspace controls ${where}`);
     // The canvas's own 36 px buttons share their top edge; the 44 px workspace icons and the name share the row's centre.
     const top=bar.controls[0].top,middle=(top+bar.controls[0].bottom)/2;

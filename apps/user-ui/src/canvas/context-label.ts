@@ -35,13 +35,16 @@ export type FileKind = 'doc' | 'sheet' | 'slides' | 'image' | 'audio' | 'video';
 const EXTENSION_KIND: Record<string, FileKind> = {
   pdf: 'doc', doc: 'doc', docx: 'doc', odt: 'doc', rtf: 'doc', txt: 'doc', md: 'doc',
   xls: 'sheet', xlsx: 'sheet', ods: 'sheet', csv: 'sheet', tsv: 'sheet',
-  ppt: 'slides', pptx: 'slides', odp: 'slides', key: 'slides',
+  ppt: 'slides', pptx: 'slides', odp: 'slides',
   png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', svg: 'image', avif: 'image', bmp: 'image', heic: 'image',
   mp3: 'audio', wav: 'audio', m4a: 'audio', aac: 'audio', flac: 'audio', oga: 'audio', opus: 'audio',
-  mp4: 'video', mov: 'video', m4v: 'video', mkv: 'video', avi: 'video',
+  mov: 'video', m4v: 'video', mkv: 'video', avi: 'video',
 };
-/** Extensions that hold either sound or pictures: the type decides, else these. */
-const EITHER: Record<string, 'audio' | 'video'> = {webm: 'video', ogg: 'audio'};
+/** Extensions that hold either sound or pictures (an MP4 can be audio only): the type decides, else these. */
+const EITHER: Record<string, 'audio' | 'video'> = {webm: 'video', ogg: 'audio', mp4: 'video'};
+/** `.key` is a Keynote deck only with no type or a Keynote one; a key file (`server.key`, PEM or PGP) is a document. */
+const keynote = (ext: string, type: string) =>
+  ext === 'key' && (type === '' || type === 'application/octet-stream' || /keynote/.test(type));
 const extension = (name: string) => /\.([a-z0-9]{1,8})$/i.exec(name)?.[1].toLowerCase() ?? '';
 const mediaKind = (mime: string): 'image' | 'audio' | 'video' | null =>
   mime.startsWith('image/') ? 'image' : mime.startsWith('audio/') ? 'audio' : mime.startsWith('video/') ? 'video' : null;
@@ -50,6 +53,7 @@ const mediaKind = (mime: string): 'image' | 'audio' | 'video' | null =>
 export function fileKind(mime: string | undefined, name: string): FileKind {
   const ext = extension(name), type = (mime ?? '').toLowerCase();
   if (EXTENSION_KIND[ext]) return EXTENSION_KIND[ext];
+  if (keynote(ext, type)) return 'slides';
   const media = mediaKind(type);
   if (media) return media;
   if (EITHER[ext]) return EITHER[ext];
@@ -61,7 +65,7 @@ export function fileKind(mime: string | undefined, name: string): FileKind {
 const EXTENSION_LABEL: Record<string, string> = {
   pdf: 'PDF', doc: 'Word document', docx: 'Word document', odt: 'OpenDocument text', rtf: 'Rich text', txt: 'Text', md: 'Markdown',
   xls: 'Excel spreadsheet', xlsx: 'Excel spreadsheet', ods: 'OpenDocument spreadsheet', csv: 'CSV', tsv: 'TSV',
-  ppt: 'PowerPoint slides', pptx: 'PowerPoint slides', odp: 'OpenDocument slides', key: 'Keynote slides',
+  ppt: 'PowerPoint slides', pptx: 'PowerPoint slides', odp: 'OpenDocument slides',
 };
 const MIME_LABEL: [RegExp, string][] = [
   [/^application\/pdf$/, 'PDF'], [/wordprocessingml|msword/, 'Word document'], [/spreadsheetml|ms-excel/, 'Excel spreadsheet'],
@@ -76,6 +80,7 @@ const MEDIA_LABEL: Record<'image' | 'audio' | 'video', string> = {image: 'Image'
 export function fileTypeLabel(mime: string | undefined, name: string): string {
   const ext = extension(name), type = (mime ?? '').toLowerCase();
   if (EXTENSION_LABEL[ext]) return EXTENSION_LABEL[ext];
+  if (keynote(ext, type)) return 'Keynote slides';
   const kind = EXTENSION_KIND[ext];
   if (kind === 'image' || kind === 'audio' || kind === 'video') return MEDIA_LABEL[kind];
   const media = mediaKind(type);

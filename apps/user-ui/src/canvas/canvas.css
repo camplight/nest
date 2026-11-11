@@ -2834,9 +2834,12 @@ li.canvas-phone-row[data-access] {
   align-content: flex-start;
 }
 .canvas-area-shelf .canvas-file-tile {
-  --file-tile-bg: var(--nest-surface);
   width: 72px;
   height: 72px;
+}
+/* A video tile keeps its own dark tile on the shelf. */
+.canvas-area-shelf .canvas-file-tile:not([data-kind="video"]) {
+  --file-tile-bg: var(--nest-surface);
 }
 .canvas-area-usedby {
   position: absolute;

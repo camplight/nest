@@ -1,7 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {FileTile,fileSlots} from './FileTile';
-import {cardFilesWidth} from './Card';
+import {cardFilesWidth,freshFiles} from './Card';
 
 describe('file tiles',()=>{
   it('fill a row and turn the last slot into +N when more files were posted',()=>{
@@ -24,11 +24,12 @@ describe('file tiles',()=>{
     expect(sheet).toContain('title="Q3 model.xlsx · Excel spreadsheet"');
     expect(sheet).toContain('target="_blank"');
     expect(sheet).not.toContain('aria-label');
-    expect(sheet).not.toContain('background-image');
+    expect(sheet).not.toContain('<img');
     const png=renderToStaticMarkup(<FileTile name="chart.png" href="/api/files/f2"/>);
     expect(png).toContain('data-kind="image"');
-    expect(png).toContain('background-image:url(&quot;/api/files/f2&quot;)');
-    expect(renderToStaticMarkup(<FileTile name="diagram.svg" mime="image/svg+xml" href="/api/files/f3"/>)).not.toContain('background-image');
+    expect(png).toContain('has-preview');
+    expect(png).toMatch(/<img class="canvas-file-preview" src="\/api\/files\/f2" alt="" loading="lazy" decoding="async"\/>/);
+    expect(renderToStaticMarkup(<FileTile name="diagram.svg" mime="image/svg+xml" href="/api/files/f3"/>)).not.toContain('<img');
   });
 
   it('name a message tile by file, type and size, with type and size as its tooltip',()=>{
@@ -44,5 +45,12 @@ describe('file tiles',()=>{
     expect(html).toContain('download="brief.txt"');
     expect(html).not.toContain('target=');
     expect(html).toContain('aria-label="Remove brief.txt"');
+  });
+
+  it('pop only for files posted after the card mounted, and only until the pop ends',()=>{
+    const files=[{fileId:'old',at:100},{fileId:'new',at:300},{fileId:'done',at:400}];
+    expect([...freshFiles(files,200,new Set(['done']))]).toEqual(['new']);
+    // A cold open whose seed lands late still pops nothing: every file predates the mount.
+    expect(freshFiles(files,500,new Set()).size).toBe(0);
   });
 });

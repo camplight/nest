@@ -27,8 +27,8 @@ export type AgentPulse = {
 /** A person who posted in the loaded history: their latest message's first line and how many files it carried. */
 export type PersonPulse = {name: string; at: number; said: string; files: number};
 export type CardPulse = {agents: AgentPulse[]; people: PersonPulse[]; lastActivityAt: number | null;
-  /** The newest files posted here (at most 6), newest first; `fileCount` counts every file in the loaded history. */
-  artifacts: {fileId: string; name: string; mime?: string}[]; fileCount: number; needsYou: {kind: 'mention'; id: string; at: number; sender: string; text: string}[]; apps: AppSummary};
+  /** The newest files posted here (at most 6), newest first, with their message's time; `fileCount` counts every file in the loaded history. */
+  artifacts: {fileId: string; name: string; mime?: string; at: number}[]; fileCount: number; needsYou: {kind: 'mention'; id: string; at: number; sender: string; text: string}[]; apps: AppSummary};
 export type PulseCard = {channelId: string; agentNames: string[]};
 export type PulseInput = {events: EventRow[]; agents: Agent[]; starts: AgentStarts; mentions: MentionNotification[]; cards: PulseCard[]; now: number; /** Classified app calls per channel (see app-activity.ts). */ apps?: ReadonlyMap<string, AppCall[]>};
 
@@ -113,7 +113,7 @@ function channelPulse(events: EventRow[], card: PulseCard, input: PulseInput, by
     for (const {fileId, name, mime} of parseMessageAttachments(event.payload)) {
       if (files.has(fileId)) continue;
       files.add(fileId);
-      if (artifacts.length < MAX_ARTIFACTS) artifacts.push(mime === undefined ? {fileId, name} : {fileId, name, mime});
+      if (artifacts.length < MAX_ARTIFACTS) artifacts.push(mime === undefined ? {fileId, name, at: at(event)} : {fileId, name, mime, at: at(event)});
     }
   }
 

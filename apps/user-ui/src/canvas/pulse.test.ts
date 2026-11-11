@@ -74,7 +74,7 @@ describe('cardPulse',()=>{
     ]);
     const card=result.get('c1')!;
     expect(card.artifacts.map(a=>a.fileId)).toEqual(['a','b','c','d','e','f']);
-    expect(card.artifacts[0]).toEqual({fileId:'a',name:'a.txt',mime:'text/plain'});
+    expect(card.artifacts[0]).toEqual({fileId:'a',name:'a.txt',mime:'text/plain',at:now-5*min});
     expect(card.fileCount).toBe(7);
     expect(card.lastActivityAt).toBe(now-5*min);
   });

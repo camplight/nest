@@ -100,6 +100,9 @@ await runChatTest('canvas cards: posted files show as typed tiles on the card an
   const {page,base}=h;
   const id=await canvasWithChat(h);
   pipRunning(h);
+  // Records every file tile that gets the pop (`is-new`), on this load and after a reload.
+  await page.addInitScript(`window.__popped=[];new MutationObserver(()=>{for(const el of document.querySelectorAll('.canvas-file-tile.is-new')){const n=el.querySelector('.canvas-file-name')?.textContent;if(n&&!window.__popped.includes(n))window.__popped.push(n);}}).observe(document,{subtree:true,childList:true,attributes:true,attributeFilter:['class']});`);
+  const popped=()=>page.evaluate(()=>(window as unknown as {__popped:string[]}).__popped);
   const card=await openCanvas(page,base,id,h.project.channelId);
   // Two older files, then the agent's report: a PDF, a spreadsheet with no specific type (as the agent upload tool
   // sends one) and a picture. A 264 px card has four slots: the three newest and +2.
@@ -132,9 +135,16 @@ await runChatTest('canvas cards: posted files show as typed tiles on the card an
     assert.equal(await tile.getAttribute('title'),`${name} · ${type}`);
   }
   const preview=files.getByRole('link',{name:'Q3 chart.png',exact:true});
-  assert.match(await preview.evaluate(el=>getComputedStyle(el).backgroundImage),new RegExp(`/api/files/${png.fileId}`),'the picture is its own preview');
+  const picture=preview.locator('img.canvas-file-preview');
+  assert.equal(await picture.getAttribute('src'),`/api/files/${encodeURIComponent(png.fileId)}`,'the picture is its own preview');
+  assert.equal(await picture.getAttribute('loading'),'lazy');
+  for(let i=0;i<50&&!await picture.evaluate((img:HTMLImageElement)=>img.complete&&img.naturalWidth>0);i++)await new Promise(r=>setTimeout(r,100));
+  assert.equal(await picture.evaluate((img:HTMLImageElement)=>img.naturalWidth>0),true,'the preview loads');
   assert.equal(await preview.locator('.canvas-file-glyph').isVisible(),false,'and its glyph steps aside');
-  assert.ok(await files.locator('.canvas-file-tile.is-new').count()>=3,'files that arrive while the canvas is open pop in');
+  // Files that arrive while the canvas is open pop in once; the class leaves when the pop ends, so nothing replays.
+  for(const name of ['Q3 report.pdf','Q3 model.xlsx','Q3 chart.png'])assert.ok((await popped()).includes(name),`${name} popped: ${await popped()}`);
+  for(let i=0;i<50&&await files.locator('.canvas-file-tile.is-new').count()>0;i++)await new Promise(r=>setTimeout(r,100));
+  assert.equal(await files.locator('.canvas-file-tile.is-new').count(),0,'the pop ends');
   const row=(await files.boundingBox())!,cardBox=(await card.boundingBox())!;
   assert.ok(row.x+row.width<=cardBox.x+cardBox.width,'the row stays inside the card');
 
@@ -165,7 +175,20 @@ await runChatTest('canvas cards: posted files show as typed tiles on the card an
   assert.equal(await card.locator('.canvas-card-title').isVisible(),true,'the title stays');
   assert.equal(await card.locator(`[data-agent="${agentName}"]`).isVisible(),true,'the faces stay');
   assert.equal(await chip.isVisible(),false,'the file tiles are hidden');
-  assert.ok(((await card.locator('.canvas-card-foot').boundingBox())?.width??0)<=1,'the footer is clipped until it has focus');
+  const footWidth=(await card.locator('.canvas-card-foot').boundingBox())?.width??0;
+  assert.ok(footWidth<=1,`the footer is clipped until it has focus: ${footWidth} px`);
   const face=await card.locator(`[data-agent="${agentName}"] .agent-portrait`).boundingBox();
   assert.ok(face&&Math.abs(face.width-40*0.41)<2,`40 px faces at compact zoom: ${face?.width}`);
+
+  // Back from compact zoom the tiles show again without popping a second time.
+  const zoomIn=page.getByRole('button',{name:'Zoom in',exact:true});
+  for(let i=0;i<4;i++)await zoomIn.click();
+  await chip.waitFor();
+  assert.equal(await files.locator('.canvas-file-tile.is-new').count(),0,'back from compact zoom nothing pops again');
+
+  // A cold open pops nothing: the files were there before the canvas mounted, however late the seed lands.
+  await page.reload();
+  await page.locator(`.canvas-card[data-channel-id="${h.project.channelId}"]`).getByRole('button',{name:'2 more files',exact:true}).waitFor();
+  await new Promise(r=>setTimeout(r,1500));
+  assert.deepEqual(await popped(),[],'no tile pops on a reload');
 },{canvas:true});
