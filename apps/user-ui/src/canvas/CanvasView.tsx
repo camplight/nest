@@ -22,7 +22,7 @@ import {SPLIT_MAX,SPLIT_MIN,clampSplit,readSplit,splitAt,writeSplit} from './spl
 import {cardTitle} from './Card';
 import {AgentTray} from './AgentTray';
 import {busyCounts,effectivePins,togglePin,trayAgents} from './tray';
-import {createPinSaver} from './pin-saver';
+import {createPinPresses,createPinSaver} from './pin-saver';
 import {NeedsYou,useReviews} from './NeedsYou';
 import {needsByChannel,needsYouItems,type NeedsItem} from './needs';
 import {CanvasSearch} from './CanvasSearch';
@@ -509,41 +509,49 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const pinsRef = useRef(pins);
   const setPins = useCallback((next: (AgentPins & {failed?: true}) | null) => { pinsRef.current = next; setPinState(next); }, []);
   const agentsRef = useRef(agents); agentsRef.current = agents;
-  const pinOwner = useRef(humanId); pinOwner.current = humanId;
-  const saver = useMemo(() => createPinSaver({
-    put: putAgentPins, isConflict: isPinsConflict, onSaved: setPins,
-    onError: confirmed => { setPins(confirmed); say(PINS_SAVE_FAILED); },
-    // A seeded save met pins saved on another device: show those instead.
-    onConflict: () => {
-      getAgentPins().then(real => { saver.confirm(real); setPins(real); say(PINS_SAVED_ELSEWHERE); })
-        .catch(() => { setPins({agentNames: [], saved: false, failed: true}); say(PINS_LOAD_FAILED); });
-    },
-  }), [humanId, say, setPins]); // one saver (and queue) per person
-  const loadPins = useCallback(async () => {
-    const result = await getAgentPins();
-    saver.confirm(result);
-    setPins(result);
-    return result;
-  }, [saver, setPins]);
+  // One saver and press queue per person: when the person changes or the view closes, pending saves are dropped and
+  // answers still on their way are ignored, so one person's list is never saved under the next session.
+  const pinControl = useRef<{press(name: string): void} | null>(null);
   useEffect(() => {
-    let current = true;
+    let live = true;
+    const fail = () => { if (live) setPins({agentNames: [], saved: false, failed: true}); };
+    const saver = createPinSaver({
+      put: putAgentPins, isConflict: isPinsConflict, onSaved: setPins,
+      onError: confirmed => { setPins(confirmed); say(PINS_SAVE_FAILED); },
+      // A seeded save met pins saved on another device: show those instead.
+      onConflict: () => {
+        load().then(() => { if (live) say(PINS_SAVED_ELSEWHERE); }).catch(() => { fail(); if (live) say(PINS_LOAD_FAILED); });
+      },
+    });
+    async function load() {
+      const result = await getAgentPins();
+      if (!live) throw Error('Pins read for a previous person');
+      saver.confirm(result);
+      setPins(result);
+      return result;
+    }
+    const presses = createPinPresses<AgentPins & {failed?: true}>({
+      current: () => pinsRef.current, reload: load, onLoadFailed: () => say(PINS_LOAD_FAILED),
+      apply: (name, state) => {
+        const next = togglePin(effectivePins(state, agentsRef.current, humanId), name);
+        if (!next) { say(AGENT_PIN_LIMIT_MESSAGE); return; }
+        setPins({agentNames: next, saved: true});
+        saver.save(next);
+      },
+    });
+    pinControl.current = presses;
     setPins(null);
-    loadPins().catch(() => { if (current) setPins({agentNames: [], saved: false, failed: true}); });
-    return () => { current = false; };
-  }, [loadPins, setPins]);
+    load().catch(fail);
+    return () => {
+      live = false;
+      saver.dispose();
+      presses.dispose();
+      if (pinControl.current === presses) pinControl.current = null;
+    };
+  }, [humanId, say, setPins]);
   // The pins the person sees (the seed until they save any). A star press saves that list with the one change.
   const shownPins = useMemo(() => effectivePins(pins, agents, humanId), [pins, agents, humanId]);
-  const toggle = useCallback(async (name: string) => {
-    let state = pinsRef.current;
-    if (!state) return;
-    if (state.failed) {
-      try { state = await loadPins(); } catch { say(PINS_LOAD_FAILED); return; }
-    }
-    const next = togglePin(effectivePins(state, agentsRef.current, pinOwner.current), name);
-    if (!next) { say(AGENT_PIN_LIMIT_MESSAGE); return; }
-    setPins({agentNames: next, saved: true});
-    saver.save(next);
-  }, [loadPins, saver, say, setPins]);
+  const toggle = useCallback((name: string) => { pinControl.current?.press(name); }, []);
   const tray = useMemo(() => board ? trayAgents({agents, cards: board.cards, areas: board.areas, selectedId: selected?.channelId ?? null, pins: shownPins})
     : {suggested: [], pinned: []}, [board, agents, selected, shownPins]);
   const busy = useMemo(() => busyCounts(board?.cards ?? [], pulses), [board, pulses]);
@@ -759,7 +767,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
           areaContext={areaContext} onAreaContext={openAreaContext} contextAreaId={panel?.kind === 'area' ? panel.areaId : null} onOpenCanvas={id => onSelectCanvas(id)} onDropFiles={focusChat ? undefined : dropFiles}
           needs={cardNeeds} viewer={username} onNotice={say} onAreaCreated={setRenameAreaId} renameAreaId={renameAreaId} onRenameStarted={renameStarted}
           onViewChange={viewChanged} onEmptyPress={focusChat ? emptyPress : undefined} onFit={focusChat ? fitCloses : undefined}/>
-        <AgentTray suggested={tray.suggested} pinned={tray.pinned} pins={shownPins} pinsReady={pins !== null} onTogglePin={name => void toggle(name)}
+        <AgentTray suggested={tray.suggested} pinned={tray.pinned} pins={shownPins} pinsReady={pins !== null} onTogglePin={toggle}
           agents={agents} humanId={humanId} owners={owners} busy={busy} cards={board.cards} areas={board.areas}/>
         {/* Files dropped on empty canvas start a chat here, even beside a split chat; a focus chat takes every drop itself. */}
         {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!focusChat}

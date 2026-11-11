@@ -1,6 +1,6 @@
 import {describe,expect,it,vi} from 'vitest';
 import type {AgentPins} from '@nest/schemas';
-import {createPinSaver} from './pin-saver';
+import {createPinPresses,createPinSaver} from './pin-saver';
 
 /** A put whose answers the test releases by hand, in any order. */
 function fakePut(){
@@ -68,5 +68,77 @@ describe('createPinSaver',()=>{
     calls[1].reject(new Error('down'));
     await tick();
     expect(events.error).toHaveBeenCalledExactlyOnceWith({agentNames:['A'],saved:true});
+  });
+});
+
+describe('createPinSaver dispose',()=>{
+  it('drops pending saves and ignores an answer still on its way, so a list is never saved under the next person',async()=>{
+    const {s,calls,events}=saver();
+    s.save(['A']);
+    s.save(['A','B']);
+    s.dispose();
+    calls[0].resolve({agentNames:['A'],saved:true});
+    await tick();
+    expect(calls).toHaveLength(1);
+    expect(events.saved).not.toHaveBeenCalled();
+    s.save(['C']);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('ignores a failure that lands after dispose',async()=>{
+    const {s,calls,events}=saver();
+    s.save(['A']);
+    s.dispose();
+    calls[0].reject(new Error('down'));
+    await tick();
+    expect(events.error).not.toHaveBeenCalled();
+  });
+});
+
+describe('createPinPresses',()=>{
+  type State={agentNames:string[];saved:boolean;failed?:true};
+  function presses(initial:State|null,reloads:(()=>Promise<State>)[]){
+    let state=initial;
+    const applied:string[][]=[],failures=vi.fn();
+    const p=createPinPresses<State>({
+      current:()=>state,
+      reload:()=>reloads.shift()!().then(next=>{state=next;return next;}),
+      apply:(name,from)=>{const next=from.agentNames.includes(name)?from.agentNames.filter(n=>n!==name):[...from.agentNames,name];state={agentNames:next,saved:true};applied.push(next);},
+      onLoadFailed:failures,
+    });
+    return {p,applied,failures,get:()=>state};
+  }
+  const failed:State={agentNames:[],saved:false,failed:true};
+
+  it('queues a second press behind the retry and applies both to the list the retry read',async()=>{
+    const {p,applied,get}=presses(failed,[async()=>({agentNames:['Saved'],saved:true})]);
+    p.press('A');
+    await p.press('B');
+    expect(applied).toEqual([['Saved','A'],['Saved','A','B']]);
+    expect(get()).toEqual({agentNames:['Saved','A','B'],saved:true});
+  });
+
+  it('says the read failed and saves nothing when the retry fails, then the next press retries again',async()=>{
+    const {p,applied,failures}=presses(failed,[async()=>{throw new Error('down');},async()=>({agentNames:[],saved:true})]);
+    await p.press('A');
+    expect(failures).toHaveBeenCalledOnce();
+    expect(applied).toEqual([]);
+    await p.press('B');
+    expect(applied).toEqual([['B']]);
+  });
+
+  it('ignores presses while loading and after dispose, including one waiting on a retry',async()=>{
+    const loading=presses(null,[]);
+    await loading.p.press('A');
+    expect(loading.applied).toEqual([]);
+    let release!:(s:State)=>void;
+    const {p,applied,failures}=presses(failed,[()=>new Promise<State>(resolve=>{release=resolve;})]);
+    const pending=p.press('A');
+    await tick();
+    p.dispose();
+    release({agentNames:[],saved:true});
+    await pending;
+    expect(applied).toEqual([]);
+    expect(failures).not.toHaveBeenCalled();
   });
 });
