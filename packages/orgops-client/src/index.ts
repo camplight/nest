@@ -4,6 +4,8 @@ export function defaultModelReference(id:string|undefined,models:{id:string;refe
 }
 import {agentInstructionBody, agentInstructionResponse, isAgentSettingsPath} from './agent-instructions';
 import {voiceJoinBody} from './voice-request';
+import {serviceClient} from './service';
+export {serviceClient, EngineError, type EngineEvent, type EngineChannel, type ServiceAgent, type ServiceClient, type ServicePost} from './service';
 
 export type Human = { id: string; username: string; mustChangePassword: boolean; createdAt?: number };
 const hopHeaders = ['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length'];
@@ -197,7 +199,9 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
       create: (body:Record<string,unknown>) => request('/api/agents',{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(body)}),
     };
   }
-  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, agentModelEnv, connectionContext, assistantDirectory, agentManagement, projectNamingEnv, projectNamingContext, baseUrl: base.origin };
+  /** Engine calls made as Nest's service identity (the global runner token). */
+  const service = (token: string) => serviceClient(request, token);
+  return { request, service, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, agentModelEnv, connectionContext, assistantDirectory, agentManagement, projectNamingEnv, projectNamingContext, baseUrl: base.origin };
 }
 export type OrgOpsClient = ReturnType<typeof createOrgOpsClient>;
 
