@@ -1,13 +1,12 @@
 // Typed helpers for the canvas context routes (apps/api/src/canvas-context.ts): notes, files, links and readers.
-import type {ContextFile,ContextReader,ContextSummary,ScopeContext} from '@nest/schemas';
+import type {ContextFile,ContextReader,ContextSource,ContextSummary,ScopeContext} from '@nest/schemas';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 import {apiUrl} from '../config';
 import {NotesConflict} from './notes-autosave';
 
 /** The canvas itself, or one of its areas. */
 export type PanelScope = {kind: 'canvas'} | {kind: 'area'; areaId: string};
-export type ContextSource = {canvasId: string; canvasName: string; areaId: string; title: string};
-
+export type {ContextSource};
 
 const canvasPath = (canvasId: string) => `/api/canvases/${encodeURIComponent(canvasId)}`;
 export const scopePath = (canvasId: string, scope: PanelScope) =>

@@ -1,6 +1,6 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
 import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore,type FormEvent,type ReactNode} from 'react';
-import {CARD_HEIGHT,CanvasTint,DEFAULT_CARD_WIDTH,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
+import {CARD_HEIGHT,CanvasTint,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
@@ -11,7 +11,8 @@ import {CanvasSwitcher} from './CanvasSwitcher';
 import {ShareDialog} from './ShareDialog';
 import {createBoardStore,type BoardOp} from './board-store';
 import {Surface,type FileDropTarget,type SurfaceControls} from './Surface';
-import {FOLDER_NOTICE,outsideFileDropTargets} from '../components/file-drop';
+import {FOLDER_NOTICE,dragCarriesFiles,outsideCanvasChat} from '../components/file-drop';
+import {AgentAvatar} from '../components/AgentAvatar';
 import {nudgeMessage,type CanvasLive} from './live';
 import {LoosePile,MAX_BULK} from './LoosePile';
 import {areaAround,clearOfCards,dropLayout,gridPlacement,looseChats,slotInArea,slotOutsideAreas} from './loose';
@@ -27,7 +28,8 @@ import type {CardPulse} from './pulse';
 import {cardCentre,growToFit,type Point} from './geometry';
 import type {AreaContext} from './Area';
 import {CONTEXT_WARNING,ContextPanel} from './ContextPanel';
-import {getContextSummary,type PanelScope} from './context-api';
+import {errorText,getContextSummary,uploadContextFile,type PanelScope} from './context-api';
+import {chatSees,contextLabel,joinNames,type ChatSees} from './context-label';
 import './canvas.css';
 
 export type CanvasHuman = {id?: string; username: string};
@@ -60,8 +62,16 @@ export type CanvasViewProps = {
 };
 /** A short message over the canvas about a membership change, with Undo after a removal. */
 type MemberNotice = {id: number; text: string; undo?: () => void};
+/** Files dropped on an area going straight into its context, with their combined progress. */
+type AreaUpload = {id: number; text: string; progress: number};
 const MEMBER_NOTICE_MS = 6000;
 export const CANT_ADD = "You can't add people to this chat";
+/** The canvas's file-drag banner (the mock's three targets); a viewer's areas take no files. */
+export const FILE_DRAG_HINT = 'Drop on a chat to share files with it, on an area to add them to its context, or anywhere else to start a chat';
+const FILE_DRAG_HINT_VIEW = 'Drop on a chat to share files with it, or anywhere else to start a chat';
+const VIEW_ONLY_FILES = 'You can view this canvas but not add files to its areas.';
+const s = (n: number) => n === 1 ? '' : 's';
+const them = (n: number) => n === 1 ? 'it' : 'them';
 
 const SYNC_INTERVAL_MS = 5000;
 const NO_PULSES: ReadonlyMap<string, CardPulse> = new Map();
@@ -127,7 +137,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
 
   const board = state.canvasId === canvasId ? state.board : null;
 
-  // Context: one summary per board load feeds every area's dot and `↳` chips; the panel re-reads it after an edit.
+  // Context: one summary per board load feeds every area's chip, `↳` chips, shelf and footer; an edit re-reads it.
   const [summary, setSummary] = useState<{canvasId: string; summary: ContextSummary} | null>(null);
   const summaryCanvas = useRef(canvasId); summaryCanvas.current = canvasId;
   const summaryRef = useRef<ContextSummary | null>(null);
@@ -146,7 +156,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const contextSummary = summary?.canvasId === canvasId ? summary.summary : null;
   summaryRef.current = contextSummary;
   const areaContext = useMemo(() => new Map<string, AreaContext>((contextSummary?.areas ?? []).map(({areaId, ...rest}) => [areaId, rest])), [contextSummary]);
-  const [panel, setPanel] = useState<PanelScope | null>(null);
+  // The context popover: its scope and the control it is anchored to.
+  const [panel, setPanel] = useState<(PanelScope & {anchor: HTMLElement | null}) | null>(null);
   useEffect(() => { setPanel(null); }, [canvasId]);
   const areaGone = Boolean(panel?.kind === 'area' && board && !board.areas.some(a => a.id === panel.areaId));
   useEffect(() => { if (areaGone) setPanel(null); }, [areaGone]);
@@ -268,8 +279,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   }, [humanId]);
   // Split screen folds the pile so the canvas keeps its room; opening it there lasts until split screen ends.
   const [splitPile, setSplitPile] = useState(false);
-  const panelOpen = Boolean(panel && board);
-  const besideCanvas = panelOpen || chatMode === 'split';
+  const besideCanvas = chatMode === 'split';
   useEffect(() => { if (!besideCanvas) setSplitPile(false); }, [besideCanvas]);
 
   // One chat at a time, and only one this person can read: never a locked or unavailable card's.
@@ -281,6 +291,17 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     ? {areas: board.areas.map(a => ({id: a.id, title: a.title})), current: openCard ? areaFor(cardCentre(openCard), board.areas)?.id ?? null : null,
       placed: Boolean(openCard), onMove: (areaId: string | null) => void moveToAreaRef.current(chatChannelId!, areaId)}
     : undefined;
+  // The header's sub-line: who is in the chat, then where it sits and which context it reads (home semantics).
+  const chatPeople = (openCard?.access === 'open' ? openCard.participants : channels.find(channel => channel.id === chatChannelId)?.participants) ?? [];
+  const chatHome = board && openCard?.access === 'open' ? areaFor(cardCentre(openCard), board.areas) ?? null : null;
+  const chatSub: ChatSub | undefined = board && chatShown ? {
+    people: chatPeople.map(p => ({agent: p.subscriberType === 'AGENT', name: p.subscriberId})),
+    place: openCard?.access === 'open'
+      ? {kind: 'card', area: chatHome ? chatHome.title || 'Untitled area' : null,
+        sees: chatSees(openCard, board.canvas.name, chatHome, chatHome ? areaContext.get(chatHome.id)?.links ?? [] : [])}
+      : {kind: 'loose'},
+    onSees: (areaId, opener) => openPanel(areaId ? {kind: 'area', areaId} : {kind: 'canvas'}, opener),
+  } : undefined;
   // "Use this area's context": chat members only, for a card on this canvas that is not the chat's home.
   const chatMember = openCard?.access === 'open' && (openCard.participants.some(p => p.subscriberType === 'HUMAN' && p.subscriberId === username)
     || channels.find(channel => channel.id === chatChannelId)?.ownerHumanId === humanId);
@@ -308,19 +329,58 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     // Before App's first channel read the list is empty; App's own load closes an unreadable chat from the URL.
     if (listed.current || channels.length) { listed.current = false; closeRef.current({replace: true}); }
   }, [chatChannelId, channels]);
-  // The context panel and an open chat share the side slot: opening a chat closes the panel.
-  useEffect(() => { if (chatChannelId) setPanel(null); }, [chatChannelId]);
-  const chatShownRef = useRef(chatShown); chatShownRef.current = chatShown;
-  const openPanel = useCallback((scope: PanelScope) => {
-    if (chatShownRef.current) closeRef.current();
-    setPanel(scope);
+  // The context popover floats over the canvas: opening it leaves an open chat (split or focus) as it is.
+  // The same opener closes it again; another opener moves it there.
+  const panelRef = useRef(panel); panelRef.current = panel;
+  const openPanel = useCallback((scope: PanelScope, anchor: HTMLElement | null) => {
+    const open = panelRef.current;
+    const same = open && open.kind === scope.kind && (scope.kind === 'canvas' || (open.kind === 'area' && open.areaId === scope.areaId));
+    setPanel(same && open.anchor === anchor ? null : {...scope, anchor});
   }, []);
-  // Files on a card go to that chat, in split screen unless a chat is already open. Files on an area go to its context panel (editors only).
+  /**
+   * Files on a card go to that chat, in split screen unless a chat is already open (R10). Files on an area go straight
+   * into its context with a progress notice and a toast, opening nothing; while that area's popover is open they join
+   * its Files section instead. A viewer's drop on an area only says why nothing happened.
+   */
   const [areaFiles, setAreaFiles] = useState<{id: number; areaId: string; files: File[]} | null>(null);
+  const [areaUploads, setAreaUploads] = useState<AreaUpload[]>([]);
+  useEffect(() => { setAreaUploads([]); }, [canvasId]);
+  const uploadId = useRef(0);
   const roleRef = useRef(board?.canvas.role); roleRef.current = board?.canvas.role;
   const chatFilesRef = useRef(onChatFiles); chatFilesRef.current = onChatFiles;
+  const uploadToArea = useCallback((areaId: string, dropped: File[]) => {
+    const current = store.snapshot().board;
+    const area = current?.areas.find(a => a.id === areaId);
+    if (!current || !area) return;
+    const canvas = current.canvas.id, name = area.title || 'Untitled area';
+    const files = dropped.slice(0, MAX_MESSAGE_ATTACHMENTS), cut = dropped.length - files.length;
+    const id = ++uploadId.current, done = new Array<number>(files.length).fill(0);
+    const text = `Adding ${files.length} file${s(files.length)} to ${name}'s context…`;
+    setAreaUploads(rows => [...rows, {id, text, progress: 0}]);
+    const progress = () => setAreaUploads(rows => rows.map(row => row.id === id ? {...row, progress: done.reduce((a, b) => a + b, 0) / files.length} : row));
+    void Promise.allSettled(files.map((file, n) => uploadContextFile(canvas, {kind: 'area', areaId}, file, fraction => { done[n] = fraction; progress(); })
+      .then(saved => { done[n] = 1; progress(); return saved; })))
+      .then(results => {
+        setAreaUploads(rows => rows.filter(row => row.id !== id));
+        loadSummary(canvas);
+        if (store.snapshot().board?.canvas.id !== canvas) return;
+        const added = results.filter(result => result.status === 'fulfilled').length;
+        const failed = results.flatMap((result, n) => result.status === 'rejected' ? [{name: files[n].name, reason: errorText(result.reason, 'Upload failed')}] : []);
+        // The spec's warning when chats in the area (or in areas that use it) read this context.
+        const board = store.snapshot().board!;
+        const holdsChat = board.cards.some(card => areaFor(cardCentre(card), board.areas)?.id === areaId);
+        const parts = [
+          added ? `Added ${added} file${s(added)} to ${name}'s context. Every chat in the area can now see ${them(added)}.` : '',
+          failed.length ? `Could not add ${joinNames(failed.map(f => f.name))}: ${failed[0].reason}` : '',
+          cut ? `Only the first ${MAX_MESSAGE_ATTACHMENTS} files were added.` : '',
+          added && holdsChat ? CONTEXT_WARNING : '',
+        ];
+        say(parts.filter(Boolean).join(' '));
+      });
+  }, [store, loadSummary, say]);
   const dropFiles = useCallback((target: FileDropTarget, files: File[], folders: boolean) => {
-    if (folders && (target.kind === 'card' ? visibleRef.current.some(channel => channel.id === target.channelId) : roleRef.current !== 'view')) say(FOLDER_NOTICE);
+    if (target.kind === 'area' && roleRef.current === 'view') { say(VIEW_ONLY_FILES); return; }
+    if (folders && (target.kind === 'card' ? visibleRef.current.some(channel => channel.id === target.channelId) : true)) say(FOLDER_NOTICE);
     if (!files.length) return;
     if (target.kind === 'card') {
       if (!visibleRef.current.some(channel => channel.id === target.channelId)) return;
@@ -329,13 +389,42 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       chatFilesRef.current(target.channelId, files);
       return;
     }
-    if (roleRef.current === 'view') return;
-    openPanel({kind: 'area', areaId: target.areaId});
-    setAreaFiles(current => ({id: (current?.id ?? 0) + 1, areaId: target.areaId, files}));
-  }, [openPanel, say]);
-  // Files wait only for their own panel: once it closes or moves to another area they are gone.
+    const open = panelRef.current;
+    if (open?.kind === 'area' && open.areaId === target.areaId) setAreaFiles(current => ({id: (current?.id ?? 0) + 1, areaId: target.areaId, files}));
+    else uploadToArea(target.areaId, files);
+  }, [say, uploadToArea]);
+  // Files wait only for their own popover: once it closes or moves to another area they are gone.
   useEffect(() => { if (areaFiles && !(panel?.kind === 'area' && panel.areaId === areaFiles.areaId)) setAreaFiles(null); }, [panel, areaFiles]);
-  const openAreaContext = useCallback((areaId: string) => openPanel({kind: 'area', areaId}), [openPanel]);
+  const openAreaContext = useCallback((areaId: string, opener: HTMLElement) => openPanel({kind: 'area', areaId}, opener), [openPanel]);
+  // Empty canvas: files always go to the bottom box (even with a split chat open), which says so and takes focus.
+  const dockFiles = useCallback((count: number) => say(`Attached ${count} file${s(count)}. Say what you want done with ${them(count)}, then press Send.`), [say]);
+  // The banner during any file drag over the canvas (not over a focus chat, which takes every drop itself).
+  const [fileDrag, setFileDrag] = useState(false);
+  const focusChat = chatShown && chatMode === 'focus';
+  useEffect(() => {
+    if (!canvasId || phone || focusChat) { setFileDrag(false); return; }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stop = () => { clearTimeout(timer); setFileDrag(false); };
+    const over = (event: DragEvent) => {
+      if (!dragCarriesFiles(event.dataTransfer)) return;
+      setFileDrag(true);
+      clearTimeout(timer);
+      // Dragover repeats while the pointer is in the window; a pause means it left or the drag ended.
+      timer = setTimeout(stop, 300);
+    };
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') stop(); };
+    window.addEventListener('dragover', over, true);
+    window.addEventListener('drop', stop, true);
+    window.addEventListener('dragend', stop, true);
+    window.addEventListener('keydown', key);
+    return () => {
+      stop();
+      window.removeEventListener('dragover', over, true);
+      window.removeEventListener('drop', stop, true);
+      window.removeEventListener('dragend', stop, true);
+      window.removeEventListener('keydown', key);
+    };
+  }, [canvasId, phone, focusChat]);
   // A card opens in focus, or replaces the split-screen chat beside the canvas.
   const openFromCard = useCallback((channelId: string) => { setSelectedId(channelId); openRef.current(channelId, modeRef.current ?? 'focus'); }, []);
   // Agents on cards: the selected card leads the tray's suggestions; membership goes through the engine.
@@ -529,8 +618,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     // The bottom box stays on phones, under the list.
     body = <div className="canvas-phone-stage">
       <PhoneList key={board.canvas.id} board={board} pulses={pulses} loose={phoneLoose} titles={titles} projects={projects}
-        onOpenChat={openFromPile} openChannelId={chatShown ? chatChannelId : null}/>
-      {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!chatShown && !panelOpen} fileDropAccept={outsideFileDropTargets}/></div> : null}
+        onOpenChat={openFromPile} openChannelId={chatShown ? chatChannelId : null} areaContext={areaContext} onAreaContext={openAreaContext}/>
+      {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!chatShown} fileDropAccept={outsideCanvasChat} onFilesDropped={dockFiles}/></div> : null}
     </div>;
   } else {
     // Keyed by canvas so the saved view, gestures and measured card heights start fresh per canvas.
@@ -540,14 +629,16 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={applyTracked} pulses={pulses} onNudge={sendNudge}
           onDropChat={canPlace ? dropChat : undefined} controls={controls} onOpenChat={openFromCard} openChannelId={chatShown ? chatChannelId : null}
           onDropAgent={dropAgent} onRemoveAgent={removeAgent} canManageCard={manageable} onSelectCard={setSelectedId} selectedChannelId={selected?.channelId ?? null}
-          areaContext={areaContext} onAreaContext={openAreaContext} onDropFiles={dropFiles}/>
+          areaContext={areaContext} onAreaContext={openAreaContext} contextAreaId={panel?.kind === 'area' ? panel.areaId : null} onDropFiles={dropFiles}/>
         <AgentTray tray={tray} suggestedFor={selected ? cardTitle(selected) : null} agents={agents} humanId={humanId} cards={board.cards} areas={board.areas}/>
-        {/* While a chat or the context panel is open, dropped files go there only. */}
-        {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!chatShown && !panelOpen} fileDropAccept={outsideFileDropTargets}/></div> : null}
+        {/* Files dropped on empty canvas start a chat here, even beside a split chat; a focus chat takes every drop itself. */}
+        {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!focusChat}
+          fileDropAccept={outsideCanvasChat} fileDropOverlay={false} onFilesDropped={dockFiles}/></div> : null}
+        {fileDrag ? <p className="canvas-file-hint" role="status">{board.canvas.role === 'view' ? FILE_DRAG_HINT_VIEW : FILE_DRAG_HINT}</p> : null}
       </div>
       <LoosePile chats={loose} count={looseCount} hidden={hidden} showHidden={showHidden} onShowHidden={setShowHidden}
-        canPlace={canPlace} onPlace={place} onHide={hide} open={(chatShown && chatMode === 'split') || panelOpen ? splitPile : pileOpen}
-        onOpen={(chatShown && chatMode === 'split') || panelOpen ? setSplitPile : openPile} now={Date.now}
+        canPlace={canPlace} onPlace={place} onHide={hide} open={chatShown && chatMode === 'split' ? splitPile : pileOpen}
+        onOpen={chatShown && chatMode === 'split' ? setSplitPile : openPile} now={Date.now}
         onOpenChat={openFromPile} highlight={highlight}/>
     </>;
   }
@@ -563,11 +654,14 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         onSelect={id => onSelectCanvas(id)} onCreate={createNew} onRename={rename} onDelete={remove}/>
       {board && board.canvas.role === 'owner' ? <button type="button" className="canvas-share-button" onClick={() => setSharing(true)}>Share</button> : null}
       {board ? <button type="button" className={`canvas-share-button canvas-context-button${contextSummary?.canvas.hasContext ? ' has-context' : ''}`}
-        aria-pressed={panel?.kind === 'canvas'} onClick={() => panel?.kind === 'canvas' ? setPanel(null) : openPanel({kind: 'canvas'})}>Canvas context</button> : null}
+        aria-haspopup="dialog" aria-expanded={panel?.kind === 'canvas'} title={`Canvas context: notes and files every chat on ${board.canvas.name} can see`}
+        onClick={event => openPanel({kind: 'canvas'}, event.currentTarget)}>
+        Canvas context{contextSummary?.canvas.hasContext ? <span className="canvas-context-count"> · {contextLabel(contextSummary.canvas)}</span> : null}
+      </button> : null}
       {ownerName ? <span className="canvas-shared-by">Shared by {ownerName}</span> : null}
     </div> : undefined}/>
     {searchOpen && canvasId ? <CanvasSearch items={index} onClose={() => setSearchOpen(false)} onChoose={choose}/> : null}
-    <div className={`canvas-body${chatShown ? ` has-chat is-${chatMode}` : panelOpen ? ' has-context' : ''}`}>
+    <div className={`canvas-body${chatShown ? ` has-chat is-${chatMode}` : ''}`}>
       {sharing && board && board.canvas.role === 'owner' ? <ShareDialog canvasId={board.canvas.id} ownerId={board.canvas.ownerId} humans={humans}
         version={canvasVersion} freshVersion={freshVersion} onSaved={() => { void store.refresh({force: true}); void reloadList().catch(() => {}); }} onClose={() => setSharing(false)}/> : null}
       <CanvasMain inert={chatShown && chatMode === 'focus'}>
@@ -576,6 +670,11 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
             <span>{state.notice}</span>
             <button type="button" onClick={store.clearNotice}>Dismiss</button>
           </div> : null}
+          {board ? areaUploads.map(upload => <div key={upload.id} className="canvas-notice" role="status">
+            <span>{upload.text}</span>
+            <span className="composer-attachment-progress canvas-notice-progress" role="progressbar" aria-label={upload.text} aria-valuemin={0} aria-valuemax={100}
+              aria-valuenow={Math.round(upload.progress * 100)}><span style={{width: `${Math.round(upload.progress * 100)}%`}}/></span>
+          </div>) : null}
           {memberNotice && board ? <div key={memberNotice.id} className="canvas-notice" role="status">
             <span>{memberNotice.text}</span>
             {memberNotice.undo ? <button type="button" onClick={memberNotice.undo}>Undo</button> : null}
@@ -584,11 +683,12 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         </div>
         {body}
       </CanvasMain>
-      {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} title={chatTitle} area={chatArea} onUseHere={useHere}
+      {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} title={chatTitle} sub={chatSub} area={chatArea} onUseHere={useHere}
         onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
         {chat}
       </CanvasChat> : null}
-      {!chatShown && panel && board ? <ContextPanel key={`${board.canvas.id}:${panel.kind === 'area' ? panel.areaId : 'canvas'}`} canvasId={board.canvas.id} scope={panel}
+      {panel && board ? <ContextPanel key={`${board.canvas.id}:${panel.kind === 'area' ? panel.areaId : 'canvas'}`} canvasId={board.canvas.id}
+        canvasName={board.canvas.name} scope={panel.kind === 'area' ? {kind: 'area', areaId: panel.areaId} : {kind: 'canvas'}} anchor={panel.anchor}
         title={panel.kind === 'area' ? board.areas.find(a => a.id === panel.areaId)?.title : undefined}
         canEdit={board.canvas.role !== 'view'} dropped={areaFiles?.areaId === (panel.kind === 'area' ? panel.areaId : null) ? areaFiles : null} holdsChat={panel.kind === 'canvas' ? board.cards.length > 0 : board.cards.some(card => areaFor(cardCentre(card), board.areas)?.id === panel.areaId)}
         onChanged={() => loadSummary(board.canvas.id)} onClose={() => setPanel(null)}/> : null}
@@ -619,8 +719,45 @@ const OTHER_DIALOG = '[aria-modal="true"]:not(.canvas-chat), .dialog-backdrop';
  * The header holds Split screen, Open in the regular chat view and Close; the chat itself is App's chat workspace.
  */
 type ChatArea = {areas: {id: string; title: string}[]; current: string | null; placed: boolean; onMove(areaId: string | null): void};
-function CanvasChat({channelId, mode, title, area, onUseHere, onMode, onClose, onOpenRegular, children}: {
-  channelId: string; mode: CanvasChatMode; title: string; area?: ChatArea; onUseHere?(): Promise<void>; onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
+/** Who is in the open chat, and where its card sits and which context it reads. */
+type ChatSub = {
+  people: {agent: boolean; name: string}[];
+  place: {kind: 'loose'} | {kind: 'card'; area: string | null; sees: ChatSees};
+  /** Opens the context the chat sees (its home area's, or the canvas's) under the pressed control. */
+  onSees(areaId: string | null, opener: HTMLElement): void;
+};
+const MAX_SUB_FACES = 5;
+const initials = (name: string) => name.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(' ').filter(Boolean).slice(0, 2).map(word => word[0]).join('').toUpperCase() || '?';
+
+/** The mock's `.ch-sub`: participant faces, then `in {area} · sees N contexts` (a button to that context) or where it comes from. */
+function ChatSubline({sub}: {sub: ChatSub}) {
+  const {people, place} = sub;
+  const shown = people.slice(0, MAX_SUB_FACES), more = people.length - shown.length;
+  const where = place.kind === 'loose' ? 'Plain chat · not on this canvas' : place.area ? `in ${place.area}` : 'on the canvas';
+  let sees: ReactNode = null;
+  if (place.kind === 'card') {
+    const s = place.sees;
+    sees = s.kind === 'sees'
+      ? <button type="button" className="canvas-chat-sees" aria-haspopup="dialog" title={`Sees: ${s.names.join(', ')}`} onClick={event => sub.onSees(s.areaId, event.currentTarget)}>
+        {s.names.length === 1 ? `sees ${s.names[0]}` : `sees ${s.names.length} contexts`}
+      </button>
+      : s.kind === 'from' ? <span>context from {s.label}</span>
+      : s.kind === 'unavailable' ? <span>context <span className="canvas-context-tag">unavailable</span></span>
+      : <span>no shared context yet</span>;
+  }
+  return <p className="canvas-chat-sub">
+    {people.length ? <span className="canvas-chat-faces" role="img" aria-label={`In this chat: ${people.map(p => p.name).join(', ')}`}>
+      {shown.map(person => person.agent
+        ? <span key={`a:${person.name}`} className="canvas-chat-face" title={person.name}><AgentAvatar name={person.name} size={20}/></span>
+        : <span key={`h:${person.name}`} className="canvas-chat-face is-human" title={person.name} aria-hidden="true">{initials(person.name)}</span>)}
+      {more ? <span className="canvas-chat-face is-more" aria-hidden="true">+{more}</span> : null}
+    </span> : null}
+    <span>{where}{sees ? ' · ' : ''}</span>{sees}
+  </p>;
+}
+
+function CanvasChat({channelId, mode, title, sub, area, onUseHere, onMode, onClose, onOpenRegular, children}: {
+  channelId: string; mode: CanvasChatMode; title: string; sub?: ChatSub; area?: ChatArea; onUseHere?(): Promise<void>; onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
 }) {
   const panel = useRef<HTMLElement>(null);
   const [split, setSplit] = useState(readSplit);
@@ -683,7 +820,10 @@ function CanvasChat({channelId, mode, title, area, onUseHere, onMode, onClose, o
           else if (event.key === 'ArrowRight') { event.preventDefault(); nudge(-SPLIT_STEP); }
         }}/>}
       <header className="canvas-chat-bar">
-        <h2 className="canvas-chat-title">{title}</h2>
+        <div className="canvas-chat-heading">
+          <h2 className="canvas-chat-title">{title}</h2>
+          {sub ? <ChatSubline sub={sub}/> : null}
+        </div>
         <div className="canvas-chat-actions">
           {area ? <label className="canvas-chat-area">
             <span>Area</span>

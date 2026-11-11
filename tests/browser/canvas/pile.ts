@@ -205,7 +205,7 @@ await runChatTest('canvas areas: dropping chats into an area lights it up, they 
   const surface=page.locator('.canvas-surface');
   await surface.dispatchEvent('dragover',{dataTransfer:transfer,...at});
   await page.locator(`.canvas-area.is-drop-target[data-area-id="${areaId}"]`).waitFor();
-  await area.getByText('Drop into Landing zone',{exact:true}).waitFor();
+  await area.getByText('Place in Landing zone · shares its context',{exact:true}).waitFor();
 
   // Dropped there: three cards in a grid, the area grows to hold all of them, and each card carries its stripe.
   const placed=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith(`/api/canvases/${id}/cards`));
@@ -213,7 +213,7 @@ await runChatTest('canvas areas: dropping chats into an area lights it up, they 
   await surface.dispatchEvent('drop',{dataTransfer:transfer,...at});
   assert.equal((await placed).status(),201);
   assert.ok((await grown).ok(),'the area is resized to fit');
-  await area.getByText('Drop into Landing zone',{exact:true}).waitFor({state:'detached'});
+  await area.getByText('Place in Landing zone · shares its context',{exact:true}).waitFor({state:'detached'});
   const after=await board(h,id);
   const zone=after.areas.find(a=>a.id===areaId)!;
   assert.ok(zone.w>400&&zone.h>300,`the area grew (${zone.w}x${zone.h})`);

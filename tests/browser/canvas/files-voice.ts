@@ -225,7 +225,7 @@ await runChatTest('canvas files: more than 20 files are cut with the existing er
   await messageWith(h,chatId,Array.from({length:20},(_,n)=>`bulk-${n}.txt`));
 },{canvas:true});
 
-await runChatTest('canvas files: a file dropped on an area joins its context; empty canvas still feeds the bottom box',async h=>{
+await runChatTest('canvas files: a file dropped on an area joins its context and opens nothing; empty canvas always feeds the bottom box',async h=>{
   const {page,base}=h;
   const chatId=await standaloneChat(h,'Synthetic area chat');
   const {id}=await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Area drops'});
@@ -242,31 +242,62 @@ await runChatTest('canvas files: a file dropped on an area joins its context; em
   await dragFiles(page,'.canvas-area[data-area-id="'+areaId+'"]',['hover.txt'],'dragleave');
   await page.locator('.canvas-area.is-drop-target').waitFor({state:'detached'});
 
-  // A drop opens that area's panel with the upload, and the panel carries the warning.
+  // A drop goes straight into the area's context: nothing opens, a toast says so (with the warning, since Launch
+  // holds a chat), and the chip's count follows.
   await dropFile(page,'.canvas-area[data-area-id="'+areaId+'"]','spec.txt');
-  const panel=page.getByRole('complementary',{name:'Context for Launch',exact:true});
-  await panel.waitFor();
-  await panel.getByText(WARNING,{exact:true}).waitFor();
-  await panel.locator('.canvas-context-file').getByText('spec.txt').first().waitFor();
+  const notice=page.locator('.canvas-notice');
+  await notice.getByText(`Added 1 file to Launch's context. Every chat in the area can now see it. ${WARNING}`,{exact:true}).waitFor();
+  await areaOf(page,'Launch').getByRole('button',{name:'Context for Launch: 1 file',exact:true}).waitFor();
+  assert.equal(await page.getByRole('dialog',{name:/^Context for/}).count(),0,'no popover opened');
+  assert.equal(await openChat(page).count(),0,'and no chat');
   await page.locator('.canvas-area.is-drop-target').waitFor({state:'detached'});
   assert.equal(await dock(page).locator('.composer-attachments').count(),0,'the bottom box gets nothing');
   const files=await call<{files:{name:string}[]}>(h,'GET',`/api/canvases/${id}/areas/${areaId}/context`);
   assert.deepEqual(files.files.map(f=>f.name),['spec.txt']);
   assert.equal((await messages(h,chatId)).length,0,'a context drop posts no message');
 
-  // Another area while the panel is open: the panel moves there, without the warning (no chat inside).
-  await dropFile(page,'.canvas-area[data-area-id="'+emptyId+'"]','notes.txt');
-  const quietPanel=page.getByRole('complementary',{name:'Context for Quiet',exact:true});
+  // An area with no chats: two files, no warning, and they show on its shelf.
+  await dragFiles(page,'.canvas-area[data-area-id="'+emptyId+'"]',['notes.txt','plan.csv']);
+  await notice.getByText("Added 2 files to Quiet's context. Every chat in the area can now see them.",{exact:true}).waitFor();
+  const shelf=areaOf(page,'Quiet').getByRole('list',{name:'Files in Quiet',exact:true});
+  await shelf.getByRole('link',{name:'notes.txt',exact:true}).waitFor();
+  await shelf.getByRole('link',{name:'plan.csv',exact:true}).waitFor();
+  assert.equal(await page.getByRole('dialog',{name:/^Context for/}).count(),0);
+
+  // With a split chat open, a drop on an area still opens nothing and leaves the chat as it was.
+  await cardAt(page,chatId).locator('.canvas-card-title').click();
+  await openChat(page).waitFor();
+  await openChat(page).getByRole('button',{name:'Split screen',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('.canvas-chat')?.getAttribute('data-mode')==='split');
+  await dropFile(page,'.canvas-area[data-area-id="'+emptyId+'"]','more.txt');
+  await notice.getByText(/^Added 1 file to Quiet's context/).waitFor();
+  assert.equal(await openChat(page).getAttribute('data-mode'),'split','the chat stays open');
+  assert.equal(await openChat(page).locator('.composer-attachments').count(),0,'and gets nothing');
+
+  // While an area's popover is open, a drop on that area joins its Files section (with upload progress there).
+  await areaOf(page,'Quiet').getByRole('button',{name:/^Context for Quiet: /}).click();
+  const quietPanel=page.getByRole('dialog',{name:'Context for Quiet',exact:true});
   await quietPanel.waitFor();
-  await quietPanel.locator('.canvas-context-file').getByText('notes.txt').first().waitFor();
+  await dropFile(page,'.canvas-area[data-area-id="'+emptyId+'"]','inside.txt');
+  await quietPanel.getByRole('link',{name:'inside.txt',exact:true}).waitFor();
   assert.equal(await quietPanel.getByText(WARNING,{exact:true}).count(),0);
-  await quietPanel.getByRole('button',{name:'Close',exact:true}).click();
+  await quietPanel.getByRole('button',{name:'Done',exact:true}).click();
   await quietPanel.waitFor({state:'detached'});
 
-  // Empty canvas: the bottom box takes it, as before.
+  // A file drag over the canvas shows the three targets.
+  await dragFiles(page,'.canvas-surface',['hint.txt'],'dragover');
+  await page.getByText('Drop on a chat to share files with it, on an area to add them to its context, or anywhere else to start a chat',{exact:true}).waitFor();
+
+  // Empty canvas: always the bottom box, even with the split chat open; it says so and takes focus.
   await dropFile(page,'.canvas-surface','dock-drop.txt');
   await dock(page).locator('.composer-attachments').getByText('dock-drop.txt').first().waitFor();
-  assert.equal(await page.getByRole('complementary',{name:/^Context for/}).count(),0,'no panel opened');
+  await notice.getByText('Attached 1 file. Say what you want done with it, then press Send.',{exact:true}).waitFor();
+  assert.equal(await page.evaluate(()=>document.activeElement?.closest('.project-start-dock')!==null),true,'the bottom box has focus');
+  assert.equal(await openChat(page).locator('.composer-attachments').count(),0,'not the open chat');
+  assert.equal(await openChat(page).getAttribute('data-mode'),'split');
+  // A drop on the split chat itself still goes to that chat.
+  await dropFile(page,'.canvas-chat .chat-stack','to-chat.txt');
+  await openChat(page).locator('.composer-attachments').getByText('to-chat.txt').first().waitFor();
 },{canvas:true});
 
 await runChatTest('canvas files: on a view-only canvas an area drop does nothing and a card drop still posts',async h=>{
@@ -296,8 +327,8 @@ await runChatTest('canvas files: on a view-only canvas an area drop does nothing
   await dragFiles(theirs,'.canvas-area[data-area-id="'+areaId+'"]',['nope.txt'],'dragover');
   assert.equal(await theirs.locator('.canvas-area.is-drop-target').count(),0,'a viewer sees no area highlight');
   await dropFile(theirs,'.canvas-area[data-area-id="'+areaId+'"]','nope.txt');
-  await quiet(700);
-  assert.equal(await theirs.getByRole('complementary',{name:/^Context for/}).count(),0,'no panel for a viewer');
+  await theirs.locator('.canvas-notice').getByText('You can view this canvas but not add files to its areas.',{exact:true}).waitFor();
+  assert.equal(await theirs.getByRole('dialog',{name:/^Context for/}).count(),0,'no popover for a viewer');
   assert.equal(await dock(theirs).locator('.composer-attachments').count(),0,'and not the bottom box either');
   assert.deepEqual(uploads,[]);
 

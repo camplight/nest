@@ -133,11 +133,15 @@ await runChatTest('canvas chat: focus, send, reload, realtime, split screen, fil
   await page.keyboard.up(' ');
   await page.locator('.canvas-surface.is-panning-key').waitFor({state:'detached'});
 
-  // With a chat open, a dropped file goes to that chat only.
-  await dropFile(page,'.canvas-surface','split-drop.txt');
+  // With a split chat open, a file dropped on the chat goes to it; one dropped on empty canvas goes to the bottom box.
+  await dropFile(page,'.canvas-chat .chat-stack','split-drop.txt');
   await chat.locator('.composer-attachments').getByText('split-drop.txt').first().waitFor();
   assert.equal(await dock(page).locator('.composer-attachments').count(),0,'the bottom box gets nothing');
   await chat.getByRole('button',{name:'Remove split-drop.txt',exact:true}).click();
+  await dropFile(page,'.canvas-surface','canvas-drop.txt');
+  await dock(page).locator('.composer-attachments').getByText('canvas-drop.txt').first().waitFor();
+  assert.equal(await chat.locator('.composer-attachments').count(),0,'the open chat gets nothing');
+  await dock(page).getByRole('button',{name:'Remove canvas-drop.txt',exact:true}).click();
 
   // Back to focus; Escape closes it.
   await chat.getByRole('button',{name:'Split screen',exact:true}).click();

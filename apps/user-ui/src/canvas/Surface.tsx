@@ -36,8 +36,10 @@ export type SurfaceProps = {
   selectedChannelId?: string | null;
   /** Each area's context markers (dot and `↳` chips), from one summary request per board load. */
   areaContext?: ReadonlyMap<string, AreaContext>;
-  /** Opens an area's context panel. */
-  onAreaContext?(areaId: string): void;
+  /** Opens (or closes) an area's context popover under the control that was pressed. */
+  onAreaContext?(areaId: string, opener: HTMLElement): void;
+  /** The area whose context popover is open: its chip is expanded and its link lines are drawn. */
+  contextAreaId?: string | null;
   /**
    * Files dropped on an open card or, for editors, on an area. A file drag highlights the card or area under it.
    * Anywhere else on the canvas, file drags are left to the bottom box or the open chat.
@@ -101,7 +103,7 @@ const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + b.y) / 2});
 
 export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null,
-  onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, onDropFiles}: SurfaceProps) {
+  onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onDropFiles}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
   // Without a known human the view is not remembered, so it can never land under another person's key.
   const key = humanId ? viewKey(humanId, board.canvas.id) : null;
@@ -239,7 +241,8 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   const agentDropRef = useRef(onDropAgent); agentDropRef.current = onDropAgent;
   const [dropId, setDropId] = useState<string | null>(null);
   /** The area a pile chat would land in if dropped now. */
-  const [chatDropArea, setChatDropArea] = useState<string | null>(null);
+  const [chatDropArea, setDropArea] = useState<{id: string; kind: 'chat' | 'files'} | null>(null);
+  const setChatDropArea = (id: string | null, kind: 'chat' | 'files' = 'chat') => setDropArea(current => id ? (current?.id === id && current.kind === kind ? current : {id, kind}) : null);
   const carriesAgent = (event: ReactDragEvent) => Boolean(agentDropRef.current) && event.dataTransfer.types.includes(AGENT_DRAG_TYPE);
   const openCardAt = (event: ReactDragEvent) => {
     const id = (event.target instanceof Element ? event.target.closest<HTMLElement>('.canvas-card') : null)?.dataset.channelId;
@@ -268,7 +271,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     const cardId = event.target.closest<HTMLElement>('.canvas-card')?.dataset.channelId;
     if (cardId) return boardRef.current.cards.some(c => c.channelId === cardId && c.access === 'open') ? {kind: 'card', channelId: cardId} : null;
     const areaId = event.target.closest<HTMLElement>('.canvas-area')?.dataset.areaId;
-    return areaId && canEdit ? {kind: 'area', areaId} : null;
+    return areaId ? {kind: 'area', areaId} : null;
   };
   const ownsFiles = (event: ReactDragEvent) => carriesFiles(event) && !outsideFileDropTargets(event.target);
   function dragOver(event: ReactDragEvent<HTMLDivElement>) {
@@ -277,9 +280,10 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       if (!ownsFiles(event)) { setDropId(null); setChatDropArea(null); return; }
       event.preventDefault();
       const target = fileTargetAt(event);
-      event.dataTransfer.dropEffect = target ? 'copy' : 'none';
+      event.dataTransfer.dropEffect = target && (target.kind === 'card' || canEdit) ? 'copy' : 'none';
       setDropId(target?.kind === 'card' ? target.channelId : null);
-      setChatDropArea(target?.kind === 'area' ? target.areaId : null);
+      // A viewer's area takes no files: no highlight, and the drop only says why.
+      setChatDropArea(target?.kind === 'area' && canEdit ? target.areaId : null, 'files');
       return;
     }
     if (carriesAgent(event)) {
@@ -513,7 +517,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   const hoverLink = useCallback((areaId: string, sourceAreaId: string | null) =>
     setLinkHover(current => sourceAreaId ? {from: areaId, to: sourceAreaId} : current?.from === areaId ? null : current), []);
   const areaContextRef = useRef(onAreaContext); areaContextRef.current = onAreaContext;
-  const openAreaContext = useCallback((areaId: string) => areaContextRef.current?.(areaId), []);
+  const openAreaContext = useCallback((areaId: string, opener: HTMLElement) => areaContextRef.current?.(areaId, opener), []);
 
   const nudgeRef = useRef(onNudge); nudgeRef.current = onNudge;
   const nudge = useCallback(async (channelId: string, agent: string) => { await nudgeRef.current?.(channelId, agent); }, []);
@@ -549,7 +553,9 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   // The area a dragged card or pile chat would join if dropped now: it lights up while the pointer is over it.
   const cardTarget = movingCard && preview?.kind === 'card'
     ? areaFor(cardCentre({x: movingCard.x + preview.dx, y: movingCard.y + preview.dy, w: movingCard.w}), board.areas) : undefined;
-  const targetAreaId = cardTarget !== undefined ? cardTarget?.id ?? null : chatDropArea;
+  const dropArea: {id: string; kind: 'chat' | 'files'} | null = cardTarget !== undefined ? cardTarget ? {id: cardTarget.id, kind: 'chat'} : null : chatDropArea;
+  // Areas with a card in them; the others show their context files on a shelf.
+  const occupied = useMemo(() => new Set([...homes.values()].flatMap(area => area ? [area.id] : [])), [homes]);
   const homeOf = (card: BoardCard) => card === movingCard ? cardTarget ?? null : homes.get(card.channelId) ?? null;
   const cardShift = (card: BoardCard) =>
     preview?.kind === 'card' && preview.id === card.channelId ? preview
@@ -557,10 +563,17 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   const areaShift = (area: CanvasArea) =>
     preview?.kind === 'area' && (preview.id === area.id || preview.areas.has(area.id)) ? preview : null;
 
-  // A removed link draws nothing, even when its chip went away under the pointer.
-  const linked = linkHover && areaContext?.get(linkHover.from)?.links.some(l => l.sourceAreaId === linkHover.to);
-  const linkFrom = linked ? board.areas.find(a => a.id === linkHover.from) : undefined;
-  const linkTo = linkHover ? board.areas.find(a => a.id === linkHover.to) : undefined;
+  // A hovered chip draws its line; an open area popover draws every line to or from that area (the mock's drawRefs).
+  // Only links between areas on this canvas draw, and a removed link draws nothing, even when its chip went away under the pointer.
+  const lines = useMemo(() => {
+    const byId = new Map(board.areas.map(area => [area.id, area]));
+    const pairs = linkHover ? [linkHover] : contextAreaId ? [...(areaContext ?? new Map<string, AreaContext>())].flatMap(([from, context]) =>
+      context.links.filter(link => from === contextAreaId || link.sourceAreaId === contextAreaId).map(link => ({from, to: link.sourceAreaId}))) : [];
+    return pairs.flatMap(({from, to}) => {
+      const a = byId.get(from), b = byId.get(to);
+      return a && b && areaContext?.get(from)?.links.some(link => link.sourceAreaId === to) ? [{key: `${from}:${to}`, from: a, to: b}] : [];
+    });
+  }, [linkHover, contextAreaId, areaContext, board.areas]);
   const tile = TWIG_TILE * view.zoom;
   const classes = ['canvas-surface', tool === 'area' ? 'is-drawing' : '', spaceHeld ? 'is-panning-key' : '', preview ? 'is-gesturing' : ''].filter(Boolean).join(' ');
   return <div
@@ -590,10 +603,11 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
         const shift = areaShift(area), resize = preview?.kind === 'resize' && preview.id === area.id ? preview : null;
         if (!shift && !resize && !shownAreas.has(area.id)) return null;
         return <Area key={area.id} area={area} dx={shift?.dx ?? 0} dy={shift?.dy ?? 0} w={resize?.w ?? area.w} h={resize?.h ?? area.h}
-          canEdit={canEdit} compact={compact} summary={summaries?.get(area.id)} dropTarget={area.id === targetAreaId} onRename={rename} onDelete={remove}
+          canEdit={canEdit} compact={compact} summary={summaries?.get(area.id)} dropTarget={dropArea?.id === area.id ? dropArea.kind : null} onRename={rename} onDelete={remove}
+          empty={!occupied.has(area.id)} contextOpen={area.id === contextAreaId}
           context={areaContext?.get(area.id)} onContext={onAreaContext ? openAreaContext : undefined} onLinkHover={hoverLink}/>;
       })}
-      {linkFrom && linkTo ? <ContextLine from={linkFrom} to={linkTo}/> : null}
+      {lines.map(line => <ContextLine key={line.key} from={line.from} to={line.to}/>)}
       {preview?.kind === 'draw' ? <div className="canvas-area-draft" style={{transform: `translate(${preview.rect.x}px, ${preview.rect.y}px)`, width: Math.max(MIN_AREA, preview.rect.w), height: Math.max(MIN_AREA, preview.rect.h)}}/> : null}
       {board.cards.map(card => {
         const shift = cardShift(card), home = homeOf(card);
@@ -631,7 +645,8 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
 
 /** The dotted line from an area's title bar to the area whose context it uses, bowed so it reads as a link, not an edge. */
 function ContextLine({from, to}: {from: Rect; to: Rect}) {
-  const a = {x: from.x + Math.min(from.w / 2, 160), y: from.y + 30}, b = {x: to.x + Math.min(to.w / 2, 160), y: to.y + 30};
+  // From the using area's top edge to the source's, over its title (the mock's drawRefs), clear of the chips on both bars.
+  const a = {x: from.x + Math.min(from.w - 40, 300), y: from.y + 4}, b = {x: to.x + 60, y: to.y + 4};
   const lift = Math.max(60, Math.hypot(b.x - a.x, b.y - a.y) / 4);
   // Side by side: arch over the top. Stacked: bow out to the right.
   const control = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y)

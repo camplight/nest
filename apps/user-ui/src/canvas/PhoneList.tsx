@@ -8,6 +8,10 @@ import {needsYouItems} from './needs';
 import {useReviews} from './NeedsYou';
 import {NO_AREA,phoneGroups} from './phone';
 import type {CardPulse} from './pulse';
+import type {AreaContext} from './Area';
+import {contextLabel} from './context-label';
+import {contextFileHref} from './context-api';
+import {FileTile} from './FileTile';
 
 /** The existing phone breakpoint. */
 export const PHONE_QUERY = '(max-width: 760px)';
@@ -37,6 +41,10 @@ export type PhoneListProps = {
   projects: Project[];
   onOpenChat(channelId: string): void;
   openChannelId: string | null;
+  /** Each area's context counts, for the `◱` button in an expanded area. */
+  areaContext?: ReadonlyMap<string, AreaContext>;
+  /** Opens an area's context (a bottom sheet on phones) under the pressed button. */
+  onAreaContext?(areaId: string, opener: HTMLElement): void;
 };
 
 const agentList = (names: string[]) => names.length ? names.slice(0, 2).join(', ') + (names.length > 2 ? ` +${names.length - 2}` : '') : 'No agents';
@@ -64,7 +72,7 @@ function CardRow({card, pulse, open, onOpen}: {card: BoardCard; pulse?: CardPuls
   </li>;
 }
 
-export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, openChannelId}: PhoneListProps) {
+export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, openChannelId, areaContext, onAreaContext}: PhoneListProps) {
   const base = useId();
   const [segment, setSegment] = useState<Segment>('areas');
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
@@ -104,12 +112,24 @@ export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, o
             <span className="canvas-phone-area-title">{group.title}</span>
             <span className="canvas-phone-meta">{group.cards.length === 1 ? '1 chat' : `${group.cards.length} chats`}{waiting ? ` · ${waiting} need you` : ''}</span>
           </button>
+          {open && group.id !== NO_AREA && onAreaContext ? (() => {
+            const context = areaContext?.get(group.id);
+            const label = context ? contextLabel(context, board.canvas.role === 'view' ? 'No context' : 'Add context') : 'Context';
+            return <button type="button" className="canvas-area-ctx canvas-phone-ctx" aria-haspopup="dialog" aria-label={`Context for ${group.title}: ${label}`}
+              onClick={event => onAreaContext(group.id, event.currentTarget)}><span aria-hidden="true">◱</span> {label}</button>;
+          })() : null}
           {open ? group.cards.length
             ? <ul id={listId} className="canvas-phone-rows" aria-label={group.id === NO_AREA ? 'Chats not in an area' : `Chats in ${group.title}`}>
               {group.cards.map(card => <CardRow key={card.channelId} card={card} pulse={card.access === 'open' ? pulses.get(card.channelId) : undefined}
                 open={card.channelId === openChannelId} onOpen={onOpenChat}/>)}
             </ul>
-            : <p id={listId} className="canvas-phone-empty">No chats in this area yet.</p> : null}
+            : <>
+              <p id={listId} className="canvas-phone-empty">No chats in this area yet.</p>
+              {/* As on the canvas, an area with no chats shows its context files. */}
+              {areaContext?.get(group.id)?.files.length ? <ul className="canvas-file-tiles canvas-phone-shelf" aria-label={`Files in ${group.title}`}>
+                {areaContext.get(group.id)!.files.map(file => <FileTile key={file.id} name={file.name} mime={file.mime} href={contextFileHref(board.canvas.id, file.id)}/>)}
+              </ul> : null}
+            </> : null}
         </li>;
       })}
     </ul> : <p className="canvas-phone-empty">Nothing on this canvas yet. Start a chat below, or lay out chats on a larger screen.</p>;

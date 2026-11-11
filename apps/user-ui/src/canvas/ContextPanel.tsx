@@ -1,25 +1,33 @@
-// The context side panel: notes, files and linked areas for the canvas or one area. It sits where a
-// split-screen chat would. Notes are a plain textarea (no rich text, spec section 4); edits never post to a chat.
-import {useCallback,useEffect,useRef,useState,type DragEvent} from 'react';
+// The context popover: notes, files and linked areas for the canvas or one area, anchored under the control that
+// opened it (an area's `◱` chip, a `↳` chip, the chat header's "sees N contexts" or the Canvas context button). It
+// floats over the canvas, so an open chat stays open beside it; on phones it is a bottom sheet. Notes are a plain
+// textarea (no rich text, spec section 4); edits never post to a chat.
+import {useCallback,useEffect,useLayoutEffect,useRef,useState,type CSSProperties,type DragEvent} from 'react';
 import {MAX_LINKS_PER_AREA,type ContextReader,type ScopeContext} from '@nest/schemas';
-import {formatAttachmentSize,type PendingAttachment} from '../attachments';
+import type {PendingAttachment} from '../attachments';
 import {ChatAttachments} from '../components/ChatAttachments';
 import {
   addContextLink,contextFileHref,deleteContextFile,errorText,getContext,getContextReaders,getContextSources,
   putNotes,putNotesKeepalive,removeContextLink,uploadContextFile,type ContextSource,type PanelScope,
 } from './context-api';
 import {useNotesAutosave} from './notes-autosave';
+import {contextLabel,linkDetail,linkElsewhere,usedByList} from './context-label';
+import {FileTile} from './FileTile';
 
 export const CONTEXT_WARNING = 'Everyone in these chats, including their agents, can see this.';
 
 export type ContextPanelProps = {
   canvasId: string;
+  /** This canvas's name: the canvas scope's heading, and the picker's "On {canvas}" group. */
+  canvasName: string;
   scope: PanelScope;
+  /** The control that opened the popover: it sits under it, and focus goes back to it on close. */
+  anchor: HTMLElement | null;
   /** The area's title (area scope) for the heading. */
   title?: string;
   /** False for view-only members: everything shows, nothing changes. */
   canEdit: boolean;
-  /** Files dropped on this area from the canvas: uploaded through the Files section once the panel has loaded. A new id is a new drop. */
+  /** Files dropped on this area while its popover is open: uploaded here, with progress, once it has loaded. A new id is a new drop. */
   dropped?: {id: number; files: File[]} | null;
   /** The scope holds a chat card, so its people and agents can see this context. */
   holdsChat: boolean;
@@ -30,7 +38,12 @@ export type ContextPanelProps = {
 
 const carriesFiles = (event: DragEvent) => Array.from(event.dataTransfer.types).includes('Files');
 
-export function ContextPanel({canvasId, scope, title, canEdit, dropped, holdsChat, onChanged, onClose}: ContextPanelProps) {
+/** Room kept between the popover and the window's edges, and between it and its opener. */
+const EDGE = 16, GAP = 8;
+/** Phones get a bottom sheet instead (the 760 px canvas breakpoint, see canvas.css). */
+const SHEET_QUERY = '(max-width: 760px)';
+
+export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdit, dropped, holdsChat, onChanged, onClose}: ContextPanelProps) {
   const areaId = scope.kind === 'area' ? scope.areaId : null;
   const [context, setContext] = useState<ScopeContext | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -72,22 +85,52 @@ export function ContextPanel({canvasId, scope, title, canEdit, dropped, holdsCha
     // The panel is keyed by scope, so it loads once.
   }, []);
 
-  // Focus moves to the heading on open. On close it returns to the opener: the Canvas context button, or the
-  // area's options button (its Context… item is gone with the menu), else the canvas.
-  const panelRef = useRef<HTMLElement>(null);
+  // Focus moves to the heading on open. On close it returns to the opener, else to what was focused before, else the canvas.
+  const panelRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const anchorRef = useRef(anchor); anchorRef.current = anchor;
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
     headingRef.current?.focus({preventScroll: true});
     return () => {
       const view = panelRef.current?.closest<HTMLElement>('.canvas-view') ?? document;
-      const opener = areaId
-        ? view.querySelector<HTMLElement>(`.canvas-area[data-area-id="${CSS.escape(areaId)}"] .canvas-area-more`)
-        : view.querySelector<HTMLElement>('.canvas-context-button');
-      const target = [previous, opener, view.querySelector<HTMLElement>('.canvas-surface')].find(element => element?.isConnected);
-      // A chat opening in this slot takes focus itself, after this cleanup.
+      const target = [anchorRef.current, previous, view.querySelector<HTMLElement>('.canvas-surface')].find(element => element?.isConnected);
       target?.focus({preventScroll: true});
     };
+  }, []);
+
+  // Anchored under the opener and kept inside the window (the mock's openCtx): flipped above it when there is no
+  // room below. Re-measured when the popover's content or the window changes size; phones use a bottom sheet.
+  const [place, setPlace] = useState<{left: number; top: number} | null>(null);
+  useLayoutEffect(() => {
+    const element = panelRef.current;
+    if (!element) return;
+    const measure = () => {
+      if (typeof matchMedia === 'function' && matchMedia(SHEET_QUERY).matches) { setPlace(null); return; }
+      const box = element.getBoundingClientRect(), at = anchorRef.current?.isConnected ? anchorRef.current.getBoundingClientRect() : null;
+      const width = box.width, height = box.height, maxLeft = window.innerWidth - width - EDGE, maxTop = window.innerHeight - height - EDGE;
+      const left = Math.max(EDGE, Math.min(maxLeft, at ? at.left : (window.innerWidth - width) / 2));
+      const below = at ? at.bottom + GAP : EDGE * 4, above = at ? at.top - GAP - height : -1;
+      const top = below <= maxTop ? below : above >= EDGE ? above : Math.max(EDGE, maxTop);
+      setPlace(current => current?.left === left && current.top === top ? current : {left, top});
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    observer?.observe(element);
+    window.addEventListener('resize', measure);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
+  }, [anchor]);
+
+  // A press anywhere outside closes it; the opener toggles it itself.
+  const closeRef = useRef(onClose); closeRef.current = onClose;
+  useEffect(() => {
+    const outside = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target || panelRef.current?.contains(target) || anchorRef.current?.contains(target)) return;
+      closeRef.current();
+    };
+    window.addEventListener('pointerdown', outside, true);
+    return () => window.removeEventListener('pointerdown', outside, true);
   }, []);
 
   function addFiles(files: File[]) {
@@ -164,18 +207,17 @@ export function ContextPanel({canvasId, scope, title, canEdit, dropped, holdsCha
     }
   }
 
-  const heading = scope.kind === 'canvas' ? 'Canvas context' : title || 'Untitled area';
+  const name = scope.kind === 'canvas' ? canvasName || 'this canvas' : title || 'Untitled area';
   const label = scope.kind === 'canvas' ? 'Canvas context' : `Context for ${title || 'Untitled area'}`;
   const linked = new Set(context?.links.map(l => l.sourceAreaId) ?? []);
   const choices = (sources ?? []).filter(source => source.areaId !== areaId && !linked.has(source.areaId));
-  const groups = [...new Set(choices.map(c => c.canvasId))].map(id => ({name: choices.find(c => c.canvasId === id)!.canvasName, areas: choices.filter(c => c.canvasId === id)}));
-  const usedBy = context?.usedBy ?? [];
-  const usedByNames = usedBy.flatMap(use => use.title === null ? [] : [use.title || 'Untitled area']);
-  const hiddenUses = usedBy.length - usedByNames.length;
+  const here = choices.filter(choice => choice.canvasId === canvasId), elsewhere = choices.filter(choice => choice.canvasId !== canvasId);
+  const usedBy = usedByList(context?.usedBy ?? []);
   const unconfigured = readers?.some(reader => reader.state === 'unconfigured');
+  const style = place ? {'--context-left': `${place.left}px`, '--context-top': `${place.top}px`} as CSSProperties : undefined;
 
-  return <aside ref={panelRef} className={`canvas-context${dropping ? ' is-dropping' : ''}`} aria-label={label}
-    // Escape folds the area picker first, then closes the panel.
+  return <div ref={panelRef} role="dialog" className={`canvas-context${dropping ? ' is-dropping' : ''}${place ? ' is-placed' : ''}`} aria-label={label} style={style}
+    // Escape folds the area picker first, then closes the popover.
     onKeyDown={event => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       event.preventDefault();
@@ -184,12 +226,11 @@ export function ContextPanel({canvasId, scope, title, canEdit, dropped, holdsCha
     onDragOver={event => { if (canEdit && carriesFiles(event)) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDropping(true); } }}
     onDragLeave={event => { if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) setDropping(false); }}
     onDrop={drop}>
-    <header className="canvas-context-bar">
-      <div className="canvas-context-heading">
-        {scope.kind === 'area' ? <span className="canvas-context-eyebrow">Context</span> : null}
-        <h2 ref={headingRef} tabIndex={-1}>{heading}</h2>
-      </div>
-      <button type="button" className="canvas-chat-action" onClick={onClose}>Close</button>
+    <header className="canvas-context-head">
+      <h2 ref={headingRef} tabIndex={-1}>Context · {name}</h2>
+      <p className="canvas-context-explainer">
+        {scope.kind === 'canvas' ? 'Every chat on this canvas sees this.' : 'Every chat in this area sees this, on top of the canvas context.'} Agents read it as files.
+      </p>
     </header>
     <div className="canvas-context-body">
       {loadFailed ? <p className="canvas-context-error" role="alert">Could not load this context. Close and try again.</p> : !context ? <p className="canvas-context-muted">Loading…</p> : <>
@@ -198,12 +239,12 @@ export function ContextPanel({canvasId, scope, title, canEdit, dropped, holdsCha
 
         <section className="canvas-context-section">
           <div className="canvas-context-section-head">
-            <h3>Notes</h3>
+            <h3 className="canvas-context-label">Notes</h3>
             {canEdit ? <span className="canvas-context-status" role="status">
               {status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : status === 'error' ? 'Not saved' : ''}
             </span> : null}
           </div>
-          <textarea className="canvas-context-notes" aria-label="Notes" value={notes} readOnly={!canEdit} maxLength={20_000}
+          <textarea className="canvas-context-notes" aria-label="Notes" value={notes} readOnly={!canEdit} maxLength={20_000} rows={3}
             placeholder={canEdit ? 'What should everyone here know?' : ''} onChange={event => autosave.type(event.target.value)}
             onBlur={() => { if (canEdit) void autosave.flush(); }}/>
           {conflict ? <div className="canvas-context-conflict" role="alert">
@@ -217,59 +258,56 @@ export function ContextPanel({canvasId, scope, title, canEdit, dropped, holdsCha
         </section>
 
         <section className="canvas-context-section">
-          <div className="canvas-context-section-head">
-            <h3>Files</h3>
-            {canEdit ? <>
-              <button type="button" className="canvas-chat-action" onClick={() => fileInput.current?.click()}>Add files</button>
-              <input ref={fileInput} className="composer-file-input" type="file" multiple hidden
-                onChange={event => { addFiles(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ''; }}/>
-            </> : null}
-          </div>
-          {context.files.length ? <ul className="canvas-context-list">
-            {context.files.map(file => <li key={file.id} className="canvas-context-file">
-              <a href={contextFileHref(canvasId, file.id)} download={file.name}>{file.name}</a>
-              <span className="canvas-context-muted">{formatAttachmentSize(file.size) ?? ''}</span>
-              {canEdit ? <button type="button" className="canvas-context-remove" aria-label={`Remove ${file.name}`} onClick={() => void removeFile(file.id, file.name)}>Remove</button> : null}
-            </li>)}
-          </ul> : !uploads.length ? <p className="canvas-context-muted">{canEdit ? 'No files yet. Add some or drop them here.' : 'No files.'}</p> : null}
+          <h3 className="canvas-context-label">Files</h3>
+          {context.files.length ? <ul className="canvas-file-tiles" aria-label="Files">
+            {context.files.map(file => <FileTile key={file.id} name={file.name} mime={file.mime} href={contextFileHref(canvasId, file.id)}
+              onRemove={canEdit ? () => void removeFile(file.id, file.name) : undefined}/>)}
+          </ul> : !uploads.length ? <p className="canvas-context-muted">{canEdit ? 'No files yet. Drop some here or use Add files.' : 'No files.'}</p> : null}
           <ChatAttachments items={uploads} error={fileError} onRemove={id => setUploads(current => current.filter(row => row.localId !== id))}/>
         </section>
 
         {scope.kind === 'area' ? <section className="canvas-context-section">
-          <div className="canvas-context-section-head">
-            <h3>Linked areas</h3>
-            {canEdit && context.links.length < MAX_LINKS_PER_AREA
-              ? <button type="button" className="canvas-chat-action" aria-expanded={picker} onClick={togglePicker}>Use context from another area</button> : null}
-          </div>
+          <h3 className="canvas-context-label">Also uses</h3>
+          {context.links.length ? <ul className="canvas-context-refs">
+            {context.links.map(link => {
+              const detail = linkDetail(link, canvasId), other = linkElsewhere(link, canvasId);
+              return <li key={link.sourceAreaId} className={`canvas-context-ref${link.available ? '' : ' is-unavailable'}`}>
+                <span className="canvas-context-ref-icon" data-kind={other ? 'canvas' : 'area'} aria-hidden="true">{other ? '↗' : '↳'}</span>
+                <span className="canvas-context-ref-text">
+                  <span className="canvas-context-ref-title">{link.title}</span>
+                  {detail ? <small className={link.available ? undefined : 'canvas-context-tag'}>{detail}</small> : null}
+                </span>
+                {canEdit ? <button type="button" className="canvas-context-unlink" aria-label={`Stop using ${link.title}`} title="Stop using" onClick={() => void unlink(link.sourceAreaId)}>
+                  <span aria-hidden="true">✕</span>
+                </button> : null}
+              </li>;
+            })}
+          </ul> : <p className="canvas-context-muted">Nothing linked.{canEdit ? ' Link another area instead of copying its files here.' : ''}</p>}
+          {canEdit && context.links.length < MAX_LINKS_PER_AREA
+            ? <button type="button" className="canvas-context-add" aria-expanded={picker} onClick={togglePicker}>+ Use context from another area</button> : null}
           {picker ? <div className="canvas-context-picker" role="group" aria-label="Areas you can use">
             {sources === null ? <p className="canvas-context-muted">Loading areas…</p>
-              : !groups.length ? <p className="canvas-context-muted">No other areas to use yet.</p>
-              : groups.map(group => <div key={group.name + group.areas[0].canvasId} className="canvas-context-picker-group">
-                {group.areas.map(source => <button key={source.areaId} type="button" onClick={() => void link(source.areaId)}>
+              : !choices.length ? <p className="canvas-context-muted">No other areas to use yet.</p>
+              : <>
+                {here.length ? <p className="canvas-context-picker-group">On {canvasName || 'this canvas'}</p> : null}
+                {here.map(source => <button key={source.areaId} type="button" onClick={() => void link(source.areaId)}>
                   <span className="canvas-context-picker-title">{source.title || 'Untitled area'}</span>
-                  <span className="canvas-context-picker-canvas">{source.canvasName}</span>
+                  <small>{contextLabel(source.counts, 'Nothing yet')}</small>
                 </button>)}
-              </div>)}
+                {elsewhere.length ? <p className="canvas-context-picker-group">Other canvases</p> : null}
+                {elsewhere.map(source => <button key={source.areaId} type="button" onClick={() => void link(source.areaId)}>
+                  <span className="canvas-context-picker-title">{source.canvasName} › {source.title || 'Untitled area'}</span>
+                  <small>{contextLabel(source.counts, 'Nothing yet')}</small>
+                </button>)}
+              </>}
           </div> : null}
           {linkError ? <p className="canvas-context-error" role="alert">{linkError}</p> : null}
-          {context.links.length ? <ul className="canvas-context-list">
-            {context.links.map(link => <li key={link.sourceAreaId} className={`canvas-context-link${link.available ? '' : ' is-unavailable'}`}>
-              <span className="canvas-context-chip">↳ {link.title}</span>
-              {link.canvasName ? <span className="canvas-context-muted">{link.canvasName}</span> : null}
-              {link.available ? null : <span className="canvas-context-tag">unavailable</span>}
-              {canEdit ? <button type="button" className="canvas-context-remove" aria-label={`Remove link to ${link.title}`} onClick={() => void unlink(link.sourceAreaId)}>Remove</button> : null}
-            </li>)}
-          </ul> : !picker ? <p className="canvas-context-muted">This area uses only its own context.</p> : null}
-          {usedBy.length ? <p className="canvas-context-used">
-            {usedByNames.length
-              ? `Used by ${usedByNames.join(', ')}${hiddenUses ? ` and ${hiddenUses} more` : ''}`
-              : `Used by ${hiddenUses} ${hiddenUses === 1 ? 'area' : 'areas'} you can't open`}
-          </p> : null}
+          {usedBy ? <p className="canvas-context-used">Used by {usedBy}. Changes here reach them right away.</p> : null}
         </section> : null}
 
         {scope.kind === 'area' && readers?.length ? <section className="canvas-context-section">
-          <h3>Agents</h3>
-          <ul className="canvas-context-list canvas-context-readers">
+          <h3 className="canvas-context-label">Agents</h3>
+          <ul className="canvas-context-readers">
             {readers.filter(reader => reader.state !== 'unconfigured').map(reader => <li key={reader.agentName}>
               {reader.state === 'ready' ? `${reader.agentName} can read this` : `${reader.agentName} can't read context yet (wrapped agent)`}
             </li>)}
@@ -278,5 +316,13 @@ export function ContextPanel({canvasId, scope, title, canEdit, dropped, holdsCha
         </section> : null}
       </>}
     </div>
-  </aside>;
+    <footer className="canvas-context-foot">
+      {canEdit && context ? <>
+        <button type="button" className="canvas-chat-action" onClick={() => fileInput.current?.click()}>Add files</button>
+        <input ref={fileInput} className="composer-file-input" type="file" multiple hidden
+          onChange={event => { addFiles(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ''; }}/>
+      </> : null}
+      <button type="button" className="canvas-button canvas-context-done" onClick={onClose}>Done</button>
+    </footer>
+  </div>;
 }

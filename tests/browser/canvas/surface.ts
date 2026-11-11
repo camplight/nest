@@ -155,10 +155,11 @@ await runChatTest('canvas surface: two editors move the same card and the stale 
   assert.equal(await theirs.getAttribute('data-drag'),null);
   await mate.page.locator('[aria-label="Area Review"]').waitFor();
   assert.equal(await mate.page.locator('[aria-label="Area Review"] [data-drag]').count(),0);
-  // A viewer's area menu offers the (read-only) context only.
-  await mate.page.locator('[aria-label="Area Review"]').getByRole('button',{name:'Area options',exact:true}).click();
-  await mate.page.locator('[aria-label="Area Review"]').getByRole('button',{name:'Context…',exact:true}).waitFor();
+  // A viewer has no area menu (it holds only Rename and Delete); the area's context chip still opens it read-only.
+  assert.equal(await mate.page.locator('[aria-label="Area Review"]').getByRole('button',{name:'Area options',exact:true}).count(),0);
   assert.equal(await mate.page.getByRole('button',{name:/^(Rename|Delete) area$/}).count(),0);
+  await mate.page.locator('[aria-label="Area Review"]').getByRole('button',{name:/^Context for Review: /}).click();
+  await mate.page.getByRole('dialog',{name:'Context for Review',exact:true}).getByText('You can view this canvas but not change it.',{exact:true}).waitFor();
 // Wide enough that the card and area fit at 100% beside the Loose chats pile, so screen and canvas pixels match.
 },{canvas:true,viewport:{width:1760,height:900}});
 
@@ -221,8 +222,6 @@ await runChatTest('canvas surface: a released press never resumes, and the area 
   assert.equal(await trigger.getAttribute('aria-expanded'),'true');
   const focused=()=>page.evaluate(()=>document.activeElement?.getAttribute('aria-label')||document.activeElement?.textContent?.trim()||'');
   await page.keyboard.press('Tab');
-  assert.equal(await focused(),'Context…');
-  await page.keyboard.press('Tab');
   assert.equal(await focused(),'Rename area');
   await page.keyboard.press('Tab');
   assert.equal(await focused(),'Delete area');
@@ -231,7 +230,6 @@ await runChatTest('canvas surface: a released press never resumes, and the area 
   assert.equal(await trigger.getAttribute('aria-expanded'),'false');
 
   await page.keyboard.press('Enter');
-  await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
   const removed=page.waitForResponse(r=>r.request().method()==='DELETE'&&r.url().includes(`/api/canvases/${id}/areas/`));

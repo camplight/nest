@@ -1,4 +1,4 @@
-// Canvas context (Phase 2 Task 5): the context panel, ↳ link chips and link lines on the real engine, API and WS. Synthetic data.
+// Canvas context (Phase 2): the anchored context popover, area chips, shelves, ↳ link chips and link lines on the real engine, API and WS. Synthetic data.
 import assert from 'node:assert/strict';
 import type {Page} from 'playwright';
 import {agentName,runChatTest,type ChatHarness} from '../support/chat-harness';
@@ -15,13 +15,16 @@ async function openCanvas(page:Page,base:string,id:string){
   await page.locator('.canvas-surface .canvas-world').waitFor({state:'attached'});
 }
 const areaOf=(page:Page,title:string)=>page.getByRole('region',{name:`Area ${title}`,exact:true});
+/** The area's `◱` chip: one click opens its context popover. */
+const chipOf=(page:Page,title:string)=>areaOf(page,title).getByRole('button',{name:new RegExp(`^Context for ${title}: `)});
 async function openAreaContext(page:Page,title:string){
-  await areaOf(page,title).getByRole('button',{name:'Area options',exact:true}).click();
-  await areaOf(page,title).getByRole('button',{name:'Context…',exact:true}).click();
-  const panel=page.getByRole('complementary',{name:`Context for ${title}`,exact:true});
+  await chipOf(page,title).click();
+  const panel=page.getByRole('dialog',{name:`Context for ${title}`,exact:true});
   await panel.waitFor();
   return panel;
 }
+const canvasButton=(page:Page)=>page.getByRole('button',{name:/^Canvas context/});
+const canvasPopover=(page:Page)=>page.getByRole('dialog',{name:'Canvas context',exact:true});
 const WARNING='Everyone in these chats, including their agents, can see this.';
 /** The focused element, described for assertions. */
 const focused=(page:Page)=>page.evaluate(()=>{
@@ -50,11 +53,11 @@ await runChatTest('canvas context: notes, files, links, used by, view-only and n
   assert.equal(summaries.length,1,`one summary request per board load: ${summaries.length}`);
 
   // Canvas context: notes autosave and persist across a reload.
-  await page.getByRole('button',{name:'Canvas context',exact:true}).click();
-  const canvasPanel=page.getByRole('complementary',{name:'Canvas context',exact:true});
+  await canvasButton(page).click();
+  const canvasPanel=canvasPopover(page);
   await canvasPanel.waitFor();
   // Focus moves into the panel, onto its heading.
-  assert.deepEqual(await focused(page).then(f=>[f.tag,f.text,f.inPanel]),['H2','Canvas context',true]);
+  assert.deepEqual(await focused(page).then(f=>[f.tag,f.text,f.inPanel]),['H2','Context · Roadmap',true]);
   await canvasPanel.getByText(WARNING,{exact:true}).waitFor();
   const saved=page.waitForResponse(response=>response.request().method()==='PUT'&&new URL(response.url()).pathname===`/api/canvases/${roadmap}/context`);
   await canvasPanel.getByRole('textbox',{name:'Notes',exact:true}).fill('Launch on Friday. Keep the copy short.');
@@ -62,8 +65,8 @@ await runChatTest('canvas context: notes, files, links, used by, view-only and n
   await canvasPanel.getByText('Saved',{exact:true}).waitFor();
   await page.reload();
   await page.locator('.canvas-surface .canvas-world').waitFor({state:'attached'});
-  await page.getByRole('button',{name:'Canvas context',exact:true}).click();
-  const reloaded=page.getByRole('complementary',{name:'Canvas context',exact:true}).getByRole('textbox',{name:'Notes',exact:true});
+  await canvasButton(page).click();
+  const reloaded=canvasPopover(page).getByRole('textbox',{name:'Notes',exact:true});
   await page.waitForFunction(()=>(document.querySelector('.canvas-context textarea') as HTMLTextAreaElement|null)?.value==='Launch on Friday. Keep the copy short.');
   assert.equal(await reloaded.inputValue(),'Launch on Friday. Keep the copy short.');
   // Someone else saves first: the stale write shows the conflict and their version can be loaded.
@@ -72,7 +75,7 @@ await runChatTest('canvas context: notes, files, links, used by, view-only and n
   const conflicted=page.waitForResponse(response=>response.request().method()==='PUT'&&new URL(response.url()).pathname===`/api/canvases/${roadmap}/context`);
   await reloaded.fill('Launch on Friday. Keep the copy short and plain.');
   assert.equal((await conflicted).status(),409);
-  const reloadedPanel=page.getByRole('complementary',{name:'Canvas context',exact:true});
+  const reloadedPanel=canvasPopover(page);
   await reloadedPanel.getByText('Someone else changed these notes.',{exact:true}).waitFor();
   await reloadedPanel.getByRole('button',{name:'Load their version',exact:true}).click();
   assert.equal(await reloaded.inputValue(),'Launch moved to Monday.');
@@ -85,35 +88,72 @@ await runChatTest('canvas context: notes, files, links, used by, view-only and n
   const flushed=page.waitForResponse(response=>response.request().method()==='PUT'&&new URL(response.url()).pathname===`/api/canvases/${roadmap}/context`);
   await reloaded.fill('Launch moved to Monday. Bring the deck.');
   assert.equal(puts.length,0,'no save before the autosave delay');
-  await reloadedPanel.getByRole('button',{name:'Close',exact:true}).click();
+  await reloadedPanel.getByRole('button',{name:'Done',exact:true}).click();
   assert.equal((await flushed).status(),200);
   page.off('request',countPut);
   await reloadedPanel.waitFor({state:'detached'});
   // Focus returns to the button that opened the panel.
-  assert.deepEqual(await focused(page).then(f=>[f.tag,f.text]),['BUTTON','Canvas context']);
+  assert.deepEqual(await focused(page).then(f=>[f.tag,f.text.startsWith('Canvas context')]),['BUTTON',true]);
   await page.reload();
   await page.locator('.canvas-surface .canvas-world').waitFor({state:'attached'});
-  await page.getByRole('button',{name:'Canvas context',exact:true}).click();
+  await canvasButton(page).click();
   await notesValue(page,'Launch moved to Monday. Bring the deck.');
 
   // A reload inside the window: the leaving page sends the save with keepalive.
   await reloaded.fill('Launch moved to Monday. Bring the deck and the brief.');
   await page.reload();
   await page.locator('.canvas-surface .canvas-world').waitFor({state:'attached'});
-  await page.getByRole('button',{name:'Canvas context',exact:true}).click();
+  await canvasButton(page).click();
   await notesValue(page,'Launch moved to Monday. Bring the deck and the brief.');
-  // Escape closes the panel and gives focus back to its opener.
-  await reloadedPanel.getByRole('heading',{name:'Canvas context',exact:true}).waitFor();
+  // Escape closes the popover and gives focus back to its opener.
+  await reloadedPanel.getByRole('heading',{name:'Context · Roadmap',exact:true}).waitFor();
   await page.keyboard.press('Escape');
   await reloadedPanel.waitFor({state:'detached'});
-  assert.deepEqual(await focused(page).then(f=>[f.tag,f.text]),['BUTTON','Canvas context']);
+  assert.deepEqual(await focused(page).then(f=>[f.tag,f.text.startsWith('Canvas context')]),['BUTTON',true]);
 
-  // The area panel: focus on its heading, and Escape returns it to the area's options button.
+  // The area chip reads the counts (nothing yet: an invitation), and one click opens the popover under it.
+  assert.equal(await chipOf(page,'Launch').textContent(),'◱ Add context');
+  assert.equal(await chipOf(page,'Launch').getAttribute('title'),'Notes and files every chat in this area can see');
+  assert.equal(await areaOf(page,'Launch').getByRole('button',{name:'Context…'}).count(),0,'no Context… menu item any more');
   const first=await openAreaContext(page,'Launch');
-  assert.deepEqual(await focused(page).then(f=>[f.tag,f.text,f.inPanel]),['H2','Launch',true]);
+  assert.deepEqual(await focused(page).then(f=>[f.tag,f.text,f.inPanel]),['H2','Context · Launch',true]);
+  await first.getByText('Every chat in this area sees this, on top of the canvas context. Agents read it as files.',{exact:true}).waitFor();
+  // Anchored under the chip, inside the window.
+  const chipBox=(await chipOf(page,'Launch').boundingBox())!, popBox=(await first.boundingBox())!;
+  assert.ok(popBox.y>=chipBox.y+chipBox.height&&popBox.y<chipBox.y+chipBox.height+24,`popover under the chip: ${popBox.y} vs ${chipBox.y+chipBox.height}`);
+  assert.ok(popBox.x>=16&&popBox.x+popBox.width<=page.viewportSize()!.width-16,'popover inside the window');
+  assert.equal(await chipOf(page,'Launch').getAttribute('aria-expanded'),'true');
   await page.keyboard.press('Escape');
   await first.waitFor({state:'detached'});
-  assert.deepEqual(await focused(page).then(f=>[f.label,f.area]),['Area options','Area Launch']);
+  assert.deepEqual(await focused(page).then(f=>[f.label.startsWith('Context for Launch:'),f.area]),[true,'Area Launch']);
+  // An outside click closes it too.
+  await openAreaContext(page,'Launch');
+  await page.locator('.canvas-surface').click({position:{x:20,y:20}});
+  await first.waitFor({state:'detached'});
+
+  // One click with a chat open: the popover opens beside it, and the chat stays open.
+  await page.locator(`.canvas-card[data-channel-id="${h.project.channelId}"] .canvas-card-title`).click();
+  const chat=page.locator('.canvas-chat');
+  await chat.waitFor();
+  await chat.getByRole('button',{name:'Split screen',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('.canvas-chat')?.getAttribute('data-mode')==='split');
+  // The chat's sub-line: its faces, then where it is and how many contexts it sees (the canvas and Launch).
+  const sub=page.locator('.canvas-chat-sub');
+  await sub.getByText('in Launch ·',{exact:true}).waitFor();
+  await sub.getByRole('button',{name:'sees 2 contexts',exact:true}).waitFor();
+  assert.equal(await sub.getByRole('button',{name:'sees 2 contexts',exact:true}).getAttribute('title'),'Sees: Roadmap, Launch');
+  assert.match(await sub.getByRole('img').getAttribute('aria-label')??'',new RegExp(`^In this chat: .*${agentName}`));
+  await openAreaContext(page,'Launch');
+  assert.equal(await chat.isVisible(),true,'opening context leaves the chat open');
+  await first.getByRole('button',{name:'Done',exact:true}).click();
+  await first.waitFor({state:'detached'});
+  // The sub-line's count opens the same popover, under itself; the chat still stays.
+  await sub.getByRole('button',{name:'sees 2 contexts',exact:true}).click();
+  await first.waitFor();
+  assert.equal(await chat.isVisible(),true);
+  await page.keyboard.press('Escape');
+  await first.waitFor({state:'detached'});
+  assert.equal(await chat.isVisible(),true,'Escape closes only the popover');
 
   // Area context: the warning (Launch holds the harness chat), then an upload with progress.
   const panel=await openAreaContext(page,'Launch');
@@ -127,44 +167,78 @@ await runChatTest('canvas context: notes, files, links, used by, view-only and n
   hold.release();
   await panel.getByRole('link',{name:'brief.txt',exact:true}).waitFor();
   await panel.getByRole('progressbar').waitFor({state:'detached'});
-  await areaOf(page,'Launch').locator('.canvas-area-context-dot').waitFor();
-  assert.equal(await areaOf(page,'Research').locator('.canvas-area-context-dot').count(),0,'an area without notes or files has no dot');
+  await areaOf(page,'Launch').getByRole('button',{name:'Context for Launch: 1 file',exact:true}).waitFor();
+  assert.equal(await chipOf(page,'Research').textContent(),'◱ Add context','an area without notes or files invites some');
+  // Launch holds a chat, so its files stay in the popover rather than on a shelf.
+  assert.equal(await areaOf(page,'Launch').locator('.canvas-area-shelf').count(),0);
 
   // Readers: the harness server has no service token, so agents cannot be given context keys.
   await panel.getByText("Agents can't read context on this server yet",{exact:true}).waitFor();
 
   // Links: an area on another canvas, and one on this canvas.
+  const addArea=panel.getByRole('button',{name:'+ Use context from another area',exact:true});
+  await panel.getByText('Nothing linked. Link another area instead of copying its files here.',{exact:true}).waitFor();
+  const picker=panel.getByRole('group',{name:'Areas you can use',exact:true});
   const link=async(title:string)=>{
-    await panel.getByRole('button',{name:'Use context from another area',exact:true}).click();
-    await panel.getByRole('group',{name:'Areas you can use',exact:true}).getByRole('button',{name:new RegExp(`^${title}\\b`)}).click();
-    await panel.getByRole('listitem').filter({hasText:`↳ ${title}`}).waitFor();
+    await addArea.click();
+    await picker.locator('button').filter({hasText:title}).click();
+    await panel.locator('.canvas-context-ref').filter({hasText:title}).waitFor();
   };
+  // The picker groups this canvas's areas and the other canvases', each with its counts.
+  await addArea.click();
+  await picker.getByText('On Roadmap',{exact:true}).waitFor();
+  await picker.getByText('Other canvases',{exact:true}).waitFor();
+  assert.deepEqual(await picker.locator('.canvas-context-picker-title').allInnerTexts(),['Research','Brand › Brand kit']);
+  assert.deepEqual(await picker.locator('button small').allInnerTexts(),['Nothing yet','Nothing yet']);
+  await addArea.click();
   await link('Brand kit');
   const bar=areaOf(page,'Launch').locator('.canvas-area-bar');
-  await bar.getByRole('button',{name:'↳ Brand kit',exact:true}).waitFor();
+  // Brand kit lives on another canvas: `↗`, with the canvas in the tooltip, and "on Brand" in its row.
+  const brandChip=bar.getByRole('button',{name:'↗ Brand kit',exact:true});
+  await brandChip.waitFor();
+  assert.equal(await brandChip.getAttribute('title'),"Uses Brand › Brand kit's context (linked, not copied)");
+  await panel.locator('.canvas-context-ref').filter({hasText:'Brand kit'}).getByText('on Brand · Nothing yet',{exact:true}).waitFor();
   // The picker leaves out this area and areas already linked.
-  await panel.getByRole('button',{name:'Use context from another area',exact:true}).click();
-  const picker=panel.getByRole('group',{name:'Areas you can use',exact:true});
+  await addArea.click();
   await picker.waitFor();
-  assert.deepEqual((await picker.getByRole('button').allInnerTexts()).map(text=>text.split('\n')[0].trim()),['Research']);
-  await panel.getByRole('button',{name:'Use context from another area',exact:true}).click();
+  assert.deepEqual(await picker.locator('.canvas-context-picker-title').allInnerTexts(),['Research']);
+  await addArea.click();
   await link('Research');
   const chip=bar.getByRole('button',{name:'↳ Research',exact:true});
   await chip.waitFor();
-  assert.equal(await page.locator('.canvas-context-line').count(),0,'no link line until a chip is hovered');
+  // The open chat now sees the canvas, Launch and both linked areas.
+  await sub.getByRole('button',{name:'sees 4 contexts',exact:true}).waitFor();
+  // While Launch's popover is open its line to Research (on this canvas) is drawn, as in the mock.
+  await page.locator('.canvas-context-line').waitFor();
+  await panel.getByRole('button',{name:'Done',exact:true}).click();
+  await panel.waitFor({state:'detached'});
+  assert.equal(await page.locator('.canvas-context-line').count(),0,'no link line once closed, until a chip is hovered');
   await chip.hover();
   await page.locator('.canvas-context-line').waitFor();
-  await bar.getByRole('button',{name:'↳ Brand kit',exact:true}).hover();
+  await brandChip.hover();
   // Brand kit is on another canvas: no line to draw.
   await page.locator('.canvas-context-line').waitFor({state:'detached'});
-  // Remove takes a link off again.
-  await panel.getByRole('button',{name:'Remove link to Research',exact:true}).click();
+  // ✕ stops using a link again.
+  await openAreaContext(page,'Launch');
+  await panel.getByRole('button',{name:'Stop using Research',exact:true}).click();
   await chip.waitFor({state:'detached'});
+  await sub.getByRole('button',{name:'sees 3 contexts',exact:true}).waitFor();
+  await panel.getByRole('button',{name:'Done',exact:true}).click();
+  await chat.getByRole('button',{name:'Close',exact:true}).click();
+  await chat.waitFor({state:'detached'});
 
-  // Used by: the source area's panel names the area that uses it.
+  // Used by: the source area says so on the canvas and in its popover; with no chats, its files sit on a shelf.
+  const brandArea=(await call<{areas:{id:string}[]}>(h,'GET',`/api/canvases/${brand}/board`)).areas[0].id;
+  const shelfFile=new FormData();
+  shelfFile.append('file',new File(['Synthetic voice guide'],'voice.md',{type:'text/markdown'}));
+  assert.equal((await fetch(`${h.apiUrl}/api/canvases/${brand}/areas/${brandArea}/context/files`,{method:'POST',headers:{cookie:h.cookie},body:shelfFile})).status,201);
   await openCanvas(page,base,brand);
+  await areaOf(page,'Brand kit').getByText('Used by Launch. Edit here once, they all see it.',{exact:true}).waitFor();
+  const shelf=areaOf(page,'Brand kit').getByRole('list',{name:'Files in Brand kit',exact:true});
+  await shelf.getByRole('link',{name:'voice.md',exact:true}).waitFor();
+  assert.equal(await chipOf(page,'Brand kit').textContent(),'◱ 1 file');
   const source=await openAreaContext(page,'Brand kit');
-  await source.getByText('Used by Launch',{exact:true}).waitFor();
+  await source.getByText('Used by Launch. Changes here reach them right away.',{exact:true}).waitFor();
   // Launch, which holds the chat, uses Brand kit: that chat's agents read it too.
   await source.getByText(WARNING,{exact:true}).waitFor();
 
@@ -177,21 +251,25 @@ await runChatTest('canvas context: notes, files, links, used by, view-only and n
   const version=(await call<{id:string;version:number}[]>(h,'GET','/api/canvases')).find(canvas=>canvas.id===roadmap)!.version;
   await call(h,'PUT',`/api/canvases/${roadmap}/members`,{visibility:'shared',members:[{humanId:mateId,role:'view'}],version});
   await openCanvas(mate.page,base,roadmap);
-  await mate.page.getByRole('button',{name:'Canvas context',exact:true}).click();
-  const theirs=mate.page.getByRole('complementary',{name:'Canvas context',exact:true});
+  await canvasButton(mate.page).click();
+  const theirs=canvasPopover(mate.page);
   const notes=theirs.getByRole('textbox',{name:'Notes',exact:true});
   await notes.waitFor();
   await notesValue(mate.page,'Launch moved to Monday. Bring the deck and the brief.');
+  assert.equal(await canvasButton(mate.page).innerText(),'Canvas context · Notes');
   assert.equal(await notes.getAttribute('readonly'),'','the notes are read-only');
   assert.equal(await theirs.getByRole('button',{name:'Add files',exact:true}).count(),0);
-  await theirs.getByRole('button',{name:'Close',exact:true}).click();
+  await theirs.getByRole('button',{name:'Done',exact:true}).click();
+  // A viewer has no area menu (Rename and Delete only), but the chip still opens the context, read-only.
+  assert.equal(await areaOf(mate.page,'Launch').getByRole('button',{name:'Area options',exact:true}).count(),0);
   const theirArea=await openAreaContext(mate.page,'Launch');
   await theirArea.getByRole('link',{name:'brief.txt',exact:true}).waitFor();
-  // The mate cannot read the Brand canvas, so its area is never named to them.
-  await theirArea.getByRole('listitem').filter({hasText:'↳ Unavailable area'}).waitFor();
+  // The mate cannot read the Brand canvas, so its area is never named, counted or placed for them.
+  await theirArea.locator('.canvas-context-ref').filter({hasText:'Unavailable area'}).waitFor();
+  assert.equal(await theirArea.locator('.canvas-context-ref small').count(),0,'no counts or canvas for an unreadable source');
   assert.equal(await theirArea.getByText('Brand kit').count(),0);
   assert.equal(await theirArea.getByRole('textbox',{name:'Notes',exact:true}).getAttribute('readonly'),'');
-  for(const name of ['Add files','Use context from another area','Remove brief.txt','Remove link to Unavailable area']){
+  for(const name of ['Add files','+ Use context from another area','Remove brief.txt','Stop using Unavailable area']){
     assert.equal(await theirArea.getByRole('button',{name,exact:true}).count(),0,`no ${name} for a viewer`);
   }
 },{canvas:true});
@@ -287,7 +365,11 @@ await runChatTest('canvas homes: labels, Use this area\'s context and the drop w
   await page.getByLabel('Zoom level',{exact:true}).getByText('100%',{exact:true}).waitFor();
   await second.locator('.canvas-card-title').click();
   const header=page.locator('.canvas-chat-bar');
+  // Not its home: the sub-line says where its context comes from instead of counting.
+  await header.locator('.canvas-chat-sub').getByText('context from Quiet',{exact:true}).waitFor();
+  assert.equal(await header.locator('.canvas-chat-sees').count(),0);
   await header.getByRole('button',{name:"Use this area's context",exact:true}).click();
+  await header.locator('.canvas-chat-sub').getByRole('button',{name:'sees 2 contexts',exact:true}).waitFor();
   await page.locator('.canvas-notice').getByText("This chat now uses Study's context.",{exact:true}).waitFor();
   await second.getByText(/^context from/).waitFor({state:'detached'});
   await header.getByRole('button',{name:"Use this area's context",exact:true}).waitFor({state:'detached'});
@@ -357,12 +439,12 @@ await runChatTest('canvas context: canvas notes warn on a drop, linked chats war
   let panel=await openAreaContext(page,'Sources');
   await panel.getByRole('textbox',{name:'Notes',exact:true}).waitFor();
   assert.equal(await panel.getByText(WARNING,{exact:true}).count(),0,'no chat reads Sources yet');
-  await panel.getByRole('button',{name:'Close',exact:true}).click();
+  await panel.getByRole('button',{name:'Done',exact:true}).click();
   await panel.waitFor({state:'detached'});
   await call(h,'POST',`/api/canvases/${board}/areas/${empty}/context/links`,{sourceAreaId:sources});
   panel=await openAreaContext(page,'Sources');
   await panel.getByText(WARNING,{exact:true}).waitFor();
-  await panel.getByRole('button',{name:'Close',exact:true}).click();
+  await panel.getByRole('button',{name:'Done',exact:true}).click();
 
   // I2: a teammate in the chat re-homes it on the owner's shared canvas, then loses the canvas.
   const mate=await h.loginAs('mate');
