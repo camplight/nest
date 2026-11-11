@@ -886,10 +886,12 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   useEffect(() => { setLinkPick(null); }, [canvasId]);
   const pickFrom = linkPick && board ? board.cards.find((card): card is Extract<BoardCard, {access: 'open'}> => card.channelId === linkPick.from && card.access === 'open') : undefined;
   useEffect(() => { if (linkPick && board && !pickFrom) setLinkPick(null); }, [linkPick, board, pickFrom]);
+  // Connecting changes the shared canvas (both cards show the line), so view-role members cannot (T7-R1).
   const openLinkPick = useCallback((from: string, anchor: HTMLElement | null) => {
+    if (store.snapshot().board?.canvas.role === 'view') return;
     setFlowPop(null);
     setLinkPick(current => current?.from === from && current.anchor === anchor ? null : {from, anchor});
-  }, []);
+  }, [store]);
   const closeLinkPick = useCallback(() => setLinkPick(null), []);
   /** Opens a link's popover under its label, once the label is drawn (a few frames after the board re-read). */
   const showLink = useCallback((linkId: string) => {
@@ -903,6 +905,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   }, [openFlowLink]);
   const connect = useCallback(async (from: string, to: string, intro = false) => {
     setLinkPick(null);
+    if (store.snapshot().board?.canvas.role === 'view') return false;
     let link: Link;
     try { link = await createLink({id: crypto.randomUUID(), from, to, ...(intro ? {intro: true} : {})}); } catch (error) {
       say(flowError(error, 'Could not connect these chats. Try again.'));
@@ -944,7 +947,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     const card = store.snapshot().board?.cards.find(c => c.channelId === from);
     if (card) void newStep(from, {x: card.x + card.w + 120, y: card.y + 60});
   }, [store, newStep]);
-  const canConnect = useCallback((card: BoardCard) => flowsOn && card.access === 'open', [flowsOn]);
+  const canLink = flowsOn && Boolean(board) && board?.canvas.role !== 'view';
+  const canConnect = useCallback((card: BoardCard) => canLink && card.access === 'open', [canLink]);
   /** The open chat's links (for its Setup line), re-read as the board's links change and after each change made here. */
   const [linksTick, bumpLinks] = useReducer((n: number) => n + 1, 0);
   const [chatLinks, setChatLinks] = useState<{channelId: string; links: LinkView[]} | null>(null);
@@ -969,8 +973,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const chatOnBoard = openCard?.access === 'open';
   const chatSetup = flowsOn && chatShown && chatChannelId ? <ChatSetup key={chatChannelId} channelId={chatChannelId} loose={!chatOnBoard} links={setupLinks}
     agents={chatPeople.filter(p => p.subscriberType === 'AGENT' && !isServiceAgent(p.subscriberId, service)).map(p => p.subscriberId)} viewer={humanId}
-    onConnect={anchor => openLinkPick(chatChannelId, anchor)} onOpenLink={openChatLink}/> : null;
-  const chatConnect = flowsOn && chatOnBoard && chatChannelId ? (anchor: HTMLElement) => openLinkPick(chatChannelId, anchor) : undefined;
+    onConnect={canLink ? anchor => openLinkPick(chatChannelId, anchor) : undefined} onOpenLink={openChatLink}/> : null;
+  const chatConnect = canLink && chatOnBoard && chatChannelId ? (anchor: HTMLElement) => openLinkPick(chatChannelId, anchor) : undefined;
   const flowCards = flowPop?.view && board ? {from: board.cards.find(c => c.channelId === flowPop.view!.from), to: board.cards.find(c => c.channelId === flowPop.view!.to)} : null;
   const agentsOf = (card: BoardCard | undefined) => card?.access === 'open'
     ? card.participants.filter(p => p.subscriberType === 'AGENT' && !isServiceAgent(p.subscriberId, service)).map(p => p.subscriberId) : [];
@@ -1115,7 +1119,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         canEdit={board.canvas.role !== 'view'} dropped={areaFiles?.areaId === (panel.kind === 'area' ? panel.areaId : null) ? areaFiles : null} holdsChat={panel.kind === 'canvas' ? board.cards.length > 0 : board.cards.some(card => areaFor(cardCentre(card), board.areas)?.id === panel.areaId)}
         onViewOnlyDrop={() => say(VIEW_ONLY_FILES)} onChanged={() => loadSummary(board.canvas.id)} onClose={() => setPanel(null)}/> : null}
       {linkPick && pickFrom && board ? <LinkPicker key={`pick:${linkPick.from}`} from={pickFrom} cards={board.cards} areas={board.areas} links={board.links} service={service}
-        anchor={linkPick.anchor} onPick={to => void connect(linkPick.from, to)} onNewStep={board.canvas.role !== 'view' && !phone ? () => pickNewStep(linkPick.from) : undefined}
+        anchor={linkPick.anchor} onPick={to => void connect(linkPick.from, to)} onNewStep={board.canvas.role !== 'view' ? () => pickNewStep(linkPick.from) : undefined}
         onClose={closeLinkPick}/> : null}
       {flowPop?.view && board ? <HandoffPopover key={flowPop.linkId} link={flowPop.view} fromTitle={flowPop.view.fromTitle} toTitle={flowPop.view.toTitle}
         fromAgent={agentsOf(flowCards?.from)[0] ?? null} candidates={flowCards?.to?.access === 'open' ? agentsOf(flowCards.to) : flowPop.view.who ? [flowPop.view.who] : []}

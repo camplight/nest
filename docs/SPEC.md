@@ -1446,7 +1446,10 @@ the canvas UI for links (lines, labels and the Hand-off popover).
      card row, a tray or picker face, a mention candidate or a quiet agent.
 8. Connecting chats on the canvas (`Card.tsx`, `Surface.tsx`, `LinkPicker.tsx`,
    `ChatSetup.tsx`, `CanvasView.tsx`), shown only while availability says flows are
-   enabled.
+   enabled, and only to canvas editors and owners: a connection changes the shared
+   canvas, so view-role members get no port, no connect buttons, no `+ Connect` and
+   no picker. They keep the Setup line's chips, so a member of the receiving chat
+   can still pause or disconnect a link (S10).
    - The `+` port (`[data-port]`, titled `Drag to another chat to pass results
      along`) sits on an open card's right edge, shown on hover and on the selected
      card, never on the card whose chat is open or at far zoom; phones (the list)
@@ -1463,8 +1466,8 @@ the canvas UI for links (lines, labels and the Hand-off popover).
      canvas only) and the Setup line's `+ Connect`, 120 px left of the button and
      8 px under it (popAt). It lists every other open, unarchived chat on the canvas
      by area (`Not in an area` last), marks one already connected `connected`,
-     filters by name (`Find a chat…`; `No chat with that name.`) and, for editors
-     (not on a phone), ends with `Or` / `A new step after this one`. Cancel, Escape
+     filters by name (`Find a chat…`; `No chat with that name.`) and ends with `Or` /
+     `A new step after this one`, on phones too. Cancel, Escape
      and a press outside close it.
    - Connecting `POST`s `/api/flows/links` and opens the new link's Hand-off popover
      under its label; a pair already linked opens its existing link. A refusal (no
@@ -1486,7 +1489,10 @@ the canvas UI for links (lines, labels and the Hand-off popover).
      works for a link whose other chat is not on this canvas. Whether the line is
      open is remembered per person in `localStorage`
      (`nest-canvas-setup-open:{humanId}`). The Setup line shows on phones too, and
-     the Hand-off popover and picker open there.
+     the Hand-off popover and picker open there (a new step from a phone's picker is
+     placed beside its chat's card, as on desktop). A new step whose placement or
+     link fails after its chat was created leaves that chat (loose, or on the canvas
+     unlinked) and says so in a toast.
 9. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
    `handoff.test.ts`, `access.test.ts` and the fork case in `canvas-board.test.ts`
    run against the real engine and Nest handlers with temporary databases.

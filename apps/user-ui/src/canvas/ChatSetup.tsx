@@ -19,8 +19,8 @@ export type ChatSetupProps = {
   agents: readonly string[];
   /** The signed-in person: the open state is theirs. */
   viewer: string;
-  /** `+ Connect`: the chat picker for this chat, under the pressed button. */
-  onConnect(anchor: HTMLElement): void;
+  /** `+ Connect`: the chat picker for this chat, under the pressed button. Absent for view-role canvas members (T7-R1). */
+  onConnect?(anchor: HTMLElement): void;
   /** A chip: that link's Hand-off popover, under the chip. */
   onOpenLink(link: LinkView, anchor: HTMLElement): void;
 };
@@ -40,7 +40,7 @@ export const connectedCount = (channelId: string, links: readonly LinkView[]) =>
 export function ChatSetup({channelId, loose, links, schedules, agents, viewer, onConnect, onOpenLink}: ChatSetupProps) {
   const [open, setOpen] = useState(() => readOpen(viewer));
   const ins = links.filter(l => l.kind === 'link' && l.to === channelId), outs = links.filter(l => l.kind === 'link' && l.from === channelId);
-  const connected = ins.length + outs.length;
+  const connected = connectedCount(channelId, links);
   const bits: {key: string; node: ReactNode}[] = [
     ...agents.map(name => ({key: `a:${name}`, node: <span className="sm-chip"><AgentAvatar name={name} size={18}/>{name}</span>})),
     ...(connected ? [{key: 'links', node: <span className="sm-chip"><LinkIcon/>{connected} connected</span>}] : []),
@@ -64,10 +64,10 @@ export function ChatSetup({channelId, loose, links, schedules, agents, viewer, o
     </summary>
     <div className="cfg-body">
       {schedules}
-      {loose ? null : <div className="links-row">
+      {loose || (!connected && !onConnect) ? null : <div className="links-row">
         {ins.length ? <><span>Gets from</span>{ins.map(link => chip(link, 'in'))}</> : null}
         {outs.length ? <><span>Passes to</span>{outs.map(link => chip(link, 'out'))}</> : null}
-        <button type="button" className="add" aria-haspopup="dialog" onClick={event => onConnect(event.currentTarget)}>+ Connect</button>
+        {onConnect ? <button type="button" className="add" aria-haspopup="dialog" onClick={event => onConnect(event.currentTarget)}>+ Connect</button> : null}
       </div>}
     </div>
   </details>;

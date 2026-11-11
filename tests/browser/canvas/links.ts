@@ -234,6 +234,10 @@ await runChatTest('canvas links: drag the + port onto a card, or onto empty canv
   assert.equal(await page.locator('.canvas-links .lk.temp, .canvas-card.linktarget').count(),0,'the drag marks are gone');
   const links=await until(()=>call<{links:Link[]}>(h,'GET',`/api/flows/links?channelId=${encodeURIComponent(from)}`),r=>r.links.length===1,'one link');
   assert.deepEqual([links.links[0].from,links.links[0].to],[from,blog]);
+  // The line leaves the source card at its measured middle (cards stay measured under StrictMode).
+  const startY=Number(/^M[\d.-]+ ([\d.-]+)C/.exec((await page.locator('.canvas-links .lk').first().getAttribute('d'))??'')?.[1]);
+  const middle=140+await card.evaluate(el=>(el as HTMLElement).offsetHeight)/2;
+  assert.ok(Math.abs(startY-middle)<=1,`the line starts at the card's middle: ${startY} vs ${middle}`);
   await pop.getByRole('button',{name:'Done',exact:true}).click();
   await pop.waitFor({state:'detached'});
 
@@ -261,12 +265,18 @@ await runChatTest('canvas links: drag the + port onto a card, or onto empty canv
   await sheet.getByRole('button',{name:'Close',exact:true}).click();
   await sheet.waitFor({state:'detached'});
 
-  // A release over chrome (the zoom controls) does nothing.
+  // A release over chrome (the zoom controls) does nothing: a connect or new step would send its request during pointerup.
   const cards=await page.locator('.canvas-card').count();
+  const writes:string[]=[];
+  const record=(request:{method():string;url():string})=>{if(request.method()==='POST'&&/\/api\/(projects|flows\/links)\b/.test(request.url()))writes.push(request.url());};
+  page.on('request',record);
   await dragPort(page,from,centre((await page.locator('.canvas-zoom').boundingBox())!));
   await page.mouse.up();
-  await page.waitForTimeout(500);
-  assert.equal(await page.locator('.canvas-card').count(),cards,'no new step over the zoom controls');
+  // A round trip after the release: anything the release sent has reached the network by now.
+  await page.evaluate(async()=>{await fetch('/api/flows/availability');});
+  page.off('request',record);
+  assert.deepEqual(writes,[],'no connect or new step over the zoom controls');
+  assert.equal(await page.locator('.canvas-card').count(),cards,'no new card');
   assert.equal(await pop.count(),0,'no popover over chrome');
 },{canvas:true,flows:true});
 
@@ -365,4 +375,61 @@ await runChatTest('canvas links: a phone has no port, and the Setup line still s
   await chat.locator('details.cfg').waitFor();
   await until(()=>chat.locator('details.cfg summary .sm-chip').allInnerTexts().then(t=>t.map(s=>s.trim()).join(' · ')),t=>t===`${agentName} · 1 connected`,'the phone Setup summary');
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal page scroll at 390 px');
+
+  // + Connect opens the picker, which offers a new step on a phone too; it lands beside the chat's card.
+  await chat.locator('details.cfg summary').tap();
+  await chat.getByRole('button',{name:'+ Connect',exact:true}).tap();
+  const picker=page.getByRole('dialog',{name:'Connect chats',exact:true});
+  await picker.waitFor();
+  const fits=async(dialog:typeof picker)=>{const b=(await dialog.boundingBox())!;return b.x>=0&&b.x+b.width<=390;};
+  assert.ok(await fits(picker),'the picker fits the phone');
+  await picker.getByRole('button',{name:'A new step after this one'}).tap();
+  const pop=page.getByRole('dialog',{name:'Hand-off between chats',exact:true});
+  const title='Next step after "Synthetic chat project"';
+  await pop.getByText(`Synthetic chat project → ${title}`,{exact:true}).waitFor();
+  assert.ok(await fits(pop),'the popover fits the phone');
+  type Card={channelId:string;x:number;y:number;w:number;access:string;title?:string};
+  const board=await until(()=>call<{cards:Card[]}>(h,'GET',`/api/canvases/${canvasId}/board`),b=>b.cards.some(c=>c.title===title),'the new step on the board');
+  const source=board.cards.find(c=>c.channelId===from)!,step=board.cards.find(c=>c.title===title)!;
+  assert.deepEqual({x:step.x,y:step.y},{x:source.x+source.w+120,y:source.y},'placed 120 px right of the chat (the mock\'s lp-new, its top 60 px above from.y + 60)');
 },{canvas:true,flows:true,viewport:{width:390,height:844},hasTouch:true});
+
+await runChatTest('canvas links: a view-role member cannot connect, but keeps the chips to pause a link into their chat',async h=>{
+  const {base}=h, from=h.project.channelId;
+  const mate=await h.loginAs('mate');
+  await call(h,'POST','/api/agents',{name:'Pom',icon:'pom',visibility:'PUBLIC',modelId:'wrapped:none',workspacePath:join(mkdtempSync(join(tmpdir(),'nest-links-')),'pom')});
+  const blog=await call<{channelId:string}>(h,'POST','/api/projects',{id:crypto.randomUUID(),name:'Blog post',description:'Synthetic blog project',
+    members:[{subscriberType:'AGENT',subscriberId:'Pom'},{subscriberType:'HUMAN',subscriberId:'mate'}]});
+  const {id:canvasId}=await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Flows board'});
+  await call(h,'POST',`/api/canvases/${canvasId}/cards`,{cards:[{channelId:from,x:80,y:140},{channelId:blog.channelId,x:640,y:140}]});
+  await call(h,'POST','/api/flows/links',{id:crypto.randomUUID(),from,to:blog.channelId});
+  const humans=await call<{id:string;username:string}[]>(h,'GET','/api/humans');
+  const {canvas}=await call<{canvas:{version:number}}>(h,'GET',`/api/canvases/${canvasId}/board`);
+  await call(h,'PUT',`/api/canvases/${canvasId}/members`,{visibility:'shared',members:[{humanId:humans.find(p=>p.username==='mate')!.id,role:'view'}],version:canvas.version});
+
+  const page=mate.page;
+  await openCanvas(page,base,canvasId);
+  const card=cardOf(page,blog.channelId);
+  await card.locator('.canvas-card-title').waitFor();
+  await card.hover();
+  assert.equal(await page.locator('[data-port]').count(),0,'no port');
+  assert.equal(await page.getByRole('button',{name:'Connect: pass this chat\'s results to another chat',exact:true}).count(),0,'no card connect button');
+
+  await page.getByRole('button',{name:'Open chat Blog post',exact:true}).click();
+  const sheet=page.getByRole('dialog',{name:'Open chat Blog post',exact:true});
+  await sheet.locator('details.cfg').waitFor();
+  assert.equal(await sheet.getByRole('button',{name:'Connect: pass results to another chat',exact:true}).count(),0,'no header connect button');
+  await sheet.locator('details.cfg summary').click();
+  const row=sheet.locator('.links-row');
+  const chip=row.locator('.lnk');
+  await chip.waitFor();
+  assert.equal(await chip.count(),1,'the link into Blog post');
+  assert.match(await chip.innerText(),/^← /);
+  assert.equal(await row.getByRole('button',{name:'+ Connect',exact:true}).count(),0,'no + Connect');
+  // As a member of the receiving chat, the chip's popover still pauses the link (S10).
+  await chip.click();
+  const pop=page.getByRole('dialog',{name:'Hand-off between chats',exact:true});
+  await pop.getByRole('button',{name:'Pause',exact:true}).click();
+  await until(()=>chip.getAttribute('class'),c=>/\boff\b/.test(c??''),'the viewer paused the chip');
+  assert.equal(await page.getByRole('dialog',{name:'Connect chats',exact:true}).count(),0,'no picker');
+},{canvas:true,flows:true});
