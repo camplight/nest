@@ -112,10 +112,21 @@ export function createFlowStore(db: Database.Database, clock: () => number = Dat
   const leaseExpired = (now: number): Delivery[] =>
     (db.prepare("SELECT * FROM product_link_deliveries WHERE status='claimed' AND lease_until IS NOT NULL AND lease_until<? ORDER BY created_at, id").all(now) as DeliveryRow[]).map(toDelivery);
 
-  function finishDelivery(id: string, result: { status: 'delivered' | 'declined' | 'failed'; targetEventId?: string }): void {
-    const changed = db.prepare('UPDATE product_link_deliveries SET status=?,target_event_id=COALESCE(?,target_event_id),lease_until=NULL,updated_at=? WHERE id=?')
+  /** Settles a delivery that is still open. Returns false when it was already terminal (or missing). */
+  function finishDelivery(id: string, result: { status: 'delivered' | 'declined' | 'failed'; targetEventId?: string }): boolean {
+    const changed = db.prepare("UPDATE product_link_deliveries SET status=?,target_event_id=COALESCE(?,target_event_id),lease_until=NULL,updated_at=? WHERE id=? AND status IN ('claimed','awaiting')")
       .run(result.status, result.targetEventId ?? null, clock(), id).changes;
     if (changed) audit('delivery-finished', 'system', { deliveryId: id, status: result.status });
+    return changed > 0;
+  }
+
+  /** Takes a delivery whose claim expired, or that was awaiting approval, with a fresh lease. Only one caller can win. */
+  function reclaim(id: string, status: 'claimed', now: number, leaseMs: number): Delivery | null {
+    const changed = db.prepare("UPDATE product_link_deliveries SET status=?,lease_until=?,attempts=attempts+1,updated_at=? WHERE id=? AND ((status='claimed' AND lease_until IS NOT NULL AND lease_until<?) OR status='awaiting')")
+      .run(status, now + leaseMs, now, id, now).changes;
+    if (!changed) return null;
+    audit('delivery-reclaimed', 'system', { deliveryId: id });
+    return delivery(id);
   }
 
   const deliveredSince = (linkId: string, since: number): number =>
@@ -148,6 +159,6 @@ export function createFlowStore(db: Database.Database, clock: () => number = Dat
       .run(name, holder, now + ms, now).changes > 0;
   }
 
-  return { createLink, link, linksTouching, activeSources, patchLink, pause, removeLink, scannedTo, advance, claimDelivery, leaseExpired, finishDelivery, deliveredSince, awaiting, delivery, recordFork, forkOf, forksOf, lease };
+  return { createLink, link, linksTouching, activeSources, patchLink, pause, removeLink, scannedTo, advance, claimDelivery, leaseExpired, finishDelivery, reclaim, deliveredSince, awaiting, delivery, recordFork, forkOf, forksOf, lease };
 }
 export type FlowStore = ReturnType<typeof createFlowStore>;

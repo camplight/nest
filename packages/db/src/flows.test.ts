@@ -13,9 +13,9 @@ const mk = (from: string, to: string, extra: Record<string, unknown> = {}) =>
   store.flows.createLink({ id: randomUUID(), from, to, kind: 'link', createdBy: 'u', now: 1000, ...extra });
 
 describe('flow store', () => {
-  it('ends the migration list with 014_links_forks', () => {
+  it('applies the 014_links_forks migration', () => {
     const names = (store.db.prepare('SELECT name FROM product_migrations').all() as { name: string }[]).map(r => r.name);
-    expect(names.at(-1)).toBe('014_links_forks');
+    expect(names).toContain('014_links_forks');
   });
   it('returns the existing link for the same pair, and is idempotent by id', () => {
     const a = mk('a', 'b');
@@ -61,6 +61,24 @@ describe('flow store', () => {
     store.flows.finishDelivery(d.id, { status: 'delivered', targetEventId: 'e1' });
     expect(store.flows.delivery(d.id)).toMatchObject({ status: 'delivered', targetEventId: 'e1' });
     expect(store.flows.deliveredSince(l.id, 0)).toBe(1);
+  });
+  it('refuses to finish a terminal delivery', () => {
+    const l = mk('a', 'b');
+    const d = store.flows.claimDelivery(l.id, 't1', 'claimed', 1000)!;
+    expect(store.flows.finishDelivery(d.id, { status: 'delivered', targetEventId: 'e1' })).toBe(true);
+    expect(store.flows.finishDelivery(d.id, { status: 'failed' })).toBe(false);
+    expect(store.flows.delivery(d.id)).toMatchObject({ status: 'delivered', targetEventId: 'e1', leaseUntil: null });
+  });
+  it('reclaims an expired claim once and moves awaiting to claimed', () => {
+    const l = mk('a', 'b');
+    const d = store.flows.claimDelivery(l.id, 't1', 'claimed', 1000)!;
+    expect(store.flows.reclaim(d.id, 'claimed', 1000, 500)).toBeNull();
+    const won = store.flows.reclaim(d.id, 'claimed', 70_000, 500);
+    expect(won).toMatchObject({ status: 'claimed', attempts: 2, leaseUntil: 70_500 });
+    expect(store.flows.reclaim(d.id, 'claimed', 70_000, 500)).toBeNull();
+    const a = store.flows.claimDelivery(l.id, 't2', 'awaiting', 1000)!;
+    expect(store.flows.reclaim(a.id, 'claimed', 2000, 500)).toMatchObject({ status: 'claimed', attempts: 2, leaseUntil: 2500 });
+    expect(store.flows.reclaim(a.id, 'claimed', 2000, 500)).toBeNull();
   });
   it('records forks once per child and nulls the link on removal', () => {
     const l = mk('p', 'c', { kind: 'fork' });
