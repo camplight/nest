@@ -101,7 +101,9 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
   routes.use('/api/canvases', async (_c, next) => { if (!enabled) throw notFound(); await next(); });
   routes.use('/api/canvases/*', async (c, next) => {
     if (!enabled) throw notFound();
-    c.set('channels', await orgops.humanJson<Channel[]>('/api/channels?includeArchived=1', c.req.raw.headers));
+    // Tray pins never read chats; they skip the channel list.
+    if (c.req.path !== '/api/canvases/agent-pins')
+      c.set('channels', await orgops.humanJson<Channel[]>('/api/channels?includeArchived=1', c.req.raw.headers));
     await next();
   });
 
@@ -126,7 +128,12 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
   routes.put('/api/canvases/agent-pins', async c => {
     const input = parse(AgentPinsSchema, await body(c));
     const visible = await visibleAgents(c);
-    const saved = store.agentPins.set(c.get('human').id, input.agentNames.filter(name => visible.has(name)));
+    const humanId = c.get('human').id;
+    // Checked and written with no await between them, so a seeded save can never replace pins saved meanwhile.
+    const existing = store.agentPins.get(humanId);
+    if (input.expectSaved === false && existing !== null)
+      return c.json({ error: 'Pins already saved', current: pinsFor(existing, visible) }, 409);
+    const saved = store.agentPins.set(humanId, input.agentNames.filter(name => visible.has(name)));
     return c.json(pinsFor(saved, visible));
   });
 

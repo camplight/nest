@@ -733,7 +733,11 @@ Phase 1 is built from
      same shape. More than 7 answers 400 `You can pin up to 7 agents. Unpin one first.`
      Agents the engine does not list for the person (`GET /api/agents` as them: deleted,
      or someone else's private agent) are dropped silently on save and on read. Pins are
-     personal, across canvases and devices, keyed by the engine human id.
+     personal, across canvases and devices, keyed by the engine human id. A PUT may
+     carry `expectSaved: false` (the browser sends it with a seeded first save); when
+     the person already has saved pins it answers 409 `{error:'Pins already saved',
+     current}` and changes nothing, so a seed never replaces pins saved elsewhere. These
+     routes do not read the engine's channel list.
 
    Versions. Rename, sharing, area changes and deletes, card moves and removals, and
    canvas deletion carry the version they were based on (in the body, or `?version=`
@@ -841,7 +845,13 @@ Phase 1 is built from
    name, then the team's, up to 7, starred like any pin. The first star or unstar saves
    that list with the one change (unstarring removes the agent and keeps the rest,
    starring appends), so the tray never collapses. Once saved it shows exactly their
-   pins, an empty list included; pins for agents no longer on the roster drop out. With a card selected,
+   pins, an empty list included; pins for agents no longer on the roster drop out.
+   The browser saves one list at a time: presses while a save is in flight coalesce
+   and only the newest list follows, so the stored list is always the last one shown.
+   Stars are disabled while the pins load. If the read fails the tray shows the seed,
+   and a star press first reads again; when that fails too it says `Couldn't load your
+   pinned agents. Try again.` and saves nothing. A seeded save refused with 409 shows
+   the saved pins instead. With a card selected,
    up to 3 agents from the other chats in its area who are not in it lead the tray as
    `Suggested for this chat` (accent), then a separator and the pins, without the `Pinned`
    label. `All N` opens the picker: `Agents · N` with a ✕, a search over name (ranked like

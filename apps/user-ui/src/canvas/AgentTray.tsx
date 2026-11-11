@@ -29,6 +29,8 @@ export type AgentTrayProps = {
   pinned: Agent[];
   /** The pin list the picker's stars show: saved pins, or the seed before the person saves any. */
   pins: readonly string[];
+  /** False while the pins load: stars are disabled so a press is never lost. */
+  pinsReady: boolean;
   onTogglePin(name: string): void;
   agents: Agent[];
   humanId: string;
@@ -40,7 +42,7 @@ export type AgentTrayProps = {
   areas: CanvasArea[];
 };
 
-export function AgentTray({suggested, pinned, pins, onTogglePin, agents, humanId, owners, busy, cards, areas}: AgentTrayProps) {
+export function AgentTray({suggested, pinned, pins, pinsReady, onTogglePin, agents, humanId, owners, busy, cards, areas}: AgentTrayProps) {
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const close = () => { setOpen(false); button.current?.focus({preventScroll: true}); };
@@ -68,7 +70,7 @@ export function AgentTray({suggested, pinned, pins, onTogglePin, agents, humanId
           aria-label={`All ${agents.length} agents`} title="Search all agents" onClick={() => open ? close() : setOpen(true)}>All {agents.length}</button>
       </div>
     </section>
-    {open ? <AgentPicker agents={agents} humanId={humanId} owners={owners} busy={busy} pins={pins} onTogglePin={onTogglePin}
+    {open ? <AgentPicker agents={agents} humanId={humanId} owners={owners} busy={busy} pins={pins} pinsReady={pinsReady} onTogglePin={onTogglePin}
       cards={cards} areas={areas} onClose={close}/> : null}
   </>;
 }
@@ -78,9 +80,9 @@ export function AgentTray({suggested, pinned, pins, onTogglePin, agents, humanId
  * star. Not modal: the canvas stays reachable, so rows drag straight onto a card. While a row is dragged the panel
  * lets drops through to the cards below.
  */
-function AgentPicker({agents, humanId, owners, busy, pins, onTogglePin, cards, areas, onClose}: {
+function AgentPicker({agents, humanId, owners, busy, pins, pinsReady, onTogglePin, cards, areas, onClose}: {
   agents: Agent[]; humanId: string; owners: ReadonlyMap<string, string>; busy: ReadonlyMap<string, number>;
-  pins: readonly string[]; onTogglePin(name: string): void; cards: BoardCard[]; areas: CanvasArea[]; onClose(): void;
+  pins: readonly string[]; pinsReady: boolean; onTogglePin(name: string): void; cards: BoardCard[]; areas: CanvasArea[]; onClose(): void;
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<PickerFilter>('all');
@@ -144,8 +146,8 @@ function AgentPicker({agents, humanId, owners, busy, pins, onTogglePin, cards, a
               </span>
               <span className={`canvas-picker-status${count ? ' is-busy' : ''}`}>{busyLabel(count)}</span>
               <button type="button" className={`canvas-picker-star${on ? ' is-on' : ''}`} aria-pressed={on}
-                aria-label={`Pin ${agent.name} to tray`} title={on ? 'Unpin' : 'Pin to tray'}
-                onClick={() => onTogglePin(agent.name)}>
+                aria-label={`Pin ${agent.name} to tray`} title={on ? 'Unpin' : 'Pin to tray'} aria-disabled={pinsReady ? undefined : true}
+                onClick={() => { if (pinsReady) onTogglePin(agent.name); }}>
                 <span aria-hidden="true">{on ? '★' : '☆'}</span>
               </button>
             </li>;

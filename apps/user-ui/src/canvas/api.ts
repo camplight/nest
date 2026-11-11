@@ -86,7 +86,10 @@ export const getHidden = () => json<{channelIds: string[]}>('/api/canvases/hidde
 export const setHidden = (channelIds: string[], hidden: boolean) => json<{channelIds: string[]}>('/api/canvases/hidden', write('POST', {channelIds, hidden}));
 /** The agents pinned to the person's tray, across canvases. `saved` is false until they first pin or unpin. */
 export const getAgentPins = () => json<AgentPins>('/api/canvases/agent-pins');
-export const putAgentPins = (agentNames: string[]) => json<AgentPins>('/api/canvases/agent-pins', write('PUT', {agentNames}));
+/** `expectSaved: false` saves a seeded list only if the person has no saved pins yet (else 409). */
+export const putAgentPins = (agentNames: string[], expectSaved?: false) =>
+  json<AgentPins>('/api/canvases/agent-pins', write('PUT', expectSaved === false ? {agentNames, expectSaved} : {agentNames}));
+export const isPinsConflict = (error: unknown) => error instanceof ApiError && error.status === 409;
 
 /** The board writes the board store sends; injected so the store stays testable. */
 export const boardApi = {getBoard, moveCard, removeCard, placeCards, createArea, patchArea, deleteArea};

@@ -49,6 +49,8 @@ export const AGENT_PIN_LIMIT_MESSAGE = `You can pin up to ${AGENT_PIN_MAX} agent
 export const AgentPinsSchema = z.object({
   agentNames: z.array(z.string().min(1).max(200)).max(AGENT_PIN_MAX, { message: AGENT_PIN_LIMIT_MESSAGE })
     .refine(names => new Set(names).size === names.length, { message: 'Each agent can be pinned once' }),
+  /** Sent with a seeded first save: refuse (409) when the person already has saved pins. */
+  expectSaved: z.literal(false).optional(),
 }).strict();
 
 export type NewCanvas = z.infer<typeof NewCanvasSchema>;

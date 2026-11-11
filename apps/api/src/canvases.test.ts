@@ -45,6 +45,7 @@ describe('canvas API against the unchanged engine', () => {
       for (const p of ['/api/canvases', '/api/canvases/hidden', '/api/canvases/agent-pins', `/api/canvases/${randomUUID()}`, '/api/canvases/x/y/z'])
         expect([(await call(owner, 'GET', p)).status]).toEqual([404]);
       expect((await call(owner, 'POST', '/api/canvases', { id: randomUUID(), name: 'x' })).status).toBe(404);
+      expect((await call(owner, 'PUT', '/api/canvases/agent-pins', { agentNames: [] })).status).toBe(404);
     });
   });
 
@@ -139,7 +140,9 @@ describe('canvas API against the unchanged engine', () => {
       // Nothing saved yet: the tray seeds itself.
       expect(await (await call(owner, 'GET', '/api/canvases/agent-pins')).json()).toEqual({ agentNames: [], saved: false });
       const put = (h: Record<string, string>, agentNames: string[]) => call(h, 'PUT', '/api/canvases/agent-pins', { agentNames });
-      expect(await (await put(owner, ['Pip', 'Moss', 'Ghost'])).json()).toEqual({ agentNames: ['Pip', 'Moss'], saved: true });
+      // The first (seeded) save carries expectSaved:false and goes through while nothing is saved.
+      const first = await call(owner, 'PUT', '/api/canvases/agent-pins', { agentNames: ['Pip', 'Moss', 'Ghost'], expectSaved: false });
+      expect(await first.json()).toEqual({ agentNames: ['Pip', 'Moss'], saved: true });
       expect(await (await call(owner, 'GET', '/api/canvases/agent-pins')).json()).toEqual({ agentNames: ['Pip', 'Moss'], saved: true });
       expect(await (await call(mate, 'GET', '/api/canvases/agent-pins')).json()).toEqual({ agentNames: [], saved: false });
 
@@ -154,6 +157,13 @@ describe('canvas API against the unchanged engine', () => {
       expect((await put(owner, ['Pip', 'Pip'])).status).toBe(400);
       expect((await call(owner, 'PUT', '/api/canvases/agent-pins', { agentNames: ['Pip'], extra: 1 })).status).toBe(400);
       expect((await (await call(owner, 'GET', '/api/canvases/agent-pins')).json()).agentNames).toEqual(seven);
+
+      // A seeded first save (expectSaved:false) never replaces pins already saved, e.g. on another device.
+      const seeded = await call(owner, 'PUT', '/api/canvases/agent-pins', { agentNames: ['Fern'], expectSaved: false });
+      expect(seeded.status).toBe(409);
+      expect(await seeded.json()).toEqual({ error: 'Pins already saved', current: { agentNames: seven, saved: true } });
+      expect((await (await call(owner, 'GET', '/api/canvases/agent-pins')).json()).agentNames).toEqual(seven);
+      expect((await call(owner, 'PUT', '/api/canvases/agent-pins', { agentNames: [], expectSaved: true })).status).toBe(400);
 
       // An emptied list stays saved, and an agent deleted in the engine drops out on read.
       expect(await (await put(owner, [])).json()).toEqual({ agentNames: [], saved: true });
