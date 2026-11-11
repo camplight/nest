@@ -496,6 +496,42 @@ revokes their project access on the next request. Engine membership stays
 authoritative; Nest stores no membership mirror. No chat history is posted or
 agent work automatically dispatched.
 
+A signed-in human who follows a direct link to an existing project without current
+access sees a metadata-free access gate instead of the project name, description,
+owner, roster or files. They may create one active request per project. The client
+uses a UUID idempotency key and reuses it after an uncertain response; matching
+replays return the same request while conflicting UUID reuse returns 409. Pending
+and denied states expose only generic copy and request timestamps. The gate polls
+every ten seconds and loads the live project only after engine membership is
+confirmed. Missing projects and inaccessible archived/deleted channels use the
+same generic unavailable state. Because requester-scoped OrgOps reads cannot
+distinguish an inaccessible active private channel from an archived/deleted one,
+request creation accepts an existing product project; owner listing and decisions
+still require current active manage/post authority.
+
+Owners review pending requests in the Notifications inbox and in Project details.
+Project-access and mention reads fail independently, so one unavailable endpoint
+does not erase the other section. The approval copy states that normal project
+chat/file access is granted while personal connected-account permissions remain
+unchanged, and that approving a private project converts its product policy to
+team. Approval first claims the request, resolves the requester's current username
+from its durable human ID, subscribes that HUMAN through owner-authenticated OrgOps
+HTTP, re-reads membership, and only then records `approved` and the private-to-team
+conversion. A lost subscription response is reconciled by the re-read; unconfirmed
+approval remains `approving` and is explicitly retryable. Denial never subscribes
+or reveals project metadata. Deleted requester identities can still be denied but
+not approved.
+
+Owners can remove non-owner HUMAN participants from Project details. Removal uses
+the existing engine unsubscribe endpoint, confirms absence before success and is
+safe to retry after an uncertain response. The project remains team-enabled and
+the removed human returns to the generic request gate, so they may request access
+again later. Agents retain their existing membership controls; the project owner
+cannot remove themselves. Product audit records cover creation, denial, confirmed
+approval and confirmed revocation without duplicating retry events. No service
+credential, engine database read, membership mirror, OrgOps source change or
+engine migration is introduced.
+
 If a channel POST has an uncertain outcome and no matching channel is visible,
 creation returns 409 rather than risking a duplicate. An operator must inspect
 that reservation and engine state if retries cannot reconcile it; Nest does not
@@ -503,6 +539,10 @@ claim exactly-once cross-database transactions. Chat metadata is for recovery,
 not authorization. Conflicting requests for a reserved UUID return 409.
 
 Product migration `008_project_collaboration.sql` adds a private/team policy.
+Product migration `011_project_access_requests.sql` adds the request state machine,
+active-request uniqueness and requester/owner lookup indexes; it stores durable
+human IDs plus the last observed username, but no project metadata for requester
+responses and no engine membership state.
 Existing projects and legacy API requests default to private; new creation forms
 choose team explicitly. Old pending browser drafts keep their original private
 intent for safe retries. There is no automatic sharing of historical projects.
@@ -563,6 +603,11 @@ Product APIs (JSON, no-store, 64 KB request cap):
 - `GET /api/projects/:projectId`: project, tasks, deliverables and review history.
 - `PATCH /api/projects/:projectId`: owner-only metadata edit with expected values.
 - `POST /api/projects/:projectId/members`: owner-requested existing teammate invitation.
+- `GET /api/projects/:projectId/access-request`: requester-safe access state.
+- `POST /api/projects/:projectId/access-requests`: idempotent requester submission.
+- `GET /api/project-access-requests`: owner inbox for active requests.
+- `POST /api/projects/:projectId/access-requests/:requestId/decision`: owner approve/deny with confirmed membership.
+- `DELETE /api/projects/:projectId/members/:username`: owner revocation with confirmed engine removal.
 - `POST /api/projects/:projectId/tasks`: create an assigned queued task.
 - `POST /api/projects/:projectId/tasks/:taskId/dispatch`: send initial/revision brief.
 - `GET /api/projects/:projectId/tasks/:taskId/responses`: candidate agent messages.
