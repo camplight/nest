@@ -23,6 +23,12 @@ describe('flow store', () => {
     expect(store.flows.createLink({ id: a.id, from: 'a', to: 'b', kind: 'link', createdBy: 'u', now: 5 })).toEqual(a);
     expect(() => store.flows.createLink({ id: a.id, from: 'a', to: 'c', kind: 'link', createdBy: 'u', now: 5 })).toThrow(CanvasConflictError);
   });
+  it('starts the scan at scannedTo when given, else at now', () => {
+    expect(store.flows.scannedTo(mk('a', 'b').id)).toBe(1000);
+    const l = mk('c', 'd', { scannedTo: 400 });
+    expect(store.flows.scannedTo(l.id)).toBe(400);
+    expect(l.createdAt).toBe(1000);
+  });
   it('caps links per chat at 50', () => {
     for (let i = 0; i < 50; i++) mk('hub', `t${i}`);
     expect(() => mk('hub', 'extra')).toThrow(CanvasLimitError);

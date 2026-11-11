@@ -8,7 +8,7 @@ const me='h1';
 const agent=(name:string,ownerHumanId:string|null='h2',description?:string):Agent=>({name,ownerHumanId,visibility:'PUBLIC',...(description?{description}:{})});
 const open=(channelId:string,x:number,agents:string[]):BoardCard=>({
   canvasId:'c1',channelId,x,y:100,w:280,version:0,placedBy:me,placedAt:1,access:'open',title:channelId,projectId:null,
-  participants:agents.map(subscriberId=>({subscriberType:'AGENT',subscriberId})),archived:false,canManage:true,
+  participants:agents.map(subscriberId=>({subscriberType:'AGENT',subscriberId})),archived:false,canManage:true,forkOf:null,
 });
 const area=(id:string,x:number,w:number):CanvasArea=>({id,canvasId:'c1',title:id,x,y:0,w,h:400,tint:'moss',version:0});
 const pulse=(agents:[string,AgentPulse['state']][]):CardPulse=>({agents:agents.map(([name,state])=>({name,state,since:0})),people:[],lastActivityAt:null,artifacts:[],fileCount:0,needsYou:[],apps:{} as CardPulse['apps']});

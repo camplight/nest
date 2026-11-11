@@ -180,6 +180,24 @@ describe('canvas board against the unchanged engine', () => {
     expect(row.ownerLabel).toBe('a teammate');
   });
 
+  it('names a fork\'s parent only for viewers who can read it, and changes the etag when a fork is recorded', async () => {
+    await place(owner, [{ channelId: a, x: 0, y: 0 }, { channelId: b, x: 400, y: 0 }]);
+    const before = await board(owner, canvasId);
+    expect(before.links).toEqual([]);
+    expect(before.cards.map((c: any) => c.forkOf)).toEqual([null, null]);
+    product.store.flows.recordFork({ childChannelId: b, parentChannelId: a, parentEventId: 'evt-1', linkId: null, createdBy: 'someone' });
+    const after = await (await call(owner, 'GET', `/api/canvases/${canvasId}/board?etag=${before.etag}`)).json();
+    expect(after.unchanged).toBeUndefined();
+    const ownerCards = Object.fromEntries(after.cards.map((c: any) => [c.channelId, c]));
+    expect(ownerCards[b].forkOf).toEqual({ channelId: a, title: SECRET });
+    expect(ownerCards[a].forkOf).toBeNull();
+    const text = await (await call(mate, 'GET', `/api/canvases/${canvasId}/board`)).text();
+    expect(text).not.toContain(SECRET);
+    const mateCards = Object.fromEntries(JSON.parse(text).cards.map((c: any) => [c.channelId, c]));
+    expect(mateCards[b].forkOf).toEqual({ channelId: a, title: 'another chat' });
+    expect(mateCards[a]).not.toHaveProperty('forkOf');
+  });
+
   it('reports shifted nested areas from the same transaction', async () => {
     const outer = { id: randomUUID(), title: 'Outer', x: 0, y: 0, w: 2000, h: 2000 };
     const inner = { id: randomUUID(), title: 'Inner', x: 100, y: 100, w: 400, h: 400 };

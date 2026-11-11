@@ -1192,6 +1192,123 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    `npm run test:ui:canvas`. Only the transcription result is stubbed in the voice
    suite, because the harness has no speech model.
 
+## Switchyard canvas (Phase 3)
+
+Phase 3 adds flows to the flagged canvas: links that hand one chat's results to
+another, forks, schedules and webhook triggers. Design: section 8 of
+[the Switchyard design](superpowers/specs/2026-11-08-switchyard-canvas-design.md);
+plan: [the Phase 3 plan](superpowers/plans/2026-11-11-switchyard-canvas-phase3.md).
+Everything is behind `NEST_ENABLE_CANVAS=1`; with the flag off every `/api/flows/*`
+route answers 404, whoever asks. This section grows as the phase lands; so far it
+covers the service agent, links and how the board shows them.
+
+1. Data. Migration `014_links_forks.sql` adds:
+   - `product_links`: one row per link, keyed by id and unique per
+     `(kind, from_channel, to_channel)`. It holds `what` (`results`, `summary` or
+     `all`), `when_mode` (`done`, `approve` or `manual`), `who_agent` (the agent to
+     wake in the target, or none), the label (at most 60 characters), `on_flag` and
+     `paused_reason` (`cap`, `access`, `agent-left` or `unavailable`), `scanned_to`
+     (the hand-off cursor: turns at or before it are never handed off), the creator
+     and a `version` for compare-and-swap. A chat can touch at most 50 links.
+   - `product_link_deliveries`: one row per `(link_id, source_turn_id)`, where the
+     source turn is the engine `agent.turn.completed` event id. It holds the status
+     (`claimed`, `awaiting`, `delivered`, `declined` or `failed`), the posted event
+     id, a lease and the attempt count. Rows go with their link.
+   - `product_forks`: each forked chat's parent chat and event, and its findings link.
+   - `product_flow_leases`: single-worker leases.
+
+   Types are in `packages/schemas/src/flows.ts`. Ids and settings only: engine chats,
+   events and subscriptions are never mirrored.
+
+2. The service agent. Background posts come from a real engine agent named
+   `NEST_SWITCHYARD_AGENT_NAME` (default `Switchyard`). Nest creates it through the
+   service token (`NEST_CONNECTION_METADATA_TOKEN`, else `NEST_RUNNER_TOKEN`) as a
+   `PRIVATE`, `CLASSIC` agent owned by the instance owner (the first human), with
+   `desiredState:'STOPPED'`, `emitAuditEvents:false` and the description
+   `Nest service identity for hand-offs, scheduled runs, webhooks and fork seeds. It
+   never takes turns.` Its id is kept in `product_settings['switchyard.agent']`.
+   - Nest adopts only an agent with that description, owner, visibility and mode. An
+     agent with the name that Nest did not create makes flows report `name-taken`;
+     Nest never joins, posts or drains as it. Editing the agent's description in the
+     engine has the same effect, so leave it as Nest wrote it.
+   - Before every join, post and drain Nest re-reads the agent. If someone started it,
+     Nest stops it first and audits `audit.flows.service_agent.stopped`.
+   - Posts go through `POST /api/events` with source `agent:<name>` and a
+     deterministic idempotency key, so a retry returns the event already stored.
+     "Nobody, just context" targets the service agent itself, which is stopped, so no
+     agent wakes.
+
+3. Access without a session. Background work decides a person's access from the
+   engine channel record (`apps/api/src/flows/access.ts`, `channelAccess`):
+   - member: the person owns the chat or is a `HUMAN` participant;
+   - read: the chat is `PUBLIC`, or member;
+   - post: read, and the chat is not archived.
+
+   Link creation applies the same rule to the viewer's own channel list, so a link
+   never starts out paused. Limitation: access that comes only through a team, or a
+   viewer share, counts as none, although the engine itself grants it. Such a person
+   cannot create the link, and the hand-off worker (still to land) pauses a link
+   (`access`) once its creator's direct access goes.
+
+4. Routes. Each needs a signed-in person (401, or 403 until the password is set),
+   answers `Cache-Control: no-store` and takes at most 64 KB.
+   - `GET /api/flows/availability` answers `{enabled, reason?, serviceAgent,
+     summaries, webhooks}`. `enabled` is false with `reason` `no-service-token`
+     (no token is configured), `name-taken` or `engine-unavailable` (the engine is
+     unreachable, or refused the token; the server log names the status, never the
+     token). `serviceAgent` is the agent's name, so the UI can leave it out of agent
+     lists, or `null` when there is no token or the name belongs to someone else.
+     `summaries` is `'fallback'` and `webhooks` is `false` until those tasks land.
+   - `GET /api/flows/links?channelId=X` lists the links touching X, as
+     `Link & {fromTitle, toTitle, canManage, canEdit}`. The viewer must be able to
+     read X in the engine, else 404. Titles are the project name, else the chat name;
+     a chat the viewer cannot read is titled `a private chat`.
+   - `POST /api/flows/links` takes `{id, from, to, what?, when?, who?, label?, intro?}`
+     (defaults `results`, `done`, nobody and `results`; a chat cannot link to itself,
+     400). In order:
+     1. The creator must read `from` and post in `to` by the rule above, else 403
+        `You need to read the first chat and post in the second`.
+     2. `who`, when set, must be an `AGENT` participant of `to`, else 409
+        `Add {who} to the chat first`.
+     3. The service agent must be usable, else 503
+        `Hand-offs are not set up on this server`.
+     4. The service agent joins `to`, then `from`.
+     5. `scanned_to` is set to the newest `agent.turn.completed` in `from`, read with
+        the creator's session, or to now when there is none.
+     6. With `intro:true`, the note `Picks up what "{from title}" produces.` is posted
+        into `to` as the service agent, waking nobody, with the key
+        `nest:note:new-step:<linkId>`. If the note fails, the link stands and the
+        failure is logged; retrying the request posts it.
+
+     A new link answers 201. A retry with the same id and settings, or a pair that is
+     already linked, answers 200 with the stored link; the same id with other
+     settings answers 409.
+   - `PATCH /api/flows/links/:id` takes `{what?, when?, who?, label?, on?, version}`.
+     Pausing or resuming (`on`) is open to the creator and to members of the target
+     chat; anything else is the creator's alone (403 otherwise). `who` is checked as
+     at creation. Resuming clears the paused reason and restarts the scan from now. A
+     stale version answers 409 with the current link.
+   - `DELETE /api/flows/links/:id?version=N` answers 204, for the creator or a member
+     of the target chat. Messages already handed off stay in the engine.
+
+   For `PATCH` and `DELETE`, someone who neither created the link nor can read
+   either chat gets 404, as if it did not exist. These routes create no engine event
+   other than the intro note; joining a chat adds a subscription only.
+
+5. On the board. `GET /api/canvases/:id/board` adds `links`: the links whose two
+   chats both have a card on that canvas. A viewer who can read either chat gets
+   `{access:'open', label, what, when, who, pausedReason, canManage, canEdit}`;
+   anyone else gets a bare `{access:'locked'}` line with only ids and `on`.
+   `canManage` (pause or disconnect) is for the creator or a target member; `canEdit`
+   is for the creator. Each open card adds `forkOf`: `{channelId, title}` of the chat
+   it was forked from, titled `another chat` when the viewer cannot read it, or
+   `null`. The board etag covers links and `forkOf`, so a change to either is never
+   answered with `{unchanged:true}`.
+
+6. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
+   `access.test.ts` and the fork case in `canvas-board.test.ts` run against the real
+   engine and Nest handlers with temporary databases.
+
 ## Private Community catalog
 
 Nest owns reusable package metadata, immutable releases, package bytes and scoped

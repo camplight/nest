@@ -6,7 +6,7 @@ import {rank,searchIndex,type SearchItem} from './search';
 const item=(kind:SearchItem['kind'],id:string,label:string):SearchItem=>({kind,id,label,detail:''});
 const canvas=(id:string,name:string,role:Canvas['role']='owner'):Canvas=>({id,name,role,ownerId:'h1',visibility:'private',version:1,createdAt:1,updatedAt:1} as Canvas);
 const base={canvasId:'k1',x:0,y:0,w:280,version:1,placedBy:'h1',placedAt:1,ownerLabel:'demo-owner'};
-const open=(channelId:string,title:string):BoardCard=>({...base,channelId,projectId:null,access:'open',title,participants:[{subscriberType:'AGENT',subscriberId:'Pip'}],archived:false,canManage:true} as BoardCard);
+const open=(channelId:string,title:string):BoardCard=>({...base,channelId,projectId:null,access:'open',title,participants:[{subscriberType:'AGENT',subscriberId:'Pip'}],archived:false,canManage:true,forkOf:null} as BoardCard);
 const area=(id:string,title:string):CanvasArea=>({id,canvasId:'k1',title,x:0,y:0,w:400,h:300,tint:'moss',version:1} as CanvasArea);
 const loose=(channelId:string,title:string):LooseChat=>({channelId,projectId:null,title,participants:[],lastActivityAt:null,agents:['Moss'],state:'done',reason:null,line:''});
 
@@ -32,7 +32,7 @@ describe('rank',()=>{
 });
 
 describe('searchIndex',()=>{
-  const board=(cards:BoardCard[],areas:CanvasArea[]=[]):CanvasBoard=>({canvas:canvas('k1','Launch'),areas,cards,etag:'e'});
+  const board=(cards:BoardCard[],areas:CanvasArea[]=[]):CanvasBoard=>({canvas:canvas('k1','Launch'),areas,cards,links:[],etag:'e'});
   it('lists open cards, areas, loose chats and canvases',()=>{
     const index=searchIndex({canvases:[canvas('k1','Launch'),canvas('k2','Ops','view')],board:board([open('c1','Invoices')],[area('a1','Billing')]),loose:[loose('l1','Old thread')]});
     expect(index.map(i=>[i.kind,i.id,i.label])).toEqual([['card','c1','Invoices'],['area','a1','Billing'],['loose','l1','Old thread'],['canvas','k1','Launch'],['canvas','k2','Ops']]);

@@ -4,20 +4,36 @@ import { bodyLimit } from 'hono/body-limit';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { ProductDb } from '@nest/db';
-import { CanvasConflictError, CanvasForbiddenError, CanvasLimitError } from '@nest/db';
+import { CanvasConflictError, CanvasForbiddenError, CanvasLimitError, type Fork } from '@nest/db';
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
 import { availableHome, isChatMember, type ContextAgents } from './canvas-context';
 import { removeStored, type ContextFiles } from './context-files';
+import { linkRights } from './flows/access';
 import {
   AgentPinsSchema, areaFor, CARD_HEIGHT, DEFAULT_CARD_WIDTH, homeAfterMove, NewCanvasSchema, CanvasRenameSchema, CanvasSharingSchema, HiddenSchema, NewAreaSchema, AreaPatchSchema, PlaceCardsSchema, CardPatchSchema,
-  type AgentPins, type BoardCard, type Canvas, type CanvasArea, type CanvasBoard, type CanvasCardRow,
+  type AgentPins, type BoardCard, type BoardLink, type Canvas, type CanvasArea, type CanvasBoard, type CanvasCardRow, type Link,
 } from '@nest/schemas';
 
 export type Channel = {
-  id: string; name?: string; kind?: string; archivedAt?: number | null; ownerHumanId?: string | null;
+  id: string; name?: string; kind?: string; visibility?: string; archivedAt?: number | null; ownerHumanId?: string | null;
   participants?: { subscriberType: string; subscriberId: string }[]; canManage?: boolean;
 };
 type Person = { id: string; username: string };
+/** Links and forks for one board. Links are resolved for `viewer`; only pairs with both cards on the canvas are shown. */
+export type BoardFlows = { links: Link[]; forks: Fork[]; viewer: Person };
+
+/**
+ * A link as one viewer may see it: label and settings when the viewer can read either chat, else a bare
+ * line, like a locked card.
+ */
+export function boardLink(link: Link, visible: Map<string, Channel>, viewer: Person): BoardLink {
+  const base = { id: link.id, kind: link.kind, from: link.from, to: link.to, on: link.on };
+  if (!visible.has(link.from) && !visible.has(link.to)) return { ...base, access: 'locked' };
+  return {
+    ...base, access: 'open', label: link.label, what: link.what, when: link.when, who: link.who, pausedReason: link.pausedReason,
+    ...linkRights(link, visible.get(link.to), viewer),
+  };
+}
 const uuid = z.string().uuid();
 
 /**
@@ -29,23 +45,36 @@ export function resolveBoard(
   rows: CanvasCardRow[], areas: CanvasArea[], canvas: Canvas, channels: Channel[],
   projectsByChannel: Map<string, { id: string; name: string }>, viewerId: string,
   homeFor: (row: CanvasCardRow, areaId: string | null) => { isHere: boolean; label: string | null } | null = () => null,
+  flows: BoardFlows = { links: [], forks: [], viewer: { id: viewerId, username: '' } },
 ): CanvasBoard {
   const visible = new Map(channels.map(ch => [ch.id, ch]));
+  const titleOf = (ch: Channel) => projectsByChannel.get(ch.id)?.name ?? ch.name ?? '';
+  const parents = new Map(flows.forks.map(fork => [fork.childChannelId, fork.parentChannelId]));
+  const forkOf = (channelId: string) => {
+    const parent = parents.get(channelId);
+    if (!parent) return null;
+    const ch = visible.get(parent);
+    return { channelId: parent, title: ch ? titleOf(ch) : 'another chat' };
+  };
   const cards = rows.map((row): BoardCard => {
     const { ownerLabel, projectId, ...base } = row;
     const ch = visible.get(row.channelId);
     if (ch) {
       const project = projectsByChannel.get(row.channelId);
       return {
-        ...base, access: 'open', title: project?.name ?? ch.name ?? '', ...(ch.kind ? { kind: ch.kind } : {}),
+        ...base, access: 'open', title: titleOf(ch), ...(ch.kind ? { kind: ch.kind } : {}),
         projectId: project?.id ?? projectId, participants: ch.participants ?? [], archived: Boolean(ch.archivedAt), canManage: Boolean(ch.canManage),
         home: homeFor(row, areaFor({ x: row.x + row.w / 2, y: row.y + CARD_HEIGHT / 2 }, areas)?.id ?? null),
+        forkOf: forkOf(row.channelId),
       };
     }
     return row.placedBy === viewerId ? { ...base, access: 'unavailable' } : { ...base, access: 'locked', ownerLabel };
   });
-  const etag = createHash('sha256').update(JSON.stringify({ canvas, areas, cards })).digest('hex');
-  return { canvas, areas, cards, etag };
+  const onCanvas = new Set(rows.map(row => row.channelId));
+  const links = flows.links.filter(l => onCanvas.has(l.from) && onCanvas.has(l.to)).map(l => boardLink(l, visible, flows.viewer));
+  // Links and forks are hashed too, or a link-only change would answer {unchanged:true} (S2).
+  const etag = createHash('sha256').update(JSON.stringify({ canvas, areas, cards, links })).digest('hex');
+  return { canvas, areas, cards, links, etag };
 }
 
 // Card rows from the store carry a project id and owner label; hand them back only for chats the caller can see.
@@ -224,7 +253,10 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
     const canvas = canvases.get(canvasId, human.id);
     if (!canvas) throw notFound();
     const rows = canvases.cards(canvasId);
-    return resolveBoard(rows, canvases.areas(canvasId), canvas, channels, store.projects.byChannels(rows.map(r => r.channelId)), human.id, homeLabels(human, canvasId));
+    const ids = rows.map(r => r.channelId);
+    const forks = store.flows.forkOf(ids);
+    return resolveBoard(rows, canvases.areas(canvasId), canvas, channels, store.projects.byChannels([...ids, ...forks.map(f => f.parentChannelId)]), human.id, homeLabels(human, canvasId),
+      { links: store.flows.linksTouching(ids), forks, viewer: human });
   }
   routes.get('/api/canvases/:id/board', async c => {
     const canvas = visible(c);

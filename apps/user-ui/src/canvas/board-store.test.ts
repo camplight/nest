@@ -7,11 +7,11 @@ import {createBoardStore,type BoardApi} from './board-store';
 // UI state only: the fake api stands in for canvas/api.ts, not for the engine boundary.
 const card=(channelId:string,x:number,y:number,version=0):BoardCard=>({
   canvasId:'c1',channelId,x,y,w:280,version,placedBy:'h1',placedAt:1,access:'open',title:channelId,
-  projectId:null,participants:[],archived:false,canManage:true,
+  projectId:null,participants:[],archived:false,canManage:true,forkOf:null,
 });
 const board=(etag:string,cards:BoardCard[]=[card('ch1',0,0)]):CanvasBoard=>({
   canvas:{id:'c1',ownerId:'h1',name:'Launch',visibility:'private',version:1,createdAt:1,updatedAt:1,role:'owner'},
-  areas:[],cards,etag,
+  areas:[],cards,links:[],etag,
 });
 function deferred<T>(){
   let resolve!:(value:T)=>void,reject!:(error:unknown)=>void;

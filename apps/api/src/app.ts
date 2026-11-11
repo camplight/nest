@@ -19,6 +19,8 @@ import { registerCanvasRoutes } from './canvases';
 import { registerCanvasContextRoutes } from './canvas-context';
 import { createContextFiles } from './context-files';
 import { createContextAgents } from './context-agents';
+import { createSwitchyard } from './flows/identity';
+import { registerFlowRoutes } from './flows/routes';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { Hono } from 'hono';
@@ -27,7 +29,7 @@ import { openProductDb, type ProductDb } from '@nest/db';
 import { BrandingSchema } from '@nest/schemas';
 import { createOrgOpsClient, productHeaders, type OrgOpsClient } from '@nest/orgops-client';
 
-export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string; canvasEnabled?: boolean; contextFilesDir?: string; contextSetupWaitMs?: number } = {}) {
+export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string; canvasEnabled?: boolean; contextFilesDir?: string; contextSetupWaitMs?: number; switchyardName?: string; switchyardWorkspaceRoot?: string } = {}) {
   const store = config.store ?? openProductDb(config.dbPath ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_PRODUCT_DB_PATH ?? '.nest-product/nest.sqlite'));
   const orgops = config.orgops ?? createOrgOpsClient(config.orgopsUrl ?? process.env.ORGOPS_URL ?? 'http://127.0.0.1:8788');
   const app = new Hono();
@@ -90,6 +92,13 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   // Agents' context keys and reads; the agent routes sit outside /api/canvases and before the engine proxy.
   const contextAgents = createContextAgents({store, orgops, engineToken: config.connectionEngineToken ?? process.env.NEST_CONNECTION_METADATA_TOKEN ?? process.env.NEST_RUNNER_TOKEN, setupWaitMs: config.contextSetupWaitMs});
   contextAgents.registerRoutes(app, {enabled: canvasEnabled, files: contextFiles});
+  // Nest's stopped service agent: it joins linked chats and posts hand-offs, runs and notes as itself.
+  const switchyard = createSwitchyard({
+    store, orgops, token: config.connectionEngineToken ?? process.env.NEST_CONNECTION_METADATA_TOKEN ?? process.env.NEST_RUNNER_TOKEN,
+    name: config.switchyardName ?? process.env.NEST_SWITCHYARD_AGENT_NAME, defaultModelId: defaultAgentModelId,
+    workspaceRoot: config.switchyardWorkspaceRoot ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_ENGINE_DATA_DIR ?? '.nest-data', 'workspaces/managed'),
+  });
+  registerFlowRoutes(app, {store, orgops, enabled: canvasEnabled, switchyard});
   // Before the canvas routes, whose /api/canvases/* catch-all would otherwise answer 404 first.
   registerCanvasContextRoutes(app, {store, orgops, enabled: canvasEnabled, files: contextFiles, agents: contextAgents});
   registerCanvasRoutes(app, {store, orgops, enabled: canvasEnabled, files: contextFiles, agents: contextAgents});
@@ -118,5 +127,5 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     const env=config.projectNamer?undefined:await orgops.projectNamingEnv({model:input.model,token:managementKey,agentName:namingSource,agentId:namingSource===managementName?managementId:undefined});
     return {...input,env};
   }});
-  return { app, store, orgops, projectNaming, contextAgents };
+  return { app, store, orgops, projectNaming, contextAgents, switchyard };
 }

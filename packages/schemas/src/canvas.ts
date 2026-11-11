@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { BoardLink } from './flows';
 
 export const CanvasRole = z.enum(['owner', 'edit', 'view']);
 export type CanvasRole = z.infer<typeof CanvasRole>;
@@ -82,9 +83,14 @@ export function areaFor(point: { x: number; y: number }, areas: CanvasArea[]): C
  */
 type BoardCardBase = Omit<CanvasCardRow, 'ownerLabel' | 'projectId'>;
 export type BoardCard = BoardCardBase & (
-  | { access: 'open'; title: string; kind?: string; projectId: string | null; participants: { subscriberType: string; subscriberId: string }[]; archived: boolean; canManage: boolean; home?: { isHere: boolean; label: string | null; available?: false } | null }
+  | { access: 'open'; title: string; kind?: string; projectId: string | null; participants: { subscriberType: string; subscriberId: string }[]; archived: boolean; canManage: boolean; home?: { isHere: boolean; label: string | null; available?: false } | null;
+      /** The chat this one was forked from; the title is 'another chat' when the viewer cannot read the parent. */
+      forkOf: { channelId: string; title: string } | null }
   | { access: 'locked'; ownerLabel: string }
   | { access: 'unavailable' }
 );
-/** `etag` hashes the board as this viewer sees it, so engine-side changes (renames, access) alter it too. */
-export type CanvasBoard = { canvas: Canvas; areas: CanvasArea[]; cards: BoardCard[]; etag: string };
+/**
+ * `etag` hashes the board as this viewer sees it, so engine-side changes (renames, access) and link
+ * changes alter it too. `links` are the links whose two chats both have a card on this canvas.
+ */
+export type CanvasBoard = { canvas: Canvas; areas: CanvasArea[]; cards: BoardCard[]; links: BoardLink[]; etag: string };

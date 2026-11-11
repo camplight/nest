@@ -12,6 +12,8 @@ export type Fork = { childChannelId: string; parentChannelId: string; parentEven
 export type NewLinkRecord = {
   id: string; from: string; to: string; what?: LinkWhat; when?: LinkWhen; who?: string | null; label?: string;
   kind: LinkKind; createdBy: string; now: number;
+  /** Where the hand-off scan starts: turns completed at or before it are never handed off. Defaults to `now`. */
+  scannedTo?: number;
 };
 
 const CLAIM_LEASE_MS = 60_000;
@@ -45,7 +47,7 @@ export function createFlowStore(db: Database.Database, clock: () => number = Dat
         if (touching(channel) >= MAX_LINKS_PER_CHAT) throw new CanvasLimitError(`A chat can have at most ${MAX_LINKS_PER_CHAT} links`);
       }
       db.prepare('INSERT INTO product_links(id,kind,from_channel,to_channel,what,when_mode,who_agent,label,on_flag,paused_reason,scanned_to,created_by,created_at,updated_at,version) VALUES (?,?,?,?,?,?,?,?,1,NULL,?,?,?,?,0)')
-        .run(input.id, input.kind, input.from, input.to, want.what, want.when, want.who, want.label, input.now, input.createdBy, input.now, input.now);
+        .run(input.id, input.kind, input.from, input.to, want.what, want.when, want.who, want.label, input.scannedTo ?? input.now, input.createdBy, input.now, input.now);
       audit('link-created', input.createdBy, { linkId: input.id, kind: input.kind, from: input.from, to: input.to });
       return link(input.id)!;
     })();

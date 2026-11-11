@@ -631,6 +631,21 @@ Smaller differences from the mockup are left as follow-ups:
   - the canvas summary line
 - **Canvas:** a legend for working, waiting on you and gone quiet.
 
+## Switchyard canvas — Phase 3 in progress on the branch
+
+Flows between chats: links that hand one chat's results to another, forks,
+schedules and webhook triggers, still behind `NEST_ENABLE_CANVAS=1`. Background
+posts come from a stopped engine agent, `Switchyard`, that Nest posts as with its
+service token; no engine change is needed. Plan:
+[Phase 3 plan](superpowers/plans/2026-11-11-switchyard-canvas-phase3.md). Behaviour
+and routes: [SPEC.md, Switchyard canvas (Phase 3)](SPEC.md#switchyard-canvas-phase-3).
+
+Done so far: the service agent, the link store (migration `014_links_forks.sql`),
+the link API with its permissions (`/api/flows/links`, `/api/flows/availability`)
+and links and fork parents on the board. Not yet built: the hand-off worker,
+summaries, the canvas UI for links, Needs you items, forks, schedules and webhooks.
+Access that comes only through a team counts as no access for flows.
+
 ## First-visit visual orientation
 
 Implemented for review: a replayable three-step spotlight tour in the workspace
