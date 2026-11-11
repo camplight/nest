@@ -1407,7 +1407,11 @@ the canvas UI for links (lines, labels and the Hand-off popover).
      apart (the lower id up). A fork is drawn parent → child.
    - Each line the viewer can read (`access:'open'`) has a `.lab` pill at its
      midpoint (by path length) reading `linkLabel` with a lime dot, or the fork icon
-     on a fork line. A locked link is a bare line with no label or popover.
+     on a fork line. A locked link is a bare line with no label or popover. A
+     paused label and the popover's small headings use `--canvas-faint-text`
+     (#687870 light, #7d958a dark), darker than the mock's `--faint` so the text
+     keeps 4.5:1 (checked by `devices.ts`); the mock's grey stays for the dot and
+     option rings.
    - A link's label opens the Hand-off popover (`role=dialog`, `Hand-off between
      chats`), 380 px wide under the label (the mock's `popAt`: 170 px left of it and
      10 px below, kept 16 px inside the window and 76 px from the top). It reads the
@@ -1421,7 +1425,8 @@ the canvas UI for links (lines, labels and the Hand-off popover).
    - Each option press `PATCH`es at once, one write at a time, with the version the
      last write returned (a 409 retries once on the current version). The name saves
      600 ms after typing stops (empty saves as `results`) and the line's label
-     follows it as typed. An agent from `+ Someone else` who is not in the target
+     follows it as typed; a name still waiting when the popover closes (Escape, a
+     press outside, Done) saves as it closes. An agent from `+ Someone else` who is not in the target
      is added first (the chat's manage rights; otherwise `You can't add people to
      this chat`). Only the creator (`canEdit`) on a canvas they may edit changes
      the settings; anyone else sees them disabled. `canManage` (the creator or a

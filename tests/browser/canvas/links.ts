@@ -6,7 +6,7 @@ import {mkdtempSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {Page} from 'playwright';
-import type {Link} from '@nest/schemas';
+import type {FlowNeed,Link} from '@nest/schemas';
 import {agentName,runChatTest,type ChatHarness} from '../support/chat-harness';
 
 type EngineEvent={id:string;type:string;source:string;payload?:{text?:string;nestSwitchyard?:{kind?:string}}};
@@ -99,27 +99,32 @@ await runChatTest('canvas links: the line and label, the Hand-off popover, pause
   await until(()=>linkOf(h,from,link.id),l=>l?.who==='Pom','server link who:Pom');
   await until(()=>summary.innerText(),text=>text.includes('and Pom picks it up.'),'summary names Pom');
 
+  // Each time it finishes something: a turn would hand off at once, so the paused check below is a real one.
+  await pop.getByRole('button',{name:/^Each time it finishes something/}).click();
+  await until(()=>linkOf(h,from,link.id),l=>l?.when==='done','server link when:done');
+  await until(()=>labelText(page),text=>text==='results','label back to results');
+
   // Pause: a dashed line, a dashed label, and the summary says so.
   await pop.getByRole('button',{name:'Pause',exact:true}).click();
   await page.locator('.canvas-links .lk.off').waitFor({state:'attached'});
   assert.equal(await page.locator('.canvas-links .lk-flow').count(),0,'no flow while paused');
   await page.locator('.canvas-world > .lab.off').waitFor();
-  await until(()=>labelText(page),text=>text==='results · needs OK · paused','paused label');
+  await until(()=>labelText(page),text=>text==='results · paused','paused label');
   await until(()=>summary.innerText(),text=>text.endsWith('Paused right now.'),'summary ends paused');
   await until(()=>linkOf(h,from,link.id),l=>l?.on===false,'server link off');
 
-  // A finished Pip turn while paused hands nothing off.
+  // A finished Pip turn while paused hands nothing off, and nothing waits for approval either.
   await turn(h,from,'Synthetic outline while paused');
   for(let n=0;n<3;n++)await h.flowsTick();
   await page.waitForTimeout(600);
   assert.equal((await handoffs(h,blog)).length,0,'no hand-off while paused');
+  const needs=await call<{items:FlowNeed[]}>(h,'GET','/api/flows/needs');
+  assert.equal(needs.items.filter(n=>n.gate.kind==='approval'&&n.gate.linkId===link.id).length,0,'no approval waiting while paused');
 
-  // Resume and hand off each time: the next turn arrives in Blog post.
+  // Resume: the next turn arrives in Blog post.
   await pop.getByRole('button',{name:'Resume',exact:true}).click();
   await page.locator('.canvas-links .lk.on').waitFor({state:'attached'});
-  await pop.getByRole('button',{name:/^Each time it finishes something/}).click();
   await until(()=>linkOf(h,from,link.id),l=>l?.on===true&&l.when==='done','server link on and done');
-  await until(()=>labelText(page),text=>text==='results','label back to results');
   await turn(h,from,'Synthetic draft ready for the blog');
   const [posted]=await until(()=>handoffs(h,blog),list=>list.length===1,'one hand-off posted');
   assert.match(posted.payload?.text??'',/^Hand-off from Synthetic chat project · set up by demo-owner\n\nSynthetic draft ready for the blog$/);
@@ -156,7 +161,7 @@ await runChatTest('canvas links: the line and label, the Hand-off popover, pause
 
 await runChatTest('canvas links: reduced motion stills the flow; Escape and an outside press close the popover',async h=>{
   const {page,base}=h;
-  const {canvasId}=await linkedBoard(h);
+  const {canvasId,link}=await linkedBoard(h);
   await openCanvas(page,base,canvasId);
   const flow=page.locator('.canvas-links .lk-flow');
   await flow.waitFor({state:'attached'});
@@ -171,8 +176,12 @@ await runChatTest('canvas links: reduced motion stills the flow; Escape and an o
   assert.ok(box&&at);
   const expected={x:Math.max(16,Math.min(size.width-box.width-16,at.x-170)),y:Math.max(76,Math.min(size.height-box.height-16,at.y+at.height+10))};
   assert.ok(Math.abs(box.x-expected.x)<=1&&Math.abs(box.y-expected.y)<=1,`popover placed as popAt: ${JSON.stringify({box,at,expected})}`);
+  // A name typed and closed at once with Escape (inside the 600 ms save delay) still saves.
+  await pop.locator('#lk-label').fill('Synthetic outline');
   await page.keyboard.press('Escape');
   await pop.waitFor({state:'detached'});
+  await until(()=>linkOf(h,h.project.channelId,link.id),l=>l?.label==='Synthetic outline','server label after Escape');
+  await until(()=>labelText(page),text=>text==='Synthetic outline','line label after Escape');
   // Focus goes back to the label.
   assert.equal(await page.evaluate(()=>document.activeElement?.classList.contains('lab')),true);
   await label.click();

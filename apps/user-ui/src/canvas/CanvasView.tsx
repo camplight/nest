@@ -784,10 +784,14 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   }, [readLink, say]);
   const closeFlowPop = useCallback(() => setFlowPop(null), []);
   const flowQueue = useRef<Promise<void>>(Promise.resolve());
+  /** The newest version this page saved for each link, for changes that run after their popover closed. */
+  const flowVersions = useRef(new Map<string, number>());
   const queueFlow = useCallback((run: () => Promise<void>) => { flowQueue.current = flowQueue.current.then(run, run); }, []);
-  const changeFlow = useCallback((change: HandoffChange) => queueFlow(async () => {
-    const view = flowPopRef.current?.view;
-    if (!view) return;
+  // The link comes from the popover with the change: a name flushed as the popover closes (Escape, a press outside)
+  // runs after flowPop is already null, and still saves.
+  const changeFlow = useCallback((change: HandoffChange, link: LinkView) => queueFlow(async () => {
+    const open = flowPopRef.current?.view?.id === link.id ? flowPopRef.current.view : null;
+    const view = open ?? link;
     const by = humanRef.current;
     // An agent from `+ Someone else` joins the receiving chat first (manage rights), then picks it up.
     if (change.who) {
@@ -804,7 +808,9 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     const before = view;
     setFlowPop(current => current?.linkId === view.id && current.view ? {...current, view: {...current.view, ...change}} : current);
     try {
-      const saved = await patchLatest(view.id, change, flowPopRef.current?.view?.version ?? view.version);
+      const live = flowPopRef.current?.view?.id === view.id ? flowPopRef.current.view.version : undefined;
+      const saved = await patchLatest(view.id, change, Math.max(live ?? 0, flowVersions.current.get(view.id) ?? 0, view.version));
+      flowVersions.current.set(saved.id, saved.version);
       setFlowPop(current => current?.linkId === saved.id && current.view
         ? {...current, view: {...current.view, ...saved}, draft: change.label !== undefined && current.draft === saved.label ? undefined : current.draft} : current);
       void store.refresh({force: true});

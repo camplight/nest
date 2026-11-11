@@ -57,9 +57,9 @@ type Contrast={text:string;ratio:number;color:string;background:string};
  * The contrast of every visible text run in the mounted cards, from computed styles: the text colour is
  * composited over the stack of ancestor backgrounds on a 1×1 canvas, then compared by WCAG relative luminance.
  */
-async function cardContrasts(page:Page):Promise<Contrast[]>{
+async function cardContrasts(page:Page,roots='.canvas-card'):Promise<Contrast[]>{
   await keepNames(page);
-  return page.evaluate(()=>{
+  return page.evaluate(roots=>{
     const canvas=document.createElement('canvas');canvas.width=canvas.height=1;
     const ctx=canvas.getContext('2d',{willReadFrequently:true})!;
     const paint=(colors:string[])=>{
@@ -72,7 +72,7 @@ async function cardContrasts(page:Page):Promise<Contrast[]>{
       return 0.2126*r+0.7152*g+0.0722*b;
     };
     const results:Contrast[]=[];
-    for(const card of document.querySelectorAll<HTMLElement>('.canvas-card')){
+    for(const card of document.querySelectorAll<HTMLElement>(roots)){
       for(const element of [card,...card.querySelectorAll<HTMLElement>('*')]){
         const text=[...element.childNodes].filter(node=>node.nodeType===Node.TEXT_NODE).map(node=>node.textContent??'').join('').trim();
         if(!text)continue;
@@ -89,10 +89,10 @@ async function cardContrasts(page:Page):Promise<Contrast[]>{
       }
     }
     return results;
-  });
+  },roots);
 }
-async function assertContrast(page:Page,what:string,expect:string[]){
-  const all=await cardContrasts(page);
+async function assertContrast(page:Page,what:string,expect:string[],roots?:string){
+  const all=await cardContrasts(page,roots);
   for(const text of expect)assert.ok(all.some(item=>item.text.startsWith(text)),`${what}: measured "${text}" (${JSON.stringify(all.map(i=>i.text))})`);
   const low=all.filter(item=>item.ratio<4.5);
   assert.deepEqual(low,[],`${what}: card text below 4.5:1`);
@@ -271,6 +271,9 @@ await runChatTest('canvas devices: card text keeps 4.5:1 contrast in light and d
   const mentioned=await mate.page.evaluate(async channelId=>(await fetch('/api/messages',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
     id:crypto.randomUUID(),channelId,text:'@demo-owner pick a hook',mentions:[{kind:'HUMAN',name:'demo-owner',start:0,end:11}],attachments:[]})})).status,failing.channelId);
   assert.equal(mentioned,201);
+  // A paused link from the failing chat to the quiet one: its label and the Hand-off popover's headings use the faint text.
+  const link=await call<{id:string;version:number}>(h,'POST','/api/flows/links',{id:crypto.randomUUID(),from:failing.channelId,to:h.project.channelId});
+  await call(h,'PATCH',`/api/flows/links/${link.id}`,{on:false,version:link.version});
 
   await page.goto(`${base}/?view=canvas&canvas=${id}`);
   const ratios:Record<string,number>={};
@@ -283,6 +286,15 @@ await runChatTest('canvas devices: card text keeps 4.5:1 contrast in light and d
     await quiet.locator('.canvas-card-activity').waitFor();
     await cardAt(page,failing.channelId).locator('.canvas-card-need').getByText('mate: @demo-owner pick a hook',{exact:true}).waitFor();
     ratios[`owner ${theme}`]=await assertContrast(page,`owner, ${theme}`,['Synthetic chat project','quiet for 25 min','ran into an error','synthetic-brief.txt','Nudge Pip','mate: @demo-owner','Open']);
+    const paused=page.locator('.canvas-world > .lab.off');
+    await paused.waitFor();
+    ratios[`paused label ${theme}`]=await assertContrast(page,`paused label, ${theme}`,['results · paused'],'.canvas-world > .lab.off');
+    // A DOM click: the label sits in the narrow gap between two cards here.
+    await paused.evaluate(el=>(el as HTMLElement).click());
+    await page.locator('.canvas-flow-pop .iv-l').first().waitFor();
+    ratios[`hand-off headings ${theme}`]=await assertContrast(page,`hand-off headings, ${theme}`,['What passes along','When','Who picks it up','Name on the line'],'.canvas-flow-pop .iv-l');
+    await page.keyboard.press('Escape');
+    await page.locator('.canvas-flow-pop').waitFor({state:'detached'});
 
     await useTheme(mate.page,theme);
     await mate.page.goto(`${base}/?view=canvas&canvas=${id}`);
@@ -297,7 +309,7 @@ await runChatTest('canvas devices: card text keeps 4.5:1 contrast in light and d
   const ring=await cardAt(page,h.project.channelId).evaluate(el=>{const s=getComputedStyle(el);return {style:s.outlineStyle,width:s.outlineWidth};});
   assert.equal(ring.style,'solid',`the focused card keeps an outline in forced colours: ${JSON.stringify(ring)}`);
   assert.notEqual(ring.width,'0px');
-},{canvas:true,viewport:{width:1440,height:900},colorScheme:'dark'});
+},{canvas:true,flows:true,viewport:{width:1440,height:900},colorScheme:'dark'});
 
 // The scale fixture: 6 areas in 3 columns × 2 rows, each holding 25 chats in a 5 × 5 grid.
 const COLUMNS=5,STEP={x:300,y:200},PAD=48,TOP=96,AREA={w:PAD+(COLUMNS-1)*STEP.x+280+PAD,h:TOP+4*STEP.y+160+PAD},GAP=400;

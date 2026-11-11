@@ -22,7 +22,8 @@ export type HandoffPopoverProps = {
   anchor: HTMLElement | null;
   /** The creator, on a canvas they may edit: the settings can change. */
   editable: boolean;
-  onChange(change: HandoffChange): void;
+  /** `link` is the link as the popover last had it, so a name flushed while the popover closes still saves. */
+  onChange(change: HandoffChange, link: LinkView): void;
   /** The name as typed, before it saves: the line's label follows it (the mock's renderLinks on input). */
   onLabelDraft?(label: string): void;
   onDisconnect(): void;
@@ -50,14 +51,17 @@ export function HandoffPopover({link, fromTitle, toTitle, fromAgent, candidates,
   const [label, setLabel] = useState(link.label);
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
   const changeRef = useRef(onChange); changeRef.current = onChange;
+  const linkRef = useRef(link); linkRef.current = link;
+  const change = (value: HandoffChange) => changeRef.current(value, linkRef.current);
   const labelRef = useRef(label); labelRef.current = label;
   const saveLabel = () => {
     if (pending.current) { clearTimeout(pending.current); pending.current = null; }
     const value = labelRef.current.trim() || 'results';
-    if (value !== link.label) changeRef.current({label: value});
+    if (value !== linkRef.current.label) changeRef.current({label: value}, linkRef.current);
   };
   const saveRef = useRef(saveLabel); saveRef.current = saveLabel;
-  // A name still waiting to save goes when the popover closes.
+  // A name still waiting to save goes when the popover closes (Escape, a press outside, Done): the change carries the
+  // link, because the canvas has already let go of the popover by the time this runs.
   useEffect(() => () => { if (pending.current) saveRef.current(); }, []);
 
   // Focus moves to the heading; on close it returns to the label, else to what was focused before.
@@ -115,7 +119,7 @@ export function HandoffPopover({link, fromTitle, toTitle, fromAgent, candidates,
   const by = fromAgent ?? 'someone';
   const option = <K extends 'what' | 'when'>(key: K, map: Record<string, [string, string]>) => Object.entries(map).map(([value, [title, small]]) =>
     <button key={value} type="button" className={`opt${link[key] === value ? ' on' : ''}`} aria-pressed={link[key] === value} disabled={!editable}
-      onClick={() => { if (link[key] !== value) onChange({[key]: value} as HandoffChange); }}>
+      onClick={() => { if (link[key] !== value) change({[key]: value} as HandoffChange); }}>
       <span>{title}<small>{small}</small></span>
     </button>);
   const style = place ? {'--flow-pop-left': `${place.left}px`, '--flow-pop-top': `${place.top}px`} as CSSProperties : undefined;
@@ -129,9 +133,9 @@ export function HandoffPopover({link, fromTitle, toTitle, fromAgent, candidates,
     <div className="iv-l" id={`lk-who-${link.id}`}>Who picks it up in “{shownTo}”</div>
     <div className="optrow" role="group" aria-labelledby={`lk-who-${link.id}`}>
       {picks.map(name => <button key={name} type="button" className={`pick${link.who === name ? ' on' : ''}`} aria-pressed={link.who === name} disabled={!editable}
-        onClick={() => { if (link.who !== name) onChange({who: name}); }}><AgentAvatar name={name} size={20}/>{name}</button>)}
+        onClick={() => { if (link.who !== name) change({who: name}); }}><AgentAvatar name={name} size={20}/>{name}</button>)}
       <button type="button" className={`pick txt${link.who === null ? ' on' : ''}`} aria-pressed={link.who === null} disabled={!editable}
-        onClick={() => { if (link.who !== null) onChange({who: null}); }}>Nobody, just context</button>
+        onClick={() => { if (link.who !== null) change({who: null}); }}>Nobody, just context</button>
       {more || !editable ? null : <button type="button" className="pick txt" onClick={() => setMore(true)}>+ Someone else</button>}
     </div>
     <div className="iv-l" id={`lk-label-${link.id}`}>Name on the line</div>
@@ -151,7 +155,7 @@ export function HandoffPopover({link, fromTitle, toTitle, fromAgent, candidates,
     <div className="iv-foot">
       {link.canManage ? <button type="button" className="btn" style={{marginRight: 'auto'}} onClick={onDisconnect}>Disconnect</button> : null}
       {link.canManage && link.when === 'manual' ? <button type="button" className="btn" onClick={onSendNow}>Send now</button> : null}
-      {link.canManage ? <button type="button" className="btn" onClick={() => onChange({on: !link.on})}>{link.on ? 'Pause' : 'Resume'}</button> : null}
+      {link.canManage ? <button type="button" className="btn" onClick={() => change({on: !link.on})}>{link.on ? 'Pause' : 'Resume'}</button> : null}
       <button type="button" className="btn pri" onClick={onClose}>Done</button>
     </div>
   </div>;

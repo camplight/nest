@@ -57,10 +57,13 @@
   --canvas-pip: #1f7f6c;
   --canvas-amber: #8a6212;
   --canvas-alert: color-mix(in srgb, var(--nest-coral) 62%, var(--nest-text));
-  /* Link lines and the Hand-off popover (the mock's --link, --link-on, --faint, --surface-2 and --shadow-lg). */
+  /* Link lines and the Hand-off popover (the mock's --link, --link-on, --faint, --surface-2 and --shadow-lg). --canvas-faint
+     stays for marks only (the paused dot, the option ring). */
   --canvas-link: #a7b8b0;
   --canvas-link-on: #337b13;
   --canvas-faint: #8a9a93;
+  /* The mock's --faint for text (a paused label, the popover's headings): darkened to keep 4.5:1 on the surface. */
+  --canvas-faint-text: #687870;
   --canvas-surface-2: #f6f8f7;
   --canvas-shadow-lg: 0 30px 70px rgba(2, 24, 20, .20), 0 2px 8px rgba(2, 24, 20, .08);
 }
@@ -73,6 +76,7 @@
   --canvas-link: #3d574c;
   --canvas-link-on: #91d767;
   --canvas-faint: #6f877c;
+  --canvas-faint-text: #7d958a;
   --canvas-surface-2: #0c231d;
   --canvas-shadow-lg: 0 30px 70px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .3);
 }
@@ -3372,7 +3376,7 @@ li.canvas-phone-row[data-access] {
 .canvas-world > .lab:hover { border-color: var(--nest-accent); color: var(--nest-text); }
 .canvas-world > .lab:enabled:active { transform: translate(-50%, -50%) scale(.98); }
 .canvas-world > .lab i { width: 6px; height: 6px; border-radius: 50%; background: var(--nest-lime); }
-.canvas-world > .lab.off { color: var(--canvas-faint); border-style: dashed; }
+.canvas-world > .lab.off { color: var(--canvas-faint-text); border-style: dashed; }
 .canvas-world > .lab.off i { box-sizing: border-box; background: transparent; border: 1.5px solid var(--canvas-faint); }
 .canvas-world > .lab svg { width: 11px; height: 11px; }
 
@@ -3408,7 +3412,7 @@ li.canvas-phone-row[data-access] {
 .canvas-flow-pop .iv-h h2:focus { outline: none; }
 .canvas-flow-pop .iv-h h2:focus-visible { outline: 2px solid var(--nest-lime); outline-offset: 2px; border-radius: 4px; }
 .canvas-flow-pop .iv-h small { display: block; font-weight: 400; color: var(--nest-muted); font-size: 12px; margin-top: 1px; overflow-wrap: anywhere; }
-.canvas-flow-pop .iv-l { font: 600 10.5px Inter, sans-serif; letter-spacing: .07em; text-transform: uppercase; color: var(--canvas-faint); margin: 13px 0 6px; }
+.canvas-flow-pop .iv-l { font: 600 10.5px Inter, sans-serif; letter-spacing: .07em; text-transform: uppercase; color: var(--canvas-faint-text); margin: 13px 0 6px; }
 .canvas-flow-pop .iv-in { width: 100%; border: 1px solid var(--nest-border); background: var(--canvas-surface-2); border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 13.5px; color: inherit; outline: none; }
 .canvas-flow-pop .iv-in:focus { border-color: var(--nest-accent); }
 .canvas-flow-pop .iv-in[readonly] { color: var(--nest-muted); }
