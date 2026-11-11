@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {activity,activityDetails,activeAgentProgress,appLineDetails,appLineLabel,appRedaction} from './activity';
+import {activity,activityDetails,activeAgentProgress,appLineDetails,appLinePhrase,appRedaction} from './activity';
 import type {EventRow} from './types';
 const event=(type:string,payload:unknown)=>({id:'fixture',type,payload,source:'agent:Demo',createdAt:1,channelId:'demo'} as EventRow);
 describe('activity status meaning',()=>{
@@ -60,14 +60,43 @@ describe('app lines in the timeline',()=>{
   expect(apps.lines.get('s2')).toMatchObject({kind:'read',state:'running'});
   expect(appRedaction(rows,60+11*60_000).lines.get('s2')?.state).toBe('failed');
  });
- it('labels and details show only agent, app, action, repo, kind, state and time',()=>{
-  const apps=appRedaction([tool('r1','tool.executed','gh pr view 1 -R acme/web',30),tool('s1','tool.executed',send,40)],60);
-  const gh=apps.lines.get('r1')!,mail=apps.lines.get('s1')!;
-  expect(appLineLabel(gh)).toBe('Pr view acme/web');
-  expect(appLineLabel(mail)).toBe('Send email');
-  const text=appLineDetails(mail);
-  expect(text).toBe('agent: Pip\napp: Gmail\naction: Send email\nkind: changed\nstate: done\ntime: 1970-01-01T00:00:00.040Z');
-  for(const shown of [text,appLineDetails(gh),appLineLabel(gh),appLineLabel(mail)])for(const leak of ['a.json','connections.mjs','SECRET-OUT','shell_run'])expect(shown).not.toContain(leak);
+ it('phrases each call as a lowercase clause, by state',()=>{
+  const apps=appRedaction([tool('r1','tool.executed','gh pr merge 1 -R acme/web',30),tool('s1','tool.executed',send,40),tool('f1','tool.executed',send.replace('SEND_EMAIL','FETCH_EMAILS'),50),
+   tool('g1','tool.executed','gh api -X DELETE /x -R acme/web',60),tool('p1','tool.started','gh issue create -R acme/web',70),tool('x1','tool.failed',send.replace('SEND_EMAIL','LIST_THINGS'),80)],90);
+  const phrase=(id:string)=>appLinePhrase(apps.lines.get(id)!);
+  expect(phrase('r1')).toBe('merged a PR in acme/web');
+  expect(phrase('s1')).toBe('sent an email');
+  expect(phrase('f1')).toBe('fetched emails');
+  expect(phrase('g1')).toBe('called the GitHub API in acme/web');
+  expect(phrase('p1')).toBe('creating an issue in acme/web');
+  expect(phrase('x1')).toBe('tried to list things');
+  expect(appLinePhrase({...apps.lines.get('s1')!,state:'running'})).toBe('sending an email');
+  expect(appLinePhrase({...apps.lines.get('s1')!,state:'failed'})).toBe('tried to send an email');
+  expect(appLinePhrase({...apps.lines.get('s1')!,action:'Frobnicate URL'})).toBe('used frobnicate URL');
+ });
+ it('details are plain words with the same time format as the line, and show only allowed fields',()=>{
+  const apps=appRedaction([tool('r1','tool.executed','gh pr view 1 -R acme/web',30),tool('s1','tool.executed',send,40),tool('s2','tool.failed',send,50)],60);
+  const time=(t?:number)=>`T${t}`;
+  const mail=apps.lines.get('s1')!;
+  expect(appLineDetails(mail,time)).toBe('Gmail · sent an email\nchanged something outside Nest · done at T40');
+  expect(appLineDetails(apps.lines.get('r1')!,time)).toBe('GitHub · viewed a PR in acme/web\nread something outside Nest · done at T30');
+  expect(appLineDetails({...mail,state:'failed'},time)).toContain('tried to change something outside Nest · failed at T40');
+  for(const shown of [appLineDetails(mail,time),appLineDetails(apps.lines.get('r1')!,time),appLinePhrase(mail)])for(const leak of ['a.json','connections.mjs','SECRET-OUT','shell_run','T40Z'])expect(shown).not.toContain(leak);
+ });
+ it('hides the start, output and exit of an app call\'s process, but not other processes',()=>{
+  const proc=(id:string,type:string,payload:object)=>({...event(type,payload),id,source:'system:process-runner'});
+  const rows=[tool('s1','tool.started',send,10),proc('p-start','process.started',{processId:'app',cmd:send}),
+   proc('p-out','process.output',{processId:'app',text:'SECRET-OUT'}),proc('p-exit','process.exited',{processId:'app',exitCode:0}),
+   proc('plain','process.started',{processId:'plain',cmd:'ls'}),tool('e1','tool.executed',send,20)];
+  const apps=appRedaction(rows,30);
+  expect([...apps.processEvents].sort()).toEqual(['p-exit','p-out','p-start']);
+  // An output whose start is not loaded stays drawn, and redacted.
+  expect(appRedaction([{...rows[2]}],30).processEvents.size).toBe(0);
+ });
+ it('turns a call that ran past ten minutes failed when the clock moves on',()=>{
+  const rows=[tool('s1','tool.started',send,10)];
+  expect(appRedaction(rows,20).lines.get('s1')?.state).toBe('running');
+  expect(appRedaction(rows,10+11*60_000).lines.get('s1')?.state).toBe('failed');
  });
 });
 

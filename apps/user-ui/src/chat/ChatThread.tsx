@@ -9,7 +9,7 @@ import type {Agent,EventRow} from '../types';
 import {AssistantRuntimeProvider,ThreadPrimitive,useAuiState,useExternalStoreRuntime} from './aui';
 import type {ChannelEventsCore,ChannelEventsSnapshot} from './channel-events';
 import {serverClock} from '../server-clock';
-import {ChatAppsHere} from './AppsHere';
+import {ChatAppsHere,useServerTick} from './AppsHere';
 import {ExportButton} from './ExportButton';
 import {formatTime} from './format';
 import {MessageActions} from './MessageActions';
@@ -215,7 +215,10 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  const focusedRef=useRef<string|null>(null);
  const focused=useCallback((eventId:string)=>{focusedRef.current=eventId;},[]);
  // App calls and their processes are linked across the whole loaded window, not one activity group.
- const apps=useMemo(()=>props.appActivity?appRedaction(snapshot.events,serverClock.serverNow()):null,[props.appActivity,snapshot.events]);
+ // A tick re-reads the server clock while a call runs, so one stuck for 10 minutes turns failed in a quiet chat.
+ const [tick,setTick]=useState(0);
+ const apps=useMemo(()=>props.appActivity?appRedaction(snapshot.events,serverClock.serverNow()):null,[props.appActivity,snapshot.events,tick]);
+ useServerTick(!!apps&&[...apps.lines.values()].some(call=>call.state==='running'),serverClock,setTick);
  const view=useMemo<ThreadView>(()=>({byId:new Map(items.map(item=>[item.id,item])),turns,props,apps,focused}),[items,turns,props,apps,focused]);
  const runtime=useExternalStoreRuntime({
   messages:items,convertMessage:toThreadMessage,isRunning:false,onNew:NO_ERROR,

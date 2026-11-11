@@ -48,8 +48,8 @@ await runChatTest('canvas apps: logos, live ring, read/change counts, no command
   // Done: no ring, and the title counts the change.
   await h.emit('tool.executed',{tool:'shell_run',args:{command:connection('GMAIL_SEND_EMAIL')},output:'Dear Alice, SYNTHETIC-SECRET-BODY'},{parentEventId:sendStarted.id});
   await page.waitForFunction(id=>{const el=document.querySelector(`.canvas-card[data-channel-id="${id}"] .canvas-card-app`);return !!el&&!el.classList.contains('is-live');},h.project.channelId);
-  assert.equal(await gmail.getAttribute('title'),'Gmail: 0 reads · 1 changes');
-  assert.equal(await gmail.getAttribute('aria-label'),'Gmail: 0 reads · 1 changes');
+  assert.equal(await gmail.getAttribute('title'),'Gmail: 0 reads · 1 change');
+  assert.equal(await gmail.getAttribute('aria-label'),'Gmail: 0 reads · 1 change');
   // The call is done: the row is back to the turn's own activity, with no app.
   await pipRow.locator('.canvas-card-what').getByText('working',{exact:true}).waitFor();
   assert.equal(await pipRow.locator('.canvas-card-row-app').count(),0);
@@ -61,10 +61,10 @@ await runChatTest('canvas apps: logos, live ring, read/change counts, no command
   await h.emit('tool.executed',{tool:'shell_run',args:{command:'gh pr view 5 -R acme/web'},output:'y'});
   await h.emit('tool.started',{tool:'shell_run',args:{command:'ls -la'}});
   await h.emit('tool.executed',{tool:'shell_run',args:{command:'ls -la'},output:'z'});
-  await card.locator('.canvas-card-app[title="GitHub: 1 reads · 0 changes"]').waitFor();
-  assert.equal(await gmail.getAttribute('title'),'Gmail: 1 reads · 1 changes');
+  await card.locator('.canvas-card-app[title="GitHub: 1 read · 0 changes"]').waitFor();
+  assert.equal(await gmail.getAttribute('title'),'Gmail: 1 read · 1 change');
   assert.equal(await card.locator('.canvas-card-app').count(),2);
-  assert.equal(await card.locator('.canvas-card-app.is-live').count(),0);
+  await card.locator('.canvas-card-app.is-live').waitFor({state:'detached'});
   await card.locator('.canvas-card-apps-name').getByText('2 apps',{exact:true}).waitFor();
 
   // Five apps: four logos, then `5 apps` (the mock's c-apps); its title names every app.
@@ -82,7 +82,7 @@ await runChatTest('canvas apps: logos, live ring, read/change counts, no command
 
   // A reload seeds the same counts from the chat's events.
   await openCanvas(page,base,canvas);
-  await page.locator(`.canvas-card[data-channel-id="${h.project.channelId}"] .canvas-card-app[title="Gmail: 1 reads · 1 changes"]`).waitFor();
+  await page.locator(`.canvas-card[data-channel-id="${h.project.channelId}"] .canvas-card-app[title="Gmail: 1 read · 1 change"]`).waitFor();
 
   // Compact (zoomed out) cards drop the logos like the other card detail.
   for(let i=0;i<4;i++)await page.getByRole('button',{name:'Zoom out',exact:true}).click();
@@ -120,55 +120,61 @@ await runChatTest('chat apps bar: counts, honest timeline lines without the comm
   await bar.getByText('1 read · 3 changes outside Nest',{exact:true}).waitFor();
   assert.equal(await bar.locator('.apps-here-chip.is-live').count(),1);
 
-  // Each app call is a slim line (the mock's .act): agent, action label and app, `changed` on writes, time.
+  // Each app call is a slim line (the mock's .act): agent, a lowercase clause and app, `changed` on writes, time.
   const lines=page.locator('.app-line');
   assert.equal(await lines.count(),4,'one line per app call, none as an icon chip');
   assert.equal(await page.locator('.trace-chip[aria-label*="Gmail"]').count(),0,'app calls are not chips');
-  const sendLine=lines.filter({hasText:'Send email · Gmail'});
-  assert.equal((await sendLine.locator('.app-line-text').innerText()).replace(/\s+/g,' '),'Pip Send email · Gmail');
+  const text=async(line:ReturnType<typeof lines.filter>)=>(await line.locator('.app-line-text').innerText()).replace(/\s+/g,' ');
+  const sendLine=lines.filter({hasText:'sent an email · Gmail'});
+  assert.equal(await text(sendLine),'Pip sent an email · Gmail');
   assert.equal(await sendLine.locator('.app-line-changed').innerText(),'changed');
   assert.equal(await sendLine.locator('img[src$="/gmail.svg"]').count(),1,'the app icon');
-  assert.ok((await sendLine.locator('.app-line-time').innerText()).trim().length>0,'the time');
+  const sendTime=(await sendLine.locator('.app-line-time').innerText()).trim();
+  assert.ok(sendTime.length>0,'the time');
   const sendButton=sendLine.getByRole('button');
   assert.equal(await sendButton.getAttribute('aria-expanded'),'false');
-  const readLine=lines.filter({hasText:'Fetch emails · Gmail'});
-  assert.equal((await readLine.locator('.app-line-text').innerText()).replace(/\s+/g,' '),'Pip Fetch emails · Gmail');
+  const readLine=lines.filter({hasText:'fetched emails · Gmail'});
+  assert.equal(await text(readLine),'Pip fetched emails · Gmail');
   assert.equal(await readLine.locator('.app-line-changed').count(),0,'a read has no changed tag');
   assert.equal(await readLine.locator('.app-line-failed, .app-line-live').count(),0);
-  const ghLine=lines.filter({hasText:'GitHub'});
-  assert.equal((await ghLine.locator('.app-line-text').innerText()).replace(/\s+/g,' '),'Pip Pr merge acme/web · GitHub');
-  const runningLine=lines.filter({hasText:'Send message · Slack'});
+  assert.equal(await text(lines.filter({hasText:'GitHub'})),'Pip merged a PR in acme/web · GitHub');
+  const runningLine=lines.filter({hasText:'Slack'});
+  assert.equal(await text(runningLine),'Pip sending a message · Slack');
   assert.equal(await runningLine.locator('.app-line-live').innerText(),'running');
   assert.equal(await runningLine.locator('.app-line-dot').count(),1,'a live dot');
-  // Expanding shows agent, app, action, kind, state and time only.
+  // Expanding shows plain words, with the line's own time format.
   assert.equal(await sendLine.locator('.app-line-details').count(),0);
   await sendButton.click();
   assert.equal(await sendButton.getAttribute('aria-expanded'),'true');
   const shown=await sendLine.locator('.app-line-details').innerText();
-  assert.match(shown,/agent: Pip/);
-  assert.match(shown,/app: Gmail/);
-  assert.match(shown,/action: Send email/);
-  assert.match(shown,/kind: changed/);
-  assert.match(shown,/state: done/);
-  assert.match(shown,/time: \d{4}-\d\d-\d\dT/);
+  assert.equal(shown,`Gmail · sent an email\nchanged something outside Nest · done at ${sendTime}`);
   const html=await page.evaluate(()=>document.body.innerHTML);
   for(const leak of ['a.json','connections.mjs','SYNTHETIC-SECRET-BODY'])assert.ok(!html.includes(leak),`${leak} is not in the page`);
   for(const leak of ['a.json','connections.mjs','shell_run','SYNTHETIC-SECRET-BODY'])assert.ok(!shown.includes(leak),`${leak} is not in the details`);
-  await sendLine.scrollIntoViewIfNeeded();
-  await page.screenshot({path:'/tmp/claude-1000/-home-slamnation-www-nest/838a10bf-04f0-475f-8c78-5cf50aec1660/scratchpad/batch-c/timeline-lines.png'});
   await sendButton.click();
   assert.equal(await sendLine.locator('.app-line-details').count(),0,'a second click collapses it');
 
-  // The same call also runs as a process (R22): its start, output and end are redacted like the tool event,
-  // while a plain shell process keeps its full details (the control: the page check below can see output).
+  // The same call also runs as a process (R22). In production every shell_run is tool.started, process.started,
+  // process.output, process.exited, tool.executed: the line stands for all of it, so no chip is drawn for the
+  // call's process, and its output never reaches the page. A plain shell process keeps its chips and details.
+  const appCommand='node scripts/connections.mjs execute c1 GMAIL_SEND_EMAIL < proc-args.json';
   const proc=(type:string,payload:Record<string,unknown>)=>h.emit(type,{...payload,ownerAgentName:'Pip',targetAgentName:'Pip'},{source:'system:process-runner'});
-  await proc('process.started',{processId:'app-proc',cmd:'node scripts/connections.mjs execute c1 GMAIL_SEND_EMAIL < proc-args.json',executionMode:'SYNC'});
+  await h.emit('tool.started',{tool:'shell_run',args:{command:appCommand}});
+  await proc('process.started',{processId:'app-proc',cmd:appCommand,executionMode:'SYNC'});
   await proc('process.output',{processId:'app-proc',seq:1,stream:'STDOUT',text:'SYNTHETIC-PROCESS-OUTPUT'});
   await proc('process.exited',{processId:'app-proc',exitCode:0,signal:null,timedOut:false});
+  await h.emit('tool.executed',{tool:'shell_run',args:{command:appCommand},output:'SYNTHETIC-PROCESS-OUTPUT'});
   await proc('process.started',{processId:'plain-proc',cmd:'ls -la plain-dir',executionMode:'SYNC'});
   await proc('process.output',{processId:'plain-proc',seq:1,stream:'STDOUT',text:'PLAIN-LISTING'});
+  // Output whose start is not loaded may belong to an app call: still a chip, still redacted.
+  await proc('process.output',{processId:'orphan-proc',seq:1,stream:'STDOUT',text:'SYNTHETIC-ORPHAN-OUTPUT'});
   const chips=(name:string)=>page.getByRole('button',{name,exact:true});
   await chips('Agent output').nth(1).waitFor();
+  await lines.nth(4).waitFor();
+  assert.equal(await lines.count(),5,'the new call is one more line');
+  assert.equal(await chips('Agent output').count(),2,'only the plain and the orphan output are chips');
+  assert.equal(await chips('Agent process started').count(),1,'only the plain start is a chip');
+  assert.equal(await chips('Agent process finished').count(),0,'the call\'s exit has no chip');
   const pageHtml=()=>page.evaluate(()=>document.body.innerHTML);
   const opened=async(name:string,index:number)=>{
    await chips(name).nth(index).click();
@@ -176,14 +182,12 @@ await runChatTest('chat apps bar: counts, honest timeline lines without the comm
    await card.locator('summary').click();
    return card.locator('pre').innerText();
   };
-  for(const [name,index] of [['Agent process started',0],['Agent output',0],['Agent process finished',0]] as const){
-   const details=await opened(name,index);
-   assert.match(details,/"kind": "change"/,`${name} details are redacted`);
-   const html=await pageHtml();
-   for(const leak of ['proc-args.json','connections.mjs','SYNTHETIC-PROCESS-OUTPUT'])assert.ok(!html.includes(leak),`${leak} is not in the page (${name})`);
-  }
-  assert.match(await opened('Agent output',1),/PLAIN-LISTING/,'a plain process still shows its output');
-  assert.match(await opened('Agent process started',1),/ls -la plain-dir/,'and its command');
+  assert.match(await opened('Agent output',0),/PLAIN-LISTING/,'a plain process still shows its output');
+  assert.match(await opened('Agent process started',0),/ls -la plain-dir/,'and its command');
+  const orphan=await opened('Agent output',1);
+  assert.match(orphan,/Load earlier messages/,'an output without its start stays redacted');
+  const html2=await pageHtml();
+  for(const leak of ['proc-args.json','connections.mjs','SYNTHETIC-PROCESS-OUTPUT','SYNTHETIC-ORPHAN-OUTPUT'])assert.ok(!html2.includes(leak),`${leak} is not in the page`);
 
   // The composer has the mic with the flag on.
   assert.equal(await page.getByRole('button',{name:'Record a voice note',exact:true}).count(),1);

@@ -185,6 +185,9 @@ export function foldCalls(events: ToolEvent[], now: number = Date.now()): AppCal
   return foldInspected(events.flatMap(event => inspectToolEvent(event, now) ?? []), now);
 }
 
+/** `1 read`, `2 reads`: one pluralisation for every surface that counts calls. */
+export const countOf = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 export function summarise(calls: AppCall[]): AppSummary {
   const apps = new Map<string, AppSummary['apps'][number]>();
   let reads = 0, changes = 0;

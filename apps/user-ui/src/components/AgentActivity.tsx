@@ -1,7 +1,7 @@
 import {useId,useState,type MouseEvent,type FocusEvent} from 'react';
 import {createPortal} from 'react-dom';
 import type {EventRow} from '../types';
-import {activity,activityDetails,appLineDetails,appLineLabel,type ActivityIcon,type AppRedaction} from '../activity';
+import {activity,activityDetails,appLineDetails,appLinePhrase,type ActivityIcon,type AppRedaction} from '../activity';
 import type {AppCall} from '../app-activity';
 import {AgentAvatar} from './AgentAvatar';
 import {IntegrationLogo} from './IntegrationLogo';
@@ -24,15 +24,15 @@ function AppLine({call,open,onToggle,detailId,formatTime}:{call:AppCall;open:boo
   return <div className={`app-line${call.state==='failed'?' is-failed':''}`} data-state={call.state}>
     <AgentAvatar name={call.agent} size={28}/>
     <div className="app-line-main">
-      <button type="button" className="app-line-row" aria-expanded={open} aria-controls={open?detailId:undefined} onClick={onToggle}>
+      <button type="button" className="app-line-row" title="Show details" aria-expanded={open} aria-controls={open?detailId:undefined} onClick={onToggle}>
         <IntegrationLogo toolkit={call.app}/>
-        <span className="app-line-text"><b>{call.agent}</b> {appLineLabel(call)} · {call.appName}</span>
+        <span className="app-line-text"><b>{call.agent}</b> {appLinePhrase(call)} · {call.appName}</span>
         {call.state==='running'&&<span className="app-line-live"><span className="app-line-dot" aria-hidden="true"/>running</span>}
         {call.state==='failed'&&<span className="app-line-failed">failed</span>}
-        {call.kind==='change'&&<span className="app-line-changed">changed</span>}
+        {call.kind==='change'&&call.state!=='failed'&&<span className="app-line-changed">changed</span>}
         <time className="app-line-time">{formatTime(call.at)}</time>
       </button>
-      {open&&<pre className="app-line-details" id={detailId}>{appLineDetails(call)}</pre>}
+      {open&&<pre className="app-line-details" id={detailId}>{appLineDetails(call,formatTime)}</pre>}
     </div>
   </div>;
 }
@@ -45,7 +45,7 @@ function segments(events:EventRow[],apps:AppRedaction|null):Segment[]{
     const call=apps.lines.get(event.id);
     if(call){out.push({kind:'line',call});continue;}
     // A result paired to an earlier start belongs to that line.
-    if(apps.appEvents.has(event.id))continue;
+    if(apps.appEvents.has(event.id)||apps.processEvents.has(event.id))continue;
     const last=out[out.length-1];
     if(last?.kind==='chips')last.events.push(event);else out.push({kind:'chips',events:[event]});
   }
@@ -56,7 +56,7 @@ export function AgentActivity({events,tone,formatTime,apps=null}:{events:EventRo
   const id=useId();
   const [selected,setSelected]=useState<string|null>(null);
   const [tooltip,setTooltip]=useState<{event:EventRow;x:number;y:number;below:boolean}|null>(null);
-  const current=events.find(event=>event.id===selected&&!apps?.appEvents.has(event.id));
+  const current=events.find(event=>event.id===selected&&!apps?.appEvents.has(event.id)&&!apps?.processEvents.has(event.id));
   function showLabel(event:MouseEvent<HTMLButtonElement>|FocusEvent<HTMLButtonElement>,row:EventRow){
     const bounds=event.currentTarget.getBoundingClientRect(),below=bounds.top<70;
     setTooltip({event:row,x:Math.max(8,Math.min(bounds.left,window.innerWidth-248)),y:below?bounds.bottom+6:bounds.top-6,below});

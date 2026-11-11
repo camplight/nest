@@ -6,6 +6,7 @@ import type {BoardCard} from '@nest/schemas';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {fileHref} from '../attachments';
 import {IntegrationLogo} from '../components/IntegrationLogo';
+import {countOf} from '../app-activity';
 import type {AgentPulse,CardPulse} from './pulse';
 import type {NeedsItem} from './needs';
 import {participantRows,shownRows,type ParticipantRow,type RowState} from './rows';
@@ -136,7 +137,7 @@ function AppLogos({apps}: {apps: CardPulse['apps']['apps']}) {
   return <div className="canvas-card-apps-row">
     <ul className="canvas-card-apps" aria-label="Apps used">
       {apps.slice(0, MAX_APP_LOGOS).map(app => {
-        const text = `${app.appName}: ${app.reads} reads · ${app.changes} changes`;
+        const text = `${app.appName}: ${countOf(app.reads, 'read')} · ${countOf(app.changes, 'change')}`;
         return <li key={app.app} className={`canvas-card-app${app.running ? ' is-live' : ''}`} role="img" aria-label={text} title={text}>
           <IntegrationLogo toolkit={app.app}/>
         </li>;

@@ -1027,12 +1027,17 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    app call.
    With the canvas flag on, each app call (a `tool.started` paired with its result,
    as `foldCalls` pairs them) is a slim timeline line, not an icon chip: the agent's
-   28 px avatar, the app icon, "**Agent** Action label · App", a `running` tag with a
-   live dot or a `failed` tag, a text `changed` pill on changes, and the time. The
-   line is a button with `aria-expanded`; its details are monospace lines of agent,
-   app, action, repo (gh), read or changed, state and time, never a command, argument
-   or output. Non-app events keep the chip strip, and with the flag off the timeline
-   is unchanged.
+   28 px avatar, the app icon, "**Agent** clause · App" (a lowercase clause: "sent an
+   email", "merged a PR in acme/web", "sending an email" while running, "tried to
+   send an email" when failed), a `running` tag with a live dot or a `failed` tag, a
+   text `changed` pill on completed or running changes, and the time. The process
+   events of an app call's `shell_run` (start, output, exit) get no chip, since the
+   line stands for them. The line is a button with `aria-expanded`; its details are
+   one or two plain lines ("Gmail · sent an email" / "changed something outside Nest
+   · done at 4:19 PM", the line's own time format), never a command, argument or
+   output. A running line re-reads the server clock every 30 seconds, so one stuck
+   for 10 minutes turns failed. Non-app events keep the chip strip, and with the flag
+   off the timeline is unchanged.
    Running and failed calls are counted. Cards show the apps used, and the chat's
    "Apps here" bar shows "N reads · M changes outside Nest" (singular for one, "nothing changed outside Nest" for none) for the loaded history
    only, so long chats under-report until older pages load. A call still running

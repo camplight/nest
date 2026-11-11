@@ -2,11 +2,11 @@
 // Works from the chat's engine tool.* events in the browser; Nest keeps no copy. Only app names and counts are shown.
 import {useEffect,useMemo,useState} from 'react';
 import {serverClock,type ServerClock} from '../server-clock';
-import {foldCalls,summarise,type AppCall} from '../app-activity';
+import {countOf,foldCalls,summarise,type AppCall} from '../app-activity';
 import {IntegrationLogo} from '../components/IntegrationLogo';
 import type {EventRow} from '../types';
 
-const count=(n:number,word:string)=>`${n} ${word}${n===1?'':'s'}`;
+const count=countOf;
 export const WRAPPED_LIMIT="Codex and Claude Code agents only report their messages, so their app use isn't shown here.";
 /** How often a still-running call is checked against the 10 minute limit. */
 const TICK_MS=30_000;
@@ -23,10 +23,19 @@ export function AppsHere({calls,wrappedAgents}:{calls:AppCall[];wrappedAgents:st
      <IntegrationLogo toolkit={app.app}/><span className="apps-here-name">{app.appName}</span><span className="apps-here-count">{app.reads+app.changes}</span>
     </li>;
    })}</ul>
-   <span className="apps-here-total">{count(summary.reads,'read')}{summary.changes?` · ${count(summary.changes,'change')} outside Nest`:' · nothing changed outside Nest'}</span>
+   <span className="apps-here-total">{count(summary.reads,'read')}{summary.changes?<> · <b>{count(summary.changes,'change')}</b> outside Nest</>:' · nothing changed outside Nest'}</span>
   </>}
   {wrappedAgents.length>0&&<p className="apps-here-limit">{WRAPPED_LIMIT}</p>}
  </section>;
+}
+
+/** Re-reads the server clock every 30 seconds while `active`, so a call stuck running turns failed in a quiet chat. */
+export function useServerTick(active:boolean,clock:ServerClock,setNow:(now:number)=>void):void{
+ useEffect(()=>{
+  if(!active)return;
+  const timer=setInterval(()=>setNow(clock.serverNow()),TICK_MS);
+  return()=>clearInterval(timer);
+ },[active,clock,setNow]);
 }
 
 /** What the loaded tool events teach the clock: history can only raise the offset. */
@@ -49,10 +58,6 @@ export function ChatAppsHere({events,wrappedAgents,clock=serverClock}:{events:Ev
  useEffect(()=>{noteToolTimes(tools,clock);setNow(clock.serverNow());},[tools,clock]);
  const calls=useMemo(()=>chatCalls(tools,now),[tools,now]);
  const running=calls.some(call=>call.state==='running');
- useEffect(()=>{
-  if(!running)return;
-  const timer=setInterval(()=>setNow(clock.serverNow()),TICK_MS);
-  return()=>clearInterval(timer);
- },[running,clock]);
+ useServerTick(running,clock,setNow);
  return <AppsHere calls={calls} wrappedAgents={wrappedAgents}/>;
 }

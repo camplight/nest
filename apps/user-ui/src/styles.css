@@ -1801,12 +1801,12 @@ button {
 .app-line-row .connection-app-logo svg { width:14px; height:14px; }
 .app-line-text { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .app-line-text b { color:var(--nest-text); font-weight:600; }
-.app-line-changed, .app-line-failed, .app-line-live { flex:none; font-size:10.5px; font-weight:600; border:1px solid currentColor; border-radius:999px; padding:0 6px; }
+.app-line-changed, .app-line-failed, .app-line-live { flex:none; font-size:10.5px; font-weight:600; border:1px solid color-mix(in srgb,currentColor 45%,transparent); border-radius:999px; padding:0 6px; }
 .app-line-changed { color:var(--nest-coral); }
 .app-line-failed { color:#b42332; }
 .app-line-live { display:inline-flex; align-items:center; gap:4px; color:#1f7f6c; }
 :root[data-theme="dark"] .app-line-live { color:#4fc3a8; }
 .app-line-dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
 @media (prefers-reduced-motion: no-preference) { .app-line-dot { animation:apps-here-pulse 1.6s ease-in-out infinite; } }
-.app-line-time { margin-left:auto; flex:none; font-size:11px; color:var(--nest-muted); font-variant-numeric:tabular-nums; }
+.app-line-time { margin-left:auto; flex:none; font-size:11px; color:var(--nest-muted); opacity:.8; font-variant-numeric:tabular-nums; }
 .app-line-details { margin:2px 0 4px 4px; padding:6px 9px; border:1px solid var(--nest-border); border-radius:8px; background:var(--nest-muted-surface); color:var(--nest-muted); font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }

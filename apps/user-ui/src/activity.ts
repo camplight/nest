@@ -12,6 +12,8 @@ export type AppRedaction={
   calls:ReadonlyMap<string,ProcessCall>;started:ReadonlySet<string>;
   /** Each app call of the chat, by the id of the event that begins it (its tool.started, or a lone result). */
   lines:ReadonlyMap<string,AppCall>;
+  /** The process events (start, output, exit) of an app call's shell command: its line stands for them. */
+  processEvents:ReadonlySet<string>;
   /** Every tool event that is part of an app call, including results paired to a start: none is drawn as a chip. */
   appEvents:ReadonlySet<string>;
 };
@@ -42,7 +44,10 @@ export function appRedaction(events:EventRow[],now:number=Date.now()):AppRedacti
     const call=startedCall(event);
     if(call)calls.set(id,call);
   }
-  return {calls,started,lines,appEvents};
+  const redaction:AppRedaction={calls,started,lines,appEvents,processEvents:new Set()};
+  const processEvents=new Set<string>();
+  for(const event of events)if(processCall(event,redaction))processEvents.add(event.id);
+  return {...redaction,processEvents};
 }
 const PROCESS_TYPES=new Set(['process.started','process.output','process.exited']);
 /** The app call behind a process event: its own command, or the start that shares its processId. */
@@ -89,15 +94,52 @@ function baseActivity(event:EventRow):{title:string;tone:ActivityTone;icon:Activ
     default:return {title:'Agent progress',tone:'neutral',icon:'progress'};
   }
 }
-/** The label of an app line: the action name, plus the repo for gh. Never the command, arguments or output. */
-export function appLineLabel(call:AppCall):string{
-  const action=call.action.charAt(0).toUpperCase()+call.action.slice(1);
-  return call.label?`${action} ${call.label}`:action;
+// Verbs as [doing, did, base]; the mock phrases a line as a lowercase clause after the agent's name.
+const VERBS:Record<string,[string,string,string]>={
+  send:['sending','sent','send'],fetch:['fetching','fetched','fetch'],get:['getting','got','get'],find:['finding','found','find'],
+  list:['listing','listed','list'],search:['searching','searched','search'],read:['reading','read','read'],query:['querying','queried','query'],
+  create:['creating','created','create'],add:['adding','added','add'],update:['updating','updated','update'],delete:['deleting','deleted','delete'],
+  remove:['removing','removed','remove'],move:['moving','moved','move'],archive:['archiving','archived','archive'],reply:['replying to','replied to','reply to'],
+  forward:['forwarding','forwarded','forward'],post:['posting','posted','post'],upload:['uploading','uploaded','upload'],download:['downloading','downloaded','download'],
+  merge:['merging','merged','merge'],close:['closing','closed','close'],view:['viewing','viewed','view'],set:['setting','set','set'],
+  patch:['patching','patched','patch'],export:['exporting','exported','export'],check:['checking','checked','check'],diff:['diffing','diffed','diff'],
+  status:['checking','checked','check']
+};
+const ACRONYMS=new Set(['pr','url','api','id','csv','pdf','sql','ci','html','json']);
+const GH_NOUNS:Record<string,string>={pr:'a PR',issue:'an issue',repo:'a repo',run:'a run',release:'a release',workflow:'a workflow',gist:'a gist',label:'a label',project:'a project'};
+/** A lowercase label with acronyms (PR, URL, API, ID) kept upper case. */
+const humanise=(text:string)=>text.toLowerCase().split(/\s+/).filter(Boolean).map(word=>ACRONYMS.has(word)?word.toUpperCase():word).join(' ');
+const article=(noun:string)=>/^[aeiou]/i.test(noun)?`an ${noun}`:`a ${noun}`;
+/** What the agent did, as the clause that follows its name: "sent an email", "merged a PR in acme/web". */
+export function appLinePhrase(call:AppCall):string{
+  const form=call.state==='running'?0:call.state==='failed'?2:1;
+  const words=call.action.trim().split(/\s+/);
+  // gh actions are lowercase `group sub`; connected-app actions come from their action name.
+  const gh=call.app==='github'&&/^[a-z]/.test(call.action)&&call.action!==call.action.toUpperCase();
+  const place=call.label?` in ${call.label}`:'';
+  if(gh){
+    const [group,sub]=words;
+    if(group==='api')return `${['calling','called','tried to call'][form]} the GitHub API${place}`;
+    const verb=VERBS[sub??''],noun=GH_NOUNS[group];
+    if(verb&&noun)return `${form===2?'tried to '+verb[2]:verb[form]} ${noun}${place}`;
+    return `${form===2?'tried to use':form===0?'using':'used'} gh ${humanise(call.action)}${place}`;
+  }
+  const verb=VERBS[(words[0]??'').toLowerCase()];
+  const rest=humanise(words.slice(1).join(' '));
+  // Singular objects take "a"/"an" ("send email" reads "sent an email"); plurals stay bare ("fetched emails").
+  const object=rest&&!rest.endsWith('s')&&verb?article(rest):rest;
+  if(!verb)return `${form===2?'tried to use':form===0?'using':'used'} ${humanise(call.action)}${place}`;
+  return `${form===2?'tried to '+verb[2]:verb[form]}${object?' '+object:''}${place}`;
 }
-/** An expanded app line: agent, app, action, read or change, state and time only. */
-export function appLineDetails(call:AppCall):string{
-  return [`agent: ${call.agent}`,`app: ${call.appName}`,`action: ${call.action}`,...(call.label?[`repo: ${call.label}`]:[]),
-    `kind: ${call.kind==='read'?'read':'changed'}`,`state: ${call.state}`,`time: ${new Date(call.at).toISOString()}`].join('\n');
+/** The words after "changed"/"read" in an expanded line. */
+const KIND:Record<AppCall['kind'],Record<AppCall['state'],string>>={
+  read:{running:'reading something outside Nest',done:'read something outside Nest',failed:'tried to read something outside Nest'},
+  change:{running:'changing something outside Nest',done:'changed something outside Nest',failed:'tried to change something outside Nest'}
+};
+/** An expanded app line, in plain words: app, what was done, and when. Never a command, argument or output. */
+export function appLineDetails(call:AppCall,formatTime:(time?:number)=>string):string{
+  const when=formatTime(call.at),done=call.state==='done'?`done at ${when}`:call.state==='failed'?`failed at ${when}`:`started at ${when}, still running`;
+  return `${call.appName} · ${appLinePhrase(call)}\n${KIND[call.kind][call.state]} · ${done}`;
 }
 export function activityDetails(event:EventRow,apps:AppRedaction|null=null){
   // App calls show tool, time, agent, read or change and the label only; never the command, arguments or output.
