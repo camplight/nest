@@ -1,13 +1,13 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
 import {useCallback,useEffect,useId,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore,type CSSProperties,type FormEvent,type ReactNode} from 'react';
 import {Columns2,Ellipsis,SquareArrowOutUpRight,X} from 'lucide-react';
-import {CanvasTint,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
+import {AGENT_PIN_LIMIT_MESSAGE,AGENT_PIN_MAX,CanvasTint,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 import {addChatMember,removeChatMember} from '../chat-members';
 import {StartChat} from '../ProjectStart';
-import {boardApi,createCanvas,setCardHome,deleteCanvas,getHidden,isCanvasGone,listCanvases,renameCanvas,setHidden,withFreshVersion} from './api';
+import {boardApi,createCanvas,setCardHome,deleteCanvas,getAgentPins,getHidden,isCanvasGone,putAgentPins,listCanvases,renameCanvas,setHidden,withFreshVersion} from './api';
 import {CanvasSwitcher} from './CanvasSwitcher';
 import {ShareDialog} from './ShareDialog';
 import {createBoardStore,type BoardOp} from './board-store';
@@ -21,7 +21,7 @@ import {CARD_PLACE_HEIGHT,areaAround,clearOfCards,dropLayout,gridPlacement,loose
 import {SPLIT_MAX,SPLIT_MIN,clampSplit,readSplit,splitAt,writeSplit} from './split';
 import {cardTitle} from './Card';
 import {AgentTray} from './AgentTray';
-import {trayAgents} from './tray';
+import {busyCounts,trayAgents} from './tray';
 import {NeedsYou,useReviews} from './NeedsYou';
 import {needsByChannel,needsYouItems,type NeedsItem} from './needs';
 import {CanvasSearch} from './CanvasSearch';
@@ -499,8 +499,34 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const [selectedId, setSelectedId] = useState<string | null>(null);
   useEffect(() => { setSelectedId(null); }, [canvasId]);
   const selected = cards?.find(card => card.channelId === selectedId && card.access === 'open');
-  const tray = useMemo(() => board ? trayAgents({agents, humanId, cards: board.cards, areas: board.areas, selectedId: selected?.channelId ?? null}) : [],
-    [board, agents, humanId, selected]);
+  // Tray pins are personal and follow the person across canvases and devices; null until read. A failed read seeds the tray.
+  const [pins, setPins] = useState<{agentNames: string[]; saved: boolean} | null>(null);
+  const pinsRef = useRef(pins); pinsRef.current = pins;
+  const pinWrite = useRef(0);
+  useEffect(() => {
+    let current = true;
+    setPins(null);
+    getAgentPins().then(result => { if (current) setPins(result); }).catch(() => { if (current) setPins({agentNames: [], saved: false}); });
+    return () => { current = false; };
+  }, [humanId]);
+  // Saves the whole list; the newest write wins, and a failed one restores what was there.
+  const togglePin = useCallback((name: string) => {
+    const before = pinsRef.current;
+    if (!before) return;
+    const next = before.agentNames.includes(name) ? before.agentNames.filter(pin => pin !== name) : [...before.agentNames, name];
+    if (next.length > AGENT_PIN_MAX) { say(AGENT_PIN_LIMIT_MESSAGE); return; }
+    const write = ++pinWrite.current;
+    setPins({agentNames: next, saved: true});
+    putAgentPins(next)
+      .then(saved => { if (write === pinWrite.current) setPins(saved); })
+      .catch(() => { if (write === pinWrite.current) { setPins(before); say('Couldn\'t save your pinned agents. Try again.'); } });
+  }, [say]);
+  const tray = useMemo(() => board ? trayAgents({agents, humanId, cards: board.cards, areas: board.areas, selectedId: selected?.channelId ?? null,
+    // While the pins load the tray shows none, so saved pins never flash the seed first.
+    pins: pins === null ? [] : pins.saved ? pins.agentNames : null}) : {suggested: [], pinned: []},
+  [board, agents, humanId, selected, pins]);
+  const busy = useMemo(() => busyCounts(board?.cards ?? [], pulses), [board, pulses]);
+  const owners = useMemo(() => new Map(humans.flatMap(person => person.id ? [[person.id, person.username] as const] : [])), [humans]);
   // Needs you and search. Only chats the person can see are named: open cards and loose chats, never a locked or unavailable card.
   const titles = useMemo(() => {
     const map = new Map<string, string>();
@@ -712,7 +738,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
           areaContext={areaContext} onAreaContext={openAreaContext} contextAreaId={panel?.kind === 'area' ? panel.areaId : null} onOpenCanvas={id => onSelectCanvas(id)} onDropFiles={focusChat ? undefined : dropFiles}
           needs={cardNeeds} viewer={username} onNotice={say} onAreaCreated={setRenameAreaId} renameAreaId={renameAreaId} onRenameStarted={renameStarted}
           onViewChange={viewChanged} onEmptyPress={focusChat ? emptyPress : undefined} onFit={focusChat ? fitCloses : undefined}/>
-        <AgentTray tray={tray} suggestedFor={selected ? cardTitle(selected) : null} agents={agents} humanId={humanId} cards={board.cards} areas={board.areas}/>
+        <AgentTray suggested={tray.suggested} pinned={tray.pinned} pins={pins?.agentNames ?? []} onTogglePin={togglePin}
+          agents={agents} humanId={humanId} owners={owners} busy={busy} cards={board.cards} areas={board.areas}/>
         {/* Files dropped on empty canvas start a chat here, even beside a split chat; a focus chat takes every drop itself. */}
         {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!focusChat}
           fileDropAccept={outsideCanvasChat} fileDropOverlay={false} onFilesDropped={dockFiles}/></div> : null}

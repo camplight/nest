@@ -4,7 +4,7 @@ import {useCallback,useEffect,useLayoutEffect,useMemo,useReducer,useRef,useState
 import {CanvasTint,areaFor,type BoardCard,type CanvasArea,type CanvasBoard,type ContextLink} from '@nest/schemas';
 import type {BoardOp} from './board-store';
 import {Area,type AreaContext,type AreaSummary} from './Area';
-import {Card} from './Card';
+import {Card,cardTitle} from './Card';
 import {droppedFiles,outsideFileDropTargets} from '../components/file-drop';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {areaSummaries,type CardPulse} from './pulse';
@@ -93,6 +93,8 @@ const prefersReducedMotion = () => typeof matchMedia === 'function' && matchMedi
 export const CHAT_DRAG_TYPE = 'application/x-nest-chat';
 /** The drag data type a tray or picker face carries: the agent's name. */
 export const AGENT_DRAG_TYPE = 'application/x-nest-agent';
+/** The face ghost's label once a drop would remove the agent, as in the mock. */
+const removeLabel = (agent: string, card: BoardCard | undefined) => card ? `Remove ${agent} from "${cardTitle(card)}"` : `Remove ${agent}`;
 const NO_PULSES: ReadonlyMap<string, CardPulse> = new Map();
 const NO_NEEDS: ReadonlyMap<string, NeedsItem[]> = new Map();
 const NONE: NeedsItem[] = [];
@@ -719,7 +721,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     {preview?.kind === 'face' ? <div className={`canvas-face-ghost${preview.away ? ' is-away' : ''}`} aria-hidden="true"
       style={{transform: `translate(${preview.x}px, ${preview.y}px)`}}>
       <AgentAvatar name={preview.agent} size={34}/>
-      {preview.away ? <span className="canvas-face-ghost-label">Remove {preview.agent}</span> : null}
+      {preview.away ? <span className="canvas-face-ghost-label">{removeLabel(preview.agent, board.cards.find(card => card.channelId === preview.id))}</span> : null}
     </div> : null}
     <div className="canvas-chrome canvas-tools" role="toolbar" aria-label="Canvas tools">
       <button type="button" className="canvas-tool" aria-pressed={tool === 'area'} disabled={!canEdit}

@@ -1,3 +1,4 @@
+import { createAgentPinStore } from './agent-pins';
 import { createAgentRequestStore } from './agent-requests';
 import { createCanvasStore } from './canvases';
 import { createCanvasContextStore } from './canvas-context';
@@ -24,7 +25,7 @@ export function openProductDb(path = '.nest-product/nest.sqlite') {
   db.pragma('foreign_keys = ON');
   db.exec('CREATE TABLE IF NOT EXISTS product_migrations (name TEXT PRIMARY KEY)');
   db.transaction(() => {
-    for (const name of ['001_projects', '002_project_chats', '003_community', '004_personal_agents', '005_integrations', '006_mentions', '007_agent_requests', '008_project_collaboration', '009_connection_projects', '010_project_naming', '011_canvases', '012_canvas_context']) {
+    for (const name of ['001_projects', '002_project_chats', '003_community', '004_personal_agents', '005_integrations', '006_mentions', '007_agent_requests', '008_project_collaboration', '009_connection_projects', '010_project_naming', '011_canvases', '012_canvas_context', '013_agent_pins']) {
       if (!db.prepare('SELECT name FROM product_migrations WHERE name=?').get(name)) {
         db.exec(readFileSync(new URL(`../migrations/${name}.sql`, import.meta.url), 'utf8'));
         db.prepare('INSERT INTO product_migrations VALUES (?)').run(name);
@@ -46,10 +47,11 @@ export function openProductDb(path = '.nest-product/nest.sqlite') {
     })();
     return parsed;
   }
-  return { db, projects, canvases, canvasContext:createCanvasContextStore(db), agentRequests:createAgentRequestStore(db), community:createCommunityStore(db), branding, saveBranding, close: () => db.close() };
+  return { db, projects, canvases, agentPins:createAgentPinStore(db), canvasContext:createCanvasContextStore(db), agentRequests:createAgentRequestStore(db), community:createCommunityStore(db), branding, saveBranding, close: () => db.close() };
 }
 export type ProductDb = ReturnType<typeof openProductDb>;
 
 export { CanvasConflictError, CanvasForbiddenError, CanvasLimitError, type CanvasStore, type PlacedCard } from './canvases';
 export { type CanvasContextStore } from './canvas-context';
+export { type AgentPinStore } from './agent-pins';
 export type { AgentRequestRow, OfferRow } from './agent-requests';

@@ -1,13 +1,17 @@
-// The pinned agent tray (bottom left) and the All agents picker. Faces are dragged onto a card to invite
-// that agent; the surface takes the drop. Who shows where is decided in tray.ts.
-import {useEffect,useId,useMemo,useRef,useState,type DragEvent as ReactDragEvent} from 'react';
+// The agent tray (bottom left) and the All agents picker. Faces are dragged onto a card to invite that agent;
+// the surface takes the drop. The tray shows this person's pins (suggestions for the selected chat first); a star
+// in the picker pins or unpins. Who shows where is decided in tray.ts.
+import {useEffect,useMemo,useRef,useState,type DragEvent as ReactDragEvent} from 'react';
 import type {BoardCard,CanvasArea} from '@nest/schemas';
 import type {Agent} from '../types';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {AGENT_DRAG_TYPE} from './Surface';
-import {areaAgentNames,pickerAgents,type OwnerFilter,type TrayAgent} from './tray';
+import {oneLine} from './pulse';
+import {areaAgentNames,busyLabel,pickerGroups,type PickerFilter} from './tray';
 
-const OWNERS: {value: OwnerFilter; label: string}[] = [{value: 'all', label: 'All'}, {value: 'yours', label: 'Yours'}, {value: 'team', label: 'Team'}];
+const FILTERS: {value: PickerFilter; label: string}[] = [
+  {value: 'all', label: 'All'}, {value: 'yours', label: 'Yours'}, {value: 'free', label: 'Free now'}, {value: 'working', label: 'Working'},
+];
 /** Another dialog above the canvas (manage channel, the tour) or a focus chat takes Escape for itself. */
 const OTHER_DIALOG = '[aria-modal="true"], .dialog-backdrop, .canvas-chat[data-mode="focus"]';
 
@@ -15,58 +19,74 @@ function startDrag(event: ReactDragEvent, name: string) {
   event.dataTransfer.setData(AGENT_DRAG_TYPE, name);
   event.dataTransfer.effectAllowed = 'copy';
 }
+/** The agent's role: the first line of its engine description. */
+const roleOf = (agent: Agent) => oneLine(agent.description);
 
 export type AgentTrayProps = {
-  /** Up to TRAY_MAX faces: suggestions for the selected card first. */
-  tray: TrayAgent[];
-  /** The selected card's title, when its suggestions lead the tray. */
-  suggestedFor: string | null;
+  /** Up to three agents from the selected chat's area, shown first. */
+  suggested: Agent[];
+  /** The person's pins in order, or the seeded default before they save any. */
+  pinned: Agent[];
+  /** The saved pins (what the picker's stars show); empty before the person saves any. */
+  pins: readonly string[];
+  onTogglePin(name: string): void;
   agents: Agent[];
   humanId: string;
+  /** Engine human id to username, for the picker's owner groups and search. */
+  owners: ReadonlyMap<string, string>;
+  /** Placed cards on this canvas each agent is working on now. */
+  busy: ReadonlyMap<string, number>;
   cards: BoardCard[];
   areas: CanvasArea[];
 };
 
-export function AgentTray({tray, suggestedFor, agents, humanId, cards, areas}: AgentTrayProps) {
+export function AgentTray({suggested, pinned, pins, onTogglePin, agents, humanId, owners, busy, cards, areas}: AgentTrayProps) {
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const close = () => { setOpen(false); button.current?.focus({preventScroll: true}); };
-  const suggested = tray.filter(agent => agent.suggested), rest = tray.filter(agent => !agent.suggested);
-  const face = (agent: TrayAgent) => <li key={agent.name}>
-    <span className="canvas-tray-face" data-agent={agent.name} draggable="true" role="img" aria-label={agent.name}
-      title={`${agent.name}: drag onto a chat to add`} onDragStart={event => startDrag(event, agent.name)}>
-      <AgentAvatar name={agent.name} size={34}/>
-    </span>
-  </li>;
+  const face = (agent: Agent) => {
+    const role = roleOf(agent);
+    return <li key={agent.name}>
+      <span className="canvas-tray-face" data-agent={agent.name} draggable="true" role="img" aria-label={agent.name}
+        title={`${agent.name}${role ? ` · ${role}` : ''}. Drag onto a chat to add.`} onDragStart={event => startDrag(event, agent.name)}>
+        <AgentAvatar name={agent.name} size={34}/>
+      </span>
+    </li>;
+  };
   return <>
     <section className="canvas-tray" aria-label="Agents">
-      {suggested.length && suggestedFor ? <p className="canvas-tray-label">Suggested for {suggestedFor}</p> : null}
       <div className="canvas-chrome canvas-tray-strip">
-        {tray.length ? <div className="canvas-tray-scroll">
-          {suggested.length ? <ul className="canvas-tray-faces" data-group="suggested">{suggested.map(face)}</ul> : null}
-          {rest.length ? <ul className="canvas-tray-faces">{rest.map(face)}</ul> : null}
-        </div> : null}
+        <div className="canvas-tray-scroll">
+          {suggested.length ? <>
+            <span className="canvas-tray-sugg">Suggested for this chat</span>
+            <ul className="canvas-tray-faces" data-group="suggested" aria-label="Suggested for this chat">{suggested.map(face)}</ul>
+            <span className="canvas-tray-sep" aria-hidden="true"/>
+          </> : <span className="canvas-tray-label">Pinned</span>}
+          {pinned.length ? <ul className="canvas-tray-faces" data-group="pinned" aria-label="Pinned">{pinned.map(face)}</ul> : null}
+        </div>
         <button ref={button} type="button" className="canvas-tray-all" aria-expanded={open} aria-haspopup="dialog"
-          onClick={() => open ? close() : setOpen(true)}>All agents ({agents.length})</button>
+          aria-label={`All ${agents.length} agents`} title="Search all agents" onClick={() => open ? close() : setOpen(true)}>All {agents.length}</button>
       </div>
     </section>
-    {open ? <AgentPicker agents={agents} humanId={humanId} cards={cards} areas={areas} onClose={close}/> : null}
+    {open ? <AgentPicker agents={agents} humanId={humanId} owners={owners} busy={busy} pins={pins} onTogglePin={onTogglePin}
+      cards={cards} areas={areas} onClose={close}/> : null}
   </>;
 }
 
 /**
- * Searchable list of every agent, with Yours/Team and area filters. Not modal: the canvas stays reachable,
- * so rows drag straight onto a card. While a row is dragged the panel lets drops through to the cards below.
+ * Searchable list of every agent, grouped by owner, with chip and area filters, each row's live status and a pin
+ * star. Not modal: the canvas stays reachable, so rows drag straight onto a card. While a row is dragged the panel
+ * lets drops through to the cards below.
  */
-function AgentPicker({agents, humanId, cards, areas, onClose}: {
-  agents: Agent[]; humanId: string; cards: BoardCard[]; areas: CanvasArea[]; onClose(): void;
+function AgentPicker({agents, humanId, owners, busy, pins, onTogglePin, cards, areas, onClose}: {
+  agents: Agent[]; humanId: string; owners: ReadonlyMap<string, string>; busy: ReadonlyMap<string, number>;
+  pins: readonly string[]; onTogglePin(name: string): void; cards: BoardCard[]; areas: CanvasArea[]; onClose(): void;
 }) {
   const [query, setQuery] = useState('');
-  const [owner, setOwner] = useState<OwnerFilter>('all');
+  const [filter, setFilter] = useState<PickerFilter>('all');
   const [areaId, setAreaId] = useState('');
   const [dragging, setDragging] = useState(false);
   const search = useRef<HTMLInputElement>(null);
-  const areaField = useId();
   const closeRef = useRef(onClose); closeRef.current = onClose;
   useEffect(() => { search.current?.focus({preventScroll: true}); }, []);
   useEffect(() => {
@@ -89,38 +109,50 @@ function AgentPicker({agents, humanId, cards, areas, onClose}: {
   // A deleted area falls back to every area.
   const area = areas.find(a => a.id === areaId) ?? null;
   const inArea = useMemo(() => area ? areaAgentNames(area.id, cards, areas) : null, [area, cards, areas]);
-  const shown = useMemo(() => pickerAgents({agents, humanId, query, owner, inArea}), [agents, humanId, query, owner, inArea]);
+  const groups = useMemo(() => pickerGroups({agents, humanId, owners, query, filter, inArea, busy}), [agents, humanId, owners, query, filter, inArea, busy]);
+  const pinned = new Set(pins);
   return <div className={`canvas-picker${dragging ? ' is-dragging' : ''}`} role="dialog" aria-label="All agents">
     <header className="canvas-picker-head">
-      <h2>All agents</h2>
-      <button type="button" className="canvas-picker-close" onClick={onClose}>Close</button>
+      <h2>Agents · {agents.length}</h2>
+      <button type="button" className="canvas-picker-close" aria-label="Close" title="Close" onClick={onClose}><span aria-hidden="true">✕</span></button>
     </header>
-    <input ref={search} type="search" className="canvas-picker-search" aria-label="Search agents" placeholder="Search"
-      value={query} onChange={event => setQuery(event.target.value)}/>
-    <div className="canvas-picker-filters">
-      <div role="radiogroup" aria-label="Owner" className="canvas-picker-owners">
-        {OWNERS.map(option => <label key={option.value}>
-          <input type="radio" name="canvas-picker-owner" value={option.value} checked={owner === option.value} onChange={() => setOwner(option.value)}/>
-          <span>{option.label}</span>
-        </label>)}
-      </div>
-      <div className="canvas-picker-area">
-        <label htmlFor={areaField}>Area</label>
-        <select id={areaField} value={area?.id ?? ''} onChange={event => setAreaId(event.target.value)}>
-          <option value="">All areas</option>
-          {areas.map(a => <option key={a.id} value={a.id}>{a.title}</option>)}
-        </select>
-      </div>
+    <div className="canvas-picker-find">
+      <input ref={search} type="search" className="canvas-picker-search" aria-label="Search agents" placeholder="Search by name, skill, app or owner"
+        autoComplete="off" value={query} onChange={event => setQuery(event.target.value)}/>
+      <select className="canvas-picker-area" aria-label="Area" title="Only agents in this area's chats" value={area?.id ?? ''} onChange={event => setAreaId(event.target.value)}>
+        <option value="">All areas</option>
+        {areas.map(a => <option key={a.id} value={a.id}>{a.title}</option>)}
+      </select>
     </div>
-    <p className="canvas-picker-hint">Drag an agent onto a chat to add it.</p>
-    {shown.length ? <ul className="canvas-picker-list" aria-label={`${shown.length} agents`}>
-      {shown.map(agent => <li key={agent.name} className="canvas-picker-row" data-agent={agent.name} draggable="true"
-        onDragStart={event => { startDrag(event, agent.name); setTimeout(() => setDragging(true), 0); }}
-        onDragEnd={() => setDragging(false)}>
-        <AgentAvatar name={agent.name} size={30}/>
-        <span className="canvas-picker-name">{agent.name}</span>
-        <span className="canvas-picker-owner">{agent.ownerHumanId === humanId ? 'Yours' : 'Team'}</span>
-      </li>)}
-    </ul> : <p className="canvas-picker-empty">No agents match.</p>}
+    <div className="canvas-picker-chips" role="group" aria-label="Show">
+      {FILTERS.map(option => <button key={option.value} type="button" className="canvas-picker-chip" aria-pressed={filter === option.value}
+        onClick={() => setFilter(option.value)}>{option.label}</button>)}
+    </div>
+    {groups.length ? <div className="canvas-picker-list">
+      {groups.map(group => <section key={group.label} className="canvas-picker-group" aria-label={group.label}>
+        <h3 className="canvas-picker-group-head">{group.label} · {group.agents.length}</h3>
+        <ul>
+          {group.agents.map(agent => {
+            const count = busy.get(agent.name) ?? 0, on = pinned.has(agent.name), role = roleOf(agent);
+            return <li key={agent.name} className="canvas-picker-row" data-agent={agent.name} draggable="true"
+              onDragStart={event => { startDrag(event, agent.name); setTimeout(() => setDragging(true), 0); }}
+              onDragEnd={() => setDragging(false)}>
+              <AgentAvatar name={agent.name} size={30}/>
+              <span className="canvas-picker-body">
+                <span className="canvas-picker-name">{agent.name}</span>
+                {role ? <span className="canvas-picker-role" title={role}>{role}</span> : null}
+              </span>
+              <span className={`canvas-picker-status${count ? ' is-busy' : ''}`}>{busyLabel(count)}</span>
+              <button type="button" className={`canvas-picker-star${on ? ' is-on' : ''}`} aria-pressed={on}
+                aria-label={on ? `Unpin ${agent.name}` : `Pin ${agent.name} to tray`} title={on ? 'Unpin' : 'Pin to tray'}
+                onClick={() => onTogglePin(agent.name)}>
+                <span aria-hidden="true">{on ? '★' : '☆'}</span>
+              </button>
+            </li>;
+          })}
+        </ul>
+      </section>)}
+    </div> : <p className="canvas-picker-empty">No agents match.</p>}
+    <p className="canvas-picker-foot">Drag any agent onto a chat or an area · ☆ pins it to the tray</p>
   </div>;
 }

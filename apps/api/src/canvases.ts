@@ -9,8 +9,8 @@ import type { Human, OrgOpsClient } from '@nest/orgops-client';
 import { availableHome, isChatMember, type ContextAgents } from './canvas-context';
 import { removeStored, type ContextFiles } from './context-files';
 import {
-  areaFor, CARD_HEIGHT, DEFAULT_CARD_WIDTH, homeAfterMove, NewCanvasSchema, CanvasRenameSchema, CanvasSharingSchema, HiddenSchema, NewAreaSchema, AreaPatchSchema, PlaceCardsSchema, CardPatchSchema,
-  type BoardCard, type Canvas, type CanvasArea, type CanvasBoard, type CanvasCardRow,
+  AgentPinsSchema, areaFor, CARD_HEIGHT, DEFAULT_CARD_WIDTH, homeAfterMove, NewCanvasSchema, CanvasRenameSchema, CanvasSharingSchema, HiddenSchema, NewAreaSchema, AreaPatchSchema, PlaceCardsSchema, CardPatchSchema,
+  type AgentPins, type BoardCard, type Canvas, type CanvasArea, type CanvasBoard, type CanvasCardRow,
 } from '@nest/schemas';
 
 export type Channel = {
@@ -114,6 +114,20 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
     const visible = new Set(c.get('channels').filter(channel => !channel.archivedAt).map(channel => channel.id));
     canvases.setHidden(human.id, input.channelIds.filter(id => visible.has(id)), input.hidden);
     return c.json({ channelIds: canvases.hidden(human.id) });
+  });
+
+  // Agents pinned to the person's tray, across canvases and devices. Agents the engine no longer lists for them
+  // (deleted, or private to someone else) are dropped silently, on read and on save.
+  const visibleAgents = async (c: any) =>
+    new Set((await orgops.humanJson<{ name: string }[]>('/api/agents', c.req.raw.headers)).map(agent => agent.name));
+  const pinsFor = (names: string[] | null, visible: Set<string>): AgentPins =>
+    ({ agentNames: (names ?? []).filter(name => visible.has(name)), saved: names !== null });
+  routes.get('/api/canvases/agent-pins', async c => c.json(pinsFor(store.agentPins.get(c.get('human').id), await visibleAgents(c))));
+  routes.put('/api/canvases/agent-pins', async c => {
+    const input = parse(AgentPinsSchema, await body(c));
+    const visible = await visibleAgents(c);
+    const saved = store.agentPins.set(c.get('human').id, input.agentNames.filter(name => visible.has(name)));
+    return c.json(pinsFor(saved, visible));
   });
 
   routes.get('/api/canvases', c => c.json(canvases.list(c.get('human').id)));

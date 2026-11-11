@@ -1,5 +1,5 @@
-// Agents tray (Task 9): drag to invite, drag a face off to remove with Undo, the All agents picker and
-// permission checks, on the real engine, API and WS. Synthetic data only.
+// Agents tray (Task 9, design batch D2): drag to invite, drag a face off to remove with Undo, pins, the All agents
+// picker with live statuses and filters, and permission checks, on the real engine, API and WS. Synthetic data only.
 import assert from 'node:assert/strict';
 import {mkdtempSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -33,6 +33,26 @@ async function expectRows(rows:Locator,names:string[]){
     await new Promise(resolve=>setTimeout(resolve,100));
   }
   assert.deepEqual(seen,names);
+}
+/** Polls a condition from Node (a page-side waitForFunction with an async callback resolves at once). */
+async function until<T>(read:()=>Promise<T>,ok:(value:T)=>boolean,what:string):Promise<T>{
+  let value=await read();
+  for(let attempt=0;attempt<50&&!ok(value);attempt++){await new Promise(resolve=>setTimeout(resolve,100));value=await read();}
+  assert.ok(ok(value),`${what}: ${JSON.stringify(value)}`);
+  return value;
+}
+/** The tray's pinned faces, in order, and whether the Pinned label leads them. */
+const pinnedTray=(tray:Locator)=>tray.evaluate(section=>({
+  label:section.querySelector('.canvas-tray-label')?.textContent??null,
+  afterLabel:section.querySelector('.canvas-tray-label')?.nextElementSibling?.getAttribute('data-group')??null,
+  names:[...section.querySelectorAll('[data-group="pinned"] [data-agent]')].map(face=>face.getAttribute('data-agent')),
+}));
+/** Pip running and heartbeating now, with a turn open in the chat. */
+async function startTurn(h:ChatHarness,channelId:string){
+  const trigger=await h.emit('message.created',{text:'Synthetic trigger'},{source:'human:demo-owner',channelId});
+  await h.emit('agent.turn.started',{triggerEventId:trigger.id},{source:`agent:${agentName}`,channelId});
+  const at=Date.now();
+  h.engineDb.prepare("UPDATE agents SET desired_state='RUNNING', runtime_state='RUNNING', last_heartbeat_at=?, updated_at=? WHERE name=?").run(at,at,agentName);
 }
 async function canvasWith(h:ChatHarness,cards:{channelId:string;x:number;y:number}[],areas:{title:string;x:number;y:number;w:number;h:number}[]=[]){
   const {id}=await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Agents board'});
@@ -101,7 +121,7 @@ await runChatTest('canvas agents: drag Pip onto a card to invite, drag the face 
   await engineHasPip(h,channelId,true);
 },{canvas:true});
 
-await runChatTest('canvas agents: All agents finds Pip, filters by owner and area, and 30 agents keep the tray at 8',async h=>{
+await runChatTest('canvas agents: All agents finds Pip, filters by owner and area, and 30 agents keep the tray at the pin limit',async h=>{
   const {page,base}=h;
   const workspace=mkdtempSync(join(tmpdir(),'nest-canvas-agents-'));
   // Pip plus 29 synthetic helpers: 30 agents. No helper name contains a "p" before an "i", so "pi" finds only Pip.
@@ -114,29 +134,34 @@ await runChatTest('canvas agents: All agents finds Pip, filters by owner and are
   const tray=page.getByRole('region',{name:'Agents',exact:true});
   await tray.locator('[data-agent]').first().waitFor();
   const faces=await tray.locator('[data-agent]').count();
-  assert.ok(faces>0&&faces<=8,`the tray shows at most 8 faces: ${faces}`);
-  await tray.getByRole('button',{name:'All agents (30)',exact:true}).click();
+  assert.ok(faces>0&&faces<=7,`before any pins the tray seeds at most 7 faces: ${faces}`);
+  await tray.getByText('Pinned',{exact:true}).waitFor();
+  const all=tray.getByRole('button',{name:'All 30 agents',exact:true});
+  assert.equal(await all.innerText(),'All 30');
+  await all.click();
   const picker=page.getByRole('dialog',{name:'All agents',exact:true});
   await picker.waitFor();
   const rows=picker.locator('[data-agent]');
   await rows.first().waitFor();
   assert.equal(await rows.count(),30,'the picker lists every agent');
 
-  // The engine makes the creating human an agent's owner, public or private, so the owner filters
-  // follow the engine's ownerHumanId; the side with no agents says so.
+  // The engine makes the creating human an agent's owner, public or private, so the owner groups and the
+  // Yours chip follow the engine's ownerHumanId: Yours first, everyone else's under their owner's team.
   const agents=await call<{name:string;ownerHumanId:string|null}[]>(h,'GET','/api/agents');
   const me=agents.find(agent=>agent.name==='Helper 01')!.ownerHumanId;
   assert.ok(me,'the creating human owns the agents it created');
   const yours=agents.filter(agent=>agent.ownerHumanId===me).map(agent=>agent.name).sort();
   const team=agents.filter(agent=>agent.ownerHumanId!==me).map(agent=>agent.name).sort();
   assert.ok(yours.includes('Helper 01'),'agents this human created are yours');
-  for(const [label,names] of [['Yours',yours],['Team',team]] as const){
-    await picker.getByRole('radio',{name:label,exact:true}).check();
-    await expectRows(rows,names);
-    if(!names.length)await picker.getByText('No agents match.',{exact:true}).waitFor();
-  }
-  await picker.getByRole('radio',{name:'All',exact:true}).check();
-  assert.equal(await rows.count(),30);
+  await expectRows(picker.getByRole('region',{name:'Yours',exact:true}).locator('[data-agent]'),yours);
+  await expectRows(picker.locator('.canvas-picker-group:not([aria-label="Yours"]) [data-agent]'),team);
+  assert.equal(await picker.locator('.canvas-picker-group-head').first().textContent(),`Yours · ${yours.length}`,'Yours leads, with its count');
+  const chip=(label:string)=>picker.getByRole('button',{name:label,exact:true});
+  await chip('Yours').click();
+  assert.equal(await chip('Yours').getAttribute('aria-pressed'),'true');
+  await expectRows(rows,yours);
+  await chip('All').click();
+  await expectRows(rows,[...agents.map(agent=>agent.name)].sort());
 
   await picker.getByLabel('Area',{exact:true}).selectOption({label:'Review'});
   assert.deepEqual(await rows.evaluateAll(list=>list.map(row=>row.getAttribute('data-agent'))),[agentName],'only agents in that area\'s cards');
@@ -154,7 +179,8 @@ await runChatTest('canvas agents: All agents finds Pip, filters by owner and are
   await page.mouse.click(head.x+4,head.y+4);
   // A click opens the chat; close it so the card stays selected.
   await page.getByRole('button',{name:'Close',exact:true}).click();
-  await tray.getByText('Suggested for Synthetic plain room',{exact:true}).waitFor();
+  await tray.getByText('Suggested for this chat',{exact:true}).waitFor();
+  assert.equal(await tray.getByText('Pinned',{exact:true}).count(),0,'the Pinned label gives way to suggestions');
   assert.equal(await tray.locator('[data-agent]').first().getAttribute('data-agent'),agentName);
 },{canvas:true});
 
@@ -182,7 +208,7 @@ await runChatTest('canvas agents: faces on a chat you cannot manage do not drag,
   const requests:string[]=[];
   mate.page.on('request',request=>{if(/\/(subscribe|unsubscribe|members)$/.test(new URL(request.url()).pathname))requests.push(request.url());});
   const tray=mate.page.getByRole('region',{name:'Agents',exact:true});
-  await tray.getByRole('button',{name:/^All agents \(\d+\)$/}).click();
+  await tray.getByRole('button',{name:/^All \d+ agents$/}).click();
   const picker=mate.page.getByRole('dialog',{name:'All agents',exact:true});
   const pip=picker.locator(`[data-agent="${agentName}"]`);
   await pip.dragTo(card);
@@ -197,4 +223,77 @@ await runChatTest('canvas agents: faces on a chat you cannot manage do not drag,
   await mate.page.waitForTimeout(300);
   assert.deepEqual(requests,[],'no membership request for a chat the mate cannot manage');
   await engineHasPip(h,channelId,true);
+},{canvas:true});
+
+await runChatTest('canvas agents: stars pin agents to the tray across reloads, up to 7, and rows say who is free or working',async h=>{
+  const {page,base}=h;
+  const workspace=mkdtempSync(join(tmpdir(),'nest-canvas-pins-'));
+  // Pip plus 7 synthetic helpers: 8 agents, one more than the pin limit.
+  const helpers=Array.from({length:7},(_,n)=>`Helper ${String(n+1).padStart(2,'0')}`);
+  for(const name of helpers)await call(h,'POST','/api/agents',{name,modelId:'test',workspacePath:join(workspace,name)});
+  const plain=await plainChat(h,'Synthetic plain room');
+  const id=await canvasWith(h,[{channelId:h.project.channelId,x:140,y:140},{channelId:plain,x:560,y:140}]);
+  await openCanvas(page,base,id);
+  const tray=page.getByRole('region',{name:'Agents',exact:true});
+  const pinsSaved=()=>call<{agentNames:string[];saved:boolean}>(h,'GET','/api/canvases/agent-pins');
+
+  // Nothing pinned yet: the tray seeds itself under the Pinned label.
+  const seeded=await until(()=>pinnedTray(tray),tray=>tray.names.length===7,'the seeded tray');
+  assert.equal(seeded.label,'Pinned');
+  assert.deepEqual(await pinsSaved(),{agentNames:[],saved:false});
+
+  await tray.getByRole('button',{name:'All 8 agents',exact:true}).click();
+  const picker=page.getByRole('dialog',{name:'All agents',exact:true});
+  await picker.getByRole('heading',{name:'Agents · 8',exact:true}).waitFor();
+  await picker.getByText('Drag any agent onto a chat or an area · ☆ pins it to the tray',{exact:true}).waitFor();
+  assert.equal(await picker.getByRole('searchbox',{name:'Search agents',exact:true}).getAttribute('placeholder'),'Search by name, skill, app or owner');
+  const row=(name:string)=>picker.locator(`.canvas-picker-row[data-agent="${name}"]`);
+  const status=(name:string)=>row(name).locator('.canvas-picker-status');
+  assert.equal(await status(agentName).innerText(),'free');
+
+  // Star Helper 03: the tray shows exactly that pin after the Pinned label, and the server keeps it.
+  const pin=picker.getByRole('button',{name:'Pin Helper 03 to tray',exact:true});
+  assert.equal(await pin.getAttribute('aria-pressed'),'false');
+  await pin.click();
+  const unpin=picker.getByRole('button',{name:'Unpin Helper 03',exact:true});
+  assert.equal(await unpin.getAttribute('aria-pressed'),'true');
+  await until(()=>pinnedTray(tray),tray=>tray.names.join()==='Helper 03'&&tray.afterLabel==='pinned','Helper 03 pinned after the label');
+  await until(pinsSaved,pins=>pins.saved&&pins.agentNames.join()==='Helper 03','Helper 03 saved');
+
+  // Unstar it: it leaves the tray, and an emptied list stays empty (no seed again).
+  await unpin.click();
+  await until(()=>pinnedTray(tray),tray=>tray.names.length===0,'the tray after unpinning');
+  await until(pinsSaved,pins=>pins.saved&&pins.agentNames.length===0,'empty pins saved');
+
+  // Pin seven, in order; the eighth is refused with the notice and nothing changes.
+  const order=[agentName,...helpers.slice(0,6)];
+  for(const name of order){
+    await picker.getByRole('button',{name:`Pin ${name} to tray`,exact:true}).click();
+    await picker.getByRole('button',{name:`Unpin ${name}`,exact:true}).waitFor();
+  }
+  await until(pinsSaved,pins=>pins.agentNames.join()===order.join(),'seven pins saved in order');
+  await picker.getByRole('button',{name:'Pin Helper 07 to tray',exact:true}).click();
+  await page.getByRole('status').filter({hasText:'You can pin up to 7 agents. Unpin one first.'}).waitFor();
+  assert.equal(await picker.getByRole('button',{name:'Pin Helper 07 to tray',exact:true}).getAttribute('aria-pressed'),'false');
+  assert.deepEqual((await pinsSaved()).agentNames,order);
+
+  // Pins survive a reload, in their order, with their stars.
+  await page.reload();
+  await page.locator('.canvas-card').first().waitFor();
+  await until(()=>pinnedTray(tray),tray=>tray.names.join()===order.join(),'pins after reload');
+  await tray.getByRole('button',{name:'All 8 agents',exact:true}).click();
+  await picker.getByRole('button',{name:`Unpin ${agentName}`,exact:true}).waitFor();
+
+  // Pip starts working on the placed project chat: its row says so, and the chips split working from free.
+  await startTurn(h,h.project.channelId);
+  await until(()=>status(agentName).innerText(),text=>text==='in 1 chat','Pip\'s status');
+  assert.match(await status(agentName).getAttribute('class')??'',/is-busy/);
+  assert.equal(await status('Helper 01').innerText(),'free');
+  const rows=picker.locator('.canvas-picker-row');
+  await picker.getByRole('button',{name:'Working',exact:true}).click();
+  await expectRows(rows,[agentName]);
+  await picker.getByRole('button',{name:'Free now',exact:true}).click();
+  await expectRows(rows,[...helpers].sort());
+  await picker.getByRole('button',{name:'All',exact:true}).click();
+  await expectRows(rows,[agentName,...helpers].sort());
 },{canvas:true});

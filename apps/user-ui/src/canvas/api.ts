@@ -1,5 +1,5 @@
 // Typed helpers for the product /api/canvases routes (apps/api/src/canvases.ts).
-import type {AreaPatch,Canvas,CanvasArea,CanvasBoard,CanvasCardRow,CanvasRole,CanvasVisibility,NewArea} from '@nest/schemas';
+import type {AgentPins,AreaPatch,Canvas,CanvasArea,CanvasBoard,CanvasCardRow,CanvasRole,CanvasVisibility,NewArea} from '@nest/schemas';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 import type {CardRow} from './board-store';
 
@@ -84,6 +84,9 @@ export const removeCard = (id: string, channelId: string, version: number) =>
 
 export const getHidden = () => json<{channelIds: string[]}>('/api/canvases/hidden');
 export const setHidden = (channelIds: string[], hidden: boolean) => json<{channelIds: string[]}>('/api/canvases/hidden', write('POST', {channelIds, hidden}));
+/** The agents pinned to the person's tray, across canvases. `saved` is false until they first pin or unpin. */
+export const getAgentPins = () => json<AgentPins>('/api/canvases/agent-pins');
+export const putAgentPins = (agentNames: string[]) => json<AgentPins>('/api/canvases/agent-pins', write('PUT', {agentNames}));
 
 /** The board writes the board store sends; injected so the store stays testable. */
 export const boardApi = {getBoard, moveCard, removeCard, placeCards, createArea, patchArea, deleteArea};

@@ -42,6 +42,14 @@ export const PlaceCardsSchema = z.object({
 }).strict();
 export const CardPatchSchema = z.object({ x: coord, y: coord, w: cardWidth.optional(), version }).strict();
 export const HiddenSchema = z.object({ channelIds: z.array(channelId).min(1).max(100), hidden: z.boolean() }).strict();
+/** A person pins at most this many agents to their canvas tray. */
+export const AGENT_PIN_MAX = 7;
+export const AGENT_PIN_LIMIT_MESSAGE = `You can pin up to ${AGENT_PIN_MAX} agents. Unpin one first.`;
+/** The person's whole pin list, in tray order. Agent names are engine names (1–200 characters). */
+export const AgentPinsSchema = z.object({
+  agentNames: z.array(z.string().min(1).max(200)).max(AGENT_PIN_MAX, { message: AGENT_PIN_LIMIT_MESSAGE })
+    .refine(names => new Set(names).size === names.length, { message: 'Each agent can be pinned once' }),
+}).strict();
 
 export type NewCanvas = z.infer<typeof NewCanvasSchema>;
 export type CanvasSharing = z.infer<typeof CanvasSharingSchema>;
@@ -49,6 +57,8 @@ export type NewArea = z.infer<typeof NewAreaSchema>;
 export type AreaPatch = z.infer<typeof AreaPatchSchema>;
 export type PlaceCards = z.infer<typeof PlaceCardsSchema>;
 export type CardPatch = z.infer<typeof CardPatchSchema>;
+/** `saved` is false until the person first saves pins; the tray then shows its computed default. */
+export type AgentPins = { agentNames: string[]; saved: boolean };
 
 export type Canvas = { id: string; ownerId: string; name: string; visibility: CanvasVisibility; version: number; createdAt: number; updatedAt: number; role: CanvasRole };
 export type CanvasArea = { id: string; canvasId: string; title: string; x: number; y: number; w: number; h: number; tint: CanvasTint; version: number };

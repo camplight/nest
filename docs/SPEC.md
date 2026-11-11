@@ -622,7 +622,10 @@ version), `product_canvas_members` (a person and their `edit` or `view` role),
 `product_canvas_cards` (one row per canvas and engine channel id, with position,
 width, version, who placed it and an owner label) and `product_loose_hidden` (the
 chats a person hid from their Loose chats pile). They hold layout only; their types
-are in `packages/schemas/src/canvas.ts` and the store in `packages/db/src/canvases.ts`. Both databases already participate in
+are in `packages/schemas/src/canvas.ts` and the store in `packages/db/src/canvases.ts`.
+Migration `013_agent_pins.sql` adds `product_agent_pins`: one row per engine human id
+with the ordered names of the agents that person pinned to their canvas tray (no row
+until they first save pins); the store is `packages/db/src/agent-pins.ts`. Both databases already participate in
 host-controller deployment snapshots and rollback.
 
 Branding includes displayName (1–60 chars), logoUrl, primaryColor, accentColor,
@@ -684,7 +687,7 @@ Phase 1 is built from
    `chat=<channel id>&mode=focus|split`, so a reload restores both.
 
 2. Ownership. Nest owns the layout only: canvases, their members, areas, card
-   positions and the personal Loose chats hides (the 011 tables above). OrgOps owns
+   positions, the personal Loose chats hides and tray pins (the 011 and 013 tables above). OrgOps owns
    every chat, message, participant, agent run and file. Moving, grouping, sharing
    or hiding never writes to the engine. The only engine writes from the canvas use
    existing endpoints as the signed-in person: adding or removing an agent on a card
@@ -724,6 +727,13 @@ Phase 1 is built from
      takes `{channelIds (1–100), hidden: true|false}` and returns the person's full
      `{channelIds}`. Chats the person cannot see are dropped without an error. This
      is a personal hide from the Loose chats pile, never an engine archive.
+   - `GET /api/canvases/agent-pins` returns `{agentNames, saved}`: the person's tray
+     pins in order, and whether they have ever saved any. `PUT /api/canvases/agent-pins`
+     takes `{agentNames}` (the whole list, at most 7 distinct names) and returns the
+     same shape. More than 7 answers 400 `You can pin up to 7 agents. Unpin one first.`
+     Agents the engine does not list for the person (`GET /api/agents` as them: deleted,
+     or someone else's private agent) are dropped silently on save and on read. Pins are
+     personal, across canvases and devices, keyed by the engine human id.
 
    Versions. Rename, sharing, area changes and deletes, card moves and removals, and
    canvas deletion carry the version they were based on (in the body, or `?version=`
@@ -824,6 +834,25 @@ Phase 1 is built from
    `All quiet`. Open is a visible footer button; Remove from canvas is a small icon
    whose slot is always kept, shown on hover or keyboard focus. At compact zoom a card keeps its title, 40 px
    faces and a coral dot (needs you) or `quiet`.
+
+   Agent tray and picker. The tray (bottom left) reads `Pinned`, then the person's
+   pinned agents in their order, then `All N` (`Search all agents`), as in the mock.
+   Until the person first pins or unpins, it shows a default instead: their own agents
+   by name, then the team's, up to 7. Once saved it shows exactly their pins, an empty
+   list included; pins for agents no longer on the roster drop out. With a card selected,
+   up to 3 agents from the other chats in its area who are not in it lead the tray as
+   `Suggested for this chat` (accent), then a separator and the pins, without the `Pinned`
+   label. `All N` opens the picker: `Agents · N` with a ✕, a search over name (ranked like
+   @mentions), role (the engine description) and owner name, a compact area filter, the
+   chips `All / Yours / Free now / Working`, and rows grouped by owner (`Yours · n` first,
+   then `{owner}'s team · n`, or `Team · n` without a known owner). A row has the face,
+   the name, the role, a live status and a star. The status reads `in N chat(s)` (accent)
+   for the placed cards on this canvas where the agent is a participant and working now
+   (from the same live pulses as the card rows) or `free`. The star is a toggle button
+   (`aria-pressed`, `Pin {name} to tray` or `Unpin {name}`); an eighth pin is refused with
+   the notice `You can pin up to 7 agents. Unpin one first.` The footer says `Drag any
+   agent onto a chat or an area · ☆ pins it to the tray`. A face dragged far enough off
+   its card to remove the agent shows `Remove {agent} from "{title}"` in coral.
 
    Area summaries. At compact zoom an area's title has a summary under it, counting the
    cards in it and in the areas inside it: `2 need you · 3 moving · 1 quiet`, with zero

@@ -42,7 +42,7 @@ describe('canvas API against the unchanged engine', () => {
     beforeEach(() => boot(false));
     it('reports unavailable and hides every other route', async () => {
       expect(await (await call(owner, 'GET', '/api/canvases/availability')).json()).toEqual({ available: false });
-      for (const p of ['/api/canvases', '/api/canvases/hidden', `/api/canvases/${randomUUID()}`, '/api/canvases/x/y/z'])
+      for (const p of ['/api/canvases', '/api/canvases/hidden', '/api/canvases/agent-pins', `/api/canvases/${randomUUID()}`, '/api/canvases/x/y/z'])
         expect([(await call(owner, 'GET', p)).status]).toEqual([404]);
       expect((await call(owner, 'POST', '/api/canvases', { id: randomUUID(), name: 'x' })).status).toBe(404);
     });
@@ -124,6 +124,42 @@ describe('canvas API against the unchanged engine', () => {
       expect(await (await call(mate, 'GET', '/api/canvases/hidden')).json()).toEqual({ channelIds: [] });
       expect(await (await call(owner, 'POST', '/api/canvases/hidden', { channelIds: [mine.id], hidden: false })).json()).toEqual({ channelIds: [] });
       expect((await call(owner, 'POST', '/api/canvases/hidden', { channelIds: [], hidden: true })).status).toBe(400);
+    });
+
+    it('saves agent pins per person in order, caps them at 7 and drops agents the person cannot see', async () => {
+      const agent = async (h: Record<string, string>, name: string, visibility: 'PUBLIC' | 'PRIVATE') => {
+        const r = await call(h, 'POST', '/api/agents', { name, modelId: 'test', workspacePath: join(dir, name), visibility });
+        expect(r.status).toBeLessThan(300);
+      };
+      for (const name of ['Moss', 'Pip', 'Ash', 'Kit', 'Zed', 'Lark', 'Wren', 'Fern']) await agent(owner, name, 'PUBLIC');
+      await agent(owner, 'Secret', 'PRIVATE');
+      const visibleToMate = (await (await call(mate, 'GET', '/api/agents')).json()).map((a: { name: string }) => a.name);
+      expect(visibleToMate).not.toContain('Secret');
+
+      // Nothing saved yet: the tray seeds itself.
+      expect(await (await call(owner, 'GET', '/api/canvases/agent-pins')).json()).toEqual({ agentNames: [], saved: false });
+      const put = (h: Record<string, string>, agentNames: string[]) => call(h, 'PUT', '/api/canvases/agent-pins', { agentNames });
+      expect(await (await put(owner, ['Pip', 'Moss', 'Ghost'])).json()).toEqual({ agentNames: ['Pip', 'Moss'], saved: true });
+      expect(await (await call(owner, 'GET', '/api/canvases/agent-pins')).json()).toEqual({ agentNames: ['Pip', 'Moss'], saved: true });
+      expect(await (await call(mate, 'GET', '/api/canvases/agent-pins')).json()).toEqual({ agentNames: [], saved: false });
+
+      // Another person's private agent is never stored for the mate.
+      expect(await (await put(mate, ['Secret', 'Ash'])).json()).toEqual({ agentNames: ['Ash'], saved: true });
+
+      const seven = ['Moss', 'Pip', 'Ash', 'Kit', 'Zed', 'Lark', 'Wren'];
+      expect((await (await put(owner, seven)).json()).agentNames).toEqual(seven);
+      const eighth = await put(owner, [...seven, 'Fern']);
+      expect(eighth.status).toBe(400);
+      expect(await eighth.json()).toEqual({ error: 'You can pin up to 7 agents. Unpin one first.' });
+      expect((await put(owner, ['Pip', 'Pip'])).status).toBe(400);
+      expect((await call(owner, 'PUT', '/api/canvases/agent-pins', { agentNames: ['Pip'], extra: 1 })).status).toBe(400);
+      expect((await (await call(owner, 'GET', '/api/canvases/agent-pins')).json()).agentNames).toEqual(seven);
+
+      // An emptied list stays saved, and an agent deleted in the engine drops out on read.
+      expect(await (await put(owner, [])).json()).toEqual({ agentNames: [], saved: true });
+      await put(owner, ['Kit', 'Zed']);
+      expect((await call(owner, 'DELETE', '/api/agents/Kit')).status).toBeLessThan(300);
+      expect(await (await call(owner, 'GET', '/api/canvases/agent-pins')).json()).toEqual({ agentNames: ['Zed'], saved: true });
     });
 
     it('returns 404 for unknown canvas paths', async () => {

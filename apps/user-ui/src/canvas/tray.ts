@@ -1,17 +1,20 @@
 // Who the agents tray and the All agents picker show. Pure: the tray, picker and their tests share it.
-import {areaFor,type BoardCard,type CanvasArea} from '@nest/schemas';
+import {AGENT_PIN_MAX,areaFor,type BoardCard,type CanvasArea} from '@nest/schemas';
 import type {Agent} from '../types';
 import {rankMentions} from '../mentions';
 import {areaMembers,cardCentre} from './geometry';
+import type {CardPulse} from './pulse';
 
-/** The pinned tray never shows more faces than this; "All agents" holds the rest. */
-export const TRAY_MAX = 8;
-export type TrayAgent = Agent & {suggested: boolean};
-export type OwnerFilter = 'all' | 'yours' | 'team';
+/** The tray leads with at most this many suggestions for the selected chat, as in the mock. */
+export const SUGGESTION_MAX = 3;
+export type TrayAgents = {suggested: Agent[]; pinned: Agent[]};
+export type PickerFilter = 'all' | 'yours' | 'free' | 'working';
+export type PickerGroup = {label: string; agents: Agent[]};
 
 const byName = (a: Agent, b: Agent) => a.name.localeCompare(b.name);
 const agentsIn = (card: BoardCard | undefined) =>
   card?.access === 'open' ? card.participants.filter(p => p.subscriberType === 'AGENT').map(p => p.subscriberId) : [];
+const owns = (humanId: string) => (agent: Agent) => Boolean(humanId) && agent.ownerHumanId === humanId;
 
 /** Agent names in the open cards of an area, nested areas included (the cards that travel with it). */
 export function areaAgentNames(areaId: string, cards: BoardCard[], areas: CanvasArea[]): Set<string> {
@@ -20,34 +23,77 @@ export function areaAgentNames(areaId: string, cards: BoardCard[], areas: Canvas
 }
 
 /**
- * The pinned tray: for the selected card, the agents in its area's other cards who are not in it
- * (suggestions), then the person's own agents by name, up to TRAY_MAX. Only roster agents appear.
- * The engine gives only private agents an owner, so free places go to the team's agents by name.
+ * The tray before a person saves any pins: their own agents by name, then the team's by name, up to the pin
+ * limit, so a new person never sees an empty tray. The engine may give public agents an owner too.
  */
-export function trayAgents({agents, humanId, cards, areas, selectedId}: {
+export function seedPins(agents: Agent[], humanId: string): string[] {
+  const mine = owns(humanId);
+  return [...agents.filter(mine).sort(byName), ...agents.filter(agent => !mine(agent)).sort(byName)].slice(0, AGENT_PIN_MAX).map(agent => agent.name);
+}
+
+/**
+ * The tray: for the selected card, up to SUGGESTION_MAX agents from its area's other cards who are not in it,
+ * then the person's pins in their order (the seed until they save any), minus those suggested.
+ * Only roster agents appear, so a pin for an agent that is gone or no longer visible drops out silently.
+ */
+export function trayAgents({agents, humanId, cards, areas, selectedId, pins}: {
   agents: Agent[]; humanId: string; cards: BoardCard[]; areas: CanvasArea[]; selectedId: string | null;
-}): TrayAgent[] {
+  /** The saved pins, or null before the person has saved any. */
+  pins: readonly string[] | null;
+}): TrayAgents {
   const selected = cards.find(card => card.channelId === selectedId && card.access === 'open');
   const present = new Set(agentsIn(selected));
   const roster = new Map(agents.map(agent => [agent.name, agent]));
   const area = selected ? areaFor(cardCentre(selected), areas) : null;
   const nearby = area ? areaAgentNames(area.id, cards, areas) : new Set<string>();
-  const suggested = [...nearby].filter(name => !present.has(name)).flatMap(name => roster.get(name) ?? []).sort(byName);
+  const suggested = [...nearby].filter(name => !present.has(name)).flatMap(name => roster.get(name) ?? []).sort(byName).slice(0, SUGGESTION_MAX);
   const shown = new Set(suggested.map(agent => agent.name));
-  const rest = agents.filter(agent => !present.has(agent.name) && !shown.has(agent.name));
-  const mine = (agent: Agent) => Boolean(humanId) && agent.ownerHumanId === humanId;
-  const own = rest.filter(mine).sort(byName), team = rest.filter(agent => !mine(agent)).sort(byName);
-  return [...suggested.map(agent => ({...agent, suggested: true})), ...[...own, ...team].map(agent => ({...agent, suggested: false}))].slice(0, TRAY_MAX);
+  const pinned = (pins ?? seedPins(agents, humanId)).filter(name => !shown.has(name)).flatMap(name => roster.get(name) ?? []);
+  return {suggested, pinned};
 }
 
-/** The picker: owner filter, optional area limit, then a search ranked like @mentions (by name without one). */
-export function pickerAgents({agents, humanId, query, owner, inArea}: {
-  agents: Agent[]; humanId: string; query: string; owner: OwnerFilter; inArea: ReadonlySet<string> | null;
-}): Agent[] {
-  const mine = (agent: Agent) => Boolean(humanId) && agent.ownerHumanId === humanId;
-  const kept = agents.filter(agent => (owner === 'all' || (owner === 'yours') === mine(agent)) && (!inArea || inArea.has(agent.name)));
-  if (!query.trim()) return kept.sort(byName);
-  const byKey = new Map(kept.map(agent => [agent.name, agent]));
-  return rankMentions(kept.map(agent => ({id: agent.name, name: agent.name, kind: 'Agent' as const, inConversation: false})), query.trim())
-    .flatMap(candidate => byKey.get(candidate.name) ?? []);
+/** Placed cards on this canvas where each agent is a participant and working right now (live pulses). */
+export function busyCounts(cards: BoardCard[], pulses: ReadonlyMap<string, CardPulse>): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const card of cards) {
+    const members = new Set(agentsIn(card));
+    for (const agent of pulses.get(card.channelId)?.agents ?? [])
+      if (agent.state === 'working' && members.has(agent.name)) counts.set(agent.name, (counts.get(agent.name) ?? 0) + 1);
+  }
+  return counts;
+}
+/** `in 2 chats` or `free`. */
+export const busyLabel = (count: number) => count ? `in ${count} chat${count === 1 ? '' : 's'}` : 'free';
+
+/**
+ * The picker: the chip filter and optional area limit, then a search over name (ranked like @mentions),
+ * role (the engine description) and owner name, then groups by owner: `Yours` first, then `{owner}'s team` (or `Team`
+ * for an agent without a known owner) by label. Rows keep the search rank within a group, else go by name.
+ */
+export function pickerGroups({agents, humanId, owners, query, filter, inArea, busy}: {
+  agents: Agent[]; humanId: string; owners: ReadonlyMap<string, string>; query: string; filter: PickerFilter;
+  inArea: ReadonlySet<string> | null; busy: ReadonlyMap<string, number>;
+}): PickerGroup[] {
+  const mine = owns(humanId);
+  const kept = agents.filter(agent => (!inArea || inArea.has(agent.name)) && (
+    filter === 'all' || (filter === 'yours' && mine(agent)) || (filter === 'free' && !busy.get(agent.name)) || (filter === 'working' && Boolean(busy.get(agent.name)))));
+  const q = query.trim();
+  let ordered = [...kept].sort(byName);
+  if (q) {
+    const byKey = new Map(kept.map(agent => [agent.name, agent]));
+    const ranked = rankMentions(kept.map(agent => ({id: agent.name, name: agent.name, kind: 'Agent' as const, inConversation: false})), q)
+      .flatMap(candidate => byKey.get(candidate.name) ?? []);
+    const named = new Set(ranked.map(agent => agent.name)), needle = q.toLowerCase();
+    const other = ordered.filter(agent => !named.has(agent.name) && [agent.description ?? '', owners.get(agent.ownerHumanId ?? '') ?? '']
+      .join(' ').toLowerCase().includes(needle));
+    ordered = [...ranked, ...other];
+  }
+  const groups = new Map<string, Agent[]>();
+  for (const agent of ordered) {
+    const owner = agent.ownerHumanId ? owners.get(agent.ownerHumanId) : undefined;
+    const label = mine(agent) ? 'Yours' : owner ? `${owner}'s team` : 'Team';
+    groups.set(label, [...groups.get(label) ?? [], agent]);
+  }
+  return [...groups].map(([label, list]) => ({label, agents: list}))
+    .sort((a, b) => a.label === 'Yours' ? -1 : b.label === 'Yours' ? 1 : a.label.localeCompare(b.label));
 }

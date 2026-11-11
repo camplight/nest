@@ -1535,39 +1535,50 @@
   /* Leaves the zoom controls their corner. */
   max-width: calc(100% - 260px);
 }
-.canvas-tray-label {
-  margin: 0;
-  border-radius: 999px;
-  padding: 3px 10px;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  background: color-mix(in srgb, var(--nest-surface) 88%, transparent);
-  color: var(--nest-muted);
-  font-size: 12px;
-}
 .canvas-tray-strip {
   position: static;
   max-width: 100%;
   box-sizing: border-box;
-  gap: 6px;
-  padding: 4px 4px 4px 8px;
+  gap: 4px;
+  padding: 5px 8px 5px 12px;
 }
-/* Faces scroll when the strip is squeezed; All agents always stays in view. */
+/* Faces scroll when the strip is squeezed; All N always stays in view. */
 .canvas-tray-scroll {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
 }
-/* On a narrow canvas only All agents remains beside the zoom controls. */
+/* On a narrow canvas only All N remains beside the zoom controls. */
 @container (max-width: 560px) {
-  .canvas-tray-scroll,
-  .canvas-tray-label {
+  .canvas-tray-scroll {
     display: none;
   }
+}
+.canvas-tray-label {
+  flex: none;
+  margin-right: 4px;
+  color: var(--nest-muted);
+  font-size: 11.5px;
+  line-height: 1.2;
+}
+.canvas-tray-sugg {
+  flex: none;
+  max-width: 74px;
+  margin: 0 2px 0 4px;
+  color: var(--nest-accent);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.15;
+}
+.canvas-tray-sep {
+  flex: none;
+  width: 1px;
+  height: 28px;
+  margin: 0 4px;
+  background: var(--nest-border);
 }
 .canvas-tray-faces {
   display: flex;
@@ -1576,34 +1587,46 @@
   padding: 0;
   list-style: none;
 }
-.canvas-tray-faces[data-group="suggested"] {
-  padding-right: 8px;
-  border-right: 1px solid var(--nest-border);
-}
 .canvas-tray-face {
-  display: inline-flex;
-  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border-radius: 10px;
   cursor: grab;
+  transition: transform .15s, background .15s;
 }
 .canvas-tray-face:hover {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--nest-lime) 55%, transparent);
+  background: var(--nest-muted-surface);
+  transform: translateY(-3px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .canvas-tray-face { transition: none; }
+  .canvas-tray-face:hover { transform: none; }
 }
 .canvas-chrome .canvas-tray-all {
   flex: none;
+  height: 38px;
+  margin-left: 4px;
+  padding: 0 10px;
+  border: 1px solid var(--nest-border);
+  border-radius: 10px;
+  background: var(--nest-surface);
   white-space: nowrap;
-  font-size: 14px;
+  font-size: 12.5px;
+  font-weight: 600;
 }
 .canvas-picker {
   position: absolute;
   left: 16px;
-  bottom: 96px;
+  bottom: 78px;
   z-index: 5;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  width: min(340px, calc(100% - 32px));
-  max-height: min(520px, calc(100% - 130px));
+  gap: 9px;
+  width: min(350px, calc(100% - 32px));
+  max-height: min(580px, calc(100% - 170px));
   box-sizing: border-box;
+  overflow: hidden;
   padding: 14px;
   border: 1px solid var(--nest-border);
   border-radius: 16px;
@@ -1624,81 +1647,78 @@
 }
 .canvas-picker-head h2 {
   margin: 0;
-  font: 600 15px/1.2 Unbounded, Inter, sans-serif;
+  font: 500 15px/1.2 Unbounded, Inter, sans-serif;
+  letter-spacing: -.03em;
 }
 .canvas-picker-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
   border: 0;
-  border-radius: 999px;
-  padding: 6px 12px;
+  border-radius: 8px;
+  padding: 0;
+  background: transparent;
+  color: var(--nest-muted);
+  cursor: pointer;
+}
+.canvas-picker-close:hover {
   background: var(--nest-muted-surface);
   color: var(--nest-text);
-  cursor: pointer;
+}
+.canvas-picker-find {
+  display: flex;
+  gap: 6px;
 }
 .canvas-picker-search,
-.canvas-picker-area select {
+.canvas-picker-area {
   min-height: 36px;
   border: 1px solid var(--nest-border);
-  border-radius: 10px;
-  padding: 0 12px;
+  border-radius: 9px;
   background: var(--nest-bg);
   color: var(--nest-text);
+  font: inherit;
 }
 .canvas-picker-search {
-  margin: 14px 0 4px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font-size: 15px;
 }
-.canvas-picker-filters {
-  margin: 6px 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+.canvas-picker-search:focus {
+  border-color: var(--nest-accent);
+  outline: none;
 }
-.canvas-picker-owners {
-  display: inline-flex;
-  border: 1px solid var(--nest-border);
-  border-radius: 999px;
-  padding: 2px;
-}
-.canvas-picker-owners label {
-  position: relative;
-}
-.canvas-picker-owners input {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-.canvas-picker-owners span {
-  display: block;
-  border-radius: 999px;
-  padding: 5px 12px;
-  font-size: 13px;
-}
-.canvas-picker-owners input:checked + span {
-  background: color-mix(in srgb, var(--nest-lime) 22%, transparent);
-}
-.canvas-picker-owners input:focus-visible + span {
-  outline: 2px solid var(--nest-lime);
+.canvas-picker-search:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--nest-accent) 35%, transparent);
 }
 .canvas-picker-area {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--nest-muted);
-}
-.canvas-picker-area select {
-  min-height: 32px;
-  max-width: 150px;
-}
-.canvas-picker-hint {
-  margin: 4px 0 16px;
-  color: var(--nest-muted);
+  flex: none;
+  max-width: 108px;
+  padding: 0 6px;
   font-size: 12px;
+  color: var(--nest-muted);
+}
+.canvas-picker-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.canvas-picker-chip {
+  border: 1px solid var(--nest-border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.canvas-picker-chip[aria-pressed="true"] {
+  border-color: var(--nest-accent);
+  background: color-mix(in srgb, var(--nest-lime) 18%, var(--nest-surface));
 }
 .canvas-picker-empty {
+  flex: 1;
   margin: 0;
   color: var(--nest-muted);
   font-size: 12px;
@@ -1707,32 +1727,90 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  margin: 0 -6px;
+  padding: 0 6px;
+}
+.canvas-picker-group ul {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+.canvas-picker-group-head {
+  margin: 10px 0 4px;
+  color: var(--nest-muted);
+  font: 600 10.5px/1.3 Inter, sans-serif;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.canvas-picker-group:first-child .canvas-picker-group-head {
+  margin-top: 2px;
 }
 .canvas-picker-row {
   display: flex;
   align-items: center;
   gap: 10px;
   border-radius: 10px;
-  padding: 6px 8px;
+  padding: 5px 8px;
   cursor: grab;
+  user-select: none;
 }
 .canvas-picker-row:hover {
   background: var(--nest-muted-surface);
 }
-.canvas-picker-name {
+.canvas-picker-body {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-width: 0;
+}
+.canvas-picker-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.canvas-picker-name,
+.canvas-picker-role {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
 }
-.canvas-picker-owner {
+.canvas-picker-role {
   color: var(--nest-muted);
   font-size: 12px;
+}
+.canvas-picker-status {
+  flex: none;
+  color: var(--nest-muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.canvas-picker-status.is-busy {
+  color: var(--nest-accent);
+  font-weight: 500;
+}
+.canvas-picker-star {
+  flex: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 2px 4px;
+  background: transparent;
+  color: var(--nest-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.canvas-picker-star:hover {
+  background: color-mix(in srgb, var(--nest-muted-surface) 70%, var(--nest-border));
+}
+.canvas-picker-star.is-on {
+  color: var(--canvas-amber);
+}
+.canvas-picker-foot {
+  margin: 0;
+  color: var(--nest-muted);
+  font-size: 11.5px;
 }
 /* The bottom box sits above the tray's row wherever the centred box would reach it. */
 @container (max-width: 1560px) {
