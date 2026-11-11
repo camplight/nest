@@ -1288,7 +1288,10 @@ covers the service agent, links, how the board shows them and the hand-off worke
    - `PATCH /api/flows/links/:id` takes `{what?, when?, who?, label?, on?, version}`.
      Pausing or resuming (`on`) is open to the creator and to members of the target
      chat; anything else is the creator's alone (403 otherwise). `who` is checked as
-     at creation. Resuming clears the paused reason and restarts the scan from now. A
+     at creation. Resuming clears the paused reason and restarts the scan after the
+     newest finished turn in `from` (engine time, read with the service token), so
+     nothing that finished while paused is replayed; when the engine cannot be asked,
+     the scan restarts from now. A
      stale version answers 409 with the current link.
    - `DELETE /api/flows/links/:id?version=N` answers 204, for the creator or a member
      of the target chat. Messages already handed off stay in the engine.
@@ -1297,13 +1300,18 @@ covers the service agent, links, how the board shows them and the hand-off worke
      hands off the newest finished turn with results in `from`, unless this link
      already has a delivery for it. It answers `{status:'sent'}`, or 409
      `Nothing new to hand off yet.`. Open to the creator and members of the target
-     chat (403 otherwise). A link that may not deliver (see the worker's checks,
-     including the cap) is paused and answers 409 `Hand-off paused · {why}`.
+     chat (403 otherwise). A paused link answers 409 (`This hand-off is paused`, or
+     `Hand-off paused · {why}`) and posts nothing; the link is re-read right before
+     the claim and before the post. A link that may not deliver (see the worker's
+     checks, including the cap) is paused and answers 409 `Hand-off paused · {why}`.
    - `POST /api/flows/deliveries/:id/decision` takes `{decision:'approve'|'decline'}`
      and answers 204. Only the link's creator decides (403); a delivery that is not
-     awaiting answers 409. Approving runs the worker's access checks (not the cap),
-     then posts with the delivery's key, so approving again after a crash returns the
-     event already posted. Declining marks the delivery `declined`; it is never posted.
+     awaiting answers 409. Approving on a paused link answers 409 and posts nothing.
+     Otherwise it runs the worker's access checks (not the cap), then takes the row
+     (`awaiting` → `claimed`, with a 60 s lease) and posts only if it won; a failed or
+     lost approve post (502) is finished by the worker's expired-lease retry with the
+     same key. Declining settles only an `awaiting` row, so it loses (409) once an
+     approve holds the row; a declined delivery is never posted.
    - `GET /api/flows/needs` answers `{items: FlowNeed[]}` for the viewer, newest first:
      - `approval`, one per delivery awaiting the viewer's OK, on the source chat:
        `short` `Approve hand-off to {to title}`, `detail` `{agent} finished something

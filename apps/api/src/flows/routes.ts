@@ -174,8 +174,11 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
     if (settings && !rights.canEdit) throw fail(403, 'Only the person who set up this hand-off can change it');
     if (!rights.canManage) throw fail(403, 'Only the person who set up this hand-off or a member of the receiving chat can pause it');
     if (settings) requireAgent(channels.get(link.to), patch.who);
+    // Resuming restarts the scan after the newest finished turn (engine time), so nothing finished
+    // while paused is replayed; read with the service token, since a target member may not read `from`.
+    const resumeFrom = patch.on === true && !link.on ? await worker.newestTurnAt(link.from) : undefined;
     try {
-      return c.json(store.flows.patchLink(link.id, patch, version, human.id));
+      return c.json(store.flows.patchLink(link.id, patch, version, human.id, resumeFrom));
     } catch (error) {
       if (error instanceof CanvasConflictError) return conflict(c, link.id);
       throw error;

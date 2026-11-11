@@ -87,6 +87,24 @@ describe('flow store', () => {
     expect(store.flows.pausedLinks('u')).toEqual([expect.objectContaining({ id: paused.id, pausedReason: 'cap', on: false, pausedAt: expect.any(Number) })]);
     expect(store.flows.pausedLinks('v').map(l => l.id)).toEqual([other.id]);
   });
+  it('settles only the given open statuses', () => {
+    const l = mk('a', 'b');
+    const d = store.flows.claimDelivery(l.id, 't1', 'awaiting', 1000)!;
+    store.flows.reclaim(d.id, 'claimed', 2000, 60_000);
+    expect(store.flows.finishDelivery(d.id, { status: 'declined' }, 2000, ['awaiting'])).toBe(false);
+    expect(store.flows.delivery(d.id)).toMatchObject({ status: 'claimed' });
+    const e = store.flows.claimDelivery(l.id, 't2', 'awaiting', 1000)!;
+    expect(store.flows.finishDelivery(e.id, { status: 'declined' }, 2000, ['awaiting'])).toBe(true);
+  });
+  it('resumes from the given time, never moving the cursor back', () => {
+    const l = mk('a', 'b', { scannedTo: 500 });
+    store.flows.patchLink(l.id, { on: false }, 0, 'u');
+    expect(store.flows.patchLink(l.id, { on: true }, 1, 'u', 800)).toMatchObject({ on: true });
+    expect(store.flows.scannedTo(l.id)).toBe(800);
+    store.flows.patchLink(l.id, { on: false }, 2, 'u');
+    store.flows.patchLink(l.id, { on: true }, 3, 'u', 0);
+    expect(store.flows.scannedTo(l.id)).toBe(800);
+  });
   it('refuses to finish a terminal delivery', () => {
     const l = mk('a', 'b');
     const d = store.flows.claimDelivery(l.id, 't1', 'claimed', 1000)!;

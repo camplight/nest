@@ -27,6 +27,8 @@ describe('the hand-off worker against the unchanged engine', () => {
   let outage: boolean, dropNextPost: boolean;
   // Rejects the next request that matches, before the engine sees it.
   let failNext: ((url: URL) => boolean) | null;
+  // Holds the next service POST /api/events until its gate opens; `held` is called when it arrives.
+  let hold: { held: () => void; gate: Promise<void> } | null;
   // Runs after the engine answers a matching request, before Nest sees the answer.
   let afterEngine: ((url: URL) => Promise<void>) | null;
   let summary: Summarize;
@@ -94,7 +96,7 @@ describe('the hand-off worker against the unchanged engine', () => {
   beforeEach(async () => {
     vi.stubEnv('ORGOPS_MASTER_KEY', Buffer.alloc(32, 99).toString('base64'));
     dir = mkdtempSync(join(tmpdir(), 'nest-handoff-test-'));
-    outage = false; dropNextPost = false; afterEngine = null; failNext = null; extraApps = []; logs.length = 0;
+    outage = false; dropNextPost = false; afterEngine = null; failNext = null; hold = null; extraApps = []; logs.length = 0;
     clock = Date.now();
     summary = async ({ texts }) => ({ text: `Summary unavailable. The latest result, shortened:\n${texts.at(-1) ?? ''}`, model: null });
     engine = createEngine({ dbPath: join(dir, 'engine.sqlite'), dataDir: dir, projectRoot: dir, adminUser: 'owner', adminPass: 'password', runnerToken: RUNNER });
@@ -102,6 +104,12 @@ describe('the hand-off worker against the unchanged engine', () => {
       if (outage) throw new TypeError('fetch failed');
       const target = new URL(String(url));
       if (failNext?.(target)) { failNext = null; throw new TypeError('fetch failed'); }
+      if (hold && init?.method === 'POST' && target.pathname === '/api/events' && new Headers(init?.headers).get('x-orgops-runner-token')) {
+        const current = hold;
+        hold = null;
+        current.held();
+        await current.gate;
+      }
       const response = await engine.app.fetch(new Request(url, init));
       if (dropNextPost && init?.method === 'POST' && target.pathname === '/api/events' && new Headers(init?.headers).get('x-orgops-runner-token')) {
         // The engine stored the event; Nest never learns its id.
@@ -238,6 +246,72 @@ describe('the hand-off worker against the unchanged engine', () => {
     expect((await call(owner, 'POST', `/api/flows/deliveries/${randomUUID()}/decision`, { decision: 'approve' })).status).toBe(404);
   });
 
+  it('a paused link delivers nothing through Approve', async () => {
+    const l = await link(owner, { from: a, to: b, who: 'Pom', when: 'approve' });
+    await turn(a, ['Draft ready']);
+    await tick();
+    const [waiting] = deliveries(l.id);
+    expect((await call(owner, 'PATCH', `/api/flows/links/${l.id}`, { on: false, version: 0 })).status).toBe(200);
+    const refused = await call(owner, 'POST', `/api/flows/deliveries/${waiting.id}/decision`, { decision: 'approve' });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: 'This hand-off is paused' });
+    await tick();
+    expect(await handoffs(b)).toEqual([]);
+    expect(product.store.flows.delivery(waiting.id)).toMatchObject({ status: 'awaiting' });
+  });
+
+  it('a decline racing an approve loses, and the approved hand-off is delivered', async () => {
+    const l = await link(owner, { from: a, to: b, who: 'Pom', when: 'approve' });
+    await turn(a, ['Draft ready']);
+    await tick();
+    const [waiting] = deliveries(l.id);
+    let release!: () => void;
+    const arrived = new Promise<void>(held => { hold = { held, gate: new Promise<void>(r => { release = r; }) }; });
+    const approving = call(owner, 'POST', `/api/flows/deliveries/${waiting.id}/decision`, { decision: 'approve' });
+    await arrived;
+    // The approve holds the row while its post is in flight.
+    expect(product.store.flows.delivery(waiting.id)).toMatchObject({ status: 'claimed' });
+    const decline = await call(owner, 'POST', `/api/flows/deliveries/${waiting.id}/decision`, { decision: 'decline' });
+    expect(decline.status).toBe(409);
+    release();
+    expect((await approving).status).toBe(204);
+    const posted = await handoffs(b);
+    expect(posted).toHaveLength(1);
+    expect(product.store.flows.delivery(waiting.id)).toMatchObject({ status: 'delivered', targetEventId: posted[0].id });
+  });
+
+  it('a lost approve response is finished by the retry, exactly once', async () => {
+    const l = await link(owner, { from: a, to: b, who: 'Pom', when: 'approve' });
+    await turn(a, ['Draft ready']);
+    await tick();
+    const [waiting] = deliveries(l.id);
+    dropNextPost = true;
+    expect((await call(owner, 'POST', `/api/flows/deliveries/${waiting.id}/decision`, { decision: 'approve' })).status).toBe(502);
+    expect(await handoffs(b)).toHaveLength(1);
+    expect(product.store.flows.delivery(waiting.id)).toMatchObject({ status: 'claimed', targetEventId: null });
+    // Declining now cannot rewrite what was approved.
+    expect((await call(owner, 'POST', `/api/flows/deliveries/${waiting.id}/decision`, { decision: 'decline' })).status).toBe(409);
+    expect(await needs(owner)).toEqual([]);
+    clock += 61_000;
+    await tick();
+    const posted = await handoffs(b);
+    expect(posted).toHaveLength(1);
+    expect(product.store.flows.delivery(waiting.id)).toMatchObject({ status: 'delivered', targetEventId: posted[0].id });
+  });
+
+  it('disconnecting keeps what was already handed off', async () => {
+    const l = await link(owner, { from: a, to: b, who: 'Pom' });
+    await turn(a, ['Draft ready']);
+    await tick();
+    const [before] = await handoffs(b);
+    expect((await call(owner, 'DELETE', `/api/flows/links/${l.id}?version=0`)).status).toBe(204);
+    expect(await handoffs(b)).toEqual([before]);
+    expect(deliveries(l.id)).toEqual([]);
+    await turn(a, ['After disconnecting']);
+    await tick();
+    expect(await handoffs(b)).toEqual([before]);
+  });
+
   it('Send now hands off the newest result on a manual link', async () => {
     const l = await link(owner, { from: a, to: b, who: 'Pom', when: 'manual' });
     expect((await call(owner, 'POST', `/api/flows/links/${l.id}/send`)).status).toBe(409);
@@ -256,6 +330,14 @@ describe('the hand-off worker against the unchanged engine', () => {
     expect(await again.json()).toEqual({ error: 'Nothing new to hand off yet.' });
     await tick();
     expect(await handoffs(b)).toHaveLength(1);
+    // A paused link sends nothing, whoever asks.
+    await turn(a, ['Third']);
+    expect((await call(owner, 'PATCH', `/api/flows/links/${l.id}`, { on: false, version: 0 })).status).toBe(200);
+    const paused = await call(mate, 'POST', `/api/flows/links/${l.id}/send`);
+    expect(paused.status).toBe(409);
+    expect(await paused.json()).toEqual({ error: 'This hand-off is paused' });
+    expect(await handoffs(b)).toHaveLength(1);
+    expect(deliveries(l.id)).toHaveLength(1);
   });
 
   it('summary hand-offs carry the labelled summary', async () => {
@@ -388,12 +470,14 @@ describe('the hand-off worker against the unchanged engine', () => {
     const l = await link(owner, { from: a, to: b, who: 'Pom' });
     const paused = await call(owner, 'PATCH', `/api/flows/links/${l.id}`, { on: false, version: 0 });
     expect(paused.status).toBe(200);
-    await turn(a, ['While paused']);
+    const whilePaused = await turn(a, ['While paused']);
     await tick();
     expect(await handoffs(b)).toEqual([]);
     // Paused by a person: no reason, so no Needs you item.
     expect(await needs(owner)).toEqual([]);
     expect((await call(owner, 'PATCH', `/api/flows/links/${l.id}`, { on: true, version: 1 })).status).toBe(200);
+    // The scan restarts after the newest finished turn, by engine time, not the Nest clock.
+    expect(product.store.flows.scannedTo(l.id)).toBe(whilePaused.createdAt);
     await tick();
     expect(await handoffs(b)).toEqual([]);
     await turn(a, ['After resuming']);

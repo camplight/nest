@@ -110,6 +110,14 @@ export function createHandoffWorker({ store, orgops, token, switchyard, summariz
     log(`[flows] link ${link.id} paused: ${reason}`);
   }
 
+  /** The link as stored now; a paused or removed link never delivers (409). */
+  function requireOn(linkId: string): Link {
+    const link = flows.link(linkId);
+    if (!link) throw new FlowActionError(409, 'This hand-off was disconnected');
+    if (!link.on) throw new FlowActionError(409, link.pausedReason ? `Hand-off paused · ${pausedWhy(link.pausedReason, link.who)}` : 'This hand-off is paused');
+    return link;
+  }
+
   /** The full payload of an event the list answered without one (over the engine's page budget). */
   async function full(service: ServiceClient, event: EngineEvent): Promise<EngineEvent> {
     if (!event.payloadTruncated) return event;
@@ -182,6 +190,8 @@ export function createHandoffWorker({ store, orgops, token, switchyard, summariz
       body = results.messages.map(m => m.text.slice(0, RESULT_CHARS)).filter(Boolean).join('\n\n').slice(0, HANDOFF_CHARS);
       attachments = results.messages.flatMap(m => m.attachments).slice(0, MAX_ATTACHMENTS);
     }
+    // Checked last, after the summary or transcript: a link paused meanwhile posts nothing.
+    requireOn(link.id);
     return switchyard.post({
       channelId: link.to, text: `Hand-off from ${title} · set up by ${creator}\n\n${body}`, target: link.who,
       kind: 'handoff', setBy: link.createdBy, idempotencyKey: `nest:handoff:${link.id}:${turn.id}`,
@@ -242,6 +252,8 @@ export function createHandoffWorker({ store, orgops, token, switchyard, summariz
     const reason = await blocked(link, ctx);
     if (reason) { pause(link, reason); return 'stop'; }
     if (flows.deliveredSince(link.id, at - HOUR_MS) >= LINK_HOURLY_CAP) { pause(link, 'cap'); return 'stop'; }
+    // Paused by a person while the checks above ran: claim nothing.
+    if (!flows.link(link.id)?.on) return 'stop';
     const claimed = flows.claimDelivery(link.id, turn.id, link.when === 'approve' ? 'awaiting' : 'claimed', at);
     let outcome: 'next' | 'stop' = 'next';
     if (claimed?.status === 'claimed') {
@@ -336,8 +348,8 @@ export function createHandoffWorker({ store, orgops, token, switchyard, summariz
    * For the creator or a member of the receiving chat.
    */
   async function deliverNow(linkId: string, actor: Actor): Promise<'sent' | 'nothing'> {
-    const link = flows.link(linkId);
-    if (!link) throw new FlowActionError(404, 'Not found');
+    if (!flows.link(linkId)) throw new FlowActionError(404, 'Not found');
+    const link = requireOn(linkId);
     const ctx = await usableService();
     const at = now();
     if (link.createdBy !== actor.id && !channelAccess((await ctx.channels()).get(link.to), actor).member) {
@@ -348,6 +360,7 @@ export function createHandoffWorker({ store, orgops, token, switchyard, summariz
     for (const turn of turns) {
       const results = await resultsOf(ctx.service, turn);
       if (!results) continue;
+      requireOn(link.id);
       const claimed = flows.claimDelivery(link.id, turn.id, 'claimed', at);
       if (!claimed) return 'nothing';
       await deliver(link, claimed, turn, results, ctx, at);
@@ -357,34 +370,52 @@ export function createHandoffWorker({ store, orgops, token, switchyard, summariz
   }
 
   /**
-   * The creator approves or declines a hand-off awaiting their OK. Approving posts with the delivery's
-   * key, so approving again after a crash returns the event already posted.
+   * The creator approves or declines a hand-off awaiting their OK. Approve first takes the row
+   * (`awaiting` → `claimed`, with a lease), so a decline can no longer settle it; a failed or lost
+   * approve post is then finished by the expired-lease retry, with the same key.
    */
   async function decide(deliveryId: string, decision: 'approve' | 'decline', actor: Actor): Promise<void> {
     const delivery = flows.delivery(deliveryId);
-    const link = delivery && flows.link(delivery.linkId);
-    if (!delivery || !link) throw new FlowActionError(404, 'Not found');
-    if (link.createdBy !== actor.id) throw new FlowActionError(403, 'Only the person who set up this hand-off can approve it');
-    if (delivery.status !== 'awaiting') throw new FlowActionError(409, 'This hand-off was already decided');
+    const found = delivery && flows.link(delivery.linkId);
+    if (!delivery || !found) throw new FlowActionError(404, 'Not found');
+    if (found.createdBy !== actor.id) throw new FlowActionError(403, 'Only the person who set up this hand-off can approve it');
+    const decided = () => new FlowActionError(409, 'This hand-off was already decided');
+    if (delivery.status !== 'awaiting') throw decided();
     const at = now();
     if (decision === 'decline') {
-      if (!flows.finishDelivery(delivery.id, { status: 'declined' }, at)) throw new FlowActionError(409, 'This hand-off was already decided');
+      if (!flows.finishDelivery(delivery.id, { status: 'declined' }, at, ['awaiting'])) throw decided();
       return;
     }
+    requireOn(found.id);
     const ctx = await usableService();
-    await refuseIfBlocked(link, ctx, at, false);
+    await refuseIfBlocked(found, ctx, at, false);
+    const link = requireOn(found.id);
+    const taken = flows.reclaim(delivery.id, 'claimed', at, LEASE_MS);
+    if (!taken) throw decided();
     const turn = await ctx.service.event(delivery.sourceTurnId);
     const results = turn && await resultsOf(ctx.service, turn);
     if (!turn || !results) {
-      flows.finishDelivery(delivery.id, { status: 'failed' }, at);
+      flows.finishDelivery(taken.id, { status: 'failed' }, at);
       throw new FlowActionError(409, 'The finished work is no longer available');
     }
-    const event = await post(link, turn, results, ctx);
-    if (!flows.finishDelivery(delivery.id, { status: 'delivered', targetEventId: event.id }, at)) {
-      log(`[flows] delivery ${delivery.id} was decided while it was being approved`);
+    await deliver(link, taken, turn, results, ctx, at);
+  }
+
+  /**
+   * The newest finished turn's engine time in a chat, where a resumed link's scan restarts: 0 when the
+   * chat has none, undefined when the engine cannot be asked (the store then uses its clock).
+   */
+  async function newestTurnAt(channelId: string): Promise<number | undefined> {
+    try {
+      const service = await serviceOrNull();
+      if (!service) return undefined;
+      return (await service.events({ channelId, type: 'agent.turn.completed', order: 'desc', limit: '1' }))[0]?.createdAt ?? 0;
+    } catch (error) {
+      log(`[flows] reading the newest turn failed: ${describe(error)}`);
+      return undefined;
     }
   }
 
-  return { tick, wake, deliverNow, decide };
+  return { tick, wake, deliverNow, decide, newestTurnAt };
 }
 export type HandoffWorker = ReturnType<typeof createHandoffWorker>;

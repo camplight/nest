@@ -66,17 +66,22 @@ export function createFlowStore(db: Database.Database, clock: () => number = Dat
     return [...out].map(([channelId, links]) => ({ channelId, links }));
   }
 
-  function patchLink(id: string, patch: Omit<LinkPatch, 'version'>, version: number, actor: string): Link {
+  /**
+   * `resumeFrom`: on resume, the scan restarts after this engine time (the newest finished turn, so
+   * nothing finished while paused is replayed). It never moves the cursor back; without it, the clock.
+   */
+  function patchLink(id: string, patch: Omit<LinkPatch, 'version'>, version: number, actor: string, resumeFrom?: number): Link {
     return db.transaction(() => {
       const before = rawLink(id);
       if (!before || before.version !== version) throw new CanvasConflictError(null);
       const resume = patch.on === true && before.on_flag === 0;
       const now = clock();
+      const scanned = (db.prepare('SELECT scanned_to FROM product_links WHERE id=?').get(id) as { scanned_to: number }).scanned_to;
       db.prepare(`UPDATE product_links SET what=?,when_mode=?,who_agent=?,label=?,on_flag=?,paused_reason=?,scanned_to=?,updated_at=?,version=version+1 WHERE id=? AND version=?`)
         .run(patch.what ?? before.what, patch.when ?? before.when_mode, patch.who === undefined ? before.who_agent : patch.who, patch.label ?? before.label,
           patch.on === undefined ? before.on_flag : patch.on ? 1 : 0,
           patch.on === true ? null : patch.on === false ? before.paused_reason : before.paused_reason,
-          resume ? now : (db.prepare('SELECT scanned_to FROM product_links WHERE id=?').get(id) as { scanned_to: number }).scanned_to,
+          resume ? Math.max(resumeFrom ?? now, scanned) : scanned,
           now, id, version);
       audit('link-updated', actor, { linkId: id });
       return link(id)!;
@@ -117,10 +122,13 @@ export function createFlowStore(db: Database.Database, clock: () => number = Dat
   /**
    * Settles a delivery that is still open. Returns false when it was already terminal (or missing).
    * `now` stamps `updated_at`, which the hourly cap counts; it defaults to the store clock.
+   * `from` narrows which open statuses it settles (a decline settles only `awaiting`, never a claimed approve).
    */
-  function finishDelivery(id: string, result: { status: 'delivered' | 'declined' | 'failed'; targetEventId?: string }, now: number = clock()): boolean {
-    const changed = db.prepare("UPDATE product_link_deliveries SET status=?,target_event_id=COALESCE(?,target_event_id),lease_until=NULL,updated_at=? WHERE id=? AND status IN ('claimed','awaiting')")
-      .run(result.status, result.targetEventId ?? null, now, id).changes;
+  function finishDelivery(id: string, result: { status: 'delivered' | 'declined' | 'failed'; targetEventId?: string }, now: number = clock(), from: ('claimed' | 'awaiting')[] = ['claimed', 'awaiting']): boolean {
+    const open = from.filter(s => s === 'claimed' || s === 'awaiting');
+    if (!open.length) return false;
+    const changed = db.prepare(`UPDATE product_link_deliveries SET status=?,target_event_id=COALESCE(?,target_event_id),lease_until=NULL,updated_at=? WHERE id=? AND status IN (${open.map(() => '?').join(',')})`)
+      .run(result.status, result.targetEventId ?? null, now, id, ...open).changes;
     if (changed) audit('delivery-finished', 'system', { deliveryId: id, status: result.status });
     return changed > 0;
   }
