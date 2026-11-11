@@ -41,7 +41,8 @@ const isSystem = (channel: Channel) => channel.name.toLowerCase().startsWith('ag
  */
 export function looseStatus(agents: readonly string[], pulse: CardPulse | undefined, needs: readonly NeedsItem[] | undefined): Pick<LooseChat, 'state' | 'reason' | 'line'> {
   const reason = needs ? needs[0]?.reason ?? null : pulse?.needsYou[0] ? oneLine(pulse.needsYou[0].text) : null;
-  const working = Boolean(pulse?.agents.some(agent => agent.state === 'working'));
+  // A quiet agent is still in a live turn (as on its card row), so it counts as working, never done.
+  const working = Boolean(pulse?.agents.some(agent => agent.state === 'working' || agent.state === 'quiet'));
   const first = agents[0] === undefined ? undefined : pulse?.agents.find(agent => agent.name === agents[0]);
   let line = '';
   // An idle agent that never said anything has no activity to show.

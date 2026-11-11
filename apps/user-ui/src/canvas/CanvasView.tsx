@@ -321,11 +321,16 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
    */
   const sheetAnchor: SheetAnchor | null = chatShown && chatMode === 'focus' && !phone && board ? openCard?.access === 'open' ? 'card' : 'loose' : null;
   const chatTitle = (openCard?.access === 'open' ? cardTitle(openCard) : null) ?? candidates.find(c => c.channelId === chatChannelId)?.title ?? 'Chat';
-  // The header's Area picker: editors only, on a canvas with areas, for a chat on it or loose.
-  const chatArea = board && chatShown && board.canvas.role !== 'view' && board.areas.length && (openCard ? openCard.access === 'open' : candidates.some(c => c.channelId === chatChannelId))
+  // A loose chat this person may place: an editor's, on desktop (phones have no free canvas to place it on).
+  const canPlaceLoose = Boolean(board && chatShown && !openCard && !phone && board.canvas.role !== 'view' && candidates.some(c => c.channelId === chatChannelId));
+  // The header's Area picker: editors only, for a card on a canvas with areas, or a loose chat (which can also go on the
+  // canvas outside any area, so it has the picker even on a canvas without areas).
+  const chatArea = board && chatShown && board.canvas.role !== 'view' && (openCard ? openCard.access === 'open' && board.areas.length : candidates.some(c => c.channelId === chatChannelId) && (board.areas.length || canPlaceLoose))
     ? {areas: board.areas.map(a => ({id: a.id, title: a.title})), current: openCard ? areaFor(cardCentre(openCard), board.areas)?.id ?? null : null,
-      placed: Boolean(openCard), onMove: (areaId: string | null) => void moveToAreaRef.current(chatChannelId!, areaId)}
+      placed: Boolean(openCard), onCanvas: canPlaceLoose, onMove: (areaId: string | null) => void moveToAreaRef.current(chatChannelId!, areaId)}
     : undefined;
+  // The keyboard (and single-pointer) way to put one loose chat on the canvas, beside dragging its drawer row.
+  const placeHere = canPlaceLoose ? () => void moveToAreaRef.current(chatChannelId!, null) : undefined;
   // The header's sub-line: who is in the chat, then where it sits and which context it reads (home semantics).
   const chatPeople = (openCard?.access === 'open' ? openCard.participants : channels.find(channel => channel.id === chatChannelId)?.participants) ?? [];
   const chatHome = board && openCard?.access === 'open' ? areaFor(cardCentre(openCard), board.areas) ?? null : null;
@@ -639,7 +644,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   /**
    * The open chat's header moves its card into an area (a free spot under the title bar; the area
    * grows to fit) or, with no area, just outside the one it is in. A loose chat is placed straight
-   * into the area. The view follows the card.
+   * into the area, or with no area at the viewport centre (clear of other cards, as Place on canvas),
+   * where its sheet then opens in place over the new card. The view follows the card.
    */
   const moveToArea = useCallback(async (channelId: string, areaId: string | null) => {
     const current = store.snapshot().board;
@@ -649,6 +655,11 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     const w = card?.w ?? DEFAULT_CARD_WIDTH;
     const target = areaId ? current.areas.find(a => a.id === areaId) : undefined;
     const home = card ? areaFor(cardCentre(card), current.areas) : undefined;
+    if (!areaId && !card) {
+      if (!candidatesRef.current.some(chat => chat.channelId === channelId) || !await place([channelId], false)) return;
+      setSelectedId(channelId);
+      return;
+    }
     if (areaId ? !target || target.id === home?.id : !card || !home) return;
     const h = heightOf(channelId);
     const spot = clampPoint(target ? slotInArea(target, measured(others), w, h) : slotOutsideAreas(home!, current.areas, measured(others), w, h));
@@ -658,7 +669,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     if (!await saved) return;
     if (target) setSelectedId(channelId);
     requestAnimationFrame(() => showCard(channelId));
-  }, [store, applyTracked, measured, heightOf, showCard]);
+  }, [store, applyTracked, measured, heightOf, showCard, place]);
   const moveToAreaRef = useRef(moveToArea); moveToAreaRef.current = moveToArea;
   const [searchOpen, setSearchOpen] = useState(false);
   useEffect(() => { setSearchOpen(false); }, [canvasId]);
@@ -836,13 +847,15 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         {body}
       </CanvasMain>
       {/*
-        * Over the left of the canvas, which keeps its full width. Outside the canvas side, so it stays reachable (and
-        * announced) beside an open sheet, which sits above it. A press on the canvas leaves it open: it is not a popover.
+        * Over the left of the canvas, which keeps its full width. Outside the canvas side, so it is not hidden with it: a
+        * pointer can still use it beside an open sheet (which sits above it), though the focus sheet's Tab trap and
+        * aria-modal keep keyboard and screen-reader users in the chat until it closes. A press on the canvas leaves it
+        * open: it is not a popover.
         */}
       {board ? <LooseDrawer id={drawerId} open={drawerOpen} chats={loose} count={shownLoose.length} hidden={hidden} showHidden={showHidden} onShowHidden={setShowHidden}
         canPlace={board.canvas.role !== 'view'} draggable={!phone} onNewArea={newArea} onArchive={hide} onClose={closeDrawer} now={Date.now}
         onOpenChat={openLoose} highlight={highlight} focusKey={drawerFocus}/> : null}
-      {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} anchor={sheetAnchor} drawerOpen={drawerOpen} watchView={watchView} title={chatTitle} sub={chatSub} area={chatArea} onUseHere={useHere}
+      {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} anchor={sheetAnchor} drawerOpen={drawerOpen} watchView={watchView} title={chatTitle} sub={chatSub} area={chatArea} onPlace={placeHere} onUseHere={useHere}
         onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
         {chat}
       </CanvasChat> : null}
@@ -890,7 +903,10 @@ const SHEET_OPEN_HEIGHT = 440;
  * The open chat: opened in place over the canvas (focus), or on the right with a draggable divider (split).
  * The header holds Split screen, Open in the regular chat view and Close; the chat itself is App's chat workspace.
  */
-type ChatArea = {areas: {id: string; title: string}[]; current: string | null; placed: boolean; onMove(areaId: string | null): void};
+/** `onCanvas`: a loose chat that can also be placed outside any area (`No area (on the canvas)`). */
+type ChatArea = {areas: {id: string; title: string}[]; current: string | null; placed: boolean; onCanvas: boolean; onMove(areaId: string | null): void};
+/** The Area picker's value for `No area (on the canvas)`: never an area id, which are UUIDs. */
+const ON_CANVAS = 'canvas';
 /** Who is in the open chat, and where its card sits and which context it reads. */
 type ChatSub = {
   people: {agent: boolean; name: string}[];
@@ -931,9 +947,9 @@ function ChatSubline({sub}: {sub: ChatSub}) {
   </p>;
 }
 
-function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub, area, onUseHere, onMode, onClose, onOpenRegular, children}: {
+function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub, area, onPlace, onUseHere, onMode, onClose, onOpenRegular, children}: {
   channelId: string; mode: CanvasChatMode; anchor: SheetAnchor | null; drawerOpen: boolean; watchView(listener: () => void): () => void;
-  title: string; sub?: ChatSub; area?: ChatArea; onUseHere?(): Promise<void>; onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
+  title: string; sub?: ChatSub; area?: ChatArea; onPlace?(): void; onUseHere?(): Promise<void>; onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
 }) {
   const panel = useRef<HTMLElement>(null);
   const [split, setSplit] = useState(readSplit);
@@ -1104,11 +1120,14 @@ function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub,
           <div id={menuId} className="canvas-chat-menu" role="group" aria-label="More chat actions" hidden={!menu}>
             {area ? <label className="canvas-chat-area">
               <span>Area</span>
-              <select value={area.current ?? ''} onChange={event => { setMenu(false); area.onMove(event.target.value || null); }}>
+              <select value={area.current ?? ''} onChange={event => { setMenu(false); area.onMove(event.target.value === ON_CANVAS ? null : event.target.value || null); }}>
                 <option value="" disabled={!area.placed}>{area.placed ? 'No area' : 'Not on this canvas'}</option>
+                {!area.placed && area.onCanvas ? <option value={ON_CANVAS}>No area (on the canvas)</option> : null}
                 {area.areas.map(option => <option key={option.id} value={option.id}>{option.title || 'Untitled area'}</option>)}
               </select>
             </label> : null}
+            {onPlace ? <button type="button" className="canvas-chat-menu-item" title="Put this chat on the canvas at the centre of the view"
+              onClick={() => { setMenu(false); menuButton.current?.focus({preventScroll: true}); onPlace(); }}>Place on canvas</button> : null}
             {onUseHere ? <button type="button" className="canvas-chat-menu-item" onClick={() => void onUseHere()}>Use this area's context</button> : null}
             <span ref={setMoreSlot} className="canvas-chat-slot"/>
           </div>

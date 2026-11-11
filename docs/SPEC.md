@@ -779,7 +779,8 @@ Phase 1 is built from
    unless it is closing a popover, which then closes alone. While a focus chat is
    open the canvas is hidden from screen readers and Tab stays in the chat (focus
    in another dialog, such as the Huddle, is left alone). A pointer can still reach
-   the bottom box and agent tray then, though screen readers do not; file
+   the bottom box, agent tray and an open Loose chats drawer then, though Tab and
+   screen readers do not; file
    drops on the canvas are ignored and drops on the chat attach. A chat that is not
    on this canvas opens as a plain 560 px chat centred just above the bottom box (at
    most min(640 px, 100vh − 190 px) tall), with the canvas at 30%; with the drawer
@@ -790,7 +791,7 @@ Phase 1 is built from
    its toggle), and otherwise once no sheet is open. The chat's header is one row, as in the mock: title, faces and
    `in <area> · sees N contexts` (plus Archived or Read-only), then icon buttons
    for Split screen, Huddle, Open in the regular chat view, a More menu (Area,
-   Use this area's context, Sharing, Export chat; hidden when it would be empty)
+   Place on canvas, Use this area's context, Sharing, Export chat; hidden when it would be empty)
    and Close. A demo preview inside
    the chat stacks above it rather than beside it. Phones keep a full-width chat. Only
    chats in the user UI's visible chat list open; if the open chat leaves that list,
@@ -814,7 +815,12 @@ Phase 1 is built from
    resize, at most 20 000 px). An editor can also move the open chat from its header:
    the Area picker puts its card in the first free spot under the chosen area's title
    bar (the area grows to fit), places a loose chat there directly, or with No area
-   moves the card just outside its area; the view follows the card. On desktop the canvas starts with an icon-only
+   moves the card just outside its area; the view follows the card. For a loose chat the
+   picker also offers `No area (on the canvas)`, shown even on a canvas without areas,
+   and the More menu has `Place on canvas` (desktop editors only): both place it at the
+   viewport centre, moved below any card it would cover, and the chat then opens in
+   place over its new card. This is the keyboard and single-pointer way to place one
+   chat, alongside dragging. On desktop the canvas starts with an icon-only
    sidebar; the collapse button beside the logo expands it. That choice, the one for
    every other view (which start expanded) and whether the sidebar's agent list is
    shown are remembered per browser. Phones keep the full slide-in menu. Search (Ctrl/Cmd+K)
@@ -834,11 +840,11 @@ Phase 1 is built from
    toggle when it was in the drawer; opening it from the toggle focuses the search
    (except on phones). It has `Loose chats · {n}`, a search over titles and agent names
    (`Search loose chats`), a compact `All agents` filter, the chips `All / Needs you /
-   Working / Done` with counts, and rows in day groups by last activity on the local
+   Working / Done` with counts (archived chats left out, as in the header), and rows in day groups by last activity on the local
    calendar (`Today · n`, `Yesterday · n`, `This week · n` for the five days before,
    `Older · n`; Older folds behind Show/Hide when there is no search, chip or agent
    filter). A chat needs you when it has a Needs you item (mention or review), else is
-   working when an agent's turn is working, else is done, from the same pulses and
+   working while an agent's turn is live (working, or quiet for a while), else is done, from the same pulses and
    items as the cards. A row has a checkbox, the first agent's face, the title, a second
    line and the last activity (`5m`): the line is `Needs you: {reason}` in coral for the
    newest item, else `{agent} · {activity}` as on that agent's card row, else the first
@@ -849,7 +855,7 @@ Phase 1 is built from
    the drawer), `Archive` and `Clear`; actions take at most 100 chats. Archive is the
    personal hide above; `Show archived` in the footer lists archived chats with
    Unarchive. The footer says `Tick chats to act on several at once`. The list is
-   windowed (48 px rows, 30 px group headers). Below 1360 px wide the toggle shows its
+   windowed (48 px rows, 30 px group headers) and opens at its top each time. Below 1360 px wide the toggle shows its
    icon and count and Canvas context reads `Context` (both keep their full names), and
    the heading wraps rather than run under the search.
 

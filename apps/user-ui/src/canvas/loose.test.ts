@@ -103,9 +103,10 @@ describe('looseStatus',()=>{
     expect(looseStatus(['Pip'],{...pulse(NOW),needsYou:[{kind:'mention',id:'m',at:NOW,sender:'sarah',text:'**Check** this\nplease'}]},undefined).reason).toBe('Check this');
     expect(looseStatus(['Pip'],pulse(NOW),[]).reason).toBeNull();
   });
-  it('is working when any agent is working, else done',()=>{
+  it('is working when any agent is in a live turn (working or quiet), else done',()=>{
     expect(looseStatus(['Pip','Moss'],live([agent('Pip','idle'),agent('Moss','working')]),[]).state).toBe('working');
-    expect(looseStatus(['Pip'],live([agent('Pip','quiet',{quietMinutes:30})]),[]).state).toBe('done');
+    expect(looseStatus(['Pip'],live([agent('Pip','quiet',{quietMinutes:30})]),[]).state).toBe('working');
+    expect(looseStatus(['Pip'],live([agent('Pip','done')]),[]).state).toBe('done');
     expect(looseStatus(['Pip'],undefined,[]).state).toBe('done');
   });
   it('says what the first agent is doing, as its card row does',()=>{

@@ -1207,16 +1207,11 @@
   flex-direction: column;
   gap: 1px;
 }
-button.canvas-drawer-open {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
+.canvas-drawer-open {
   text-align: left;
   cursor: inherit;
 }
-button.canvas-drawer-open:focus-visible {
+.canvas-drawer-open:focus-visible {
   outline: 2px solid var(--nest-accent);
   outline-offset: 2px;
   border-radius: 4px;

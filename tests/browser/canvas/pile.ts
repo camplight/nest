@@ -139,6 +139,20 @@ await runChatTest('canvas pile: 220 loose chats stay windowed, search, new area,
   await rowFor(page,hidden.name).waitFor();
   await search.fill('');
 
+  // Scrolled far down, closed and opened again, the drawer opens at the top with its first rows mounted.
+  const list=pile.locator('.canvas-drawer-list');
+  await list.evaluate(el=>{el.scrollTop=200*48;});
+  await pile.locator('.canvas-drawer-row[aria-posinset="200"]').waitFor();
+  assert.equal(await pile.locator('.canvas-drawer-row[aria-posinset="1"]').count(),0,'the top rows are windowed out while scrolled');
+  await pile.getByRole('button',{name:'Close',exact:true}).click();
+  await pile.waitFor({state:'detached'});
+  await openDrawer(page);
+  assert.equal(await list.evaluate(el=>el.scrollTop),0,'reopened at the top');
+  await pile.locator('.canvas-drawer-group').getByText(/^Today · \d+$/).waitFor();
+  await pile.locator('.canvas-drawer-row[aria-posinset="1"]').waitFor();
+  const top=(await list.boundingBox())!, firstRow=(await pile.locator('.canvas-drawer-row[aria-posinset="1"]').boundingBox())!;
+  assert.ok(firstRow.y>=top.y&&firstRow.y+firstRow.height<=top.y+top.height,'the first row is in view, not a blank list');
+
   // The bottom box starts a project chat that stays in sight: placed in the view and opened beside the canvas.
   const cardsBefore=(await board(h,id)).cards.length;
   const dock=page.getByRole('region',{name:'Start a chat',exact:true});
@@ -345,6 +359,86 @@ await runChatTest('canvas drawer: a left drawer from the top bar with a hot coun
   await openDrawer(page);
   await pile.getByRole('button',{name:'Close',exact:true}).click();
   await pile.waitFor({state:'detached'});
+  // With no sheet open and focus on the canvas, Escape closes the drawer and leaves focus where it was.
+  await openDrawer(page);
+  await page.locator('.canvas-surface').focus();
+  await page.keyboard.press('Escape');
+  await pile.waitFor({state:'detached'});
+  assert.equal(await page.evaluate(()=>document.activeElement?.classList.contains('canvas-surface')),true,'focus stays on the canvas');
+},{canvas:true});
+
+await runChatTest('canvas drawer: a loose chat is placed on the canvas with the keyboard alone, from the sheet\'s More menu or its Area picker',async h=>{
+  const {page,base}=h;
+  await page.setViewportSize({width:1440,height:900});
+  const [first,second]=await seedChats(h,2);
+  const id=await canvasWithHarnessChat(h);
+  await openCanvas(page,base,id,false);
+  await countIs(page,2);
+  const focusedIs=(selector:string)=>page.evaluate(s=>Boolean(document.activeElement?.matches(s)),selector);
+  /** Tabs (at most 30 times) until focus is on the element matching `selector`. */
+  const tabTo=async(selector:string,what:string)=>{
+    for(let i=0;i<30&&!await focusedIs(selector);i++)await page.keyboard.press('Tab');
+    assert.equal(await focusedIs(selector),true,`Tab reaches ${what}`);
+  };
+
+  // The toggle opens the drawer with the search focused; a search, then Tab to the row and Enter opens it as the plain sheet.
+  await toggleOf(page).focus();
+  await page.keyboard.press('Enter');
+  const pile=pileOf(page);
+  await pile.waitFor();
+  assert.equal(await focusedIs('.canvas-drawer-search'),true);
+  await page.keyboard.type(first.name);
+  await rowsAre(page,1,'the searched chat');
+  await tabTo('.canvas-drawer-open','the row');
+  await page.keyboard.press('Enter');
+  const sheet=page.locator('.canvas-chat[data-mode="focus"]');
+  await page.locator('.canvas-chat[data-place="loose"]').waitFor();
+
+  // More chat actions → Place on canvas: one card at the view's centre, and the sheet opens in place over it.
+  await tabTo('.canvas-chat [aria-label="More chat actions"]','More chat actions');
+  await page.keyboard.press('Enter');
+  const menu=sheet.getByRole('group',{name:'More chat actions',exact:true});
+  const area=menu.getByRole('combobox',{name:'Area',exact:true});
+  assert.deepEqual(await area.locator('option').allTextContents(),['Not on this canvas','No area (on the canvas)'],'a canvas without areas still offers the canvas');
+  await tabTo('.canvas-chat-menu-item[title^="Put this chat on the canvas"]','Place on canvas');
+  const placed=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith(`/api/canvases/${id}/cards`));
+  await page.keyboard.press('Enter');
+  const body=JSON.parse((await placed).request().postData()!) as {cards:{channelId:string}[];area?:unknown};
+  assert.equal((await placed).status(),201);
+  assert.deepEqual(body.cards.map(c=>c.channelId),[first.channelId]);
+  assert.equal(body.area,undefined,'no area');
+  const card=page.locator(`.canvas-card[data-channel-id="${first.channelId}"]`);
+  await card.waitFor();
+  await page.locator('.canvas-chat[data-place="card"]').waitFor();
+  assert.equal(await focusedIs('.canvas-chat [aria-label="More chat actions"]'),true,'focus stays in the sheet, on More');
+  // The camera moves to present the new card; poll from Node until the sheet has settled on it.
+  let over=false, last='';
+  for(let i=0;i<50&&!over;i++){
+    const cardBox=await card.boundingBox(), sheetBox=await sheet.boundingBox();
+    last=JSON.stringify({sheetBox,cardBox});
+    over=Boolean(cardBox&&sheetBox&&Math.abs(cardBox.x-sheetBox.x)<=24&&Math.abs(cardBox.y-sheetBox.y)<=24);
+    if(!over)await page.waitForTimeout(100);
+  }
+  assert.ok(over,`the sheet sits over its new card: ${last}`);
+  await countIs(page,1);
+  await page.keyboard.press('Escape');
+  await sheet.waitFor({state:'detached'});
+
+  // The Area picker's No area (on the canvas) does the same for another loose chat.
+  await page.goto(`${base}/?view=canvas&canvas=${id}&chat=${second.channelId}&mode=focus`);
+  await page.locator('.canvas-chat[data-place="loose"]').waitFor();
+  await tabTo('.canvas-chat [aria-label="More chat actions"]','More chat actions');
+  await page.keyboard.press('Enter');
+  await tabTo('.canvas-chat-area select','the Area picker');
+  const onCanvas=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith(`/api/canvases/${id}/cards`));
+  await area.selectOption({label:'No area (on the canvas)'});
+  assert.equal((await onCanvas).status(),201);
+  await page.locator(`.canvas-card[data-channel-id="${second.channelId}"]`).waitFor();
+  await page.locator('.canvas-chat[data-place="card"]').waitFor();
+  const cards=(await board(h,id)).cards;
+  const a=cards.find(c=>c.channelId===first.channelId)!, b=cards.find(c=>c.channelId===second.channelId)!;
+  assert.ok(Math.abs(a.x-b.x)>=280||Math.abs(a.y-b.y)>=160,'the second card is placed clear of the first');
+  await countIs(page,0);
 },{canvas:true});
 
 await runChatTest('canvas areas: dropping chats into an area lights it up, they join it and it grows to fit them',async h=>{
@@ -391,6 +485,15 @@ await runChatTest('canvas areas: dropping chats into an area lights it up, they 
     await shown.and(page.locator('.in-area[data-tint="pip"]')).waitFor();
     await shown.getByText('In area Landing zone',{exact:true}).waitFor({state:'attached'});
   }
+
+  // Escape with the area's menu open closes only the menu; the drawer stays.
+  const options=area.getByRole('button',{name:'Area options',exact:true});
+  await options.focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await options.getAttribute('aria-expanded'),'true');
+  await page.keyboard.press('Escape');
+  assert.equal(await options.getAttribute('aria-expanded'),'false');
+  assert.equal(await pileOf(page).count(),1,'one Escape closed only the area menu');
 
   // A card dragged in on the canvas lights the area up mid-drag and joins it on release.
   // The drawer floats over the canvas's left, where this card sits: close it first.

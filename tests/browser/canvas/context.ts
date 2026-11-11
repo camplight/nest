@@ -16,6 +16,9 @@ async function openCanvas(page:Page,base:string,id:string){
 }
 /** Drags a Loose chats row onto the surface at a point on the page (the drawer, opened from the top bar, floats over the canvas's left). */
 async function dropRow(page:Page,row:Locator,at:{x:number;y:number}){
+  // The events skip hit-testing, so make sure a person could drop there: not under the drawer.
+  const drawer=await page.getByRole('complementary',{name:'Loose chats',exact:true}).boundingBox();
+  if(drawer)assert.ok(at.x<drawer.x||at.x>drawer.x+drawer.width||at.y<drawer.y||at.y>drawer.y+drawer.height,`the drop point ${at.x},${at.y} is clear of the drawer`);
   const transfer=await page.evaluateHandle(()=>new DataTransfer());
   await row.dispatchEvent('dragstart',{dataTransfer:transfer});
   const surface=page.locator('.canvas-surface');

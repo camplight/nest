@@ -29,7 +29,7 @@ const typing = (element: Element) => element instanceof HTMLElement && (element.
 export function LooseToggle({count, hot, open, controls, onClick, buttonRef}: {
   count: number; hot: boolean; open: boolean; controls: string; onClick(): void; buttonRef?: Ref<HTMLButtonElement>;
 }) {
-  return <button ref={buttonRef} type="button" className="canvas-share-button canvas-loose-button" aria-expanded={open} aria-controls={controls}
+  return <button ref={buttonRef} type="button" className="canvas-share-button canvas-loose-button" aria-expanded={open} aria-controls={open ? controls : undefined}
     title="Plain chats that aren't on the canvas yet" onClick={onClick}>
     <GalleryVerticalEnd size={16} aria-hidden="true"/>
     <span className="canvas-loose-label">Loose chats</span>{' '}
@@ -84,7 +84,8 @@ const Row = memo(function Row({chat, index, top, selected, hidden, draggable, no
     event.dataTransfer.effectAllowed = 'move';
   };
   const title = chat.title || 'Untitled chat';
-  // A press anywhere on the row opens it, except on its checkbox and buttons.
+  // A press anywhere on the row opens it, except on its checkbox and buttons. The title area is a focusable
+  // role="button" element rather than a <button>: Firefox starts no drag from a <button> inside a draggable row.
   const press = (event: ReactMouseEvent<HTMLLIElement>) => {
     if (!onOpenChat || (event.target instanceof Element && event.target.closest('input, button'))) return;
     onOpenChat(chat.channelId);
@@ -102,7 +103,11 @@ const Row = memo(function Row({chat, index, top, selected, hidden, draggable, no
       onClick={(event: ReactMouseEvent<HTMLInputElement>) => onToggle(index, chat.channelId, event.currentTarget.checked, event.shiftKey)}
       onChange={() => {}}/>
     {chat.agents[0] ? <span className="canvas-drawer-face" aria-hidden="true"><AgentAvatar name={chat.agents[0]} size={26}/></span> : null}
-    {onOpenChat ? <button type="button" className="canvas-drawer-main canvas-drawer-open" onClick={() => onOpenChat(chat.channelId)}>{text}</button>
+    {onOpenChat ? <span role="button" tabIndex={0} className="canvas-drawer-main canvas-drawer-open" onKeyDown={event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      if (!event.repeat) onOpenChat(chat.channelId);
+    }}>{text}</span>
       : <span className="canvas-drawer-main">{text}</span>}
     {chat.lastActivityAt !== null ? <span className="canvas-drawer-time" title={`Active ${ago(chat.lastActivityAt, now)}`}>
       <span className="canvas-visually-hidden">Active {ago(chat.lastActivityAt, now)}</span><span aria-hidden="true">{shortAgo(chat.lastActivityAt, now)}</span>
@@ -134,7 +139,8 @@ export function LooseDrawer({id, open, chats, count, hidden, showHidden, onShowH
   const foldOlder = !query.trim() && state === 'all' && agent === null;
   const layout = useMemo(() => drawerLayout(filtered, time, foldOlder, olderOpen), [filtered, time, foldOlder, olderOpen]);
   const rowsRef = useRef(layout.rows); rowsRef.current = layout.rows;
-  const counts = useMemo(() => looseCounts(chats), [chats]);
+  // The chips count what the header counts: archived chats are listed under Show archived but never counted.
+  const counts = useMemo(() => looseCounts(chats.filter(chat => !hidden.has(chat.channelId))), [chats, hidden]);
   const agents = useMemo(() => [...new Set(chats.flatMap(c => c.agents))].sort((a, b) => a.localeCompare(b)), [chats]);
   // Selection only counts chats still listed: placed or archived ones drop out of it.
   const picked = useMemo(() => layout.rows.filter(c => selected.has(c.channelId)).map(c => c.channelId), [layout.rows, selected]);
@@ -149,6 +155,10 @@ export function LooseDrawer({id, open, chats, count, hidden, showHidden, onShowH
   useLayoutEffect(() => {
     const element = listRef.current;
     if (!element) return;
+    // Each open is a new list element at the top (as the mock re-renders it); the offset kept from the last open must
+    // not window rows that are no longer in view.
+    element.scrollTop = 0;
+    setScrollTop(0);
     const read = () => setHeight(element.clientHeight);
     read();
     const watch = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(read);
