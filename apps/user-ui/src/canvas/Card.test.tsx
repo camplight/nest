@@ -10,7 +10,7 @@ const base={canvasId:'cv',channelId:'c1',x:0,y:0,w:280,version:0,placedBy:'h',pl
 const pulse:CardPulse={
   agents:[{name:'Pip',state:'done',since:1,said:'Secret draft is ready',activity:'Reading secret notes'}],
   people:[{name:'mate',at:1,said:'Secret plan attached',files:0}],
-  lastActivityAt:null,artifacts:[{fileId:'f1',name:'secret.pdf'}] as CardPulse['artifacts'],
+  lastActivityAt:null,artifacts:[{fileId:'f1',name:'secret.pdf'}] as CardPulse['artifacts'],fileCount:1,
   needsYou:[{kind:'mention',id:'m1',at:1,sender:'mate',text:'Secret question'}],apps:{apps:[],reads:0,changes:0},
 };
 const needs:NeedsItem[]=[{key:'mention:m1',kind:'mention',channelId:'c1',chatTitle:'x',detail:'mate: Secret question',at:1,from:'mate',short:'mate: Secret question',reason:'Secret question'}];

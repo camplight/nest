@@ -136,7 +136,7 @@ export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, su
       </div> : null}
     </div>
     {shelf ? <ul className="canvas-area-shelf canvas-file-tiles" aria-label={`Files in ${title}`}>
-      {shelf.map(file => <FileTile key={file.id} name={file.name} mime={file.mime} href={contextFileHref(area.canvasId, file.id)}/>)}
+      {shelf.map(file => <FileTile key={file.id} name={file.name} mime={file.mime} href={contextFileHref(area.canvasId, file.id)} download/>)}
       {context!.fileCount > shelf.length && onContext ? <li className="canvas-file-tile is-more">
         <button type="button" onClick={event => onContext(area.id, event.currentTarget)}>+{context!.fileCount - shelf.length} more</button>
       </li> : null}

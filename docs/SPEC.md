@@ -874,13 +874,22 @@ Phase 1 is built from
    or `shared N files`. A participant is **waiting on you** only when one of the chat's
    Needs you items comes from them: an unread mention they sent you, or a task of theirs
    (by agent name) awaiting your review. Message text is never read for it, and waiting
-   replaces only done, idle and "posted"; working, quiet, stopped and failed win. The
+   replaces only done, idle and "posted"; working, quiet, stopped and failed win. Files
+   posted in the loaded history follow as one row of 56 px tiles, newest first: a typed
+   glyph (document, spreadsheet, slides, image, audio or video, chosen by the file's
+   extension first and then its MIME type), or a PNG, JPEG, GIF or WebP file as its own
+   preview, over the file name, titled `<name> · <type>` (`PDF`, `Excel spreadsheet`,
+   `PowerPoint slides`, never a raw MIME type) and linking to the file. As many tiles
+   show as fit the card (four at 264 px); when more files were posted the last slot is
+   `+N` (`N more files`), which opens the chat. A file that arrives while the canvas is
+   open pops in once, except with reduced motion. Area shelves and the context popover
+   use the same tile and keep their download links and ✕. The
    footer shows the newest Needs you reason as a coral pill (`<sender>: <text>` or
    `Review <task>`, `+N` for more) that opens the chat, and the card gets a coral
    border; otherwise it shows `Nudge <agent>` for a quiet agent, else `Moving` or
    `All quiet`. Open is a visible footer button; Remove from canvas is a small icon
    whose slot is always kept, shown on hover or keyboard focus. At compact zoom a card keeps its title, 40 px
-   faces and a coral dot (needs you) or `quiet`.
+   faces and a coral dot (needs you) or `quiet`; file tiles are hidden.
 
    Agent tray and picker. The tray (bottom left) reads `Pinned`, then the person's
    pinned agents in their order, then `All N` (`Search all agents`), as in the mock.
@@ -1152,6 +1161,11 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    output. A running line re-reads the server clock every 30 seconds, so one stuck
    for 10 minutes turns failed. Non-app events keep the chip strip, and with the flag
    off the timeline is unchanged.
+   With the canvas flag on, a message's files are a wrapping row of the cards' file
+   tiles under its text instead of the Attachments list: each is named `<name>, <type>,
+   <size>` with `<type> · <size>` as its tooltip, and an image preview still opens the
+   zoom view on a plain click. Audio files, voice notes included, keep the Attachments
+   list. With the flag off, attachments render as described under Chat attachments.
    Running and failed calls are counted. Cards show the apps used, and the chat's
    "Apps here" bar shows "N reads · M changes outside Nest" (singular for one, "nothing changed outside Nest" for none) for the loaded history
    only, so long chats under-report until older pages load. A call still running

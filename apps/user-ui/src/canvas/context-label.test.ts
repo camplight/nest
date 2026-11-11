@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import type {BoardCard,ContextLink} from '@nest/schemas';
-import {chatSees,contextLabel,fileKind,joinNames,linkDetail,linkElsewhere,usedByList} from './context-label';
+import {chatSees,contextLabel,fileKind,fileTypeLabel,joinNames,linkDetail,linkElsewhere,usedByList} from './context-label';
 
 const link = (over: Partial<ContextLink> = {}): ContextLink => ({sourceAreaId: 's1', title: 'Brand kit', canvasId: 'c1', canvasName: 'Atlas', available: true, counts: {notes: true, fileCount: 1}, ...over});
 const card = (home: Extract<BoardCard, {access: 'open'}>['home']): Extract<BoardCard, {access: 'open'}> => ({
@@ -39,13 +39,49 @@ describe('context labels', () => {
     expect(linkElsewhere(link({canvasId: null}), 'c1')).toBe(false);
   });
 
-  it('picks a tile glyph from the type, then the name', () => {
+  it('picks a tile glyph from the extension first, then the type', () => {
     expect(fileKind('image/png', 'a.png')).toBe('image');
     expect(fileKind('audio/webm', 'a.webm')).toBe('audio');
+    expect(fileKind('video/webm', 'a.webm')).toBe('video');
     expect(fileKind('video/mp4', 'a.mp4')).toBe('video');
     expect(fileKind('text/csv', 'a.csv')).toBe('sheet');
-    expect(fileKind('application/octet-stream', 'usage.xlsx')).toBe('sheet');
     expect(fileKind('text/plain', 'brief.txt')).toBe('doc');
+    // The agent upload tool sends a generic type for Office files: the extension decides.
+    for (const mime of ['application/octet-stream', '', undefined]) {
+      expect(fileKind(mime, 'Q3 revenue model.xlsx')).toBe('sheet');
+      expect(fileKind(mime, 'Proposal.DOCX')).toBe('doc');
+      expect(fileKind(mime, 'Pitch.pptx')).toBe('slides');
+      expect(fileKind(mime, 'Q3 revenue report.pdf')).toBe('doc');
+      expect(fileKind(mime, 'usage.csv')).toBe('sheet');
+      expect(fileKind(mime, 'chart.png')).toBe('image');
+    }
+    expect(fileKind('application/octet-stream', 'deck.key')).toBe('slides');
+    expect(fileKind('application/octet-stream', 'data.tsv')).toBe('sheet');
+    expect(fileKind('application/vnd.openxmlformats-officedocument.presentationml.presentation', 'deck')).toBe('slides');
+    expect(fileKind('application/vnd.ms-excel', 'export')).toBe('sheet');
+    expect(fileKind('image/jpeg', 'photo')).toBe('image');
+    expect(fileKind('application/zip', 'bundle.zip')).toBe('doc');
+  });
+
+  it('names a file type the way a person would, never as a raw MIME type', () => {
+    const xlsx = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    expect(fileTypeLabel(xlsx, 'Q3 revenue model.xlsx')).toBe('Excel spreadsheet');
+    expect(fileTypeLabel('application/octet-stream', 'Q3 revenue model.xlsx')).toBe('Excel spreadsheet');
+    expect(fileTypeLabel(xlsx, 'model')).toBe('Excel spreadsheet');
+    expect(fileTypeLabel('application/pdf', 'Q3 revenue report.pdf')).toBe('PDF');
+    expect(fileTypeLabel('application/pdf', 'report')).toBe('PDF');
+    expect(fileTypeLabel(undefined, 'Proposal.docx')).toBe('Word document');
+    expect(fileTypeLabel('application/msword', 'old')).toBe('Word document');
+    expect(fileTypeLabel(undefined, 'Pitch.pptx')).toBe('PowerPoint slides');
+    expect(fileTypeLabel('text/csv', 'usage.csv')).toBe('CSV');
+    expect(fileTypeLabel('text/plain', 'brief.txt')).toBe('Text');
+    expect(fileTypeLabel('application/octet-stream', 'chart.png')).toBe('Image');
+    expect(fileTypeLabel('image/svg+xml', 'diagram')).toBe('Image');
+    expect(fileTypeLabel('audio/webm', 'Voice note.webm')).toBe('Audio');
+    expect(fileTypeLabel('video/mp4', 'clip.mp4')).toBe('Video');
+    expect(fileTypeLabel('application/zip', 'bundle.zip')).toBe('ZIP');
+    expect(fileTypeLabel('application/octet-stream', 'README')).toBe('File');
+    expect(fileTypeLabel(undefined, '')).toBe('File');
   });
 });
 

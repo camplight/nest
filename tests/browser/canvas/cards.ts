@@ -96,17 +96,62 @@ await runChatTest('canvas cards: a 25 minute old turn reads quiet, never done, a
   assert.equal(await what.getByText('quiet for',{exact:false}).count(),0);
 },{canvas:true});
 
-await runChatTest('canvas cards: an uploaded file shows as a chip, and compact zoom keeps only the title and faces',async h=>{
+await runChatTest('canvas cards: posted files show as typed tiles on the card and in the chat, and compact zoom keeps only the title and faces',async h=>{
   const {page,base}=h;
   const id=await canvasWithChat(h);
   pipRunning(h);
   const card=await openCanvas(page,base,id,h.project.channelId);
-  const {fileId}=await h.upload('synthetic-brief.txt',new TextEncoder().encode('Synthetic brief'),'text/plain');
-  const sent=await h.post('/api/messages',{id:crypto.randomUUID(),channelId:h.project.channelId,text:'Synthetic brief attached',mentions:[],attachments:[{fileId,name:'synthetic-brief.txt',mime:'text/plain'}]});
+  // Two older files, then the agent's report: a PDF, a spreadsheet with no specific type (as the agent upload tool
+  // sends one) and a picture. A 264 px card has four slots: the three newest and +2.
+  const older=await Promise.all(['synthetic-old-a.txt','synthetic-old-b.txt'].map(name=>h.upload(name,new TextEncoder().encode('Synthetic'),'text/plain')));
+  const sent=await h.post('/api/messages',{id:crypto.randomUUID(),channelId:h.project.channelId,text:'Synthetic notes attached',mentions:[],
+    attachments:older.map(({fileId},i)=>({fileId,name:`synthetic-old-${'ab'[i]}.txt`,mime:'text/plain'}))});
   assert.equal(sent.ok,true,`send: ${sent.status}`);
-  const chip=card.getByRole('link',{name:'synthetic-brief.txt',exact:true});
-  await chip.waitFor();
-  assert.equal(await chip.getAttribute('href'),`/api/files/${encodeURIComponent(fileId)}`,'the chip opens the existing file link');
+  const shot=await h.context.newPage();
+  await shot.setContent('<div style="width:200px;height:120px;background:linear-gradient(90deg,#350956,#5dbc20)"></div>');
+  const pngBytes=await shot.locator('div').screenshot();
+  await shot.close();
+  const pdf=await h.upload('Q3 report.pdf',new TextEncoder().encode('%PDF-1.4 synthetic'),'application/pdf');
+  const xlsx=await h.upload('Q3 model.xlsx',new Uint8Array(5*1024),'application/octet-stream');
+  const png=await h.upload('Q3 chart.png',pngBytes,'image/png');
+  await h.emit('message.created',{text:'Synthetic Q3 report',attachments:[
+    {fileId:pdf.fileId,name:'Q3 report.pdf',mime:'application/pdf',size:18},
+    {fileId:xlsx.fileId,name:'Q3 model.xlsx',mime:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',size:5*1024},
+    {fileId:png.fileId,name:'Q3 chart.png',mime:'image/png',size:pngBytes.length},
+  ]},{source:`agent:${agentName}`});
+
+  const files=card.getByRole('list',{name:'Files',exact:true});
+  const more=files.getByRole('button',{name:'2 more files',exact:true});
+  await more.waitFor();
+  const tiles=files.locator('.canvas-file-tile:not(.is-more)');
+  assert.deepEqual(await tiles.evaluateAll(els=>els.map(el=>el.getAttribute('data-kind'))),['doc','sheet','image'],'typed tiles, newest first');
+  assert.equal(await more.innerText(),'+2');
+  for(const [name,fileId,type] of [['Q3 report.pdf',pdf.fileId,'PDF'],['Q3 model.xlsx',xlsx.fileId,'Excel spreadsheet'],['Q3 chart.png',png.fileId,'Image']]){
+    const tile=files.getByRole('link',{name,exact:true});
+    assert.equal(await tile.getAttribute('href'),`/api/files/${encodeURIComponent(fileId)}`,`${name} opens its file`);
+    assert.equal(await tile.getAttribute('title'),`${name} · ${type}`);
+  }
+  const preview=files.getByRole('link',{name:'Q3 chart.png',exact:true});
+  assert.match(await preview.evaluate(el=>getComputedStyle(el).backgroundImage),new RegExp(`/api/files/${png.fileId}`),'the picture is its own preview');
+  assert.equal(await preview.locator('.canvas-file-glyph').isVisible(),false,'and its glyph steps aside');
+  assert.ok(await files.locator('.canvas-file-tile.is-new').count()>=3,'files that arrive while the canvas is open pop in');
+  const row=(await files.boundingBox())!,cardBox=(await card.boundingBox())!;
+  assert.ok(row.x+row.width<=cardBox.x+cardBox.width,'the row stays inside the card');
+
+  // The chat shows the same files as tiles named by file, type and size; no raw MIME type is printed anywhere.
+  await more.click();
+  const chat=page.locator('.canvas-chat');
+  await chat.waitFor();
+  const message=chat.locator('.message').filter({hasText:'Synthetic Q3 report'});
+  const messageFiles=message.getByRole('list',{name:'Files',exact:true});
+  await messageFiles.getByRole('link',{name:'Q3 model.xlsx, Excel spreadsheet, 5.0 KB',exact:true}).waitFor();
+  await messageFiles.getByRole('link',{name:/^Q3 report\.pdf, PDF, \d+ B$/}).waitFor();
+  assert.equal(await messageFiles.getByRole('link',{name:'Q3 model.xlsx, Excel spreadsheet, 5.0 KB',exact:true}).getAttribute('title'),'Excel spreadsheet · 5.0 KB');
+  assert.equal(await message.locator('.message-attachments').count(),0,'no Attachments box');
+  assert.equal(await page.getByText('application/vnd',{exact:false}).count(),0,'no raw MIME type in the page');
+  await chat.getByRole('button',{name:'Close',exact:true}).click();
+  await chat.waitFor({state:'detached'});
+  const chip=files.getByRole('link',{name:'Q3 report.pdf',exact:true});
 
   const trigger=await h.emit('message.created',{text:'Synthetic trigger'},{source:'human:demo-owner'});
   await h.emit('agent.turn.started',{triggerEventId:trigger.id},{source:`agent:${agentName}`,channelId:h.project.channelId});
@@ -119,7 +164,7 @@ await runChatTest('canvas cards: an uploaded file shows as a chip, and compact z
   await status.waitFor({state:'hidden'});
   assert.equal(await card.locator('.canvas-card-title').isVisible(),true,'the title stays');
   assert.equal(await card.locator(`[data-agent="${agentName}"]`).isVisible(),true,'the faces stay');
-  assert.equal(await chip.isVisible(),false,'the artifact strip is hidden');
+  assert.equal(await chip.isVisible(),false,'the file tiles are hidden');
   assert.ok(((await card.locator('.canvas-card-foot').boundingBox())?.width??0)<=1,'the footer is clipped until it has focus');
   const face=await card.locator(`[data-agent="${agentName}"] .agent-portrait`).boundingBox();
   assert.ok(face&&Math.abs(face.width-40*0.41)<2,`40 px faces at compact zoom: ${face?.width}`);

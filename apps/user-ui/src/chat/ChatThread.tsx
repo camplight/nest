@@ -34,7 +34,7 @@ export type ChatThreadProps={
  /** Sharing: before headerActions in the thread's own row, or in a host's More menu (ChatHeaderSlotsContext). */
  headerMore?:ReactNode;
  channelLabel:string;wrappedAgents?:string[];onFocusMessage(eventId:string):void;handle?:Ref<ChatThreadHandle>;
- /** Phase 2 app activity (canvas flag): the Apps here bar, the wrapped-agent line and app-call titles and redaction. */
+ /** Phase 2 (canvas flag): the Apps here bar, the wrapped-agent line, app-call titles and redaction, and file tiles in messages. */
  appActivity?:boolean;
 };
 // What the page may ask of the thread: after a send it follows the new message down (the viewport is the thread's own).
@@ -137,7 +137,7 @@ function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;pr
    </div>:actions('absolute top-0 end-0 z-10')}
    {meta.targetAgents.length>0&&<span className="message-target mt-0.5 mb-0 block text-xs text-muted-foreground">To {meta.targetAgents.map(name=>'@'+name).join(', ')}</span>}
    <MessageBody item={item} channelId={props.snapshot.channelId??''} core={props.core} onPreviewDemo={props.onPreviewDemo}
-    onFocusMessage={props.onFocusMessage} onQuote={quote}
+    onFocusMessage={props.onFocusMessage} onQuote={quote} fileTiles={props.appActivity}
     activity={activity&&<div data-aui-quote-selectable="false" className={ACTIVITY_IN_MESSAGE}>
      <AgentActivity events={activity.events} tone={activity.tone} formatTime={formatTime} apps={view.apps}/>
     </div>}/>

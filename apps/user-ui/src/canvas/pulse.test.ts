@@ -66,7 +66,7 @@ describe('cardPulse',()=>{
     expect(result.get('c1')!.agents.map(a=>[a.name,a.state])).toEqual([['Pom','idle'],['Pip','working']]);
   });
 
-  it('artifacts are deduplicated by file across messages, newest first, at most 6',()=>{
+  it('artifacts are deduplicated by file across messages, newest first, at most 6, and every file is counted',()=>{
     const files=(...ids:string[])=>ids.map(id=>({fileId:id,name:`${id}.txt`,mime:'text/plain'}));
     const result=pulse([
       message('m1','agent:Pom',now-10*min,files('b','c','d','e','f','g')),
@@ -75,6 +75,7 @@ describe('cardPulse',()=>{
     const card=result.get('c1')!;
     expect(card.artifacts.map(a=>a.fileId)).toEqual(['a','b','c','d','e','f']);
     expect(card.artifacts[0]).toEqual({fileId:'a',name:'a.txt',mime:'text/plain'});
+    expect(card.fileCount).toBe(7);
     expect(card.lastActivityAt).toBe(now-5*min);
   });
 
@@ -109,13 +110,13 @@ describe('cardPulse',()=>{
   it('ignores events from channels that are not cards',()=>{
     const result=pulse([started('s1','Pom','m1',now-min,'c2'),message('m1','agent:Pom',now-min,[{fileId:'x',name:'x.txt'}],'c2')]);
     expect([...result.keys()]).toEqual(['c1']);
-    expect(result.get('c1')).toEqual({agents:[{name:'Pom',state:'idle',since:0}],people:[],lastActivityAt:null,artifacts:[],needsYou:[],apps:{apps:[],reads:0,changes:0}});
+    expect(result.get('c1')).toEqual({agents:[{name:'Pom',state:'idle',since:0}],people:[],lastActivityAt:null,artifacts:[],fileCount:0,needsYou:[],apps:{apps:[],reads:0,changes:0}});
   });
 });
 
 describe('areaSummaries',()=>{
   const area=(id:string,x:number,y:number,w:number,h:number)=>({id,canvasId:'cv',title:id,x,y,w,h,tint:'moss' as const,version:1});
-  const p=(state:'working'|'idle'|'quiet',needs:number):CardPulse=>({agents:[{name:'Pom',state,since:1}],people:[],lastActivityAt:null,artifacts:[],needsYou:Array.from({length:needs},(_,i)=>({kind:'mention' as const,id:`n${i}`,at:1,sender:'x',text:'hi'})),apps:{apps:[],reads:0,changes:0}});
+  const p=(state:'working'|'idle'|'quiet',needs:number):CardPulse=>({agents:[{name:'Pom',state,since:1}],people:[],lastActivityAt:null,artifacts:[],fileCount:0,needsYou:Array.from({length:needs},(_,i)=>({kind:'mention' as const,id:`n${i}`,at:1,sender:'x',text:'hi'})),apps:{apps:[],reads:0,changes:0}});
   const placed=(channelId:string,x:number,y:number)=>({channelId,x,y,w:280});
   it('counts cards that need you, are moving or have gone quiet, including nested areas',()=>{
     const outer=area('outer',0,0,2000,1000),inner=area('inner',100,100,800,600),apart=area('apart',3000,0,600,600);

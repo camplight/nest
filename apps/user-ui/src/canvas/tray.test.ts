@@ -11,7 +11,7 @@ const open=(channelId:string,x:number,agents:string[]):BoardCard=>({
   participants:agents.map(subscriberId=>({subscriberType:'AGENT',subscriberId})),archived:false,canManage:true,
 });
 const area=(id:string,x:number,w:number):CanvasArea=>({id,canvasId:'c1',title:id,x,y:0,w,h:400,tint:'moss',version:0});
-const pulse=(agents:[string,AgentPulse['state']][]):CardPulse=>({agents:agents.map(([name,state])=>({name,state,since:0})),people:[],lastActivityAt:null,artifacts:[],needsYou:[],apps:{} as CardPulse['apps']});
+const pulse=(agents:[string,AgentPulse['state']][]):CardPulse=>({agents:agents.map(([name,state])=>({name,state,since:0})),people:[],lastActivityAt:null,artifacts:[],fileCount:0,needsYou:[],apps:{} as CardPulse['apps']});
 const names=(list:Agent[])=>list.map(a=>a.name);
 
 describe('trayAgents',()=>{

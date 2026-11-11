@@ -147,7 +147,7 @@ export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, o
               <p id={listId} className="canvas-phone-empty">No chats in this area yet.</p>
               {/* As on the canvas, an area with no chats shows its context files. */}
               {areaContext?.get(group.id)?.files.length ? <ul className="canvas-file-tiles canvas-phone-shelf" aria-label={`Files in ${group.title}`}>
-                {areaContext.get(group.id)!.files.map(file => <FileTile key={file.id} name={file.name} mime={file.mime} href={contextFileHref(board.canvas.id, file.id)}/>)}
+                {areaContext.get(group.id)!.files.map(file => <FileTile key={file.id} name={file.name} mime={file.mime} href={contextFileHref(board.canvas.id, file.id)} download/>)}
               </ul> : null}
             </> : null}
         </li>;

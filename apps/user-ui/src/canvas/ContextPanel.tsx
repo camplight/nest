@@ -276,7 +276,7 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
         <section className="canvas-context-section">
           <h3 className="canvas-context-label">Files</h3>
           {context.files.length ? <ul className="canvas-file-tiles" aria-label="Files">
-            {context.files.map(file => <FileTile key={file.id} name={file.name} mime={file.mime} href={contextFileHref(canvasId, file.id)}
+            {context.files.map(file => <FileTile key={file.id} name={file.name} mime={file.mime} href={contextFileHref(canvasId, file.id)} download
               onRemove={canEdit ? () => void removeFile(file.id, file.name) : undefined}/>)}
           </ul> : !uploads.length ? <p className="canvas-context-muted">{canEdit ? 'No files yet. Drop some here or use Add files.' : 'No files.'}</p> : null}
           <ChatAttachments items={uploads} error={fileError} onRemove={id => setUploads(current => current.filter(row => row.localId !== id))}/>

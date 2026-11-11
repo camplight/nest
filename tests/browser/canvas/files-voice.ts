@@ -415,6 +415,10 @@ await runChatTest('canvas voice: the same flow works in an open chat, Cancel dis
   const sent=await messageWith(h,chatId,['Voice note.webm']);
   assert.equal(sent.payload?.text,'Plan the spring launch, edited');
   assert.equal((await humanMessages(h,chatId)).length,1);
+  // Audio is not a tile: the voice note keeps the chat's own attachment link, with no file tile beside it.
+  const posted=chat.locator(`#message-${sent.id}`);
+  await posted.locator('.message-attachments').getByRole('link',{name:'Voice note.webm',exact:true}).waitFor();
+  assert.equal(await posted.locator('.message-files').count(),0,'no tile row for audio');
 },{canvas:true,fakeMedia:true});
 
 await runChatTest('canvas voice: a note never follows the person into another chat',async h=>{

@@ -211,7 +211,7 @@ await runChatTest('chat apps bar: a phone keeps the composer on screen',async h=
   assert.ok(width.scroll<=width.client,'the bar does not scroll sideways');
 },{canvas:true,viewport:{width:375,height:700},hasTouch:true});
 
-await runChatTest('canvas flag off: no voice notes, no Apps here bar, and the timeline as before Phase 2 (R20)',async h=>{
+await runChatTest('canvas flag off: no voice notes, no Apps here bar, no file tiles, and the timeline as before Phase 2 (R20)',async h=>{
   const {page,base}=h;
   const send='node scripts/connections.mjs execute c1 GMAIL_SEND_EMAIL < a.json';
   await h.emit('tool.executed',{tool:'shell_run',args:{command:'node scripts/connections.mjs execute c1 GMAIL_FETCH_EMAILS < a.json'}});
@@ -221,10 +221,19 @@ await runChatTest('canvas flag off: no voice notes, no Apps here bar, and the ti
   // A wrapped agent would show the limitation line with the flag on.
   await h.post('/api/agents',{name:'Wren',icon:'pip',visibility:'PUBLIC',modelId:'wrapped:none',workspacePath:`/tmp/wren-${Date.now()}`,mode:'WRAPPED',assignedRunnerId:'fixture-runner',desiredState:'STOPPED'});
   await h.post(`/api/channels/${h.project.channelId}/subscribe`,{subscriberType:'AGENT',subscriberId:'Wren'});
+  const xlsx='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const report=await h.emit('message.created',{text:'Synthetic flag-off report',attachments:[{fileId:'synthetic-off-file',name:'Q3 model.xlsx',mime:xlsx,size:5*1024}]},{source:'agent:Pip'});
   await page.reload();
   const chips=(name:string)=>page.getByRole('button',{name,exact:true});
   await chips('shell_run completed').nth(1).waitFor();
   await chips('Agent output').waitFor();
+
+  // Files keep the Attachments list, with its type and size line, and never become tiles.
+  const message=page.locator(`#message-${report.id}`);
+  await message.locator('.message-attachments').getByText('Attachments',{exact:true}).waitFor();
+  assert.equal(await message.getByRole('link',{name:'Q3 model.xlsx',exact:true}).count(),1);
+  await message.getByText(`${xlsx} • 5.0 KB`,{exact:true}).waitFor();
+  assert.equal(await page.locator('.message-files, .canvas-file-tile').count(),0,'no file tiles');
 
   // No Apps here bar, no wrapped-agent line, no app-call titles and no mic.
   assert.equal(await page.getByRole('region',{name:'Apps here',exact:true}).count(),0,'no Apps here bar');

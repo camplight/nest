@@ -1,6 +1,9 @@
 // A message's attachments (spec 6.6): file link, mime and size, inline previews that zoom on a plain click (spec 7.1.4).
+// With the canvas flag on, files are artifact tiles instead (MessageFiles); audio keeps the classic list.
 import {useState,type MouseEvent} from 'react';
 import {fileHref,formatAttachmentSize} from '../attachments';
+import {fileKind} from '../canvas/context-label';
+import {FileTile} from '../canvas/FileTile';
 import type {MessageAttachment} from './timeline';
 import {ImageZoom} from './ui/ImageZoom';
 
@@ -37,4 +40,30 @@ export function MessageAttachments({attachments}:{attachments:MessageAttachment[
   <strong className="text-xs font-medium text-muted-foreground">Attachments</strong>
   <ul className="flex min-w-0 flex-col gap-3">{attachments.map((attachment,index)=><AttachmentItem key={`${attachment.fileId}-${index}`} attachment={attachment}/>)}</ul>
  </div>;
+}
+
+/** One tile; an image preview still zooms on a plain click, like the classic preview. */
+function MessageFileTile({attachment}:{attachment:MessageAttachment}):JSX.Element{
+ const [zoom,setZoom]=useState(false);
+ const url=fileHref(attachment.fileId);
+ return <>
+  <FileTile name={attachment.name} mime={attachment.mime} href={url} size={attachment.size} detailed
+   onPreview={event=>{if(!isPlainClick(event))return;event.preventDefault();setZoom(true);}}/>
+  {zoom&&<ImageZoom src={url} alt={attachment.name} open onOpenChange={setZoom}/>}
+ </>;
+}
+
+/**
+ * Canvas flag on: a message's files as a wrapping row of artifact tiles (the mock's `.mfiles`), each named
+ * `{name}, {type}, {size}`. Audio, voice notes included, stays in the classic list.
+ */
+export function MessageFiles({attachments}:{attachments:MessageAttachment[]}):JSX.Element{
+ const audio=attachments.filter(attachment=>fileKind(attachment.mime,attachment.name)==='audio');
+ const files=attachments.filter(attachment=>!audio.includes(attachment));
+ return <>
+  {files.length>0&&<ul className="message-files" aria-label="Files">
+   {files.map((attachment,index)=><MessageFileTile key={`${attachment.fileId}-${index}`} attachment={attachment}/>)}
+  </ul>}
+  {audio.length>0&&<MessageAttachments attachments={audio}/>}
+ </>;
 }

@@ -3,7 +3,7 @@ import type {DashboardTask,Project} from '@nest/schemas';
 import type {CardPulse} from './pulse';
 import {needsByChannel,needsYouItems} from './needs';
 
-const pulse=(...ids:string[]):CardPulse=>({agents:[],people:[],lastActivityAt:null,artifacts:[],needsYou:ids.map((id,i)=>({kind:'mention' as const,id,at:100+i,sender:'demo-bob',text:`ping ${id}`})),apps:{apps:[],reads:0,changes:0}});
+const pulse=(...ids:string[]):CardPulse=>({agents:[],people:[],lastActivityAt:null,artifacts:[],fileCount:0,needsYou:ids.map((id,i)=>({kind:'mention' as const,id,at:100+i,sender:'demo-bob',text:`ping ${id}`})),apps:{apps:[],reads:0,changes:0}});
 const project=(id:string,channelId:string):Project=>({id,ownerId:'h1',channelId,name:id,description:'',createdAt:1});
 const review=(id:string,projectId:string,updatedAt:number):DashboardTask=>({id,projectId,title:`Task ${id}`,agentName:'Pip',updatedAt,status:'needs_review'} as DashboardTask);
 

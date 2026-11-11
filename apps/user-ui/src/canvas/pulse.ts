@@ -26,7 +26,9 @@ export type AgentPulse = {
 };
 /** A person who posted in the loaded history: their latest message's first line and how many files it carried. */
 export type PersonPulse = {name: string; at: number; said: string; files: number};
-export type CardPulse = {agents: AgentPulse[]; people: PersonPulse[]; lastActivityAt: number | null; artifacts: {fileId: string; name: string; mime?: string}[]; needsYou: {kind: 'mention'; id: string; at: number; sender: string; text: string}[]; apps: AppSummary};
+export type CardPulse = {agents: AgentPulse[]; people: PersonPulse[]; lastActivityAt: number | null;
+  /** The newest files posted here (at most 6), newest first; `fileCount` counts every file in the loaded history. */
+  artifacts: {fileId: string; name: string; mime?: string}[]; fileCount: number; needsYou: {kind: 'mention'; id: string; at: number; sender: string; text: string}[]; apps: AppSummary};
 export type PulseCard = {channelId: string; agentNames: string[]};
 export type PulseInput = {events: EventRow[]; agents: Agent[]; starts: AgentStarts; mentions: MentionNotification[]; cards: PulseCard[]; now: number; /** Classified app calls per channel (see app-activity.ts). */ apps?: ReadonlyMap<string, AppCall[]>};
 
@@ -111,10 +113,8 @@ function channelPulse(events: EventRow[], card: PulseCard, input: PulseInput, by
     for (const {fileId, name, mime} of parseMessageAttachments(event.payload)) {
       if (files.has(fileId)) continue;
       files.add(fileId);
-      artifacts.push(mime === undefined ? {fileId, name} : {fileId, name, mime});
-      if (artifacts.length === MAX_ARTIFACTS) break;
+      if (artifacts.length < MAX_ARTIFACTS) artifacts.push(mime === undefined ? {fileId, name} : {fileId, name, mime});
     }
-    if (artifacts.length === MAX_ARTIFACTS) break;
   }
 
   const needsYou = input.mentions
@@ -122,7 +122,7 @@ function channelPulse(events: EventRow[], card: PulseCard, input: PulseInput, by
     .sort((a, b) => b.createdAt - a.createdAt)
     .map(m => ({kind: 'mention' as const, id: m.id, at: m.createdAt, sender: m.sender, text: m.text}));
 
-  return {agents, people, lastActivityAt, artifacts, needsYou, apps: summarise(input.apps?.get(card.channelId) ?? [])};
+  return {agents, people, lastActivityAt, artifacts, fileCount: files.size, needsYou, apps: summarise(input.apps?.get(card.channelId) ?? [])};
 }
 
 /** One pulse per card. Events from channels that are not cards are ignored. */

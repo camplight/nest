@@ -3,7 +3,7 @@ import type {CardPulse} from './pulse';
 import type {NeedsItem} from './needs';
 import {MAX_ROWS,participantRows,shownRows} from './rows';
 
-const base:CardPulse={agents:[],people:[],lastActivityAt:null,artifacts:[],needsYou:[],apps:{apps:[],reads:0,changes:0}};
+const base:CardPulse={agents:[],people:[],lastActivityAt:null,artifacts:[],fileCount:0,needsYou:[],apps:{apps:[],reads:0,changes:0}};
 const agent=(name:string)=>({subscriberType:'AGENT',subscriberId:name});
 const human=(name:string)=>({subscriberType:'HUMAN',subscriberId:name});
 const item=(kind:'mention'|'review',from:string|null,reason:string,at=1):NeedsItem=>{

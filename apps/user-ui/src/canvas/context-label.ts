@@ -1,4 +1,4 @@
-// The words the canvas uses for context: chip labels, "Used by …" sentences, file tile kinds and what an open chat sees.
+// The words the canvas uses for context: chip labels, "Used by …" sentences, file kinds and type names, and what an open chat sees.
 import type {BoardCard,ContextCounts,ContextLink,ContextUse} from '@nest/schemas';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -30,14 +30,60 @@ export function linkDetail(link: ContextLink, canvasId: string) {
 /** True when the link's source lives on another canvas than the one shown (`↗` rather than `↳`). */
 export const linkElsewhere = (link: ContextLink, canvasId: string) => link.canvasId !== null && link.canvasId !== canvasId;
 
-export type FileKind = 'image' | 'audio' | 'video' | 'sheet' | 'doc';
-/** The tile glyph for a context file, from its type and name. */
-export function fileKind(mime: string, name: string): FileKind {
-  if (mime.startsWith('image/')) return 'image';
-  if (mime.startsWith('audio/')) return 'audio';
-  if (mime.startsWith('video/')) return 'video';
-  if (/sheet|csv|excel/.test(mime) || /\.(csv|tsv|xlsx?|ods)$/i.test(name)) return 'sheet';
+export type FileKind = 'doc' | 'sheet' | 'slides' | 'image' | 'audio' | 'video';
+// Extensions decide first: the agent upload tool sends no specific type for Office files.
+const EXTENSION_KIND: Record<string, FileKind> = {
+  pdf: 'doc', doc: 'doc', docx: 'doc', odt: 'doc', rtf: 'doc', txt: 'doc', md: 'doc',
+  xls: 'sheet', xlsx: 'sheet', ods: 'sheet', csv: 'sheet', tsv: 'sheet',
+  ppt: 'slides', pptx: 'slides', odp: 'slides', key: 'slides',
+  png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', svg: 'image', avif: 'image', bmp: 'image', heic: 'image',
+  mp3: 'audio', wav: 'audio', m4a: 'audio', aac: 'audio', flac: 'audio', oga: 'audio', opus: 'audio',
+  mp4: 'video', mov: 'video', m4v: 'video', mkv: 'video', avi: 'video',
+};
+/** Extensions that hold either sound or pictures: the type decides, else these. */
+const EITHER: Record<string, 'audio' | 'video'> = {webm: 'video', ogg: 'audio'};
+const extension = (name: string) => /\.([a-z0-9]{1,8})$/i.exec(name)?.[1].toLowerCase() ?? '';
+const mediaKind = (mime: string): 'image' | 'audio' | 'video' | null =>
+  mime.startsWith('image/') ? 'image' : mime.startsWith('audio/') ? 'audio' : mime.startsWith('video/') ? 'video' : null;
+
+/** The tile glyph for a file: its extension first, then its type. Anything unrecognised is a document. */
+export function fileKind(mime: string | undefined, name: string): FileKind {
+  const ext = extension(name), type = (mime ?? '').toLowerCase();
+  if (EXTENSION_KIND[ext]) return EXTENSION_KIND[ext];
+  const media = mediaKind(type);
+  if (media) return media;
+  if (EITHER[ext]) return EITHER[ext];
+  if (/sheet|csv|excel/.test(type)) return 'sheet';
+  if (/presentation|powerpoint/.test(type)) return 'slides';
   return 'doc';
+}
+
+const EXTENSION_LABEL: Record<string, string> = {
+  pdf: 'PDF', doc: 'Word document', docx: 'Word document', odt: 'OpenDocument text', rtf: 'Rich text', txt: 'Text', md: 'Markdown',
+  xls: 'Excel spreadsheet', xlsx: 'Excel spreadsheet', ods: 'OpenDocument spreadsheet', csv: 'CSV', tsv: 'TSV',
+  ppt: 'PowerPoint slides', pptx: 'PowerPoint slides', odp: 'OpenDocument slides', key: 'Keynote slides',
+};
+const MIME_LABEL: [RegExp, string][] = [
+  [/^application\/pdf$/, 'PDF'], [/wordprocessingml|msword/, 'Word document'], [/spreadsheetml|ms-excel/, 'Excel spreadsheet'],
+  [/presentationml|ms-powerpoint/, 'PowerPoint slides'], [/^text\/csv$/, 'CSV'], [/^text\/markdown$/, 'Markdown'], [/^text\/plain$/, 'Text'],
+];
+const MEDIA_LABEL: Record<'image' | 'audio' | 'video', string> = {image: 'Image', audio: 'Audio', video: 'Video'};
+
+/**
+ * What a person calls the file's type (`PDF`, `Excel spreadsheet`, `Image`), never a raw MIME type: its extension
+ * first, then its type, else the extension in capitals, else `File`.
+ */
+export function fileTypeLabel(mime: string | undefined, name: string): string {
+  const ext = extension(name), type = (mime ?? '').toLowerCase();
+  if (EXTENSION_LABEL[ext]) return EXTENSION_LABEL[ext];
+  const kind = EXTENSION_KIND[ext];
+  if (kind === 'image' || kind === 'audio' || kind === 'video') return MEDIA_LABEL[kind];
+  const media = mediaKind(type);
+  if (media) return MEDIA_LABEL[media];
+  if (EITHER[ext]) return MEDIA_LABEL[EITHER[ext]];
+  const known = MIME_LABEL.find(([pattern]) => pattern.test(type));
+  if (known) return known[1];
+  return ext ? ext.toUpperCase() : 'File';
 }
 
 /** What the open chat's header says after `in {area}`: where its context comes from (home semantics, Phase 2). */
