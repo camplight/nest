@@ -4,6 +4,7 @@ import type { Human, OrgOpsClient } from '@nest/orgops-client';
 import type { ProductDb } from '@nest/db';
 import {
   CreateProjectAccessRequestSchema,
+  ProjectAccessDecisionSchema,
   type Project,
   type ProjectAccessNotification,
   type ProjectAccessRequest,
@@ -84,6 +85,108 @@ export function registerProjectAccessRoutes(app: Hono, {store, orgops}: {store: 
     });
     if (result.kind === 'conflict') return c.json({error: 'Request ID already used'}, 409);
     return c.json(publicRequestState(result.request), result.kind === 'created' ? 201 : 200);
+  });
+
+  routes.post('/api/projects/:projectId/access-requests/:requestId/decision', async c => {
+    const parsed = ProjectAccessDecisionSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({error: 'Invalid access decision'}, 400);
+    const human = c.get('human');
+    const project = store.projects.project(c.req.param('projectId'));
+    if (!project || !canManageProject(project, human, c.get('channels'))) return c.json({error: 'Project unavailable'}, 404);
+    const request = store.projectAccess.get(c.req.param('requestId'));
+    if (!request || request.projectId !== project.id) return c.json({error: 'Access request unavailable'}, 404);
+    const response = (value: ProjectAccessRequest) => ({...value, projectCollaboration: store.projects.project(project.id)?.collaboration ?? 'private'});
+
+    if (parsed.data.decision === 'deny') {
+      const result = store.projectAccess.deny(request.id, project.id, human.id, Date.now());
+      if (result.kind === 'missing') return c.json({error: 'Access request unavailable'}, 404);
+      if (result.kind === 'conflict') return c.json({error: 'Approval has started. Finish approval, then remove access if needed.', request: result.request}, 409);
+      return c.json(response(result.request));
+    }
+
+    if (request.status === 'denied') return c.json({error: 'This request was already denied', request}, 409);
+    if (request.status === 'approved') return c.json(response(request));
+    const people = await orgops.humanJson<Human[]>('/api/humans', c.req.raw.headers);
+    const requester = people.find(person => person.id === request.requesterId);
+    if (!requester) return c.json({error: 'Requester is no longer available'}, 409);
+
+    const claim = store.projectAccess.claimApproval(request.id, project.id, human.id, Date.now());
+    if (claim.kind === 'missing') return c.json({error: 'Access request unavailable'}, 404);
+    if (claim.kind === 'conflict') return c.json({error: 'This request has already been decided', request: claim.request}, 409);
+    if (claim.request.status === 'approved') return c.json(response(claim.request));
+    const newClaim = claim.kind === 'changed';
+    const member = {subscriberType: 'HUMAN' as const, subscriberId: requester.username};
+    const present = (channels: ProjectAccessChannel[]) => channels.find(channel => channel.id === project.channelId)?.participants
+      ?.some(candidate => candidate.subscriberType === member.subscriberType && candidate.subscriberId === member.subscriberId) ?? false;
+
+    let currentChannels: ProjectAccessChannel[];
+    try {
+      currentChannels = await orgops.humanJson<ProjectAccessChannel[]>('/api/channels', c.req.raw.headers);
+    } catch {
+      if (newClaim) store.projectAccess.releaseApproval(request.id, human.id);
+      return c.json({error: 'Approval could not be confirmed. Retry safely.'}, 502);
+    }
+    if (!canManageProject(project, human, currentChannels)) {
+      if (newClaim) store.projectAccess.releaseApproval(request.id, human.id);
+      return c.json({error: 'Project unavailable'}, 404);
+    }
+
+    let attempted = false;
+    if (!present(currentChannels)) {
+      attempted = true;
+      try {
+        await orgops.humanJson(`/api/channels/${encodeURIComponent(project.channelId)}/subscribe`, c.req.raw.headers, member);
+      } catch {
+        // The engine may have committed before the response was lost. Confirm below.
+      }
+    }
+
+    let confirmedChannels: ProjectAccessChannel[];
+    try {
+      confirmedChannels = await orgops.humanJson<ProjectAccessChannel[]>('/api/channels', c.req.raw.headers);
+    } catch {
+      if (newClaim && !attempted) store.projectAccess.releaseApproval(request.id, human.id);
+      return c.json({error: 'Approval is unconfirmed. Retry to reconcile membership.'}, 502);
+    }
+    if (!canManageProject(project, human, confirmedChannels) || !present(confirmedChannels)) {
+      if (newClaim && !attempted) store.projectAccess.releaseApproval(request.id, human.id);
+      return c.json({error: 'Approval is unconfirmed. Retry to reconcile membership.'}, 502);
+    }
+    const finished = store.projectAccess.finishApproval(request.id, project.id, human.id, Date.now());
+    if (finished.kind === 'missing') return c.json({error: 'Access request unavailable'}, 404);
+    if (finished.kind === 'conflict') return c.json({error: 'This request changed during approval', request: finished.request}, 409);
+    return c.json(response(finished.request));
+  });
+
+  routes.delete('/api/projects/:projectId/members/:username', async c => {
+    const human = c.get('human');
+    const project = store.projects.project(c.req.param('projectId'));
+    if (!project || !canManageProject(project, human, c.get('channels'))) return c.json({error: 'Project unavailable'}, 404);
+    const people = await orgops.humanJson<Human[]>('/api/humans', c.req.raw.headers);
+    const target = people.find(person => person.username === c.req.param('username'));
+    if (!target) return c.json({error: 'Member unavailable'}, 404);
+    if (target.id === human.id) return c.json({error: 'The project owner cannot be removed'}, 400);
+    const member = {subscriberType: 'HUMAN' as const, subscriberId: target.username};
+    const present = (channels: ProjectAccessChannel[]) => channels.find(channel => channel.id === project.channelId)?.participants
+      ?.some(candidate => candidate.subscriberType === member.subscriberType && candidate.subscriberId === member.subscriberId) ?? false;
+
+    let channels = await orgops.humanJson<ProjectAccessChannel[]>('/api/channels', c.req.raw.headers);
+    if (!canManageProject(project, human, channels)) return c.json({error: 'Project unavailable'}, 404);
+    if (present(channels)) {
+      try {
+        await orgops.humanJson(`/api/channels/${encodeURIComponent(project.channelId)}/unsubscribe`, c.req.raw.headers, member);
+      } catch {
+        // Re-read membership because the unsubscribe may have committed.
+      }
+      try {
+        channels = await orgops.humanJson<ProjectAccessChannel[]>('/api/channels', c.req.raw.headers);
+      } catch {
+        return c.json({error: 'Removal is unconfirmed. Retry safely.'}, 502);
+      }
+      if (!canManageProject(project, human, channels) || present(channels)) return c.json({error: 'Removal is unconfirmed. Retry safely.'}, 502);
+    }
+    store.projectAccess.auditRevocation(project.id, target.id, target.username, human.id, Date.now());
+    return c.json({status: 'removed'} as const);
   });
 
   routes.get('/api/project-access-requests', async c => {
