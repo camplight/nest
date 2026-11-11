@@ -7,9 +7,13 @@ export type MessageAttachment={fileId:string;name:string;mime?:string;size?:numb
 export type ChatMeta={eventId:string;authorKind:AuthorKind;authorName:string;isMine:boolean;
  displayAt:number;targetAgents:string[];inReplyTo?:string;detached?:boolean};
 export type TimelineItem=
- |{kind:'message';id:string;meta:ChatMeta;text:string;markdown:boolean;attachments:MessageAttachment[];event:EventRow}
+ |{kind:'message';id:string;meta:ChatMeta;text:string;markdown:boolean;attachments:MessageAttachment[];event:EventRow;
+  /** A Switchyard post (hand-off, scheduled run, webhook or fork seed): its first line, shown as `↳` and muted italics; `text` is the rest. */
+  switchyard?:string}
  |{kind:'activity';id:string;meta:ChatMeta;tone:'agent'|'system';events:EventRow[]};
-type BuildOptions={currentUsername:string;detachedIds?:ReadonlySet<string>};
+type BuildOptions={currentUsername:string;detachedIds?:ReadonlySet<string>;
+ /** The Switchyard service agent's name (flows): its posts that carry payload.nestSwitchyard become Switchyard lines. */
+ serviceAgent?:string|null};
 
 // Ported from classic App.tsx (MARKDOWN_HINT_RE, URL_RE).
 const MARKDOWN_HINT_RE=
@@ -98,16 +102,26 @@ export function upsertEvents(current:EventRow[],incoming:EventRow[]):EventRow[]{
  });
 }
 
+/** A post by the service agent that Nest made (it carries payload.nestSwitchyard), never a look-alike from another source. */
+export function isSwitchyardPost(event:EventRow,serviceAgent:string|null|undefined):boolean{
+ return Boolean(serviceAgent)&&!event.payloadTruncated&&event.source===`agent:${serviceAgent}`&&record(record(event.payload)?.nestSwitchyard)!==undefined;
+}
+
 function messageItem(event:EventRow,opts:BuildOptions):TimelineItem{
  const kind=authorKind(event.source);
  const authorName=sourceLabel(event.source);
  const payload=record(event.payload);
- const text=messageText(event);
+ const full=messageText(event);
+ const switchyard=isSwitchyardPost(event,opts.serviceAgent);
+ // A Switchyard line has no `To @…` line: the agent it wakes is named in its first line's hand-off, not addressed.
  const meta:ChatMeta={eventId:event.id,authorKind:kind,authorName,isMine:kind==='human'&&authorName===opts.currentUsername,
-  displayAt:displayTime(event),targetAgents:targetAgents(payload)};
+  displayAt:displayTime(event),targetAgents:switchyard?[]:targetAgents(payload)};
  if(typeof payload?.inReplyTo==='string')meta.inReplyTo=payload.inReplyTo;
  if(opts.detachedIds?.has(event.id))meta.detached=true;
- return {kind:'message',id:event.id,meta,text,markdown:shouldRenderMarkdown(text),attachments:parseMessageAttachments(payload),event};
+ const lineEnd=full.indexOf('\n');
+ const text=switchyard?(lineEnd<0?'':full.slice(lineEnd+1).replace(/^\s*\n/,'')):full;
+ return {kind:'message',id:event.id,meta,text,markdown:shouldRenderMarkdown(text),attachments:parseMessageAttachments(payload),event,
+  ...(switchyard?{switchyard:lineEnd<0?full:full.slice(0,lineEnd)}:{})};
 }
 
 function activityItem(events:EventRow[],id:string,opts:BuildOptions):TimelineItem{
@@ -144,7 +158,7 @@ function sameMeta(left:ChatMeta,right:ChatMeta){
 
 function unchanged(prev:TimelineItem,next:TimelineItem){
  if(!sameMeta(prev.meta,next.meta))return false;
- if(prev.kind==='message'&&next.kind==='message')return sameEvent(prev.event,next.event);
+ if(prev.kind==='message'&&next.kind==='message')return sameEvent(prev.event,next.event)&&prev.switchyard===next.switchyard;
  if(prev.kind==='activity'&&next.kind==='activity')
   return prev.events.length===next.events.length&&prev.events.every((event,index)=>sameEvent(event,next.events[index]!));
  return false;

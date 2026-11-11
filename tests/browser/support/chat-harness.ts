@@ -27,6 +27,10 @@ export type ChatHarness={
   holdNext(path:string,options?:{query?:Record<string,string>}):{started:Promise<void>;release():void};
   closeWebSocket():Promise<void>;reopenWebSocket():Promise<void>;
   screenshot(name:string):Promise<string>;
+  /** With `flows`: runs one hand-off worker tick now (one already running is joined). */
+  flowsTick():Promise<void>;
+  /** With `flows`: the clock the hand-off worker reads; null is the real clock. */
+  setFlowsNow(ms:number|null):void;
 };
 export type ChatTestOptions={
   viewport?:{width:number;height:number};
@@ -37,6 +41,7 @@ export type ChatTestOptions={
   fakeMedia?:boolean;
   connections?:unknown; // a ConnectionProvider, as projects.ts builds it
   canvas?:boolean; // NEST_ENABLE_CANVAS for this product API; off unless set
+  flows?:boolean; // hand-offs: the runner token is the service token, and the worker ticks every 200 ms
 };
 
 const root=join(import.meta.dirname,'../../..');
@@ -81,8 +86,15 @@ async function setup(options:ChatTestOptions,cleanup:(()=>Promise<void>|void)[])
   const upstreamSockets=track(upstream);engine.injectWebSocket(upstream);await once(upstream,'listening');
   cleanup.push(()=>closeServer(upstream,upstreamSockets));
   const engineUrl=`http://127.0.0.1:${(upstream.address() as {port:number}).port}`;
-  const product=createApp({orgops:createOrgOpsClient(engineUrl),dbPath:join(dir,'product.sqlite'),connections:(options.connections as ConnectionProvider|undefined)??null,canvasEnabled:options.canvas===true});
+  let flowsNow:number|null=null;
+  const product=createApp({orgops:createOrgOpsClient(engineUrl),dbPath:join(dir,'product.sqlite'),connections:(options.connections as ConnectionProvider|undefined)??null,canvasEnabled:options.canvas===true,
+    ...(options.flows?{connectionEngineToken:runnerToken,switchyardWorkspaceRoot:join(dir,'managed'),flowsNow:()=>flowsNow??Date.now()}:{})});
   cleanup.push(()=>product.store.db.close());
+  if(options.flows){
+    const timer=setInterval(()=>{void product.flows.tick();},200);
+    // Teardown runs in reverse: the worker stops before the product DB closes.
+    cleanup.push(()=>clearInterval(timer));
+  }
 
   // holdNext: the matching request's body is read in full before `started` resolves.
   // A hold matches the pathname (or pathname plus search, exactly) and, with a query filter, every given search param pair.
@@ -186,6 +198,8 @@ async function setup(options:ChatTestOptions,cleanup:(()=>Promise<void>|void)[])
     },
     async closeWebSocket(){wsOpen=false;for(const socket of upgraded)socket.destroy();},
     async reopenWebSocket(){wsOpen=true;},
+    async flowsTick(){await product.flows.tick();},
+    setFlowsNow(ms){flowsNow=ms;},
     async screenshot(name){
       const dir=process.env.NEST_CHAT_SHOTS_DIR||join(tmpdir(),'nest-chat-ui-shots',basename(process.cwd()));
       mkdirSync(dir,{recursive:true});const path=join(dir,`${name}.png`);

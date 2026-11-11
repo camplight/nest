@@ -1200,7 +1200,8 @@ another, forks, schedules and webhook triggers. Design: section 8 of
 plan: [the Phase 3 plan](superpowers/plans/2026-11-11-switchyard-canvas-phase3.md).
 Everything is behind `NEST_ENABLE_CANVAS=1`; with the flag off every `/api/flows/*`
 route answers 404, whoever asks. This section grows as the phase lands; so far it
-covers the service agent, links, how the board shows them and the hand-off worker.
+covers the service agent, links, how the board shows them, the hand-off worker and
+the canvas UI for links (lines, labels and the Hand-off popover).
 
 1. Data. Migration `014_links_forks.sql` adds:
    - `product_links`: one row per link, keyed by id and unique per
@@ -1393,11 +1394,59 @@ covers the service agent, links, how the board shows them and the hand-off worke
    Switchyard never takes a turn: it stays stopped, its own posts never route to it,
    and a "nobody" hand-off targets it, so no agent wakes.
 
-7. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
+7. Links on the canvas (`apps/user-ui/src/canvas/Links.tsx`, `HandoffPopover.tsx`,
+   `useFlows.ts`, `flows-api.ts`, `link-geometry.ts`). The UI reads
+   `GET /api/flows/availability` once per page; with `enabled:false` (or the flag
+   off) no line, label or popover shows.
+   - Lines follow the mock's `renderLinks`: the board's links are drawn under the
+     cards in the world layer as `.lk` cubics from edge to edge (the mock's `geom`;
+     side by side when `|dx| × 0.75 > |dy|`, bowed by 40% of the gap, 50 px minimum).
+     A link that is on gets a moving `.lk-flow` over it (still under reduced motion);
+     a paused one is dashed (`.lk.off`), a fork dash-dotted, and lines touching the
+     selected card are highlighted (`.hl`). A pair linked both ways is drawn 22 px
+     apart (the lower id up). A fork is drawn parent → child.
+   - Each line the viewer can read (`access:'open'`) has a `.lab` pill at its
+     midpoint (by path length) reading `linkLabel` with a lime dot, or the fork icon
+     on a fork line. A locked link is a bare line with no label or popover.
+   - A link's label opens the Hand-off popover (`role=dialog`, `Hand-off between
+     chats`), 380 px wide under the label (the mock's `popAt`: 170 px left of it and
+     10 px below, kept 16 px inside the window and 76 px from the top). It reads the
+     link from `GET /api/flows/links?channelId=` (the source chat first) for its
+     version, titles and rights, and shows What passes along, When, `Who picks it up
+     in "{target}"` (the target's agents, `Nobody, just context`, and `+ Someone
+     else` for the person's pinned agents), Name on the line, a plain summary
+     (`When {first agent} finishes something in {source}, … to {target} and {who}
+     picks it up.`, ending `Paused right now.` while paused) and Disconnect, Send
+     now (manual links), Pause or Resume, and Done.
+   - Each option press `PATCH`es at once, one write at a time, with the version the
+     last write returned (a 409 retries once on the current version). The name saves
+     600 ms after typing stops (empty saves as `results`) and the line's label
+     follows it as typed. An agent from `+ Someone else` who is not in the target
+     is added first (the chat's manage rights; otherwise `You can't add people to
+     this chat`). Only the creator (`canEdit`) on a canvas they may edit changes
+     the settings; anyone else sees them disabled. `canManage` (the creator or a
+     target member) keeps Pause/Resume, Disconnect and Send now.
+   - Disconnect toasts `Disconnected. "{target}" keeps what it already got.`; Send
+     now toasts `Sent to "{target}".` or the API's 409 text. Escape (before an open
+     chat's own Escape) and a press outside close the popover; a canvas press that
+     closes it leaves an open chat open (`CANVAS_POPOVER`).
+   - A fork line's label pauses or resumes its findings with no popover, and toasts
+     `Paused: findings from "{fork}" no longer flow back to "{parent}".` or
+     `Findings from "{fork}" flow back to "{parent}" again.`.
+   - Switchyard lines: a `message.created` from the service agent that carries
+     `payload.nestSwitchyard` shows its first line as `↳` and muted italics, then
+     the rest as an ordinary body with its files, with no portrait, author or `To
+     @…` line. The service agent's face shows in the open chat's sub-line titled
+     `Switchyard · posts hand-offs and scheduled runs; never replies`; it is never a
+     card row, a tray or picker face, a mention candidate or a quiet agent.
+8. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
    `handoff.test.ts`, `access.test.ts` and the fork case in `canvas-board.test.ts`
    run against the real engine and Nest handlers with temporary databases.
    `handoff.test.ts` covers a lost post response followed by a restart (exactly one
    hand-off), an engine outage, the cap, lost access and the engine watch.
+   `tests/browser/canvas/links.ts` drives the lines, labels and popover in a browser
+   against the real engine, API and worker (the harness's `flows` option ticks the
+   worker every 200 ms), through pause, a delivered hand-off and disconnect.
 
 ## Private Community catalog
 

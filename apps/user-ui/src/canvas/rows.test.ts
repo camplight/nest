@@ -13,6 +13,15 @@ const item=(kind:'mention'|'review',from:string|null,reason:string,at=1):NeedsIt
 const rows=(pulse:Partial<CardPulse>,participants=[agent('Pip'),human('mate'),human('me')],needs:NeedsItem[]=[])=>participantRows({participants,pulse:{...base,...pulse},needs,viewer:'me'});
 
 describe('participantRows',()=>{
+  it('never gives the Switchyard service agent a row, from the roster or from live state',()=>{
+    const live=participantRows({participants:[agent('Pip'),agent('Switchyard'),human('me')],pulse:{...base,agents:[{name:'Pip',state:'idle',since:0},{name:'Switchyard',state:'quiet',since:0,quietMinutes:9}]},needs:[],viewer:'me',service:'Switchyard'});
+    expect(live.map(r=>r.name)).toEqual(['Pip','me']);
+    const seeded=participantRows({participants:[agent('Switchyard'),agent('Pip')],needs:[],viewer:'me',service:'Switchyard'});
+    expect(seeded.map(r=>r.name)).toEqual(['Pip']);
+    // Without a service agent (flows off, or the name belongs to someone else's agent) the name is an ordinary agent.
+    expect(participantRows({participants:[agent('Switchyard')],needs:[],viewer:'me'}).map(r=>r.name)).toEqual(['Switchyard']);
+  });
+
   it('shows each agent\'s live activity: the app in use while working, else the progress line, else the state',()=>{
     const result=rows({agents:[
       {name:'Pip',state:'working',since:1,activity:'Drafting',app:{app:'gmail',appName:'Gmail',action:'Fetch emails'}},

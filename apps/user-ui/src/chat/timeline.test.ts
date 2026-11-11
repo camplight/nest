@@ -218,6 +218,22 @@ describe('additions',()=>{
   expect(spaced).toBeDefined();
   expect(toThreadMessage(spaced!).content).toEqual([{type:'text',text:'  spaced  '}]);
  });
+ it('a Switchyard post becomes a line: its first line apart, the rest as the body with its files, and no To @ line',()=>{
+  const service={...opts,serviceAgent:'Switchyard'};
+  const post=msg('h','agent:Switchyard',{text:'Hand-off from Launch · set up by alek\n\nDraft ready',targetAgentName:'Pom',
+   attachments:[{fileId:'f1',name:'draft.md'}],nestSwitchyard:{kind:'handoff',setBy:'u1'}},1000);
+  const [item]=buildTimeline([post],service);
+  expect(item).toMatchObject({kind:'message',switchyard:'Hand-off from Launch · set up by alek',text:'Draft ready',attachments:[{fileId:'f1',name:'draft.md'}],meta:{authorName:'Switchyard',targetAgents:[]}});
+  // One line only: no body.
+  expect(buildTimeline([msg('n','agent:Switchyard',{text:'Picks up what "A" produces.',nestSwitchyard:{kind:'note'}})],service)[0]).toMatchObject({switchyard:'Picks up what "A" produces.',text:''});
+  // Without the service name (flows off), without the Nest marker, or from anyone else: an ordinary message.
+  expect(buildTimeline([post],opts)[0]).not.toHaveProperty('switchyard');
+  expect(buildTimeline([msg('x','agent:Switchyard',{text:'a\nb'})],service)[0]).not.toHaveProperty('switchyard');
+  expect(buildTimeline([msg('y','agent:Pip',{text:'a\nb',nestSwitchyard:{kind:'handoff'}})],service)[0]).not.toHaveProperty('switchyard');
+  // The service name arriving later rebuilds the item.
+  const before=buildTimeline([post],opts);
+  expect(buildTimeline([post],service,before)[0]).toHaveProperty('switchyard');
+ });
  it('a grown group split by a message keeps unique ids',()=>{
   const t0=tr('t0','agent.turn.phase',1050);
   const first=buildTimeline([e1,t1,t2],opts);

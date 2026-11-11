@@ -23,6 +23,8 @@ export type RowsInput = {
   needs: readonly NeedsItem[];
   /** The signed-in person's username. */
   viewer: string;
+  /** The Switchyard service agent's name: it posts hand-offs and never replies, so it never gets a row. */
+  service?: string | null;
 };
 
 /** Rows shown on a card before `+N more`, as in the mock. */
@@ -55,12 +57,13 @@ const WAITS_OVER = new Set<RowState>(['done', 'idle', 'posted']);
 const PRIORITY: Record<RowState, number> = {waiting: 0, working: 1, quiet: 2, interrupted: 3, failed: 3, done: 4, posted: 4, unavailable: 5, idle: 6};
 
 /** Every participant's row: agents in roster order, then people, with the viewer last. */
-export function participantRows({participants, pulse, needs, viewer}: RowsInput): ParticipantRow[] {
+export function participantRows({participants, pulse, needs, viewer, service = null}: RowsInput): ParticipantRow[] {
   const newestFrom = new Map<string, NeedsItem>();
   // Mentions come from people and reviews from agents, so an agent and a person with the same name never mix.
   const whoFrom = (item: NeedsItem) => `${item.kind === 'review' ? 'agent' : 'human'}:${item.from}`;
   for (const item of needs) if (item.from && !newestFrom.has(whoFrom(item))) newestFrom.set(whoFrom(item), item);
-  const agents = pulse?.agents ?? participants.filter(p => p.subscriberType === 'AGENT').map((p): AgentPulse => ({name: p.subscriberId, state: 'idle', since: 0}));
+  const agents = (pulse?.agents ?? participants.filter(p => p.subscriberType === 'AGENT').map((p): AgentPulse => ({name: p.subscriberId, state: 'idle', since: 0})))
+    .filter(agent => agent.name !== service);
   const people = new Map((pulse?.people ?? []).map(person => [person.name, person]));
   const humans = participants.filter(p => p.subscriberType === 'HUMAN').map(p => p.subscriberId);
   const rows: ParticipantRow[] = agents.map(agent => ({kind: 'agent', name: agent.name, label: agent.name, state: agent.state, text: agentText(agent), app: agent.state === 'working' ? agent.app ?? null : null}));

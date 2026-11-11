@@ -26,6 +26,7 @@ import {apiUrl} from './config';
 import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
 import { Community } from "./Community";
 import { CanvasView, type CanvasChatMode } from "./canvas/CanvasView";
+import { useServiceAgent } from "./canvas/useFlows";
 import { insideCanvasChat, outsideFileDropTargets } from "./components/file-drop";
 import { canvasAvailability } from "./canvas/api";
 import { usePhoneLayout } from "./canvas/PhoneList";
@@ -525,8 +526,10 @@ export default function App() {
     void apiJson<{items:import("@nest/schemas").AssistantOffer[]}>("/api/assistants",{signal:abort.signal}).then(value=>{if(!abort.signal.aborted)setSharedAssistants(Array.isArray(value.items)?value.items:[]);}).catch(()=>{if(!abort.signal.aborted)setSharedAssistants([]);});
     return ()=>abort.abort();
   },[authenticated,activeChannelId,userId]);
+  // The Switchyard service agent (flows, behind the canvas flag) is never offered as a mention.
+  const serviceAgent = useServiceAgent(canvasAvailable === true);
   const mentionOptions = useMemo(() => {
-    const candidates=mentionCandidates(visibleAgents, humans, activeChannel?.participants ?? []);
+    const candidates=mentionCandidates(visibleAgents, humans, activeChannel?.participants ?? [], serviceAgent);
     for(const offer of sharedAssistants.filter(item=>!item.yours)){
       const existing=candidates.find(item=>item.kind==='Agent'&&item.name===offer.agentName);
       if(existing?.inConversation)continue;
@@ -534,7 +537,7 @@ export default function App() {
       else candidates.push({id:'ASSISTANT:'+offer.agentName,name:offer.agentName,kind:'Agent',inConversation:false,assistantOwner:offer.ownerName});
     }
     return candidates;
-  }, [visibleAgents, humans, activeChannel?.participants,sharedAssistants,userId]);
+  }, [visibleAgents, humans, activeChannel?.participants,sharedAssistants,userId,serviceAgent]);
 
   const filteredChannels = useMemo(() => {
     const query = channelQuery.trim().toLowerCase();

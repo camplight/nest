@@ -1,7 +1,7 @@
 // The infinite canvas: pan and zoom (mouse, trackpad, touch), culling, area drawing and card/area moves.
 // One transformed container holds every mounted item; only items near the viewport mount.
 import {useCallback,useEffect,useLayoutEffect,useMemo,useReducer,useRef,useState,type DragEvent as ReactDragEvent,type MutableRefObject,type PointerEvent as ReactPointerEvent} from 'react';
-import {CanvasTint,areaFor,type BoardCard,type CanvasArea,type CanvasBoard,type ContextLink} from '@nest/schemas';
+import {CanvasTint,areaFor,type BoardCard,type BoardLink,type CanvasArea,type CanvasBoard,type ContextLink} from '@nest/schemas';
 import type {BoardOp} from './board-store';
 import {Area,type AreaContext,type AreaSummary} from './Area';
 import {Card,cardTitle} from './Card';
@@ -12,6 +12,7 @@ import type {NeedsItem} from './needs';
 import {ORIGIN,areaMembers,cardCentre,clampZoom,fit,growToFit,isCompact,toCanvas,visible,zoomAt,type Point,type Rect,type Size,type View} from './geometry';
 import {CARD_PLACE_HEIGHT} from './loose';
 import {clearOfDrawer,presentView,stageBounds} from './sheet';
+import {Links} from './Links';
 
 export type SurfaceProps = {
   board: CanvasBoard;
@@ -67,7 +68,14 @@ export type SurfaceProps = {
   onEmptyPress?(): void;
   /** Fit was pressed; it fits once this returns (an open sheet closes first). */
   onFit?(): void;
+  /** Links between chats on this canvas, drawn under the cards; absent when hand-offs are not set up here. */
+  links?: readonly BoardLink[];
+  /** A link's label was pressed: open its Hand-off popover under it. */
+  onOpenLink?(linkId: string, anchor: HTMLElement): void;
+  /** A fork line's label was pressed: pause or resume its findings. */
+  onToggleFork?(linkId: string): void;
 };
+const NO_RECTS: ReadonlyMap<string, Rect> = new Map();
 export type FileDropTarget = {kind: 'card'; channelId: string} | {kind: 'area'; areaId: string};
 const carriesFiles = (event: ReactDragEvent) => event.dataTransfer.types.includes('Files');
 export type SurfaceControls = {
@@ -153,7 +161,8 @@ const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + 
 
 export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null,
   onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onOpenCanvas, onDropFiles,
-  needs = NO_NEEDS, viewer = '', onNotice, onAreaCreated, renameAreaId = null, onRenameStarted, onViewChange, onEmptyPress, onFit}: SurfaceProps) {
+  needs = NO_NEEDS, viewer = '', onNotice, onAreaCreated, renameAreaId = null, onRenameStarted, onViewChange, onEmptyPress, onFit,
+  links, onOpenLink, onToggleFork}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
   // Without a known human the view is not remembered, so it can never land under another person's key.
   const key = humanId ? viewKey(humanId, board.canvas.id) : null;
@@ -668,6 +677,21 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       return a && b && areaContext?.get(from)?.links.some(link => link.sourceAreaId === to) ? [{key: `${from}:${to}`, from: a, to: b}] : [];
     });
   }, [linkHover, flash, contextAreaId, areaContext, board.areas]);
+  // Link lines follow every card, mounted or not, and a card being dragged.
+  const linkRects = useMemo(() => {
+    if (!links?.length) return NO_RECTS;
+    const rects = new Map<string, Rect>();
+    for (const r of cardRects) {
+      const shift = preview?.kind === 'card' && preview.id === r.card.channelId ? preview
+        : preview?.kind === 'area' && preview.cards.has(r.card.channelId) ? preview : null;
+      rects.set(r.card.channelId, {x: r.x + (shift?.dx ?? 0), y: r.y + (shift?.dy ?? 0), w: r.w, h: r.h});
+    }
+    return rects;
+  }, [links, cardRects, preview]);
+  const openLinkRef = useRef(onOpenLink); openLinkRef.current = onOpenLink;
+  const toggleForkRef = useRef(onToggleFork); toggleForkRef.current = onToggleFork;
+  const openFlow = useCallback((linkId: string, anchor: HTMLElement) => openLinkRef.current?.(linkId, anchor), []);
+  const toggleFork = useCallback((linkId: string) => toggleForkRef.current?.(linkId), []);
   const tile = TWIG_TILE * view.zoom;
   const classes = ['canvas-surface', tool === 'area' ? 'is-drawing' : '', spaceHeld ? 'is-panning-key' : '', preview ? 'is-gesturing' : ''].filter(Boolean).join(' ');
   return <div
@@ -703,6 +727,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
           renaming={area.id === renameAreaId} onRenameStarted={renameStarted}/>;
       })}
       {lines.map(line => <ContextLine key={line.key} from={line.from} to={line.to}/>)}
+      {links?.length ? <Links links={links} rects={linkRects} selected={selectedChannelId} onOpen={openFlow} onToggleFork={toggleFork}/> : null}
       {preview?.kind === 'draw' ? <div className="canvas-area-draft" style={{transform: `translate(${preview.rect.x}px, ${preview.rect.y}px)`, width: Math.max(MIN_AREA, preview.rect.w), height: Math.max(MIN_AREA, preview.rect.h)}}/> : null}
       {board.cards.map(card => {
         const shift = cardShift(card), home = homeOf(card);

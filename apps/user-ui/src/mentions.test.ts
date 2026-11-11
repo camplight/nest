@@ -19,6 +19,11 @@ describe('inline mention completion',()=>{
   expect(candidates).toHaveLength(3);
   expect(rankMentions(candidates,'')[0]).toMatchObject({kind:'Agent',name:'same',inConversation:true});
  });
+ it('never offers the Switchyard service agent, from the roster or the chat\'s members',()=>{
+  const candidates=mentionCandidates([{name:'Pip'},{name:'Switchyard'}],[],[{subscriberType:'AGENT',subscriberId:'Switchyard'}],'Switchyard');
+  expect(candidates.map(c=>c.name)).toEqual(['Pip']);
+  expect(mentionCandidates([{name:'Switchyard'}],[],[]).map(c=>c.name)).toEqual(['Switchyard']);
+ });
  it('inserts at the caret without losing following text, punctuation, names with spaces or email handles',()=>{
   expect(insertMention('Hi @pu, thanks',findMention('Hi @pu, thanks',6)!,'Puff')).toEqual({value:'Hi @Puff, thanks',caret:8});
   expect(insertMention('Hi @puff later',findMention('Hi @puff later',6)!,'PuffVitaliy').value).toBe('Hi @PuffVitaliy later');

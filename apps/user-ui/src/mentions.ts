@@ -7,11 +7,12 @@ export function findMention(value:string, caret:number, selectionEnd=caret): Men
   return trigger?.trigger==='@' ? {start:trigger.start,end:trigger.end,query:trigger.query} : null;
 }
 const normalize=(s:string)=>s.normalize('NFKD').replace(/\p{M}/gu,'').toLocaleLowerCase();
-export function mentionCandidates(agents:Agent[],humans:{username:string}[],participants:ChannelParticipant[]): MentionCandidate[] {
+/** `service`: the Switchyard service agent's name; it posts hand-offs and never replies, so it is never offered. */
+export function mentionCandidates(agents:Agent[],humans:{username:string}[],participants:ChannelParticipant[],service:string|null=null): MentionCandidate[] {
   const members=new Set(participants.map(p=>`${p.subscriberType.toUpperCase()}:${p.subscriberId}`));
   const result=new Map<string,MentionCandidate>();
   const add=(name:string,kind:'Agent'|'Person')=>{
-    if (!name || /[\r\n\0]/.test(name)) return;
+    if (!name || /[\r\n\0]/.test(name) || (kind==='Agent'&&name===service)) return;
     const id=`${kind==='Agent'?'AGENT':'HUMAN'}:${name}`;
     result.set(id,{id,name,kind,inConversation:members.has(id)});
   };

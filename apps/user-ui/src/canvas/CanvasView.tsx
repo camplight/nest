@@ -1,7 +1,7 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
 import {useCallback,useEffect,useId,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore,type CSSProperties,type FormEvent,type ReactNode} from 'react';
 import {Columns2,Ellipsis,FileText,Search,Share2,SquareArrowOutUpRight,X} from 'lucide-react';
-import {AGENT_PIN_LIMIT_MESSAGE,CanvasTint,type AgentPins,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
+import {AGENT_PIN_LIMIT_MESSAGE,CanvasTint,type AgentPins,type BoardLink,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
@@ -35,6 +35,9 @@ import {CONTEXT_WARNING,ContextPanel} from './ContextPanel';
 import {errorText,getContextSummary,uploadContextFile,type PanelScope} from './context-api';
 import {chatSees,contextLabel,joinNames,type ChatSees} from './context-label';
 import {cardSheet,clearOfDrawer,looseSheet,samePlace,stageBounds,type SheetPlace} from './sheet';
+import {isServiceAgent,useFlows} from './useFlows';
+import {LinkConflict,deleteLink,flowError,getLinks,patchLatest,sendNow,type LinkView} from './flows-api';
+import {HandoffPopover,type HandoffChange} from './HandoffPopover';
 import './canvas.css';
 
 export type CanvasHuman = {id?: string; username: string};
@@ -164,6 +167,12 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const areaGone = Boolean(panel?.kind === 'area' && board && !board.areas.some(a => a.id === panel.areaId));
   useEffect(() => { if (areaGone) setPanel(null); }, [areaGone]);
   const pulses = useSyncExternalStore(live.subscribe, live.snapshot);
+  // Hand-offs: shown only when the server has them set up. The service agent (Switchyard) posts them; it is never a
+  // card row, a tray or picker face, a mention or a quiet agent.
+  const flows = useFlows(Boolean(canvasId));
+  const flowsOn = flows.availability?.enabled === true;
+  const service = flows.availability?.serviceAgent ?? null;
+  const roster = useMemo(() => agents.filter(agent => !isServiceAgent(agent.name, service)), [agents, service]);
   // Live state refreshes only while the canvas view is mounted.
   useEffect(() => { live.start(); return () => live.stop(); }, [live]);
   const cards = board?.cards;
@@ -185,10 +194,10 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   useEffect(() => {
     live.setCards([
       ...(cards ?? []).flatMap(card => card.access === 'open'
-        ? [{channelId: card.channelId, agentNames: card.participants.filter(p => p.subscriberType === 'AGENT').map(p => p.subscriberId)}] : []),
-      ...candidates.map(chat => ({channelId: chat.channelId, agentNames: chat.agents})),
+        ? [{channelId: card.channelId, agentNames: card.participants.filter(p => p.subscriberType === 'AGENT' && !isServiceAgent(p.subscriberId, service)).map(p => p.subscriberId)}] : []),
+      ...candidates.map(chat => ({channelId: chat.channelId, agentNames: chat.agents.filter(name => !isServiceAgent(name, service))})),
     ]);
-  }, [cards, candidates, live]);
+  }, [cards, candidates, live, service]);
 
   const [memberNotice, setMemberNotice] = useState<MemberNotice | null>(null);
   useEffect(() => { setMemberNotice(null); }, [canvasId]);
@@ -343,7 +352,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const chatHome = board && openCard?.access === 'open' ? areaFor(cardCentre(openCard), board.areas) ?? null : null;
   const chatChannel = channels.find(channel => channel.id === chatChannelId);
   const chatSub: ChatSub | undefined = board && chatShown ? {
-    people: chatPeople.map(p => ({agent: p.subscriberType === 'AGENT', name: p.subscriberId})),
+    people: chatPeople.map(p => ({agent: p.subscriberType === 'AGENT', name: p.subscriberId, service: p.subscriberType === 'AGENT' && isServiceAgent(p.subscriberId, service)})),
     state: chatChannel?.archivedAt ? 'Archived' : chatChannel?.canPost === false ? 'Read-only' : undefined,
     place: openCard?.access === 'open'
       ? {kind: 'card', area: chatHome ? chatHome.title || 'Untitled area' : null,
@@ -530,7 +539,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const [pins, setPinState] = useState<(AgentPins & {failed?: true}) | null>(null);
   const pinsRef = useRef(pins);
   const setPins = useCallback((next: (AgentPins & {failed?: true}) | null) => { pinsRef.current = next; setPinState(next); }, []);
-  const agentsRef = useRef(agents); agentsRef.current = agents;
+  const agentsRef = useRef(roster); agentsRef.current = roster;
   // One saver and press queue per person: when the person changes or the view closes, pending saves are dropped and
   // answers still on their way are ignored, so one person's list is never saved under the next session.
   const pinControl = useRef<{press(name: string): void} | null>(null);
@@ -572,10 +581,10 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     };
   }, [humanId, say, setPins]);
   // The pins the person sees (the seed until they save any). A star press saves that list with the one change.
-  const shownPins = useMemo(() => effectivePins(pins, agents, humanId), [pins, agents, humanId]);
+  const shownPins = useMemo(() => effectivePins(pins, roster, humanId), [pins, roster, humanId]);
   const toggle = useCallback((name: string) => { pinControl.current?.press(name); }, []);
-  const tray = useMemo(() => board ? trayAgents({agents, cards: board.cards, areas: board.areas, selectedId: selected?.channelId ?? null, pins: shownPins})
-    : {suggested: [], pinned: []}, [board, agents, selected, shownPins]);
+  const tray = useMemo(() => board ? trayAgents({agents: roster, cards: board.cards, areas: board.areas, selectedId: selected?.channelId ?? null, pins: shownPins})
+    : {suggested: [], pinned: []}, [board, roster, selected, shownPins]);
   const busy = useMemo(() => busyCounts(board?.cards ?? [], pulses), [board, pulses]);
   const owners = useMemo(() => new Map(humans.flatMap(person => person.id ? [[person.id, person.username] as const] : [])), [humans]);
   // Needs you and search. Only chats the person can see are named: open cards and loose chats, never a locked or unavailable card.
@@ -744,6 +753,116 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       if (settle(fresh, by)) say(`Removed ${agent}`, () => { setMemberNotice(null); void add(channelId, agent); });
     } catch { if (humanRef.current === by) say(`Could not remove ${agent}. Try again.`); }
   }, [store, manageable, settle, say, add]);
+  /**
+   * The Hand-off popover: opened from a line's label, read from the link API (version, titles and rights), and saved
+   * one change at a time so each write carries the version the previous one returned. While it is open the line shows
+   * its settings (and the name as typed) before the board re-reads them.
+   */
+  const [flowPop, setFlowPop] = useState<{linkId: string; anchor: HTMLElement | null; view: LinkView | null; draft?: string} | null>(null);
+  const flowPopRef = useRef(flowPop); flowPopRef.current = flowPop;
+  useEffect(() => { setFlowPop(null); }, [canvasId]);
+  const flowLinkGone = Boolean(flowPop && board && !board.links.some(l => l.id === flowPop.linkId && l.access === 'open'));
+  useEffect(() => { if (flowLinkGone) setFlowPop(null); }, [flowLinkGone]);
+  /** The link with its version and rights, read through a chat the viewer can read (the source first). */
+  const readLink = useCallback(async (linkId: string): Promise<LinkView | null> => {
+    const current = store.snapshot().board, link = current?.links.find(l => l.id === linkId);
+    if (!current || !link) return null;
+    const readable = (id: string) => current.cards.some(card => card.channelId === id && card.access === 'open');
+    for (const channelId of readable(link.from) || !readable(link.to) ? [link.from, link.to] : [link.to, link.from]) {
+      try { const found = (await getLinks(channelId)).find(l => l.id === linkId); if (found) return found; } catch {}
+    }
+    return null;
+  }, [store]);
+  const openFlowLink = useCallback((linkId: string, anchor: HTMLElement) => {
+    if (flowPopRef.current?.linkId === linkId) return;
+    setFlowPop({linkId, anchor, view: null});
+    void readLink(linkId).then(view => {
+      if (flowPopRef.current?.linkId !== linkId) return;
+      if (view) setFlowPop(current => current?.linkId === linkId ? {...current, view} : current);
+      else { setFlowPop(null); say('Could not open this hand-off. Try again.'); }
+    });
+  }, [readLink, say]);
+  const closeFlowPop = useCallback(() => setFlowPop(null), []);
+  const flowQueue = useRef<Promise<void>>(Promise.resolve());
+  const queueFlow = useCallback((run: () => Promise<void>) => { flowQueue.current = flowQueue.current.then(run, run); }, []);
+  const changeFlow = useCallback((change: HandoffChange) => queueFlow(async () => {
+    const view = flowPopRef.current?.view;
+    if (!view) return;
+    const by = humanRef.current;
+    // An agent from `+ Someone else` joins the receiving chat first (manage rights), then picks it up.
+    if (change.who) {
+      const card = cardFor(view.to);
+      const inChat = card?.access === 'open' && card.participants.some(p => p.subscriberType === 'AGENT' && p.subscriberId === change.who);
+      if (!inChat) {
+        if (!card || card.access !== 'open' || !manageable(card)) { say(CANT_ADD); return; }
+        try {
+          const fresh = await addChatMember({channelId: card.channelId, projectId: card.projectId, member: {subscriberType: 'AGENT', subscriberId: change.who}, fetch: apiFetch, fetchJson: apiJson});
+          if (!settle(fresh, by)) return;
+        } catch { if (humanRef.current === by) say(`Could not add ${change.who}. Try again.`); return; }
+      }
+    }
+    const before = view;
+    setFlowPop(current => current?.linkId === view.id && current.view ? {...current, view: {...current.view, ...change}} : current);
+    try {
+      const saved = await patchLatest(view.id, change, flowPopRef.current?.view?.version ?? view.version);
+      setFlowPop(current => current?.linkId === saved.id && current.view
+        ? {...current, view: {...current.view, ...saved}, draft: change.label !== undefined && current.draft === saved.label ? undefined : current.draft} : current);
+      void store.refresh({force: true});
+      if (change.on !== undefined) flows.refresh();
+    } catch (error) {
+      setFlowPop(current => current?.linkId === before.id && current.view
+        ? {...current, view: {...current.view, what: before.what, when: before.when, who: before.who, label: before.label, on: before.on}, draft: undefined} : current);
+      if (error instanceof LinkConflict && !error.current) { setFlowPop(null); void store.refresh({force: true}); }
+      say(flowError(error, 'Could not change the hand-off. Try again.'));
+    }
+  }), [queueFlow, manageable, settle, say, store, flows.refresh]);
+  const disconnectFlow = useCallback(() => queueFlow(async () => {
+    const view = flowPopRef.current?.view;
+    if (!view) return;
+    const version = flowPopRef.current?.view?.version ?? view.version;
+    try {
+      try { await deleteLink(view.id, version); } catch (error) {
+        if (!(error instanceof LinkConflict)) throw error;
+        if (error.current) await deleteLink(view.id, error.current.version);
+      }
+      setFlowPop(null);
+      say(`Disconnected. "${view.toTitle}" keeps what it already got.`);
+      void store.refresh({force: true});
+      flows.refresh();
+    } catch (error) { say(flowError(error, 'Could not disconnect. Try again.')); }
+  }), [queueFlow, say, store, flows.refresh]);
+  const sendFlow = useCallback(() => queueFlow(async () => {
+    const view = flowPopRef.current?.view;
+    if (!view) return;
+    try {
+      await sendNow(view.id);
+      setFlowPop(null);
+      say(`Sent to "${view.toTitle}".`);
+    } catch (error) { say(flowError(error, 'Could not send it. Try again.')); }
+  }), [queueFlow, say]);
+  const draftFlowLabel = useCallback((label: string) => setFlowPop(current => current ? {...current, draft: label} : current), []);
+  /** A fork line's label: findings stop or start flowing back to the parent, with no popover (the mock's toggle-link). */
+  const toggleFork = useCallback((linkId: string) => queueFlow(async () => {
+    const view = await readLink(linkId);
+    if (!view) { say('Could not change the fork. Try again.'); return; }
+    try {
+      const saved = await patchLatest(view.id, {on: !view.on}, view.version);
+      say(saved.on ? `Findings from "${view.fromTitle}" flow back to "${view.toTitle}" again.` : `Paused: findings from "${view.fromTitle}" no longer flow back to "${view.toTitle}".`);
+      void store.refresh({force: true});
+      flows.refresh();
+    } catch (error) { say(flowError(error, 'Could not change the fork. Try again.')); }
+  }), [queueFlow, readLink, say, store, flows.refresh]);
+  // The board's links, with the open popover's settings (and the name as typed) over its own line.
+  const shownLinks = useMemo((): BoardLink[] | undefined => {
+    if (!flowsOn || !board) return undefined;
+    const view = flowPop?.view;
+    if (!view) return board.links;
+    return board.links.map(l => l.id === view.id && l.access === 'open'
+      ? {...l, what: view.what, when: view.when, who: view.who, on: view.on, label: flowPop?.draft ?? view.label} : l);
+  }, [flowsOn, board, flowPop]);
+  const flowCards = flowPop?.view && board ? {from: board.cards.find(c => c.channelId === flowPop.view!.from), to: board.cards.find(c => c.channelId === flowPop.view!.to)} : null;
+  const agentsOf = (card: BoardCard | undefined) => card?.access === 'open'
+    ? card.participants.filter(p => p.subscriberType === 'AGENT' && !isServiceAgent(p.subscriberId, service)).map(p => p.subscriberId) : [];
   // Access lost: say so, open the menu on what is left, and stay put (no redirect, so no loop).
   const gone = state.status === 'gone' && state.canvasId === canvasId;
   useEffect(() => {
@@ -803,9 +922,10 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
           onDropAgent={dropAgent} onRemoveAgent={removeAgent} canManageCard={manageable} onSelectCard={setSelectedId} selectedChannelId={selected?.channelId ?? null}
           areaContext={areaContext} onAreaContext={openAreaContext} contextAreaId={panel?.kind === 'area' ? panel.areaId : null} onOpenCanvas={id => onSelectCanvas(id)} onDropFiles={focusChat ? undefined : dropFiles}
           needs={cardNeeds} viewer={username} onNotice={say} onAreaCreated={setRenameAreaId} renameAreaId={renameAreaId} onRenameStarted={renameStarted}
-          onViewChange={viewChanged} onEmptyPress={focusChat ? emptyPress : undefined} onFit={focusChat ? fitCloses : undefined}/>
+          onViewChange={viewChanged} onEmptyPress={focusChat ? emptyPress : undefined} onFit={focusChat ? fitCloses : undefined}
+          links={shownLinks} onOpenLink={openFlowLink} onToggleFork={toggleFork}/>
         <AgentTray suggested={tray.suggested} pinned={tray.pinned} pins={shownPins} pinsReady={pins !== null} onTogglePin={toggle}
-          agents={agents} humanId={humanId} owners={owners} busy={busy} cards={board.cards} areas={board.areas} open={pickerOpen} onOpenChange={showPicker}/>
+          agents={roster} humanId={humanId} owners={owners} busy={busy} cards={board.cards} areas={board.areas} open={pickerOpen} onOpenChange={showPicker}/>
         {/* Files dropped on empty canvas start a chat here, even beside a split chat; a focus chat takes every drop itself. */}
         {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!focusChat}
           fileDropAccept={outsideCanvasChat} fileDropOverlay={false} onFilesDropped={dockFiles}/></div> : null}
@@ -881,6 +1001,10 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         title={panel.kind === 'area' ? board.areas.find(a => a.id === panel.areaId)?.title : undefined}
         canEdit={board.canvas.role !== 'view'} dropped={areaFiles?.areaId === (panel.kind === 'area' ? panel.areaId : null) ? areaFiles : null} holdsChat={panel.kind === 'canvas' ? board.cards.length > 0 : board.cards.some(card => areaFor(cardCentre(card), board.areas)?.id === panel.areaId)}
         onViewOnlyDrop={() => say(VIEW_ONLY_FILES)} onChanged={() => loadSummary(board.canvas.id)} onClose={() => setPanel(null)}/> : null}
+      {flowPop?.view && board && !phone ? <HandoffPopover key={flowPop.linkId} link={flowPop.view} fromTitle={flowPop.view.fromTitle} toTitle={flowPop.view.toTitle}
+        fromAgent={agentsOf(flowCards?.from)[0] ?? null} candidates={flowCards?.to?.access === 'open' ? agentsOf(flowCards.to) : flowPop.view.who ? [flowPop.view.who] : []}
+        pinned={shownPins} anchor={flowPop.anchor} editable={flowPop.view.canEdit && board.canvas.role !== 'view'}
+        onChange={changeFlow} onLabelDraft={draftFlowLabel} onDisconnect={disconnectFlow} onSendNow={sendFlow} onClose={closeFlowPop}/> : null}
     </div>
   </section>;
 }
@@ -904,12 +1028,12 @@ function CanvasMain({behind, children}: {behind: 'hidden' | 'inert' | null; chil
 
 const SPLIT_STEP = 2;
 /** Another dialog above the chat (manage channel, the tour) takes Escape and Tab for itself, and so does an open context popover. */
-const OTHER_DIALOG = '[aria-modal="true"]:not(.canvas-chat), .dialog-backdrop, .canvas-context';
+const OTHER_DIALOG = '[aria-modal="true"]:not(.canvas-chat), .dialog-backdrop, .canvas-context, .canvas-flow-pop';
 /**
  * An open popover a press on the canvas closes first: the sheet stays open under it (the mock's anyPop). The Loose chats
  * drawer is not one: it stays open through canvas presses (as in the mock), so a press with it open still closes the sheet.
  */
-export const CANVAS_POPOVER = '.canvas-context, .canvas-chat-menu:not([hidden]), .canvas-menu, .canvas-picker';
+export const CANVAS_POPOVER = '.canvas-context, .canvas-flow-pop, .canvas-chat-menu:not([hidden]), .canvas-menu, .canvas-picker';
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
 
 /** Where a focus chat's sheet is anchored: over its card, or as a plain chat over the bottom box. */
@@ -926,7 +1050,8 @@ type ChatArea = {areas: {id: string; title: string}[]; current: string | null; p
 const ON_CANVAS = 'canvas';
 /** Who is in the open chat, and where its card sits and which context it reads. */
 type ChatSub = {
-  people: {agent: boolean; name: string}[];
+  /** `service`: the Switchyard agent, which posts hand-offs and scheduled runs and never replies. */
+  people: {agent: boolean; name: string; service?: boolean}[];
   /** An archived or read-only chat says so here (the regular view's header line, which the sheet leaves out). */
   state?: 'Archived' | 'Read-only';
   place: {kind: 'loose'} | {kind: 'card'; area: string | null; sees: ChatSees};
@@ -955,7 +1080,7 @@ function ChatSubline({sub}: {sub: ChatSub}) {
   return <p className="canvas-chat-sub">
     {people.length ? <span className="canvas-chat-faces" role="img" aria-label={`In this chat: ${people.map(p => p.name).join(', ')}`}>
       {shown.map(person => person.agent
-        ? <span key={`a:${person.name}`} className="canvas-chat-face" title={person.name}><AgentAvatar name={person.name} size={20}/></span>
+        ? <span key={`a:${person.name}`} className="canvas-chat-face" title={person.service ? `${person.name} · posts hand-offs and scheduled runs; never replies` : person.name}><AgentAvatar name={person.name} size={20}/></span>
         : <span key={`h:${person.name}`} className="canvas-chat-face is-human" title={person.name} aria-hidden="true">{initials(person.name)}</span>)}
       {more ? <span className="canvas-chat-face is-more" aria-hidden="true">+{more}</span> : null}
     </span> : null}

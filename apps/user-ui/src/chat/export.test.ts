@@ -30,6 +30,11 @@ describe('chatToMarkdown',()=>{
    '**Pip** · 2026-01-02 03:06','Synthetic reply','[report.txt](/api/files/f1)','',
   ].join('\n'));
  });
+ it('keeps a Switchyard line\'s first line above its body',()=>{
+  const post:EventRow={id:'h1',type:'message.created',source:'agent:Switchyard',payload:{text:'Hand-off from Launch · set up by synthetic-owner\n\nDraft ready',nestSwitchyard:{kind:'handoff'}},createdAt:T0};
+  const markdown=chatToMarkdown(buildTimeline([post],{currentUsername:'synthetic-owner',serviceAgent:'Switchyard'}),{channelLabel:'Synthetic channel',timeZone:'UTC'});
+  expect(markdown).toContain('**Switchyard** · 2026-01-02 03:04\n_Hand-off from Launch · set up by synthetic-owner_\nDraft ready');
+ });
  it('never serialises activity payloads (spec 5.6)',()=>{
   const markdown=chatToMarkdown(items,{channelLabel:'Synthetic channel',timeZone:'UTC'});
   for(const leak of ['SECRET','synthetic query','synthetic tool output','Search','stderr'])expect(markdown).not.toContain(leak);

@@ -48,7 +48,7 @@ export function MessageActions({item,onQuote,className}:{item:Extract<TimelineIt
  return <div ref={ref} data-slot="message-actions"
   className={cn('aui-message-action-bar h-4 items-center gap-1 text-muted-foreground [&>button]:size-4 [&>button]:p-0 [&>button]:rounded-sm [&_svg]:size-3',className,
    touch?(open?'flex':'hidden'):'hidden group-hover:flex group-focus-within:flex')}>
-  <TooltipIconButton tooltip="Copy message" side="top" onClick={()=>text.copyToClipboard(item.text)}>
+  <TooltipIconButton tooltip="Copy message" side="top" onClick={()=>text.copyToClipboard(item.switchyard?[item.switchyard,item.text].filter(Boolean).join('\n\n'):item.text)}>
    {text.isCopied?<CheckIcon aria-hidden="true"/>:<CopyIcon aria-hidden="true"/>}
   </TooltipIconButton>
   <TooltipIconButton tooltip="Copy link" side="top" onClick={()=>link.copyToClipboard(messageLink(item.meta.eventId,window.location.href))}>

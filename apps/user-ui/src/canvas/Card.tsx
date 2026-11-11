@@ -12,6 +12,7 @@ import {FileTile,fileSlots} from './FileTile';
 import type {AgentPulse,CardPulse} from './pulse';
 import type {NeedsItem} from './needs';
 import {participantRows,shownRows,type ParticipantRow,type RowState} from './rows';
+import {useServiceAgent} from './useFlows';
 
 export type CardProps = {
   card: BoardCard;
@@ -206,7 +207,8 @@ function OpenBody({card, pulse, needs, viewer, onNudge, facesDraggable, dragging
   facesDraggable: boolean; draggingFace: string | null; onOpen?(channelId: string): void; onRemove?(channelId: string): void;
 }) {
   const title = cardTitle(card);
-  const rows = participantRows({participants: card.participants, pulse, needs, viewer});
+  const service = useServiceAgent();
+  const rows = participantRows({participants: card.participants, pulse, needs, viewer, service});
   const {shown, hidden} = shownRows(rows);
   const quiet = rows.find(row => row.kind === 'agent' && row.state === 'quiet');
   const newest = needs[0];

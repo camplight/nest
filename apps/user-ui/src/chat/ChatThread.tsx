@@ -25,6 +25,7 @@ import {cn} from './ui/lib/utils';
 import {ChatPortalProvider} from './ui/portal';
 import {activeTurns,type WorkingTurn} from './working';
 import {WorkingRow} from './WorkingRow';
+import {useServiceAgent} from '../canvas/useFlows';
 import './chat.css';
 
 export type ChatThreadProps={
@@ -126,6 +127,18 @@ function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;pr
   const frame=window.requestAnimationFrame(reveal);
   return()=>window.cancelAnimationFrame(frame);
  },[highlighted]);
+ // A Switchyard line (the mock's `.msg.src`): `↳` in the avatar gutter and its first line in muted italics, then the
+ // rest as an ordinary body with its files. No author line, portrait or `To @…` line: it is a note of what moved, not a voice.
+ if(item.switchyard!==undefined)return <article ref={ref} id={`message-${item.id}`} data-message-id={item.id} tabIndex={highlighted?-1:undefined}
+  className={cn('message message-src',SHELL,spacing,highlighted&&'message-highlight bg-accent/40 ring-2 ring-ring')}>
+  <div className="w-8 shrink-0 pt-0.5 text-center text-sm leading-5 text-muted-foreground" aria-hidden="true">↳</div>
+  <div data-slot="message-focus" tabIndex={0} role="group" aria-label={`${meta.authorName}, ${formatTime(meta.displayAt)}`} className={COLUMN}>
+   {actions('absolute top-0 end-0 z-10')}
+   <p className="message-src-line m-0 pe-12 text-[13.5px] italic leading-5 text-muted-foreground [font-synthesis:style] [overflow-wrap:anywhere]">{item.switchyard}</p>
+   {item.text||item.attachments.length?<MessageBody item={item} channelId={props.snapshot.channelId??''} core={props.core} onPreviewDemo={props.onPreviewDemo}
+    onFocusMessage={props.onFocusMessage} onQuote={quote} fileTiles={props.appActivity}/>:null}
+  </div>
+ </article>;
  return <article ref={ref} id={`message-${item.id}`} data-message-id={item.id} tabIndex={highlighted?-1:undefined}
   className={cn('message',`message-${meta.authorKind}`,SHELL,spacing,highlighted&&'message-highlight bg-accent/40 ring-2 ring-ring')}>
   {!mine&&<div className="w-8 shrink-0 pt-0.5">{author?authorAvatar(meta):time}</div>}
@@ -210,11 +223,12 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  // A host with its own header (the canvas sheet) takes Huddle, Sharing and Export; the thread then has no header row.
  const slots=useContext(ChatHeaderSlotsContext);
  const previousItems=useRef<TimelineItem[]>([]);
+ const serviceAgent=useServiceAgent();
  const items=useMemo(()=>{
-  const next=buildTimeline(snapshot.events,{currentUsername,detachedIds:snapshot.detachedIds},previousItems.current);
+  const next=buildTimeline(snapshot.events,{currentUsername,detachedIds:snapshot.detachedIds,serviceAgent},previousItems.current);
   previousItems.current=next;
   return next;
- },[snapshot.events,snapshot.detachedIds,currentUsername]);
+ },[snapshot.events,snapshot.detachedIds,currentUsername,serviceAgent]);
  // Each active turn's row follows its trigger message, or the last item when the trigger is not loaded (spec 7.5.1).
  const turns=useMemo(()=>activeTurns(snapshot.events,props.agents,snapshot.agentStarts),[snapshot.events,props.agents,snapshot.agentStarts]);
  // A deep-link focus is pending until it scrolled into view and the reader then scrolled themselves (spec 8.5).

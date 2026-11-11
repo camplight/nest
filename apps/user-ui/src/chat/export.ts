@@ -20,6 +20,8 @@ export function chatToMarkdown(items:readonly TimelineItem[],opts:{channelLabel:
    continue;
   }
   const lines=[`**${item.meta.authorName}** · ${stamp(item.meta.displayAt,opts.timeZone)}`];
+  // A Switchyard line keeps its first line (who handed what off) above its body.
+  if(item.switchyard)lines.push(`_${item.switchyard}_`);
   if(item.text)lines.push(item.text);
   for(const attachment of item.attachments)lines.push(`[${linkLabel(attachment.name)}](/api/files/${encodeURIComponent(attachment.fileId)})`);
   blocks.push(lines.join('\n'));
