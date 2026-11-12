@@ -162,6 +162,9 @@ A successful agent turn alone must not imply human acceptance.
 - Legacy chat links resolve to the owned project. History and mobile are tested.
 - Existing creator-private projects remain private. New team projects resolve
   visibility through live human channel membership; task editing remains owner-only.
+- Direct-link visitors without membership see a metadata-free access gate and can
+  request access. Owners decide requests from Notifications or Project details and
+  can later revoke HUMAN access; approval and removal confirm live OrgOps membership.
 
 Pending deliverables now appear as actionable review cards in Up next.
 Next: persistent notification/read state across sessions. Release verification is recorded in the milestone PR; local

@@ -29,6 +29,37 @@ export type Deliverable = {id: string; taskId: string; attempt: number; eventId:
 export type Review = {id: string; taskId: string; deliverableId: string; decision: 'approve' | 'request_changes'; feedback: string; reviewerId: string; createdAt: number};
 export type ProjectDetail = Project & {tasks: Task[]; deliverables: Deliverable[]; reviews: Review[]};
 
+export const CreateProjectAccessRequestSchema = z.object({id: z.string().uuid()}).strict();
+export const ProjectAccessDecisionSchema = z.object({decision: z.enum(['approve', 'deny'])}).strict();
+export type ProjectAccessRequestStatus = 'pending' | 'approving' | 'approved' | 'denied';
+export type ProjectAccessRequest = {
+  id: string;
+  projectId: string;
+  requesterId: string;
+  requesterUsername: string;
+  status: ProjectAccessRequestStatus;
+  createdAt: number;
+  decisionStartedAt: number | null;
+  decidedAt: number | null;
+  decidedBy: string | null;
+};
+export type ProjectAccessRequesterState =
+  | {status: 'member'}
+  | {status: 'requestable'}
+  | {status: 'pending'; request: Pick<ProjectAccessRequest, 'id' | 'createdAt'>}
+  | {status: 'denied'; request: Pick<ProjectAccessRequest, 'id' | 'decidedAt'>};
+export type ProjectAccessNotification = {
+  id: string;
+  projectId: string;
+  projectName: string;
+  projectCollaboration: 'private' | 'team';
+  requesterId: string;
+  requesterUsername: string;
+  requesterAvailable: boolean;
+  status: 'pending' | 'approving';
+  createdAt: number;
+};
+
 // Product summaries only. Engine channels/agents remain authoritative upstream.
 export type ProjectOverview = {
   project: Project; totalTasks: number; finishedTasks: number; needsReview: number;

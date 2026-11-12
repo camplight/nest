@@ -15,6 +15,7 @@ import { registerAgentModelRoutes } from './agent-models';
 import { registerOnboardingRoutes, type PersonalAgentConfig } from './onboarding';
 import { registerCommunityRoutes } from './community';
 import { registerProjectRoutes } from './projects';
+import { registerProjectAccessRoutes } from './project-access';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { Hono } from 'hono';
@@ -76,6 +77,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   registerCollaborationRoutes(app,{store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
   registerAgentRequestRoutes(app,{store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
   const namingSource=process.env.NEST_PROJECT_NAMING_AGENT_NAME??managementName;
+  registerProjectAccessRoutes(app, {store, orgops});
   registerProjectRoutes(app, {
     store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN,
   });
