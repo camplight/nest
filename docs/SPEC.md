@@ -1265,8 +1265,15 @@ deviations; item 16 the checks.
      Nest stops it first and audits `audit.flows.service_agent.stopped`.
    - Posts go through `POST /api/events` with source `agent:<name>` and a
      deterministic idempotency key, so a retry returns the event already stored.
+     The engine's key lookup is global and a person can set any key through the
+     proxy, so a returned event counts as Nest's only when its source, type, chat and
+     key are the ones Nest posted; anything else is refused as a conflict (an engine
+     409 to the caller: a hand-off counts it as a refused attempt, a booking logs it).
      "Nobody, just context" targets the service agent itself, which is stopped, so no
      agent wakes.
+   - Before its first post in a chat in each process, the current agent (by engine
+     id) joins that chat (an idempotent subscribe). So an agent created again under a
+     new name, or after a deletion, joins the old one's chats as it first posts there.
 
 3. Access without a session. Background work decides a person's access from the
    engine channel record (`apps/api/src/flows/access.ts`, `channelAccess`):
@@ -1998,9 +2005,14 @@ deviations; item 16 the checks.
         as missed with `engine unavailable`, and webhook callers get 503 and retry.
       - Someone started the agent: Nest stops it before its next join, post or drain
         and audits `audit.flows.service_agent.stopped`.
-      - Keep the agent and its name once flows exist. Nest joins a chat only when a
-        link, fork, schedule or webhook is made there, so an agent created again under
-        a new name or after a deletion has not joined the chats the old one did.
+      - Keep the agent and its name once flows exist. Posts keep working after a
+        rename (`NEST_SWITCHYARD_AGENT_NAME` changed) or a re-creation, since the new
+        agent joins each chat before its first post there (item 2). But the old agent
+        stays subscribed to every linked chat, and Nest no longer watches it: it does
+        not re-stop it or drain its receipts, and its earlier posts no longer render as
+        Switchyard lines. If anyone starts it, it takes turns in all those chats. After
+        a rename, stop the old agent and keep it stopped, or delete it (which removes
+        its subscriptions).
     - Backups. Snapshot both databases together. The product DB
       (`.nest-product/nest.sqlite`) holds links and their hand-off cursors,
       deliveries, forks, schedules and runs, webhook token hashes and the

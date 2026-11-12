@@ -139,18 +139,34 @@ export function createSwitchyard({ store, orgops, token, name, workspaceRoot, de
     return service;
   }
 
+  // Chats the current service agent has joined in this process, as `<agentId>:<channelId>`. A re-created agent has
+  // another id, so it joins again before its first post in each chat.
+  const joined = new Set<string>();
+  const joinKey = (channelId: string) => `${cached?.agentId ?? ''}:${channelId}`;
+  async function subscribe(service: ServiceClient, channelId: string) {
+    await service.subscribe(channelId, { subscriberType: 'AGENT', subscriberId: agentName });
+    joined.add(joinKey(channelId));
+  }
+
   return {
     name: agentName,
     ensure,
     /** Subscribe the service agent to a chat; the engine ignores a repeat. */
     async join(channelId: string): Promise<void> {
-      await (await usable()).subscribe(channelId, { subscriberType: 'AGENT', subscriberId: agentName });
+      await subscribe(await usable(), channelId);
     },
-    /** Post as `agent:<name>`. The idempotency key makes a retry return the event already stored. */
+    /**
+     * Post as `agent:<name>`, joining the chat first if this agent has not yet in this process (after a rename or a
+     * re-creation, the new agent is not in the old one's chats). The idempotency key makes a retry return the event
+     * already stored; an event under the key that Nest did not post (another source, type, chat or key) is refused
+     * as a conflict (EngineError 409), never taken as Nest's receipt.
+     */
     async post(input: SwitchyardPost): Promise<EngineEvent> {
       const service = await usable();
-      return service.post({
-        type: input.type ?? 'message.created', source: `agent:${agentName}`, channelId: input.channelId,
+      if (!joined.has(joinKey(input.channelId))) await subscribe(service, input.channelId);
+      const type = input.type ?? 'message.created', source = `agent:${agentName}`;
+      const event = await service.post({
+        type, source, channelId: input.channelId,
         idempotencyKey: input.idempotencyKey, ...(input.deliverAt === undefined ? {} : { deliverAt: input.deliverAt }),
         payload: {
           text: input.text, targetAgentName: input.target ?? agentName,
@@ -158,6 +174,11 @@ export function createSwitchyard({ store, orgops, token, name, workspaceRoot, de
           nestSwitchyard: { ...input.meta, kind: input.kind, setBy: input.setBy },
         },
       });
+      if (event.source !== source || event.type !== type || event.channelId !== input.channelId || event.idempotencyKey !== input.idempotencyKey) {
+        log(`[switchyard] event ${event.id} under a Nest key was not posted by ${agentName}; refused`);
+        throw new EngineError(409, '/api/events');
+      }
+      return event;
     },
     /** One read of the service agent's due receipts, which marks them delivered. Returns the events read. */
     async drain(): Promise<number> {

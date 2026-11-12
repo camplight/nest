@@ -129,6 +129,41 @@ describe('the Switchyard service identity against the unchanged engine', () => {
     expect(await messages(room)).toBe(before + 1);
   });
 
+  it('refuses an event under its key that it did not post, as a conflict', async () => {
+    const sy = switchyard();
+    const room = await chat('Room', ['Pip']);
+    await sy.join(room);
+    // A person can set any idempotency key through the proxy, and the engine's lookup is global.
+    const forged = await call(owner, 'POST', '/api/events', { type: 'message.created', source: 'human:owner', channelId: room, idempotencyKey: 'nest:handoff:forged', payload: { text: 'Not a hand-off' } });
+    expect(forged.status).toBeLessThan(300);
+    await expect(sy.post({ channelId: room, text: 'Real', target: 'Pip', kind: 'handoff', setBy: ownerId, idempotencyKey: 'nest:handoff:forged' }))
+      .rejects.toMatchObject({ name: 'EngineError', status: 409 });
+    // Its own repeat still returns its event.
+    const first = await sy.post({ channelId: room, text: 'Mine', target: 'Pip', kind: 'handoff', setBy: ownerId, idempotencyKey: 'nest:handoff:mine' });
+    expect((await sy.post({ channelId: room, text: 'Mine', target: 'Pip', kind: 'handoff', setBy: ownerId, idempotencyKey: 'nest:handoff:mine' })).id).toBe(first.id);
+  });
+
+  it('joins a chat before its first post there when this agent has not, once per process (a renamed or re-created agent)', async () => {
+    const sy = switchyard();
+    const room = await chat('Room', ['Pip']);
+    await sy.join(room);
+    // Renamed: a new service agent name posts in a chat only the old one joined.
+    const renamed = createSwitchyard({ store: product.store, orgops: client, token: RUNNER, name: 'Yard', workspaceRoot: join(dir, 'managed'), defaultModelId: 'test', now: () => clock });
+    serviceCalls = [];
+    await renamed.post({ channelId: room, text: 'First', target: 'Pip', kind: 'handoff', setBy: ownerId, idempotencyKey: 'nest:test:renamed:1' });
+    expect(serviceCalls).toContain(`POST /api/channels/${room}/subscribe`);
+    expect(await participants(room)).toContainEqual(expect.objectContaining({ subscriberType: 'AGENT', subscriberId: 'Yard' }));
+    serviceCalls = [];
+    await renamed.post({ channelId: room, text: 'Second', target: 'Pip', kind: 'handoff', setBy: ownerId, idempotencyKey: 'nest:test:renamed:2' });
+    expect(serviceCalls).toEqual(['GET /api/agents/Yard', 'POST /api/events']);
+    // Re-created under the same name: the new agent joins again.
+    expect((await call(owner, 'DELETE', '/api/agents/Switchyard')).status).toBe(200);
+    expect(await participants(room)).not.toContainEqual(expect.objectContaining({ subscriberId: 'Switchyard' }));
+    clock += 61_000;
+    await sy.post({ channelId: room, text: 'After re-creation', target: 'Pip', kind: 'handoff', setBy: ownerId, idempotencyKey: 'nest:test:recreated' });
+    expect(await participants(room)).toContainEqual(expect.objectContaining({ subscriberType: 'AGENT', subscriberId: 'Switchyard' }));
+  });
+
   it('drains its own receipts', async () => {
     const sy = switchyard();
     const room = await chat('Room', ['Pip', 'Pom']);
