@@ -18,7 +18,6 @@ export function MentionInbox({onOpen, onProjectAccessChanged, icon, channelLabel
   const [requestError, setRequestError] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
-  const requestLoadId = useRef(0);
 
   useEffect(() => {
     if (open && !dialog.current?.open) dialog.current?.showModal();
@@ -36,15 +35,13 @@ export function MentionInbox({onOpen, onProjectAccessChanged, icon, channelLabel
   }, []);
 
   const loadRequests = useCallback(async () => {
-    const loadId = ++requestLoadId.current;
     try {
       const result = await loadProjectAccessRequests();
       if (!Array.isArray(result)) throw Error('Invalid access request response');
-      if (loadId !== requestLoadId.current) return;
       setRequests(result);
       setRequestError(false);
     } catch {
-      if (loadId === requestLoadId.current) setRequestError(true);
+      setRequestError(true);
     }
   }, []);
 
