@@ -17,7 +17,7 @@ const mk = (channelId: string, extra: Record<string, unknown> = {}) => store.sch
 describe('schedule store', () => {
   it('applies the 015_schedules migration, with the triggers table for webhooks', () => {
     const names = (store.db.prepare('SELECT name FROM product_migrations').all() as { name: string }[]).map(r => r.name);
-    expect(names.at(-1)).toBe('015_schedules');
+    expect(names).toContain('015_schedules');
     expect(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='product_triggers'").get()).toBeTruthy();
   });
   it('creates a schedule, idempotent by id', () => {
@@ -116,5 +116,55 @@ describe('schedule store', () => {
     store.schedules.pause(s.id, 'access', 'system');
     expect(store.schedules.schedule(s.id)).toMatchObject({ on: false, pausedReason: 'access', nextAt: null, version: 1 });
     expect(store.schedules.patchSchedule(s.id, { on: true }, 1, 'u', 7000).schedule).toMatchObject({ on: true, pausedReason: null, nextAt: 7000 });
+  });
+});
+
+describe('webhook trigger store', () => {
+  const hook = (channelId: string, extra: Record<string, unknown> = {}) => store.schedules.createTrigger({
+    id: randomUUID(), channelId, agent: 'Pip', prompt: 'Triage it', label: 'Sentry', tokenHash: randomUUID(), tokenHint: 'abcd',
+    createdBy: 'u', now: 1000, ...extra,
+  });
+  it('applies 016_triggers: a paused reason and the creator index', () => {
+    const names = (store.db.prepare('SELECT name FROM product_migrations').all() as { name: string }[]).map(r => r.name);
+    expect(names.at(-1)).toBe('016_triggers');
+    const columns = (store.db.prepare('PRAGMA table_info(product_triggers)').all() as { name: string }[]).map(c => c.name);
+    expect(columns).toEqual(expect.arrayContaining(['paused_reason', 'updated_at', 'token_hash', 'token_hint']));
+    expect(columns).not.toContain('token');
+  });
+  it('creates by hash, finds by hash only, and caps a chat at 5', () => {
+    const { trigger: t, rotated } = hook('c1', { tokenHash: 'h1' });
+    expect(rotated).toBe(false);
+    expect(t).toMatchObject({ channelId: 'c1', agent: 'Pip', label: 'Sentry', on: true, pausedReason: null, tokenHint: 'abcd', lastAt: null, version: 0 });
+    expect(store.schedules.triggerByHash('h1')?.id).toBe(t.id);
+    expect(store.schedules.triggerByHash('h2')).toBeNull();
+    for (let i = 0; i < 4; i++) hook('c1');
+    expect(() => hook('c1')).toThrow(CanvasLimitError);
+    expect(store.schedules.triggersIn(['c1']).length).toBe(5);
+  });
+  it('a retry with the same settings rotates; other settings conflict', () => {
+    const { trigger: t } = hook('c1', { tokenHash: 'h1' });
+    const again = store.schedules.createTrigger({ id: t.id, channelId: 'c1', agent: 'Pip', prompt: 'Triage it', label: 'Sentry', tokenHash: 'h2', tokenHint: 'wxyz', createdBy: 'u', now: 2000 });
+    expect(again).toMatchObject({ rotated: true, trigger: { id: t.id, tokenHint: 'wxyz', rotatedAt: 2000 } });
+    expect(store.schedules.triggerByHash('h1')).toBeNull();
+    expect(() => store.schedules.createTrigger({ id: t.id, channelId: 'c1', agent: 'Pom', prompt: 'Triage it', label: 'Sentry', tokenHash: 'h3', tokenHint: 'x', createdBy: 'u', now: 3 })).toThrow(CanvasConflictError);
+  });
+  it('rotates, patches by version, pauses with a reason, resumes and removes', () => {
+    const { trigger: t } = hook('c1', { tokenHash: 'h1' });
+    expect(store.schedules.rotateTrigger(t.id, 'h2', 'wxyz', 5000, 'u')).toMatchObject({ tokenHint: 'wxyz', rotatedAt: 5000, version: 0 });
+    expect(store.schedules.triggerByHash('h1')).toBeNull();
+    expect(store.schedules.triggerByHash('h2')?.id).toBe(t.id);
+    expect(store.schedules.patchTrigger(t.id, { label: 'GitHub' }, 0, 'u')).toMatchObject({ label: 'GitHub', version: 1 });
+    expect(() => store.schedules.patchTrigger(t.id, { on: false }, 0, 'u')).toThrow(CanvasConflictError);
+    expect(store.schedules.pausedTriggersFor('u')).toEqual([]);
+    expect(store.schedules.pauseTrigger(t.id, 'access', 'system')).toBe(true);
+    expect(store.schedules.pauseTrigger(t.id, 'access', 'system')).toBe(false);
+    expect(store.schedules.pausedTriggersFor('u')).toEqual([expect.objectContaining({ id: t.id, on: false, pausedReason: 'access', version: 2 })]);
+    expect(store.schedules.patchTrigger(t.id, { on: true }, 2, 'u')).toMatchObject({ on: true, pausedReason: null });
+    store.schedules.touchTrigger(t.id, 7000);
+    expect(store.schedules.trigger(t.id)?.lastAt).toBe(7000);
+    expect(store.schedules.removeTrigger(t.id, 'u')).toBe(true);
+    expect(store.schedules.trigger(t.id)).toBeNull();
+    const audit = (store.db.prepare("SELECT payload_json FROM product_audit WHERE type LIKE 'audit.flows.trigger-%'").all() as { payload_json: string }[]).map(r => r.payload_json).join();
+    expect(audit).not.toMatch(/h1|h2|wxyz/);
   });
 });

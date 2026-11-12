@@ -1,6 +1,7 @@
 // Schedules (Phase 3, Task 11): the open chat's clock popover, the card badge, the Setup chip and strips, Run now, a
 // missed run, the top bar's Scheduled list with an agent's own booked run, pause and delete, and a view-role member's
-// read-only view. Real engine, API, scheduler and WS; the scheduler's clock moves through the harness. Synthetic data only.
+// read-only view; typed repeats (Task 12); webhooks (Task 13). Real engine, API, scheduler and WS; the scheduler's clock
+// moves through the harness. Synthetic data only.
 import assert from 'node:assert/strict';
 import {mkdtempSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -79,7 +80,7 @@ await runChatTest('canvas schedules: the clock, the badge and strip, Run now, a 
   await clock.click();
   await pop.waitFor();
   assert.equal(await pop.locator('h2').innerText(),`Schedule · ${CHAT}`);
-  assert.deepEqual(await pop.locator('.optrow').nth(1).locator('button').allInnerTexts(),['Once','Every day','Weekdays','Every week','Every month','Every few minutes'],'no Webhook until its form (T11-R1)');
+  assert.deepEqual(await pop.locator('.optrow').nth(1).locator('button').allInnerTexts(),['Once','Every day','Weekdays','Every week','Every month','Every few minutes','Webhook'],'the mock\'s kinds, Webhook last, no app events');
   await pop.locator('.pick',{hasText:'Pip'}).click();
   await pop.getByLabel('What should happen').fill('Post the weekly recap.');
   await pop.getByRole('button',{name:'Every week',exact:true}).click();
@@ -245,6 +246,87 @@ await runChatTest('canvas schedules: a phone has Scheduled in its top bar, text 
   assert.ok(boxBox.width>=150,`the message keeps its width: ${boxBox.width}`);
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal page scroll with the chip');
 },{canvas:true,flows:true,viewport:{width:375,height:740},hasTouch:true});
+
+// Task 13: a webhook from the clock. Its URL is shown once, a call from outside (no cookie) lands in the chat, the URL is
+// masked afterwards, and Rotate URL makes a new one. Synthetic payloads only.
+const HOOK_URL=/^http:\/\/127\.0\.0\.1:\d+\/api\/hooks\/nest_hook_[A-Za-z0-9_-]{43}$/;
+await runChatTest('canvas schedules: a webhook shows its URL once, a call lands in the chat, and Rotate URL replaces it',async h=>{
+  const {page,base}=h;
+  const canvasId=await scheduleBoard(h);
+  const sheet=await openChat(page,base,canvasId);
+  await sheet.getByRole('button',{name:CLOCK,exact:true}).click();
+  const pop=page.getByRole('dialog',{name:'Schedule',exact:true});
+  await pop.waitFor();
+  await pop.locator('.pick',{hasText:'Pip'}).click();
+  await pop.getByLabel('What should happen').fill('Triage the new issue.');
+  await pop.getByRole('button',{name:'Webhook',exact:true}).click();
+  assert.equal(await pop.getByRole('button',{name:'Webhook',exact:true}).getAttribute('aria-pressed'),'true');
+  assert.equal(await pop.getByLabel('Time',{exact:true}).count(),0,'no time for a webhook');
+  assert.equal(await pop.getByRole('button',{name:'Schedule it',exact:true}).getAttribute('aria-disabled'),'true','a name is needed first');
+  await pop.getByLabel('Name',{exact:true}).fill('Sentry');
+  assert.equal(await pop.locator('.lk-sum').innerText(),'Pip will triage the new issue · When the webhook is called. Runs each time it happens.');
+  await pop.getByRole('button',{name:'Schedule it',exact:true}).click();
+
+  // Made: the same popover, now the webhook's, with its full URL focused and selected, Copy, and the once-only note.
+  const edit=page.getByRole('dialog',{name:'Edit schedule',exact:true});
+  const url=edit.getByLabel('Webhook URL',{exact:true});
+  await url.waitFor();
+  const full=await url.inputValue();
+  assert.match(full,HOOK_URL);
+  // The dev proxy (Vite's changeOrigin) forwards no host, so the URL names the API itself; behind Caddy it is the forwarded host.
+  assert.equal(await url.evaluate(el=>document.activeElement===el&&(el as HTMLInputElement).selectionEnd===(el as HTMLInputElement).value.length),true,'focused and selected');
+  assert.equal(await url.evaluate(el=>getComputedStyle(el).fontFamily.includes('monospace')),true,'the mock\'s monospace input');
+  assert.equal(await edit.locator('.sched-hook-note').innerText(),'Copy it now. It is shown only once.');
+  assert.equal(await edit.getByRole('button',{name:'Copy',exact:true}).count(),1);
+  await until(()=>notices(page),list=>list.includes('When the webhook is called. Runs each time it happens.'),'the saved toast');
+  await until(()=>srcLines(sheet),lines=>lines.includes('Webhook · Sentry · Pip'),'the note in the chat');
+  assert.equal(await page.locator('.canvas-sched-button .cnt').innerText(),'1');
+
+  // A call from outside: no cookie, through the same origin the URL names.
+  const called=await fetch(full,{method:'POST',headers:{'content-type':'application/json','x-github-delivery':'synthetic-1'},body:'{"issue":42}'});
+  assert.equal(called.status,202);
+  await until(()=>srcLines(sheet),lines=>lines.includes('Webhook · Sentry · set up by demo-owner'),'the ↳ Webhook line');
+  await edit.getByRole('button',{name:'Done',exact:true}).click();
+  await edit.waitFor({state:'detached'});
+
+  // The strip: waiting, then the last call; the Setup chip and the badge say `webhook`; the list has it under events.
+  await refocus(page);
+  await sheet.locator('.cfg > summary').click();
+  const strip=sheet.locator('.sch-strip');
+  await until(()=>text(strip),t=>/^When the webhook is called · Sentry · Pip · waiting for it · last run \w{3} \d\d:\d\d ✓/.test(t),'the strip');
+  assert.equal(await strip.getByRole('button',{name:'Run now',exact:true}).count(),0,'a webhook runs when called');
+  assert.equal(await page.locator(`.canvas-card[data-channel-id="${h.project.channelId}"] .sch`).innerText(),'webhook');
+  await page.locator('.canvas-sched-button').click();
+  const list=page.getByRole('dialog',{name:'Scheduled jobs',exact:true});
+  const row=list.getByRole('region',{name:'Starts when something happens',exact:true}).locator('.srow');
+  await row.waitFor();
+  assert.match(await row.innerText(),new RegExp(`^${CHAT}\\s+When the webhook is called · Sentry\\s+On event\\s*last \\w{3} \\d\\d:\\d\\d$`));
+  await page.keyboard.press('Escape');
+  await list.waitFor({state:'detached'});
+
+  // Reopened: the URL is masked to its last 4 characters. Rotate URL shows a new one once; the old one stops working.
+  await strip.getByRole('button',{name:'Edit',exact:true}).click();
+  await edit.waitFor();
+  assert.equal(await url.inputValue(),`…/api/hooks/nest_hook_••••${full.slice(-4)}`);
+  assert.equal(await edit.locator('.sched-hook-note').count(),0);
+  assert.equal(await edit.getByLabel('Name',{exact:true}).inputValue(),'Sentry');
+  await edit.getByRole('button',{name:'Rotate URL',exact:true}).click();
+  const rotated=await until(()=>url.inputValue(),value=>HOOK_URL.test(value),'the new URL');
+  assert.notEqual(rotated,full);
+  assert.equal(await edit.locator('.sched-hook-note').innerText(),'Copy it now. It is shown only once.');
+  assert.equal((await fetch(full,{method:'POST',body:'{}'})).status,404,'the old URL');
+  assert.equal((await fetch(rotated,{method:'POST',body:'{"issue":43}'})).status,202,'the new URL');
+  await edit.getByRole('button',{name:'Done',exact:true}).click();
+  await edit.waitFor({state:'detached'});
+
+  // Pause from the popover: the call is refused like an unknown URL, and the strip says paused.
+  await strip.getByRole('button',{name:'Edit',exact:true}).click();
+  await edit.getByRole('button',{name:'Pause',exact:true}).click();
+  await edit.waitFor({state:'detached'});
+  await until(()=>text(strip),t=>t.startsWith('When the webhook is called · Sentry · Pip · paused'),'the paused strip');
+  assert.equal((await fetch(rotated,{method:'POST',body:'{}'})).status,404,'paused');
+  assert.ok(!(await srcLines(sheet)).some(line=>line.includes('nest_hook_')),'no URL in the chat');
+},{canvas:true,flows:true});
 
 // Task 12: a repeat typed in the bottom box. Synthetic text and agents only.
 const TYPED='Every Monday at 09:00';

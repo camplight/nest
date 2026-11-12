@@ -11,6 +11,7 @@ import type { Switchyard, SwitchyardState } from './identity';
 import { FlowActionError, NOTHING_TO_SEND, pausedWhy, type HandoffWorker } from './handoff';
 import { registerForkRoutes } from './forks';
 import { missedNeeds, registerScheduleRoutes, type Scheduler } from './scheduler';
+import { registerTriggerRoutes, triggerNeeds, triggerViews, type Hooks } from './hooks';
 import type { Summarize } from './summarize';
 
 const NOT_SET_UP = 'Hand-offs are not set up on this server';
@@ -28,8 +29,8 @@ export type Availability = {
  * Links between chats. Engine chats, participants and events are read through the viewer's own
  * session; Switchyard joins and posts with the service token. Flag off: every route answers 404.
  */
-export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchyard, worker, summarize, scheduler }: {
-  store: ProductDb; orgops: OrgOpsClient; enabled: boolean; switchyard: Switchyard; worker: HandoffWorker; summarize: Summarize; scheduler: Scheduler;
+export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchyard, worker, summarize, scheduler, hooks }: {
+  store: ProductDb; orgops: OrgOpsClient; enabled: boolean; switchyard: Switchyard; worker: HandoffWorker; summarize: Summarize; scheduler: Scheduler; hooks: Hooks;
 }) {
   const routes = new Hono<{ Variables: { human: Human } }>();
   routes.onError((error, c) => {
@@ -114,9 +115,10 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
       ...(state.ok ? {} : { reason: state.reason }),
       // A name taken by someone else's agent is not ours to hide.
       serviceAgent: state.ok || state.reason === 'engine-unavailable' ? switchyard.name : null,
-      // Task 4 makes summaries real; Task 13 adds webhooks.
+      // Task 4 makes summaries real.
       summaries: 'fallback',
-      webhooks: false,
+      // POST /api/hooks/<token> posts as the service agent, so webhooks work exactly when flows do.
+      webhooks: state.ok,
     };
     return c.json(availability);
   });
@@ -253,13 +255,15 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
         };
       }),
       ...missedNeeds(store, human.id),
+      ...triggerNeeds(store, human.id),
     ];
     return c.json({ items: items.sort((a, b) => b.at - a.at) });
   });
 
   const tools = { fail, parse, body, viewerChannels, titles, join: joinBoth };
   registerForkRoutes(routes, { store, orgops, switchyard, summarize, tools });
-  registerScheduleRoutes(routes, { store, orgops, switchyard, scheduler, tools });
+  registerScheduleRoutes(routes, { store, orgops, switchyard, scheduler, tools, triggers: (channels, viewer) => triggerViews(store, channels, viewer) });
+  registerTriggerRoutes(routes, { store, switchyard, hooks, tools });
 
   // Unknown flow endpoints never fall through to the engine proxy.
   routes.all('/api/flows', () => { throw notFound(); });

@@ -5,7 +5,7 @@ import { CanvasConflictError, type ProductDb, type ScheduleRecord } from '@nest/
 import { EngineError, type EngineChannel, type EngineEvent, type Human, type OrgOpsClient, type ServiceAgent, type ServiceClient } from '@nest/orgops-client';
 import {
   MISSED_GRACE_MS, NewScheduleSchema, SchedulePatchSchema, atText, nextRunAt, ruleText,
-  type AgentMadeSchedule, type FlowNeed, type MissedReason, type SchedulePausedReason, type ScheduleView,
+  type AgentMadeSchedule, type FlowNeed, type MissedReason, type SchedulePausedReason, type ScheduleView, type TriggerView,
 } from '@nest/schemas';
 import type { Channel } from '../canvases';
 import { channelAccess } from './access';
@@ -394,8 +394,10 @@ export function missedNeeds(store: ProductDb, creatorId: string): FlowNeed[] {
  * Switchyard. Creating needs post access to the chat (by the flows rule) and the agent in it. Settings (prompt, agent,
  * rule) are the creator's; pausing, deleting and Run now are open to the creator and the chat's members.
  */
-export function registerScheduleRoutes(routes: Hono<{ Variables: { human: Human } }>, { store, orgops, switchyard, scheduler, tools }: {
+export function registerScheduleRoutes(routes: Hono<{ Variables: { human: Human } }>, { store, orgops, switchyard, scheduler, tools, triggers = () => [] }: {
   store: ProductDb; orgops: OrgOpsClient; switchyard: Switchyard; scheduler: Scheduler; tools: ForkRouteTools;
+  /** The webhook triggers in the viewer's chats, listed with the schedules. */
+  triggers?: (channels: Map<string, Channel>, viewer: Human) => TriggerView[];
 }) {
   const { fail, parse, body, viewerChannels, titles, join } = tools;
   const schedules = store.schedules;
@@ -438,7 +440,7 @@ export function registerScheduleRoutes(routes: Hono<{ Variables: { human: Human 
     const agentMade: AgentMadeSchedule[] = events
       .filter(e => e.source.startsWith('agent:') && e.source !== `agent:${switchyard.name}` && e.channelId && typeof e.deliverAt === 'number')
       .map(e => ({ eventId: e.id, channelId: e.channelId!, agent: e.source.slice('agent:'.length), at: e.deliverAt!, text: str(e.payload?.text) }));
-    return c.json({ schedules: list.map(s => view(s, channels, human, title)), agentMade });
+    return c.json({ schedules: list.map(s => view(s, channels, human, title)), agentMade, triggers: triggers(channels, human) });
   });
 
   routes.post('/api/flows/schedules', async c => {

@@ -246,7 +246,7 @@ describe('the link API against the unchanged engine', () => {
 
   it('reports availability and refuses links without a service token', async () => {
     expect(await (await call(owner, 'GET', '/api/flows/availability')).json())
-      .toEqual({ enabled: true, serviceAgent: 'Switchyard', summaries: 'fallback', webhooks: false });
+      .toEqual({ enabled: true, serviceAgent: 'Switchyard', summaries: 'fallback', webhooks: true });
     product.store.close();
     vi.stubEnv('NEST_CONNECTION_METADATA_TOKEN', '');
     vi.stubEnv('NEST_RUNNER_TOKEN', '');

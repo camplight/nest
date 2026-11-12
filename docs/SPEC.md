@@ -1201,11 +1201,11 @@ another, forks, schedules and webhook triggers. Design: section 8 of
 [the Switchyard design](superpowers/specs/2026-11-08-switchyard-canvas-design.md);
 plan: [the Phase 3 plan](superpowers/plans/2026-11-11-switchyard-canvas-phase3.md).
 Everything is behind `NEST_ENABLE_CANVAS=1`; with the flag off every `/api/flows/*`
-route answers 404, whoever asks. This section grows as the phase lands; so far it
-covers the service agent, links, how the board shows them, the hand-off worker, the
-canvas UI for links (lines, labels and the Hand-off popover), forks, and
-schedules (the API, the scheduler and the canvas UI). Webhook triggers are still to
-come.
+route and `/api/hooks/*` answer 404, whoever asks. This section grows as the phase
+lands; so far it covers the service agent, links, how the board shows them, the
+hand-off worker, the canvas UI for links (lines, labels and the Hand-off popover),
+forks, schedules (the API, the scheduler and the canvas UI) and webhook triggers
+(item 13).
 
 1. Data. Migration `014_links_forks.sql` adds:
    - `product_links`: one row per link, keyed by id and unique per
@@ -1234,8 +1234,15 @@ come.
      `scheduled` or `manual` (Run now). It holds the engine event id and the status:
      `booked`, `started`, `missed` (with a reason), `late` or `superseded`. Runs go
      with their schedule.
-   - `product_triggers`: webhook triggers (the token kept only as a sha256 and a hint),
-     used by the webhook work.
+   - `product_triggers`: webhook triggers: the chat, the agent, the prompt, a label
+     (at most 60 characters), the token's sha256 (`token_hash`, unique) and its last
+     4 characters (`token_hint`), never the token, `on_flag`, the creator, a
+     `version`, `last_at` (the last call that posted) and `rotated_at`. A chat can
+     have at most 5 (400 beyond).
+
+   Migration `016_triggers.sql` adds `product_triggers.paused_reason` (`access`,
+   `agent-left` or `unavailable` when Nest paused it; none when a person did),
+   `updated_at` and an index on the creator.
 
    Types are in `packages/schemas/src/flows.ts` and `schedules.ts`. Ids and settings
    only: engine chats, events and subscriptions are never mirrored.
@@ -1278,7 +1285,8 @@ come.
      unreachable, or refused the token; the server log names the status, never the
      token). `serviceAgent` is the agent's name, so the UI can leave it out of agent
      lists, or `null` when there is no token or the name belongs to someone else.
-     `summaries` is `'fallback'` and `webhooks` is `false` until those tasks land.
+     `summaries` is `'fallback'` until that task lands. `webhooks` equals `enabled`:
+     a webhook call posts as the service agent, so it works exactly when flows do.
    - `GET /api/flows/links?channelId=X` lists the links touching X, as
      `Link & {fromTitle, toTitle, canManage, canEdit}`. The viewer must be able to
      read X in the engine, else 404. Titles are the project name, else the chat name;
@@ -1353,6 +1361,10 @@ come.
        longer available` (`unavailable`: the chat is missing from the engine), and
        `gate {kind:'schedule-paused', scheduleId}`. The UI shows it without buttons, like
        a paused link.
+     - `paused`, one per webhook of the viewer's that Nest paused (a call found its
+       creator without post access, its agent gone or its chat gone), until resumed or
+       deleted: `short` `Webhook paused · {why}` with the same `why` as a schedule, and
+       `gate {kind:'trigger-paused', triggerId}`. No buttons; the strip's Edit resumes it.
 
      Titles follow the viewer's own access, as in the links list.
    - `POST /api/flows/forks` takes `{childChannelId, parentChannelId, parentEventId,
@@ -1386,7 +1398,7 @@ come.
    - `GET /api/flows/forks?parentChannelId=X` answers `{forks:[{childChannelId,
      parentEventId, title}]}` for a chat the viewer can read (404 otherwise); a fork
      the viewer cannot read is titled `a private chat`.
-   - `GET /api/flows/schedules` answers `{schedules, agentMade}`. `schedules` are the
+   - `GET /api/flows/schedules` answers `{schedules, agentMade, triggers}`. `schedules` are the
      schedules in every chat the viewer can read, as `Schedule & {lastRun, chatTitle,
      canEdit, canManage}`: `nextAt` is null while paused, `lastRun` is the newest run
      already due (not superseded), `canEdit` (prompt, agent, rule) is the creator's,
@@ -1397,6 +1409,11 @@ come.
      service agent: `{eventId, channelId, agent, at, text}`, shown as `set by <name>`.
      The 200 are counted before Nest's own bookings are filtered out, so a viewer who
      can see more than about 200 future Nest bookings may miss agent-made ones.
+     `triggers` are the webhooks in every chat the viewer can read, as `Trigger &
+     {canEdit, canManage}` (`id, channelId, agent, prompt, label, on, pausedReason,
+     tokenHint, lastAt, createdBy, version, …`), with the schedule rights: `canEdit`
+     (prompt, agent, label, Rotate URL) is the creator's, `canManage` (pause, delete)
+     the creator's or a chat member's. Never the token or its hash.
    - `POST /api/flows/schedules` takes `{id, channelId, agent, prompt, rule, timezone}`
      (`NewScheduleSchema`; an unknown time zone, a bad rule or a prompt over 4,000
      characters answers 400). The viewer must post in the chat by the flows rule
@@ -1422,8 +1439,32 @@ come.
      creator or a chat member who can post in the chat (403 otherwise; 409 when the
      agent left the chat).
 
-   For schedules, someone who neither created the schedule nor can read its chat gets
-   404.
+   - `POST /api/flows/triggers` takes `{id, channelId, agent, prompt, label}`
+     (`NewTriggerSchema`; a label over 60 characters or a prompt over 4,000 answers
+     400) with the schedule checks: post access (403), the agent in the chat (409;
+     the service agent is 400), room for a sixth webhook in the chat (400
+     `A chat can have at most 5 webhooks`, before anything reaches the engine), and a
+     usable service agent (503). Switchyard joins the chat, a token is minted
+     (`nest_hook_` and 32 random bytes in base64url) and stored only as its sha256
+     and last 4 characters, and the note `Webhook · {label} · {agent}` is posted,
+     waking nobody, with the key `nest:note:webhook:<id>`. It answers 201
+     `{trigger, url}`; `url` is `{origin}/api/hooks/<token>`, where the origin is
+     `x-forwarded-proto` and `x-forwarded-host` (Caddy sets them) or the request URL
+     (through Vite's dev proxy, the API's own address). This is the only time the
+     URL is known. A retry with the same id and settings by its creator answers 200
+     with a new URL (the first answer, and its URL, may have been lost; the old URL
+     stops working); another person's id, or other settings, answer 409.
+   - `POST /api/flows/triggers/:id/rotate` (the creator only, 403 otherwise) stores a
+     new token's hash in one write, so the old URL answers 404 at once, and answers
+     `{url}`.
+   - `PATCH /api/flows/triggers/:id` takes `{prompt?, agent?, label?, on?, version}`:
+     settings are the creator's, `on` also a chat member's (403 otherwise); turning
+     on clears the paused reason; a stale version answers 409
+     `{error:'Webhook changed', current}`. `DELETE /api/flows/triggers/:id?version=N`
+     answers 204 for the creator or a chat member; calls already posted stay.
+
+   For schedules and webhooks, someone who neither created it nor can read its chat
+   gets 404.
 
    For `PATCH`, `DELETE` and Send now, someone who neither created the link nor can
    read either chat gets 404, as if it did not exist. Creating, changing and removing
@@ -1739,9 +1780,9 @@ come.
      opens the Schedule popover (the mock's `renderSchedPop`): `What should happen`,
      `Who does it` (the chat's agents, then the person's pinned agents; one not yet in
      the chat is added to it on save, when the person may add agents), `When` (Once,
-     Every day, Weekdays, Every week, Every month, Every few minutes; the mock's
-     Webhook arrives with webhooks) with day buttons, a time or an interval, and a
-     summary `{agent} will {prompt} · {rule}. Next run: {Mon 09:00} (in 4 days). If a
+     Every day, Weekdays, Every week, Every month, Every few minutes and, last, Webhook,
+     shown while availability reports `webhooks`; app events are not offered) with day
+     buttons, a time or an interval, and a summary `{agent} will {prompt} · {rule}. Next run: {Mon 09:00} (in 4 days). If a
      run can't start, it shows up in Needs you. Times are in {zone}.`. A new schedule
      uses the browser's time zone; an existing one keeps its own. `Schedule it` toasts
      `{ruleText}. Next run {in …}.`; a 409 is retried once on the current version.
@@ -1764,6 +1805,24 @@ come.
      A row names its chat, rule, `set by …` and `loose chat` when the chat is not on
      this canvas, and jumps to the chat, which takes focus. Delete toasts `Schedule deleted. Past runs
      stay in the chat.`.
+   - Webhook (the mock's webhook kind). The time row becomes a `Name` input (`What
+     calls it, e.g. Sentry`, at most 60 characters, required) and the summary reads
+     `{agent} will {prompt} · When the webhook is called. Runs each time it happens.`.
+     `Schedule it` posts `POST /api/flows/triggers`, toasts `When the webhook is
+     called. Runs each time it happens.` and keeps the popover open as the webhook's
+     `Edit schedule`: the mock's readonly monospace input holds the full URL, focused
+     and selected, with `Copy` and the note `Copy it now. It is shown only once.`
+     (a status region), then `Done`. The URL lives only in that popover's state. Opened
+     again (the strip's Edit), the input shows `…/api/hooks/nest_hook_••••{last 4}`
+     with `Rotate URL` for the creator, which shows a new full URL the same way. An
+     existing schedule offers only the schedule kinds and an existing webhook only
+     Webhook. Pause, Resume, Delete and Save follow the schedule rules.
+   - A webhook's strip reads `When the webhook is called · {label} · {agent} · waiting
+     for it`, then `last run {Mon 09:00} ✓` once called; it has Edit and no Run now.
+     The Setup chip and card badge read `webhook`; the Scheduled list puts it under
+     `Starts when something happens` as `On event` with `last {Mon 09:00}` or
+     `waiting`. A call shows in the chat as the Switchyard line `↳ Webhook · {label} ·
+     set up by {person}` followed by the prompt and payload.
    - In the chat, with the canvas flag on, history adds an eighth query
      (`type=agent.scheduled.trigger`) and the timeline shows each trigger that is due
      by server time as a `↳` line with its first line only (`Scheduled run · {rule} ·
@@ -1823,7 +1882,55 @@ come.
    repeat typed in the bottom box (the chip, `✕`, Send saving it for the mentioned
    agent, no agent, one too long, a phone, and none without flows).
    `needs.test.ts` and `ChatDigest.test.tsx` cover the merge and the digest, missed
-   runs included; `schedule-jobs.test.ts` the badge, strip, chip and list groups.
+   runs included; `schedule-jobs.test.ts` the badge, strip, chip and list groups,
+   webhooks included. `apps/api/src/flows/hooks.test.ts` covers webhooks against the
+   real engine with no cookie: the URL format and hash-only storage, a call posted to
+   the agent, one message per delivery id, 413 at 65,537 bytes (with no or a wrong
+   `content-length`), the attachment over 16,000 characters, 429 on the 31st call in a
+   minute (by the injected clock), rotation, pause, lost access and a departed agent
+   (paused, with the Needs you item), 404 for unknown tokens, other methods and the
+   flag off, no CORS headers, the engine never asked for `/api/hooks`, no token or
+   payload in the logs, and 401 on the trigger routes without a session.
+   `tests/browser/canvas/schedules.ts` makes a webhook from the clock, calls its URL
+   from Node, and checks the `↳ Webhook` line, the strip, the list row, the masked URL,
+   Rotate URL and pause; `devices.ts` measures the webhook strip and popover text
+   (8.18:1 dark, 6.76:1 light at the minimum).
+
+13. Webhooks (`apps/api/src/flows/hooks.ts`). `POST /api/hooks/<token>` is public: it
+   is registered first in `createApp`, before every cookie-auth route and the engine
+   proxy, reads no cookie or session, and sets no CORS headers. Every other method or
+   path under `/api/hooks` answers 404 there too, so the proxy never forwards it.
+   App-event triggers (Composio) are not offered: the integrations provider has no
+   trigger subscriptions, webhook endpoint or signature checks, so the kind would
+   need new infrastructure (Phase 3 Ruling 4); a webhook already covers Sentry,
+   GitHub, Stripe and anything else that can call a URL.
+   - In order: the token must look like `nest_hook_` and 43 base64url characters and
+     its sha256 must match an `on` trigger, else 404 `{error:'Not found'}`. With the
+     canvas flag off, or no service token, the answer is the same 404. Then at most 30
+     accepted calls per trigger in any 60 s (a sliding window by the flows clock), else
+     429. The window is in memory in each API process, so two processes behind one
+     host each allow 30. Then the body is read with a byte counter and abandoned at
+     65,537 bytes (413); `content-length` is never consulted. Then the creator's post
+     access, the agent and the chat are checked with the service token, by the flows
+     rule: a failure pauses the trigger (`access`, `agent-left`, `unavailable`; a
+     Needs you item for the creator) and answers 404.
+   - The call is posted as the service agent, targeted at the agent, with the key
+     `nest:hook:<id>:<deliveryId>` (`deliveryId` is the `Idempotency-Key` or
+     `X-GitHub-Delivery` header when present and at most 200 characters, else a new
+     uuid, so a sender's retry is one message) and `payload.nestSwitchyard
+     {kind:'webhook', setBy:<creator>, triggerId}`. Its text is `Webhook · {label} ·
+     set up by {creator}`, a blank line, the prompt, a blank line, `Payload:` and the
+     body in a code fence (longer than any backtick run in it). Any content type is
+     accepted; the body is decoded as UTF-8 with replacement characters and never
+     parsed. A body over 16,000 characters is cut to 16,000 in the text, under
+     `Payload (the first 16,000 characters; all of it is attached as
+     webhook-payload.json):`, and its bytes are uploaded through the service token and
+     attached as `webhook-payload.json`. The answer is 202 `{ok:true}`, and `last_at`
+     is set.
+   - Any other failure (an engine outage, the service agent unavailable) also answers
+     404 with no detail, so a sender sees nothing about the trigger; senders that
+     retry only on 5xx will not retry it. Tokens, URLs and payloads are never logged
+     or echoed: logs name the trigger id and an error status or name only.
 
 ## Private Community catalog
 

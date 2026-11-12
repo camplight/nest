@@ -77,6 +77,53 @@ export type ScheduleView = Schedule & { lastRun: ScheduleRun | null; chatTitle: 
 export type AgentMadeSchedule = { eventId: string; channelId: string; agent: string; at: number; text: string };
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Webhook triggers: POST /api/hooks/<token> wakes the trigger's agent in its chat. Only a sha256 of the token is stored.
+
+export const MAX_TRIGGERS_PER_CHAT = 5;
+export const MAX_TRIGGER_LABEL = 60;
+/** The largest body a webhook call may carry (64 KiB); one byte more answers 413. */
+export const MAX_HOOK_BYTES = 65_536;
+/** Calls per trigger in any 60 s; the next answers 429. */
+export const HOOK_CALLS_PER_MINUTE = 30;
+/** Payload text kept inline in the post; a longer body is attached as `webhook-payload.json` too. */
+export const HOOK_INLINE_CHARS = 16_000;
+export const HOOK_PAYLOAD_FILE = 'webhook-payload.json';
+/** `nest_hook_` and 32 random bytes in base64url (43 characters). */
+export const HOOK_TOKEN_PATTERN = /^nest_hook_[A-Za-z0-9_-]{43}$/;
+
+const triggerLabel = z.string().trim().min(1).max(MAX_TRIGGER_LABEL);
+export const NewTriggerSchema = z.object({
+  id: z.string().uuid(),
+  channelId: z.string().min(1).max(200),
+  agent,
+  prompt,
+  label: triggerLabel,
+}).strict();
+export type NewTrigger = z.infer<typeof NewTriggerSchema>;
+export const TriggerPatchSchema = z.object({
+  prompt: prompt.optional(),
+  agent: agent.optional(),
+  label: triggerLabel.optional(),
+  on: z.boolean().optional(),
+  version: z.number().int().min(0),
+}).strict();
+export type TriggerPatch = z.infer<typeof TriggerPatchSchema>;
+
+export type Trigger = {
+  id: string; channelId: string; agent: string; prompt: string; label: string;
+  on: boolean; pausedReason: SchedulePausedReason;
+  /** The last 4 characters of the token, for the masked URL. */
+  tokenHint: string;
+  /** When a call last posted; null before the first. */
+  lastAt: number | null;
+  createdBy: string; createdAt: number; rotatedAt: number; updatedAt: number; version: number;
+};
+/** A trigger as GET /api/flows/schedules lists it. canEdit (creator): prompt, agent, label, rotate. canManage: pause, delete. */
+export type TriggerView = Trigger & { canEdit: boolean; canManage: boolean };
+/** POST /api/flows/triggers: the URL is in this answer (and a rotation's) only; afterwards only its hint is known. */
+export type CreatedTrigger = { trigger: TriggerView; url: string };
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Time zones. Pure: the only clock is the `after` argument.
 
 const formatters = new Map<string, Intl.DateTimeFormat>();

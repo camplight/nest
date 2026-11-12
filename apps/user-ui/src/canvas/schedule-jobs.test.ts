@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
-import type {AgentMadeSchedule,ScheduleRun,ScheduleView} from '@nest/schemas';
-import {badgeOf,jobsByChannel,listGroups,rowWhen,scheduleJobs,scheduledCount,setupChip,stripState} from './schedule-jobs';
+import type {AgentMadeSchedule,ScheduleRun,ScheduleView,TriggerView} from '@nest/schemas';
+import {agentMadeCount,badgeOf,jobsByChannel,listGroups,rowWhen,scheduleJobs,scheduledCount,setupChip,stripState} from './schedule-jobs';
 
 // Monday 2026-11-16 09:00 UTC.
 const MON_0900=Date.UTC(2026,10,16,9,0);
@@ -68,5 +68,27 @@ describe('scheduled jobs',()=>{
     const changed=jobsByChannel(jobs([view({on:false,nextAt:null})],[pom]),first);
     expect(changed.get('c1')).not.toBe(first.get('c1'));
     expect(changed.get('c2')).toBe(first.get('c2'));
+  });
+  it('a webhook waits for its call: `On event`, `last …`, listed under Starts when something happens, never Set by agents',()=>{
+    const hook=(over:Partial<TriggerView>={}):TriggerView=>({id:'t1',channelId:'c1',agent:'Pip',prompt:'Triage it',label:'Sentry',on:true,pausedReason:null,tokenHint:'abcd',
+      lastAt:null,createdBy:'me',createdAt:1,rotatedAt:1,updatedAt:1,version:0,canEdit:true,canManage:true,...over});
+    const all=scheduleJobs({schedules:[view()],agentMade:[pom],triggers:[hook(),hook({id:'t2',createdBy:'mate',lastAt:MON_0900-H})],viewerId:'me',names:new Map([['mate','mate']]),tz:'UTC'});
+    const [,waiting,called]=all;
+    expect(waiting).toMatchObject({key:'hook:t1',text:'When the webhook is called',short:'webhook',label:'Sentry',next:null,on:true,setBy:null,schedule:null,lastOk:null});
+    expect(waiting.trigger?.id).toBe('t1');
+    expect(called).toMatchObject({setBy:'mate',lastOk:'Mon 08:00'});
+    expect(stripState(waiting,MON_0900)).toBe('waiting for it');
+    expect(rowWhen(waiting,MON_0900)).toEqual(['On event','waiting']);
+    expect(rowWhen(called,MON_0900)).toEqual(['On event','last Mon 08:00']);
+    expect(listGroups(all,'all',MON_0900-H).map(g=>[g.title,g.jobs.map(j=>j.key)])).toEqual([
+      ['Starts when something happens',['hook:t1','hook:t2']],['Next 24 hours',['s1','agent:e1']],
+    ]);
+    expect(listGroups(all,'agents',MON_0900).flatMap(g=>g.jobs.map(j=>j.key))).toEqual(['agent:e1']);
+    expect(agentMadeCount(all)).toBe(1);
+    expect(setupChip([waiting])).toEqual({text:'webhook',warn:false});
+    expect(scheduledCount(all)).toEqual({text:'4',hot:false});
+    const [paused]=scheduleJobs({schedules:[],agentMade:[],triggers:[hook({on:false})],viewerId:'me',names:new Map(),tz:'UTC'});
+    expect(badgeOf([paused])).toMatchObject({kind:'off',text:'webhook'});
+    expect(listGroups([paused],'all',MON_0900).map(g=>g.title)).toEqual(['Paused']);
   });
 });

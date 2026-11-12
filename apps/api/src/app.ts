@@ -24,6 +24,7 @@ import { createSummarizer, type Summarize } from './flows/summarize';
 import { registerFlowRoutes } from './flows/routes';
 import { createHandoffWorker } from './flows/handoff';
 import { createScheduler } from './flows/scheduler';
+import { createHooks, registerHookEndpoint } from './flows/hooks';
 import { randomUUID } from 'node:crypto';
 import { watchEngine } from './flows/engine-watch';
 import { fileURLToPath } from 'node:url';
@@ -42,6 +43,18 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     console.error('Nest request failed:', error.name);
     return c.json({error: 'Upstream service unavailable'}, 502);
   });
+  // Webhooks first: POST /api/hooks/<token> is public (no cookie or session is read) and never reaches the engine proxy.
+  const canvasEnabled = config.canvasEnabled ?? process.env.NEST_ENABLE_CANVAS === '1';
+  const defaultAgentModelId = config.defaultAgentModelId ?? process.env.NEST_DEFAULT_AGENT_MODEL_ID ?? config.personalAgent?.modelId ?? process.env.NEST_PERSONAL_AGENT_MODEL_ID ?? DEFAULT_AGENT_MODEL_ID;
+  // Nest's stopped service agent: it joins linked chats and posts hand-offs, runs, webhook calls and notes as itself.
+  const serviceToken = config.connectionEngineToken ?? process.env.NEST_CONNECTION_METADATA_TOKEN ?? process.env.NEST_RUNNER_TOKEN;
+  const switchyard = createSwitchyard({
+    store, orgops, token: serviceToken,
+    name: config.switchyardName ?? process.env.NEST_SWITCHYARD_AGENT_NAME, defaultModelId: defaultAgentModelId,
+    workspaceRoot: config.switchyardWorkspaceRoot ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_ENGINE_DATA_DIR ?? '.nest-data', 'workspaces/managed'),
+  });
+  const hooks = createHooks({store, orgops, token: serviceToken, switchyard, now: config.flowsNow});
+  registerHookEndpoint(app, {hooks, enabled: canvasEnabled});
   registerDemoRoutes(app, {orgops, root: config.demoRoot ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_DEMO_ROOT ?? '.nest-data/demos')});
   app.get('/health', async c => {
     try {
@@ -67,7 +80,6 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   const providerConfig=composioConfigFromEnv();
   const provider=config.connections===null?undefined:config.connections??(providerConfig?createComposioProvider(providerConfig):undefined);
   registerIntegrationRoutes(app,{store,orgops,provider,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
-  const defaultAgentModelId = config.defaultAgentModelId ?? process.env.NEST_DEFAULT_AGENT_MODEL_ID ?? config.personalAgent?.modelId ?? process.env.NEST_PERSONAL_AGENT_MODEL_ID ?? DEFAULT_AGENT_MODEL_ID;
   registerAgentModelRoutes(app, orgops, defaultAgentModelId);
   registerDashboardActivityRoutes(app,orgops);
   registerModelPickerRoutes(app, orgops, {engineToken:config.connectionEngineToken??process.env.NEST_RUNNER_TOKEN});
@@ -91,19 +103,11 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN,
   });
   registerCommunityRoutes(app, {store, orgops});
-  const canvasEnabled = config.canvasEnabled ?? process.env.NEST_ENABLE_CANVAS === '1';
   // Context files stay out of the engine's files/ tree, which agents' shells can read.
   const contextFiles = createContextFiles(config.contextFilesDir ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_CONTEXT_FILES_DIR ?? '.nest-product/context-files'));
   // Agents' context keys and reads; the agent routes sit outside /api/canvases and before the engine proxy.
   const contextAgents = createContextAgents({store, orgops, engineToken: config.connectionEngineToken ?? process.env.NEST_CONNECTION_METADATA_TOKEN ?? process.env.NEST_RUNNER_TOKEN, setupWaitMs: config.contextSetupWaitMs});
   contextAgents.registerRoutes(app, {enabled: canvasEnabled, files: contextFiles});
-  // Nest's stopped service agent: it joins linked chats and posts hand-offs, runs and notes as itself.
-  const serviceToken = config.connectionEngineToken ?? process.env.NEST_CONNECTION_METADATA_TOKEN ?? process.env.NEST_RUNNER_TOKEN;
-  const switchyard = createSwitchyard({
-    store, orgops, token: serviceToken,
-    name: config.switchyardName ?? process.env.NEST_SWITCHYARD_AGENT_NAME, defaultModelId: defaultAgentModelId,
-    workspaceRoot: config.switchyardWorkspaceRoot ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_ENGINE_DATA_DIR ?? '.nest-data', 'workspaces/managed'),
-  });
   // Summaries reuse the project-naming model path: the default model and its provider keys only.
   const summarize = config.summarize ?? createSummarizer({store, model: async () => {
     if (!managementKey || !namingSource) return null;
@@ -118,7 +122,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   const flowsHolder = randomUUID();
   const handoff = createHandoffWorker({store, orgops, token: serviceToken, switchyard, summarize, now: config.flowsNow, holder: flowsHolder});
   const scheduler = createScheduler({store, orgops, token: serviceToken, switchyard, now: config.flowsNow, holder: flowsHolder});
-  registerFlowRoutes(app, {store, orgops, enabled: canvasEnabled, switchyard, worker: handoff, summarize, scheduler});
+  registerFlowRoutes(app, {store, orgops, enabled: canvasEnabled, switchyard, worker: handoff, summarize, scheduler, hooks});
   const flows = {
     enabled: canvasEnabled,
     /** One flows tick: hand-offs, then scheduled runs. */
@@ -154,5 +158,5 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     const env=config.projectNamer?undefined:await orgops.projectNamingEnv({model:input.model,token:managementKey,agentName:namingSource,agentId:namingSource===managementName?managementId:undefined});
     return {...input,env};
   }});
-  return { app, store, orgops, projectNaming, contextAgents, switchyard, summarize, handoff, scheduler, flows };
+  return { app, store, orgops, projectNaming, contextAgents, switchyard, summarize, handoff, scheduler, hooks, flows };
 }

@@ -1,6 +1,6 @@
 // Typed helpers for the product /api/flows routes (apps/api/src/flows/routes.ts and scheduler.ts): availability, links,
 // needs, schedules and the decisions taken from Needs you (a hand-off's OK, a project task's review, Run now).
-import type {AgentMadeSchedule,FlowNeed,ForkView,Link,LinkPatch,NewFork,NewLink,NewSchedule,ProjectDetail,SchedulePatch,ScheduleView,Task} from '@nest/schemas';
+import type {AgentMadeSchedule,CreatedTrigger,FlowNeed,ForkView,Link,LinkPatch,NewFork,NewLink,NewSchedule,NewTrigger,ProjectDetail,SchedulePatch,ScheduleView,Task,TriggerPatch,TriggerView} from '@nest/schemas';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 
 export type FlowsAvailability = {enabled: boolean; reason?: string; serviceAgent: string | null; summaries: 'model' | 'fallback'; webhooks: boolean};
@@ -83,8 +83,8 @@ export async function reviewTask(projectId: string, taskId: string, decision: 'a
 export const runScheduleNow = (scheduleId: string) =>
   apiJson<{runId: string}>(`${schedulePath(scheduleId)}/run`, {method: 'POST', headers: getApiHeaders()});
 
-/** Every schedule in a chat the viewer can read, and the future runs agents booked themselves (`set by {agent}`). */
-export type ScheduleList = {schedules: ScheduleView[]; agentMade: AgentMadeSchedule[]};
+/** Every schedule and webhook in a chat the viewer can read, and the future runs agents booked themselves (`set by {agent}`). */
+export type ScheduleList = {schedules: ScheduleView[]; agentMade: AgentMadeSchedule[]; triggers: TriggerView[]};
 export const getSchedules = () => apiJson<ScheduleList>('/api/flows/schedules');
 /** A versioned schedule write lost a race: `current` is the stored schedule, or null when it was deleted. */
 export class ScheduleConflict extends Error {
@@ -121,6 +121,48 @@ export async function deleteSchedule(id: string, version: number): Promise<void>
   };
   try { await once(version); } catch (error) {
     if (!(error instanceof ScheduleConflict)) throw error;
+    if (error.current) await once(error.current.version);
+  }
+}
+
+// Webhook triggers: POST /api/hooks/<token> wakes the agent. The URL comes back from create and rotate only.
+/** A versioned webhook write lost a race: `current` is the stored webhook, or null when it was deleted. */
+export class TriggerConflict extends Error {
+  constructor(readonly current: TriggerView | null) {
+    super('Webhook changed');
+    this.name = 'TriggerConflict';
+  }
+}
+function triggerConflict(error: unknown): unknown {
+  if (!(error instanceof ApiError) || error.status !== 409) return error;
+  try {
+    const body = JSON.parse(error.message) as {error?: string; current?: TriggerView | null};
+    if (body.error === 'Webhook changed') return new TriggerConflict(body.current ?? null);
+  } catch {}
+  return error;
+}
+const triggerPath = (id: string) => `/api/flows/triggers/${encodeURIComponent(id)}`;
+/** A new webhook and its URL, shown once. A repeat with the same id gives the same webhook a new URL. */
+export const createTrigger = (input: NewTrigger) => apiJson<CreatedTrigger>('/api/flows/triggers', write('POST', input));
+/** A new URL for the webhook (its creator only); the old one stops working at once. */
+export const rotateTrigger = (id: string) => apiJson<{url: string}>(`${triggerPath(id)}/rotate`, {method: 'POST', headers: getApiHeaders()});
+/** One versioned write, retried once on the current version when another write got in first. */
+export async function patchTrigger(id: string, patch: Omit<TriggerPatch, 'version'>, version: number): Promise<TriggerView> {
+  const once = async (at: number) => {
+    try { return await apiJson<TriggerView>(triggerPath(id), write('PATCH', {...patch, version: at})); } catch (error) { throw triggerConflict(error); }
+  };
+  try { return await once(version); } catch (error) {
+    if (!(error instanceof TriggerConflict) || !error.current) throw error;
+    return once(error.current.version);
+  }
+}
+/** Deletes a webhook: its URL stops working; calls already posted stay in the chat. */
+export async function deleteTrigger(id: string, version: number): Promise<void> {
+  const once = async (at: number) => {
+    try { await apiFetch(`${triggerPath(id)}?version=${at}`, {method: 'DELETE'}); } catch (error) { throw triggerConflict(error); }
+  };
+  try { await once(version); } catch (error) {
+    if (!(error instanceof TriggerConflict)) throw error;
     if (error.current) await once(error.current.version);
   }
 }

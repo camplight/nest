@@ -1,8 +1,8 @@
 // Schedules and their runs. Rules and ids only; each run is one engine agent.scheduled.trigger, never mirrored here.
 import type Database from 'better-sqlite3';
 import {
-  MAX_SCHEDULES_PER_CHAT, MAX_SCHEDULES_PER_CREATOR,
-  type MissedReason, type Schedule, type SchedulePausedReason, type ScheduleRule, type ScheduleRun,
+  MAX_SCHEDULES_PER_CHAT, MAX_SCHEDULES_PER_CREATOR, MAX_TRIGGERS_PER_CHAT,
+  type MissedReason, type Schedule, type SchedulePausedReason, type ScheduleRule, type ScheduleRun, type Trigger,
 } from '../../schemas/src/schedules';
 import { CanvasConflictError, CanvasLimitError } from './canvases';
 
@@ -26,6 +26,21 @@ const toSchedule = (r: ScheduleRow): ScheduleRecord => ({
   id: r.id, channelId: r.channel_id, agent: r.agent_name, prompt: r.prompt, rule: JSON.parse(r.rule_json) as ScheduleRule,
   timezone: r.timezone, on: r.on_flag === 1, pausedReason: r.paused_reason, nextAt: r.next_at, nextEventId: r.next_event_id,
   createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at, version: r.version,
+});
+/** A new webhook trigger: the token's sha256 (hex) and its last 4 characters only, never the token. */
+export type NewTriggerRecord = {
+  id: string; channelId: string; agent: string; prompt: string; label: string;
+  tokenHash: string; tokenHint: string; createdBy: string; now: number;
+};
+type TriggerRow = {
+  id: string; channel_id: string; agent_name: string; prompt: string; label: string; token_hash: string; token_hint: string;
+  on_flag: number; created_by: string; version: number; last_at: number | null; created_at: number; rotated_at: number;
+  paused_reason: SchedulePausedReason; updated_at: number;
+};
+const toTrigger = (r: TriggerRow): Trigger => ({
+  id: r.id, channelId: r.channel_id, agent: r.agent_name, prompt: r.prompt, label: r.label, on: r.on_flag === 1,
+  pausedReason: r.paused_reason, tokenHint: r.token_hint, lastAt: r.last_at, createdBy: r.created_by,
+  createdAt: r.created_at, rotatedAt: r.rotated_at, updatedAt: r.updated_at || r.created_at, version: r.version,
 });
 const toRun = (r: RunRow): ScheduleRun => ({
   id: r.id, scheduleId: r.schedule_id, dueAt: r.due_at, eventId: r.event_id, kind: r.kind, status: r.status, reason: r.reason, createdAt: r.created_at,
@@ -199,9 +214,94 @@ export function createScheduleStore(db: Database.Database, clock: () => number =
     return rows.map(r => ({ run: toRun(r), schedule: schedule(r.schedule_id)! }));
   }
 
+  // Webhook triggers ------------------------------------------------------------------------------------------------------
+
+  const rawTrigger = (id: string) => db.prepare('SELECT * FROM product_triggers WHERE id=?').get(id) as TriggerRow | undefined;
+  const trigger = (id: string): Trigger | null => { const r = rawTrigger(id); return r ? toTrigger(r) : null; };
+
+  /** Throws CanvasLimitError when the chat already has 5 webhook triggers. */
+  function checkTriggerLimit(channelId: string): void {
+    const n = (db.prepare('SELECT COUNT(*) n FROM product_triggers WHERE channel_id=?').get(channelId) as { n: number }).n;
+    if (n >= MAX_TRIGGERS_PER_CHAT) throw new CanvasLimitError(`A chat can have at most ${MAX_TRIGGERS_PER_CHAT} webhooks`);
+  }
+
+  /**
+   * A new trigger holding only the token's hash and hint. A retry by the same creator with the same settings is a
+   * rotation (the first answer, and its URL, may never have arrived): it returns the trigger with `rotated: true`.
+   * The same id with other settings is a conflict.
+   */
+  function createTrigger(input: NewTriggerRecord): { trigger: Trigger; rotated: boolean } {
+    return db.transaction(() => {
+      const same = rawTrigger(input.id);
+      if (same) {
+        const t = toTrigger(same);
+        if (t.channelId !== input.channelId || t.agent !== input.agent || t.prompt !== input.prompt || t.label !== input.label || t.createdBy !== input.createdBy) {
+          throw new CanvasConflictError(null);
+        }
+        return { trigger: rotateTrigger(input.id, input.tokenHash, input.tokenHint, input.now, input.createdBy)!, rotated: true };
+      }
+      checkTriggerLimit(input.channelId);
+      db.prepare('INSERT INTO product_triggers(id,channel_id,agent_name,prompt,label,token_hash,token_hint,on_flag,created_by,version,last_at,created_at,rotated_at,paused_reason,updated_at) VALUES (?,?,?,?,?,?,?,1,?,0,NULL,?,?,NULL,?)')
+        .run(input.id, input.channelId, input.agent, input.prompt, input.label, input.tokenHash, input.tokenHint, input.createdBy, input.now, input.now, input.now);
+      audit('trigger-created', input.createdBy, { triggerId: input.id, channelId: input.channelId });
+      return { trigger: trigger(input.id)!, rotated: false };
+    })();
+  }
+
+  /** The trigger whose token hashes to `tokenHash`, on or off; null for none. */
+  const triggerByHash = (tokenHash: string): Trigger | null => {
+    const r = db.prepare('SELECT * FROM product_triggers WHERE token_hash=?').get(tokenHash) as TriggerRow | undefined;
+    return r ? toTrigger(r) : null;
+  };
+  function triggersIn(channelIds: string[]): Trigger[] {
+    if (!channelIds.length) return [];
+    return (db.prepare(`SELECT * FROM product_triggers WHERE channel_id IN (${channelIds.map(() => '?').join(',')}) ORDER BY created_at, id`).all(...channelIds) as TriggerRow[]).map(toTrigger);
+  }
+  /** The creator's triggers that Nest paused (a reason is set), oldest change first. */
+  const pausedTriggersFor = (createdBy: string): Trigger[] =>
+    (db.prepare('SELECT * FROM product_triggers WHERE created_by=? AND on_flag=0 AND paused_reason IS NOT NULL ORDER BY updated_at, id').all(createdBy) as TriggerRow[]).map(toTrigger);
+
+  /** A new token hash and hint; the old hash stops matching in the same write. Null when the trigger is gone. */
+  function rotateTrigger(id: string, tokenHash: string, tokenHint: string, now: number, actor: string): Trigger | null {
+    const changed = db.prepare('UPDATE product_triggers SET token_hash=?,token_hint=?,rotated_at=?,updated_at=? WHERE id=?').run(tokenHash, tokenHint, now, now, id).changes;
+    if (!changed) return null;
+    audit('trigger-rotated', actor, { triggerId: id });
+    return trigger(id);
+  }
+
+  /** Settings, or on/off, by version. Turning on clears the paused reason. Throws CanvasConflictError on a stale version. */
+  function patchTrigger(id: string, patch: { prompt?: string; agent?: string; label?: string; on?: boolean }, version: number, actor: string): Trigger {
+    return db.transaction(() => {
+      const before = rawTrigger(id);
+      if (!before || before.version !== version) throw new CanvasConflictError(null);
+      const on = patch.on ?? before.on_flag === 1;
+      db.prepare('UPDATE product_triggers SET prompt=?,agent_name=?,label=?,on_flag=?,paused_reason=?,updated_at=?,version=version+1 WHERE id=? AND version=?')
+        .run(patch.prompt ?? before.prompt, patch.agent ?? before.agent_name, patch.label ?? before.label, on ? 1 : 0, on ? null : before.paused_reason, clock(), id, version);
+      audit('trigger-updated', actor, { triggerId: id, on });
+      return trigger(id)!;
+    })();
+  }
+
+  /** Nest pauses a trigger it cannot run: the creator lost post access, the agent left, or the chat is gone. */
+  function pauseTrigger(id: string, reason: Exclude<SchedulePausedReason, null>, actor: string): boolean {
+    const changed = db.prepare('UPDATE product_triggers SET on_flag=0,paused_reason=?,updated_at=?,version=version+1 WHERE id=? AND on_flag=1').run(reason, clock(), id).changes;
+    if (changed) audit('trigger-paused', actor, { triggerId: id, reason });
+    return changed > 0;
+  }
+
+  /** A call posted at `at`. */
+  const touchTrigger = (id: string, at: number): void => { db.prepare('UPDATE product_triggers SET last_at=? WHERE id=?').run(at, id); };
+
+  function removeTrigger(id: string, actor: string): boolean {
+    const changed = db.prepare('DELETE FROM product_triggers WHERE id=?').run(id).changes;
+    if (changed) audit('trigger-removed', actor, { triggerId: id });
+    return changed > 0;
+  }
+
   return {
     createSchedule, checkLimits, schedule, schedulesIn, unbooked, bookedDue, bookedBetween, pausedFor, markBooked, moveOn, unbook, patchSchedule, pause, removeSchedule,
     run, insertRun, setRunEvent, deleteRun, runsDue, missedSince, runAfter, settleRun, supersedeMissed, lastRun, missedFor,
+    trigger, checkTriggerLimit, createTrigger, triggerByHash, triggersIn, pausedTriggersFor, rotateTrigger, patchTrigger, pauseTrigger, touchTrigger, removeTrigger,
   };
 }
 export type ScheduleStore = ReturnType<typeof createScheduleStore>;

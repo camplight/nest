@@ -66,7 +66,9 @@ export type FlowNeed = {
     | { kind: 'approval'; deliveryId: string; linkId: string } | { kind: 'paused'; linkId: string }
     | { kind: 'missed'; scheduleId: string; runId: string }
     /** A schedule Nest paused (kind 'paused'); resumed with PATCH /api/flows/schedules/:id {on:true}. No buttons yet. */
-    | { kind: 'schedule-paused'; scheduleId: string };
+    | { kind: 'schedule-paused'; scheduleId: string }
+    /** A webhook trigger Nest paused (kind 'paused'); resumed with PATCH /api/flows/triggers/:id {on:true}. No buttons. */
+    | { kind: 'trigger-paused'; triggerId: string };
 };
 
 /** The findings link a fork gets, stored child → parent and drawn parent → child. */

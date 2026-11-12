@@ -3645,6 +3645,11 @@ li.canvas-phone-row[data-access] {
 .canvas-sched-pop textarea.iv-in { resize: vertical; min-height: 52px; }
 .canvas-sched-pop .sched-when { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
 .canvas-sched-pop .sched-when .iv-in { width: auto; font-size: 13px; }
+/* The Webhook kind: its name, then the URL in the mock's readonly monospace input (full once, then masked) and its note. */
+.canvas-sched-pop .sched-when .sched-hook-name { flex: 1 1 160px; min-width: 0; }
+.canvas-sched-pop .sched-when .sched-hook-url { flex: 1 1 100%; min-width: 0; font: 12px ui-monospace, monospace; }
+.canvas-sched-pop .sched-when .sched-hook-url + .btn { flex: none; }
+.canvas-sched-pop .sched-hook-note { flex: 1 1 160px; color: var(--nest-muted); font-size: 12px; line-height: 1.4; }
 .canvas-flow-pop .days { display: flex; gap: 4px; flex-wrap: wrap; }
 .canvas-flow-pop .days button { width: 36px; height: 30px; border-radius: 8px; border: 1px solid var(--nest-border); background: var(--nest-surface); font: 500 12px Inter, sans-serif; color: var(--nest-text); cursor: pointer; }
 /* The mock's white on the light accent (4.69:1); on the dark theme's lime accent white is under 4.5:1, so the page background. */

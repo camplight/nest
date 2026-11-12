@@ -1,4 +1,4 @@
-// The open chat's collapsed Setup line (the mock's cfgBlock): a summary of its agents, its schedules and how many chats it
+// The open chat's collapsed Setup line (the mock's cfgBlock): a summary of its agents, its schedules and webhooks and how many chats it
 // is connected to, opening onto the schedule strips and the links row (the mock's linksRow): `Gets from ← A`, `Passes to → B`
 // chips that open the Hand-off popover, and `+ Connect`. Loose chats have no links row. Whether it is open is remembered
 // per person in this browser.
@@ -14,9 +14,9 @@ export type ChatSetupProps = {
   loose: boolean;
   /** Every link touching this chat that the viewer can read (forks are counted and listed elsewhere). */
   links: readonly LinkView[];
-  /** The schedule strips, first in the body. */
+  /** The schedule and webhook strips (a webhook: `When the webhook is called · {name} · {agent} · waiting for it`), first in the body. */
   schedules?: ReactNode;
-  /** The summary's schedule chip (the mock's `sm-chip`): `missed run` (warn) or the first schedule's short rule. */
+  /** The summary's schedule chip (the mock's `sm-chip`): `missed run` (warn) or the first job's short rule (`webhook` for a webhook). */
   scheduleChip?: {text: string; warn: boolean} | null;
   /** The chat's agents, without the service agent. */
   agents: readonly string[];

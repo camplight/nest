@@ -655,8 +655,11 @@ runs booked as engine triggers in the creator's time zone, missed runs in Needs 
 and Run now), and the schedule UI (the open chat's clock and Schedule popover, card
 badges, schedule strips and chip in the Setup line, the top bar's Scheduled list, and
 scheduled runs as `↳` lines in the chat), and repeats typed in the bottom box
-(`every Monday at 9 …` shows a chip and is scheduled for the new chat after Send).
-Not yet built: webhooks.
+(`every Monday at 9 …` shows a chip and is scheduled for the new chat after Send),
+and webhooks (migration `016_triggers.sql`, `/api/flows/triggers` and the public
+`POST /api/hooks/<token>`: a hash-only token shown once with rotation, 64 KiB bodies,
+30 calls a minute per process, the Webhook kind in the Schedule popover and its strip
+and list row). App-event triggers are not offered.
 Access that comes only through a team counts as no access for flows.
 
 ## First-visit visual orientation

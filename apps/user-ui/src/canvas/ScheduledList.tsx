@@ -18,19 +18,20 @@ export function scheduleBadge(jobs: readonly ScheduleJob[] | undefined) {
 }
 
 /**
- * One job's strip in the open chat's Setup body: its rule, who does it, who set it up when that is not the viewer, and
- * when it runs next (or that it missed, with why). Run now and Edit follow the server's rights; an agent's own run has neither.
+ * One job's strip in the open chat's Setup body: its rule (and a webhook's name), who does it, who set it up when that is
+ * not the viewer, and when it runs next (or that it missed, with why; a webhook is `waiting for it` or `last run … ✓`).
+ * Run now (schedules only) and Edit follow the server's rights; an agent's own run has neither.
  */
 export function scheduleStrip(job: ScheduleJob, {now, canRun, onRunNow, onEdit}: {
   now: number; canRun: boolean; onRunNow(job: ScheduleJob): Promise<void>; onEdit?(job: ScheduleJob, anchor: HTMLElement): void;
 }) {
-  const s = job.schedule;
-  return <div key={job.key} className={`sch-strip${job.missed ? ' missed' : ''}`} data-schedule-id={s?.id}>
+  const s = job.schedule, own = s ?? job.trigger;
+  return <div key={job.key} className={`sch-strip${job.missed ? ' missed' : ''}`} data-schedule-id={s?.id} data-trigger-id={job.trigger?.id}>
     <ClockIcon/>
-    <span><b>{job.text}</b> · {job.agent}{job.setBy ? ` · set by ${job.setBy}` : ''} · {stripState(job, now)}
+    <span><b>{job.text}</b>{job.label ? ` · ${job.label}` : ''} · {job.agent}{job.setBy ? ` · set by ${job.setBy}` : ''} · {stripState(job, now)}
       {job.missed ? <> · <b className="sch-missed">missed {job.missed.at}: {job.missed.reason}</b></> : job.lastOk ? ` · last run ${job.lastOk} ✓` : ''}</span>
-    {s && (canRun || onEdit) ? <span className="sp">
-      {canRun ? <RunNow job={job} onRunNow={onRunNow}/> : null}
+    {own && ((canRun && s) || onEdit) ? <span className="sp">
+      {canRun && s ? <RunNow job={job} onRunNow={onRunNow}/> : null}
       {onEdit ? <button type="button" className="btn" aria-haspopup="dialog" onClick={event => onEdit(job, event.currentTarget)}>Edit</button> : null}
     </span> : null}
   </div>;
@@ -104,7 +105,7 @@ export function ScheduledList({canvasName, jobs, titles, onCanvas, anchor, now, 
           return <button key={job.key} type="button" className={`srow${job.missed ? ' missed' : ''}`} data-channel-id={job.channelId} onClick={() => { going.current = true; onGoto(job.channelId); }}>
             <AgentAvatar name={job.agent} size={28}/>
             <span className="srow-main">{titles.get(job.channelId) ?? 'Untitled chat'}
-              <span className="sm2">{job.text}{job.setBy ? ` · set by ${job.setBy}` : ''}{onCanvas.has(job.channelId) ? '' : ' · loose chat'}</span></span>
+              <span className="sm2">{job.text}{job.label ? ` · ${job.label}` : ''}{job.setBy ? ` · set by ${job.setBy}` : ''}{onCanvas.has(job.channelId) ? '' : ' · loose chat'}</span></span>
             <span className="when"><b>{when}</b>{sub}</span>
           </button>;
         })}

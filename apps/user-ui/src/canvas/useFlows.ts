@@ -7,7 +7,7 @@ import {getAvailability,getLinks,getNeeds,getSchedules,type FlowsAvailability,ty
 
 export const FLOW_NEEDS_MS = 15_000;
 const NO_NEEDS: FlowNeed[] = [];
-const NO_SCHEDULES: ScheduleList = {schedules: [], agentMade: []};
+const NO_SCHEDULES: ScheduleList = {schedules: [], agentMade: [], triggers: []};
 
 // One availability read per page: App (for the chat views) and the canvas share it. A failed read, or an answer that
 // flows are unavailable (an engine outage), is read again the next time a view asks.
@@ -67,7 +67,7 @@ export function useFlows(enabled: boolean): Flows {
     let live = true;
     const load = () => {
       getNeeds().then(items => { if (live) setNeeds(items); }).catch(() => {});
-      getSchedules().then(list => { if (live) setSchedules(current => JSON.stringify(current) === JSON.stringify(list) ? current : list); }).catch(() => {});
+      getSchedules().then(list => ({...list, triggers: list.triggers ?? []})).then(list => { if (live) setSchedules(current => JSON.stringify(current) === JSON.stringify(list) ? current : list); }).catch(() => {});
     };
     const tick = () => { if (document.visibilityState !== 'hidden') load(); };
     load();

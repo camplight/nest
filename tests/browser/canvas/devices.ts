@@ -74,7 +74,8 @@ async function cardContrasts(page:Page,roots='.canvas-card'):Promise<Contrast[]>
     const results:Contrast[]=[];
     for(const card of document.querySelectorAll<HTMLElement>(roots)){
       for(const element of [card,...card.querySelectorAll<HTMLElement>('*')]){
-        const text=[...element.childNodes].filter(node=>node.nodeType===Node.TEXT_NODE).map(node=>node.textContent??'').join('').trim();
+        // An input's text is its value (the webhook's name and URL).
+        const text=(element instanceof HTMLInputElement?element.value:[...element.childNodes].filter(node=>node.nodeType===Node.TEXT_NODE).map(node=>node.textContent??'').join('')).trim();
         if(!text)continue;
         const box=element.getBoundingClientRect(),style=getComputedStyle(element);
         if(box.width<=1||box.height<=1||style.visibility!=='visible')continue;
@@ -278,6 +279,8 @@ await runChatTest('canvas devices: card text keeps 4.5:1 contrast in light and d
   await call(h,'POST','/api/flows/schedules',{id:crypto.randomUUID(),channelId:h.project.channelId,agent:agentName,prompt:'Synthetic recap',rule:{kind:'weekly',days:[0],time:'09:00'},timezone:'UTC'});
   const off=await call<{id:string;version:number}>(h,'POST','/api/flows/schedules',{id:crypto.randomUUID(),channelId:failing.channelId,agent:agentName,prompt:'Synthetic check',rule:{kind:'weekdays',time:'08:00'},timezone:'UTC'});
   await call(h,'PATCH',`/api/flows/schedules/${off.id}`,{on:false,version:off.version});
+  // A webhook (Task 13) on the quiet chat: its strip, and in its popover the name, the URL and the once-only note.
+  await call(h,'POST','/api/flows/triggers',{id:crypto.randomUUID(),channelId:h.project.channelId,agent:agentName,prompt:'Synthetic triage',label:'Synthetic hook'});
 
   await page.goto(`${base}/?view=canvas&canvas=${id}`);
   const ratios:Record<string,number>={};
@@ -307,8 +310,16 @@ await runChatTest('canvas devices: card text keeps 4.5:1 contrast in light and d
     await sheet.locator('.cfg > summary').waitFor();
     // Setup stays open once opened (the first theme's pass leaves it so).
     if(!await sheet.locator('.cfg').evaluate(el=>(el as HTMLDetailsElement).open))await sheet.locator('.cfg > summary').click();
-    await sheet.locator('.sch-strip').waitFor();
-    ratios[`schedule strip ${theme}`]=await assertContrast(page,`schedule strip, ${theme}`,['Every Monday at 09:00'],'.canvas-chat .sch-strip');
+    await sheet.locator('.sch-strip').first().waitFor();
+    await sheet.locator('.sch-strip[data-trigger-id]').waitFor();
+    ratios[`schedule strip ${theme}`]=await assertContrast(page,`schedule strip, ${theme}`,['Every Monday at 09:00','When the webhook is called'],'.canvas-chat .sch-strip');
+    // The webhook's popover after Rotate URL: the full URL in the monospace input, Copy and the note.
+    await sheet.locator('.sch-strip[data-trigger-id]').getByRole('button',{name:'Edit',exact:true}).click();
+    await page.getByRole('dialog',{name:'Edit schedule',exact:true}).getByRole('button',{name:'Rotate URL',exact:true}).click();
+    await page.locator('.canvas-sched-pop .sched-hook-note').waitFor();
+    ratios[`webhook ${theme}`]=await assertContrast(page,`webhook, ${theme}`,['Synthetic hook','http://','Copy','Copy it now. It is shown only once.'],'.canvas-sched-pop .sched-when');
+    await page.keyboard.press('Escape');
+    await page.locator('.canvas-sched-pop').waitFor({state:'detached'});
     await sheet.getByRole('button',{name:'Schedule or trigger: run this on a timer or when something happens',exact:true}).click();
     await page.locator('.canvas-sched-pop .days button.on').waitFor();
     ratios[`selected day ${theme}`]=await assertContrast(page,`selected day, ${theme}`,['Mon'],'.canvas-sched-pop .days button.on');

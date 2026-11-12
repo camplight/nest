@@ -1,7 +1,7 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
 import {useCallback,useEffect,useId,useLayoutEffect,useMemo,useReducer,useRef,useState,useSyncExternalStore,type CSSProperties,type FormEvent,type MutableRefObject,type ReactNode} from 'react';
 import {Columns2,Ellipsis,FileText,Search,Share2,SquareArrowOutUpRight,X} from 'lucide-react';
-import {AGENT_PIN_LIMIT_MESSAGE,CanvasTint,relTime,ruleText,type AgentPins,type BoardLink,type Link,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project,type ScheduleView} from '@nest/schemas';
+import {AGENT_PIN_LIMIT_MESSAGE,CanvasTint,relTime,ruleText,type AgentPins,type TriggerView,type BoardLink,type Link,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project,type ScheduleView} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
@@ -37,7 +37,7 @@ import {errorText,getContextSummary,uploadContextFile,type PanelScope} from './c
 import {chatSees,contextLabel,joinNames,type ChatSees} from './context-label';
 import {cardSheet,clearOfDrawer,looseSheet,samePlace,stageBounds,type SheetPlace} from './sheet';
 import {isServiceAgent,useFlows} from './useFlows';
-import {LinkConflict,createLink,createSchedule,deleteLink,deleteSchedule,flowError,getLinks,patchLatest,patchSchedule,runScheduleNow,sendNow,type LinkView} from './flows-api';
+import {LinkConflict,createLink,createSchedule,createTrigger,deleteLink,deleteSchedule,deleteTrigger,flowError,getLinks,patchLatest,patchSchedule,patchTrigger,rotateTrigger,runScheduleNow,sendNow,type LinkView} from './flows-api';
 import {useDigestActions,type ChangeRequests} from './useDigestActions';
 import {ChatDigest,agentLine} from './ChatDigest';
 import {participantRows} from './rows';
@@ -46,7 +46,7 @@ import {LinkPicker} from './LinkPicker';
 import {ChatSetup} from './ChatSetup';
 import {LinkIcon} from './Links';
 import {startFork,type ForkResult,type ForkSource} from './fork';
-import {SchedulePopover,type ScheduleDraft} from './SchedulePopover';
+import {SchedulePopover,type ScheduleDraft,type WebhookDraft} from './SchedulePopover';
 import {ClockIcon,ScheduledList,scheduleStrip} from './ScheduledList';
 import {jobsByChannel,scheduleJobs,scheduledCount,setupChip,type ScheduleJob} from './schedule-jobs';
 import './canvas.css';
@@ -110,9 +110,18 @@ const NO_PULSES: ReadonlyMap<string, CardPulse> = new Map();
 const NOTHING: ReadonlySet<string> = new Set();
 const NO_LINKS: LinkView[] = [];
 const NO_JOBS: readonly ScheduleJob[] = [];
+/**
+ * The open clock popover: a new item (`key` fixed when it opened), a schedule, or a webhook. `url` is a webhook's full URL
+ * right after it was made or rotated, shown once; `created` is the made webhook until the list has it.
+ */
+type SchedPop = {
+  channelId: string; scheduleId: string | null; triggerId: string | null; anchor: HTMLElement | null; newId: string; key: string;
+  url: string | null; created: TriggerView | null;
+};
 /** The mock's toasts after a schedule is saved and deleted. */
 export const scheduledToast = (rule: Parameters<typeof ruleText>[0], nextAt: number | null, now: number) =>
-  nextAt === null ? `${ruleText(rule)}.` : `${ruleText(rule)}. Next run ${relTime(nextAt, now)}.`;
+  rule.kind === 'webhook' ? `${ruleText(rule)}. Runs each time it happens.`
+    : nextAt === null ? `${ruleText(rule)}.` : `${ruleText(rule)}. Next run ${relTime(nextAt, now)}.`;
 export const SCHEDULE_DELETED = 'Schedule deleted. Past runs stay in the chat.';
 /** The mock's toast after a bottom-box send that repeats (Task 12); the notices when it is not saved are in dock-schedule.ts. */
 export const typedScheduledToast = (rule: Parameters<typeof ruleText>[0]) => `Scheduled: ${ruleText(rule)}. First run now, then on schedule.`;
@@ -651,7 +660,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const looseHot = useMemo(() => shownLoose.some(looseNeedsYou), [shownLoose]);
   // Scheduled jobs (flows): the viewer's schedules and agents' own booked runs. Cards show a badge, the open chat its strips,
   // and the top bar the jobs in chats on this canvas or loose.
-  const jobs = useMemo(() => scheduleJobs({schedules: flows.schedules.schedules, agentMade: flows.schedules.agentMade, viewerId: humanId, names: owners, tz: browserZone()}),
+  const jobs = useMemo(() => scheduleJobs({schedules: flows.schedules.schedules, agentMade: flows.schedules.agentMade, triggers: flows.schedules.triggers, viewerId: humanId, names: owners, tz: browserZone()}),
     [flows.schedules, humanId, owners]);
   const jobsCache = useRef<ReadonlyMap<string, readonly ScheduleJob[]>>(new Map());
   const cardJobs = useMemo(() => {
@@ -1099,19 +1108,22 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
    * The clock popover (the mock's openSched): a new schedule for the open chat from its header's clock, or one of its
    * schedules from a strip's Edit. Saving first adds an agent who is not in the chat yet (manage rights, as `+ Someone else`).
    */
-  const [schedPop, setSchedPop] = useState<{channelId: string; scheduleId: string | null; anchor: HTMLElement | null; newId: string} | null>(null);
+  const [schedPop, setSchedPop] = useState<SchedPop | null>(null);
   const schedPopRef = useRef(schedPop); schedPopRef.current = schedPop;
   useEffect(() => { setSchedPop(null); }, [canvasId]);
-  // It belongs to the open chat: closing or switching the chat closes it, and so does its schedule being deleted elsewhere.
+  // It belongs to the open chat: closing or switching the chat closes it, and so does its schedule or webhook being deleted
+  // elsewhere. A webhook made in it is read from its create answer until the list has it.
   const popSchedule = schedPop?.scheduleId ? flows.schedules.schedules.find(s => s.id === schedPop.scheduleId) ?? null : null;
-  const schedPopStale = Boolean(schedPop && (!chatShown || schedPop.channelId !== chatChannelId || (schedPop.scheduleId && !popSchedule)));
+  const popTrigger = schedPop?.triggerId ? flows.schedules.triggers.find(t => t.id === schedPop.triggerId) ?? (schedPop.created?.id === schedPop.triggerId ? schedPop.created : null) : null;
+  const schedPopStale = Boolean(schedPop && (!chatShown || schedPop.channelId !== chatChannelId || (schedPop.scheduleId && !popSchedule) || (schedPop.triggerId && !popTrigger)));
   useEffect(() => { if (schedPopStale) setSchedPop(null); }, [schedPopStale]);
   const schedulesRef = useRef(flows.schedules.schedules); schedulesRef.current = flows.schedules.schedules;
+  const triggersRef = useRef(flows.schedules.triggers); triggersRef.current = flows.schedules.triggers;
   const peopleRef = useRef(chatPeople); peopleRef.current = chatPeople;
-  const openSchedule = useCallback((channelId: string, scheduleId: string | null, anchor: HTMLElement | null) => {
+  const openSchedule = useCallback((channelId: string, scheduleId: string | null, anchor: HTMLElement | null, triggerId: string | null = null) => {
     setFlowPop(null); setLinkPick(null); setSchedList(null);
-    setSchedPop(current => current && current.channelId === channelId && current.scheduleId === scheduleId && current.anchor === anchor ? null
-      : {channelId, scheduleId, anchor, newId: crypto.randomUUID()});
+    setSchedPop(current => current && current.channelId === channelId && current.scheduleId === scheduleId && current.triggerId === triggerId && current.anchor === anchor ? null
+      : {channelId, scheduleId, triggerId, anchor, newId: crypto.randomUUID(), key: scheduleId ?? triggerId ?? crypto.randomUUID(), url: null, created: null});
   }, []);
   const closeSchedPop = useCallback(() => setSchedPop(null), []);
   /** Whether the person may add agents to this chat: a card's rule, or for a loose chat the same rule on its channel. */
@@ -1121,21 +1133,25 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     const channel = visibleRef.current.find(c => c.id === channelId), project = projects.find(p => p.channelId === channelId);
     return Boolean(channel?.canManage && !channel.archivedAt && (!project || project.ownerId === humanId));
   }, [store, manageable, projects, humanId]);
+  /** Adds the agent to the chat first when it is a pinned one not in it yet (manage rights); false when it could not. */
+  const ensureAgent = useCallback(async (channelId: string, agent: string): Promise<boolean> => {
+    if (peopleRef.current.some(p => p.subscriberType === 'AGENT' && p.subscriberId === agent)) return true;
+    const by = humanRef.current;
+    if (!canAddTo(channelId)) { say(CANT_ADD); return false; }
+    const card = cardFor(channelId);
+    try {
+      const fresh = await addChatMember({channelId, projectId: card?.access === 'open' ? card.projectId : projects.find(p => p.channelId === channelId)?.id ?? null,
+        member: {subscriberType: 'AGENT', subscriberId: agent}, fetch: apiFetch, fetchJson: apiJson});
+      return settle(fresh, by);
+    } catch { if (humanRef.current === by) say(`Could not add ${agent}. Try again.`); return false; }
+  }, [canAddTo, projects, settle, say]);
   const saveSchedule = useCallback(async (draft: ScheduleDraft, opened: ScheduleView | null): Promise<boolean> => {
     const pop = schedPopRef.current;
     if (!pop) return false;
-    const {channelId} = pop, by = humanRef.current;
+    const {channelId} = pop;
     const current = pop.scheduleId ? schedulesRef.current.find(s => s.id === pop.scheduleId) : null;
     if (pop.scheduleId && !current) return false;
-    if (!peopleRef.current.some(p => p.subscriberType === 'AGENT' && p.subscriberId === draft.agent)) {
-      if (!canAddTo(channelId)) { say(CANT_ADD); return false; }
-      const card = cardFor(channelId);
-      try {
-        const fresh = await addChatMember({channelId, projectId: card?.access === 'open' ? card.projectId : projects.find(p => p.channelId === channelId)?.id ?? null,
-          member: {subscriberType: 'AGENT', subscriberId: draft.agent}, fetch: apiFetch, fetchJson: apiJson});
-        if (!settle(fresh, by)) return false;
-      } catch { if (humanRef.current === by) say(`Could not add ${draft.agent}. Try again.`); return false; }
-    }
+    if (!await ensureAgent(channelId, draft.agent)) return false;
     // Only what the person changed since the popover opened: someone else's edit in the meantime stays.
     const base = opened ?? current;
     try {
@@ -1154,21 +1170,70 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       say(flowError(error, 'Could not save the schedule. Try again.'));
       return false;
     }
-  }, [canAddTo, projects, settle, say, flows.refresh]);
-  const pauseSchedule = useCallback(async (on: boolean) => {
-    const pop = schedPopRef.current, current = pop?.scheduleId ? schedulesRef.current.find(s => s.id === pop.scheduleId) : null;
-    if (!pop || !current) return;
+  }, [ensureAgent, say, flows.refresh]);
+  /**
+   * The Webhook kind's save. A new webhook keeps the popover open on its URL, shown once with Copy (the URL lives only in
+   * this state, never in storage or logs); an edit closes it.
+   */
+  const saveWebhook = useCallback(async (draft: WebhookDraft, opened: TriggerView | null): Promise<boolean> => {
+    const pop = schedPopRef.current;
+    if (!pop) return false;
+    const {channelId} = pop;
+    const current = pop.triggerId ? triggersRef.current.find(t => t.id === pop.triggerId) ?? pop.created : null;
+    if (pop.triggerId && !current) return false;
+    if (!await ensureAgent(channelId, draft.agent)) return false;
     try {
-      await patchSchedule(current.id, {on}, current.version);
+      if (current) {
+        const base = opened ?? current;
+        await patchTrigger(current.id, {
+          ...(draft.prompt !== base.prompt ? {prompt: draft.prompt} : {}),
+          ...(draft.agent !== base.agent ? {agent: draft.agent} : {}),
+          ...(draft.label !== base.label ? {label: draft.label} : {}),
+        }, current.version);
+        if (schedPopRef.current === pop) setSchedPop(null);
+      } else {
+        const made = await createTrigger({id: pop.newId, channelId, agent: draft.agent, prompt: draft.prompt, label: draft.label});
+        setSchedPop(now => now === pop ? {...pop, triggerId: made.trigger.id, created: made.trigger, url: made.url} : now);
+      }
+      say(scheduledToast({kind: 'webhook'}, null, Date.now()));
+      flows.refresh();
+      return true;
+    } catch (error) {
+      say(flowError(error, 'Could not save the webhook. Try again.'));
+      return false;
+    }
+  }, [ensureAgent, say, flows.refresh]);
+  /** Rotate URL: the new URL replaces the masked one, shown once. */
+  const rotateWebhook = useCallback(async () => {
+    const pop = schedPopRef.current;
+    if (!pop?.triggerId) return;
+    const id = pop.triggerId;
+    try {
+      const {url} = await rotateTrigger(id);
+      setSchedPop(now => now && now.triggerId === id ? {...now, url} : now);
+      flows.refresh();
+    } catch (error) { say(flowError(error, 'Could not change the URL. Try again.')); }
+  }, [say, flows.refresh]);
+  const pauseSchedule = useCallback(async (on: boolean) => {
+    const pop = schedPopRef.current;
+    const current = pop?.scheduleId ? schedulesRef.current.find(s => s.id === pop.scheduleId) : null;
+    const hook = pop?.triggerId ? triggersRef.current.find(t => t.id === pop.triggerId) ?? pop.created : null;
+    if (!pop || (!current && !hook)) return;
+    try {
+      if (current) await patchSchedule(current.id, {on}, current.version);
+      else await patchTrigger(hook!.id, {on}, hook!.version);
       if (schedPopRef.current === pop) setSchedPop(null);
       flows.refresh();
     } catch (error) { say(flowError(error, on ? 'Could not resume the schedule. Try again.' : 'Could not pause the schedule. Try again.')); }
   }, [say, flows.refresh]);
   const removeSchedule = useCallback(async () => {
-    const pop = schedPopRef.current, current = pop?.scheduleId ? schedulesRef.current.find(s => s.id === pop.scheduleId) : null;
-    if (!pop || !current) return;
+    const pop = schedPopRef.current;
+    const current = pop?.scheduleId ? schedulesRef.current.find(s => s.id === pop.scheduleId) : null;
+    const hook = pop?.triggerId ? triggersRef.current.find(t => t.id === pop.triggerId) ?? pop.created : null;
+    if (!pop || (!current && !hook)) return;
     try {
-      await deleteSchedule(current.id, current.version);
+      if (current) await deleteSchedule(current.id, current.version);
+      else await deleteTrigger(hook!.id, hook!.version);
       if (schedPopRef.current === pop) setSchedPop(null);
       say(SCHEDULE_DELETED);
       flows.refresh();
@@ -1184,7 +1249,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const chatJobs = chatShown && chatChannelId ? cardJobs.get(chatChannelId) ?? NO_JOBS : NO_JOBS;
   const chatCanPost = Boolean(chatChannel && chatChannel.canPost !== false && !chatChannel.archivedAt);
   const chatStrips = chatJobs.length ? <>{chatJobs.map(job => scheduleStrip(job, {now: Date.now(), canRun: Boolean(job.schedule?.canManage && chatCanPost), onRunNow: runJob,
-    onEdit: job.schedule && (job.schedule.canEdit || job.schedule.canManage) ? (j, anchor) => openSchedule(j.channelId, j.schedule!.id, anchor) : undefined}))}</> : null;
+    onEdit: job.schedule && (job.schedule.canEdit || job.schedule.canManage) ? (j, anchor) => openSchedule(j.channelId, j.schedule!.id, anchor)
+      : job.trigger && (job.trigger.canEdit || job.trigger.canManage) ? (j, anchor) => openSchedule(j.channelId, null, anchor, j.trigger!.id) : undefined}))}</> : null;
   // The header's clock: anyone who can post in the chat, except a view-role member of this canvas (T7-R1).
   const chatSchedule = flowsOn && chatShown && chatChannelId && board && board.canvas.role !== 'view' && chatCanPost
     ? (anchor: HTMLElement) => openSchedule(chatChannelId, null, anchor) : undefined;
@@ -1357,9 +1423,11 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         fromAgent={agentsOf(flowCards?.from)[0] ?? null} candidates={flowCards?.to?.access === 'open' ? agentsOf(flowCards.to) : flowPop.view.who ? [flowPop.view.who] : []}
         pinned={shownPins} anchor={flowPop.anchor} editable={flowPop.view.canEdit && board.canvas.role !== 'view'}
         onChange={changeFlow} onLabelDraft={draftFlowLabel} onDisconnect={disconnectFlow} onSendNow={sendFlow} onClose={closeFlowPop}/> : null}
-      {schedPop && !schedPopStale && board ? <SchedulePopover key={`${schedPop.channelId}:${schedPop.scheduleId ?? schedPop.newId}`} chat={{channelId: schedPop.channelId, title: chatTitle}}
-        schedule={popSchedule} agents={chatAgents} pinned={shownPins.filter(name => !isServiceAgent(name, service))} timezone={browserZone()} anchor={schedPop.anchor} now={Date.now}
-        onSave={saveSchedule} onPause={popSchedule?.canManage ? pauseSchedule : undefined} onDelete={popSchedule?.canManage ? removeSchedule : undefined} onClose={closeSchedPop}/> : null}
+      {schedPop && !schedPopStale && board ? <SchedulePopover key={`${schedPop.channelId}:${schedPop.key}`} chat={{channelId: schedPop.channelId, title: chatTitle}}
+        schedule={popSchedule} trigger={popTrigger} webhooks={flows.availability?.webhooks === true} url={schedPop.url}
+        agents={chatAgents} pinned={shownPins.filter(name => !isServiceAgent(name, service))} timezone={browserZone()} anchor={schedPop.anchor} now={Date.now}
+        onSave={saveSchedule} onSaveWebhook={saveWebhook} onRotate={rotateWebhook}
+        onPause={(popSchedule ?? popTrigger)?.canManage ? pauseSchedule : undefined} onDelete={(popSchedule ?? popTrigger)?.canManage ? removeSchedule : undefined} onClose={closeSchedPop}/> : null}
       {schedList && board && flowsOn ? <ScheduledList canvasName={board.canvas.name} jobs={canvasJobs} titles={titles} onCanvas={boardIds} anchor={schedList} now={Date.now}
         onGoto={channelId => { setSchedList(null); jumpTo(channelId); }} onClose={() => setSchedList(null)}/> : null}
     </div>

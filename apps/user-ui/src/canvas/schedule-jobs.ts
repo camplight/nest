@@ -1,7 +1,7 @@
 // Scheduled jobs as the canvas shows them (the mock's SCHED rows, read by schedBadge, schedStrip, the Setup chip, the
-// top-bar count and renderSchedList): the viewer's schedules from GET /api/flows/schedules and the runs agents booked
-// themselves, in one shape. Pure: the clock is an argument.
-import {atText,relTime,ruleText,shortRule,type AgentMadeSchedule,type ScheduleView} from '@nest/schemas';
+// top-bar count and renderSchedList): the viewer's schedules and webhooks from GET /api/flows/schedules and the runs agents
+// booked themselves, in one shape. Pure: the clock is an argument.
+import {atText,relTime,ruleText,shortRule,type AgentMadeSchedule,type ScheduleView,type TriggerView} from '@nest/schemas';
 
 export type ScheduleJob = {
   key: string;
@@ -23,13 +23,17 @@ export type ScheduleJob = {
   missed: {at: string; reason: string} | null;
   /** Its newest settled run started (on time or late): when. */
   lastOk: string | null;
-  /** The Nest schedule (with canEdit and canManage); null for an agent's own run, which is read-only (mockup deviation 8). */
+  /** The Nest schedule (with canEdit and canManage); null for a webhook and for an agent's own run (read-only, mockup deviation 8). */
   schedule: ScheduleView | null;
+  /** The webhook (with canEdit and canManage); its job has no next run and is listed under `Starts when something happens`. */
+  trigger?: TriggerView;
+  /** A webhook's name (what calls it), shown after its rule so two webhooks in a chat can be told apart. */
+  label?: string;
 };
 
-/** Every job, Nest's schedules first in the server's order, then agents' runs by time. */
-export function scheduleJobs({schedules, agentMade, viewerId, names, tz}: {
-  schedules: readonly ScheduleView[]; agentMade: readonly AgentMadeSchedule[]; viewerId: string;
+/** Every job, Nest's schedules first in the server's order, then its webhooks, then agents' runs by time. */
+export function scheduleJobs({schedules, agentMade, triggers = [], viewerId, names, tz}: {
+  schedules: readonly ScheduleView[]; agentMade: readonly AgentMadeSchedule[]; triggers?: readonly TriggerView[]; viewerId: string;
   /** Usernames by human id, for `set by {creator}`. */
   names: ReadonlyMap<string, string>;
   /** The browser's time zone. */
@@ -46,6 +50,12 @@ export function scheduleJobs({schedules, agentMade, viewerId, names, tz}: {
       schedule: s,
     };
   });
+  const hooks = triggers.map((t): ScheduleJob => ({
+    key: `hook:${t.id}`, channelId: t.channelId, agent: t.agent, text: ruleText({kind: 'webhook'}), short: shortRule({kind: 'webhook'}),
+    setBy: t.createdBy === viewerId ? null : names.get(t.createdBy) ?? 'someone else',
+    on: t.on, next: null, tz, missed: null, lastOk: t.lastAt === null ? null : atText(t.lastAt, tz),
+    schedule: null, trigger: t, label: t.label,
+  }));
   const agents = [...agentMade].sort((a, b) => a.at - b.at).map((e): ScheduleJob => {
     const at = atText(e.at, tz);
     return {
@@ -53,7 +63,7 @@ export function scheduleJobs({schedules, agentMade, viewerId, names, tz}: {
       setBy: e.agent, on: true, next: e.at, tz, missed: null, lastOk: null, schedule: null,
     };
   });
-  return [...own, ...agents];
+  return [...own, ...hooks, ...agents];
 }
 
 /** Jobs by chat. A chat whose jobs read the same as before keeps its previous array, so its memoized card does not re-render. */
@@ -106,7 +116,7 @@ export type ListGroup = {title: string; jobs: ScheduleJob[]};
 const DAY_MS = 864e5;
 /** The mock's renderSchedList groups, empty ones left out: Missed, Starts when something happens, Next 24 hours, Later, Paused. */
 export function listGroups(jobs: readonly ScheduleJob[], filter: ListFilter, now: number): ListGroup[] {
-  const shown = jobs.filter(j => filter === 'all' || j.schedule === null);
+  const shown = jobs.filter(j => filter === 'all' || isAgentMade(j));
   const missed = shown.filter(j => j.missed);
   const paused = shown.filter(j => !j.on && !j.missed);
   const live = shown.filter(j => j.on && !j.missed);
@@ -119,8 +129,10 @@ export function listGroups(jobs: readonly ScheduleJob[], filter: ListFilter, now
     {title: 'Paused', jobs: paused},
   ].filter(group => group.jobs.length);
 }
+/** An agent's own booked run: neither a Nest schedule nor a webhook. */
+export const isAgentMade = (job: ScheduleJob) => job.schedule === null && !job.trigger;
 /** How many the `Set by agents` filter shows. */
-export const agentMadeCount = (jobs: readonly ScheduleJob[]) => jobs.filter(j => j.schedule === null).length;
+export const agentMadeCount = (jobs: readonly ScheduleJob[]) => jobs.filter(isAgentMade).length;
 
 /** A row's `when` column: bold first line, then the second. */
 export function rowWhen(job: ScheduleJob, now: number): [string, string] {
