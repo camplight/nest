@@ -286,7 +286,7 @@ await runChatTest('canvas schedules: a webhook shows its URL once, a call lands 
   assert.equal(await pop.getByLabel('Time',{exact:true}).count(),0,'no time for a webhook');
   assert.equal(await pop.getByRole('button',{name:'Schedule it',exact:true}).getAttribute('aria-disabled'),'true','a name is needed first');
   await pop.getByLabel('Name',{exact:true}).fill('Sentry');
-  assert.equal(await pop.locator('.lk-sum').innerText(),'Pip will triage the new issue · When the webhook is called. Runs each time it happens.');
+  assert.equal(await pop.locator('.lk-sum').innerText(),'Pip will triage the new issue · When the webhook is called. Runs each time it happens. If a run can\'t start, it shows up in Needs you.');
   await pop.getByRole('button',{name:'Schedule it',exact:true}).click();
 
   // Made: the same popover, now the webhook's, with its full URL focused and selected, Copy, and the once-only note.

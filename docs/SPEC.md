@@ -1807,7 +1807,8 @@ forks, schedules (the API, the scheduler and the canvas UI) and webhook triggers
      stay in the chat.`.
    - Webhook (the mock's webhook kind). The time row becomes a `Name` input (`What
      calls it, e.g. Sentry`, at most 60 characters, required) and the summary reads
-     `{agent} will {prompt} · When the webhook is called. Runs each time it happens.`.
+     `{agent} will {prompt} · When the webhook is called. Runs each time it happens.
+     If a run can't start, it shows up in Needs you.` (the mock's text).
      `Schedule it` posts `POST /api/flows/triggers`, toasts `When the webhook is
      called. Runs each time it happens.` and keeps the popover open as the webhook's
      `Edit schedule`: the mock's readonly monospace input holds the full URL, focused

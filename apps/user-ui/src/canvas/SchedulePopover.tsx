@@ -193,7 +193,7 @@ export function SchedulePopover({chat, schedule, trigger = null, webhooks = fals
     {/* No live region: the summary repeats the prompt, so it would be read again on every keystroke. */}
     <div className="lk-sum">
       {hook
-        ? <><b>{agent || 'someone'}</b> will {willDo(prompt)} · <b>{text}</b>. Runs each time it happens.</>
+        ? <><b>{agent || 'someone'}</b> will {willDo(prompt)} · <b>{text}</b>. Runs each time it happens. If a run can't start, it shows up in Needs you.</>
         : <><b>{agent || 'someone'}</b> will {willDo(prompt)} · <b>{text}</b>.{next !== null ? ` Next run: ${atText(next, tz)} (${relTime(next, at)}).` : ''} If a run can't start, it shows up in Needs you. Times are in {tz}.</>}
     </div>
     <div className="iv-foot">
