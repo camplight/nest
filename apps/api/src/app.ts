@@ -23,6 +23,8 @@ import { createSwitchyard } from './flows/identity';
 import { createSummarizer, type Summarize } from './flows/summarize';
 import { registerFlowRoutes } from './flows/routes';
 import { createHandoffWorker } from './flows/handoff';
+import { createScheduler } from './flows/scheduler';
+import { randomUUID } from 'node:crypto';
 import { watchEngine } from './flows/engine-watch';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
@@ -112,12 +114,15 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     const env = await orgops.projectNamingEnv({model: reference, token: managementKey, agentName: namingSource, agentId: namingSource === managementName ? managementId : undefined});
     return {model: reference, env};
   }});
-  // The hand-off worker; config.flowsNow is its clock (tests and the scheduler move it).
-  const handoff = createHandoffWorker({store, orgops, token: serviceToken, switchyard, summarize, now: config.flowsNow});
-  registerFlowRoutes(app, {store, orgops, enabled: canvasEnabled, switchyard, worker: handoff, summarize});
+  // The hand-off worker and the scheduler share one lease holder, so one process does both; config.flowsNow is their clock.
+  const flowsHolder = randomUUID();
+  const handoff = createHandoffWorker({store, orgops, token: serviceToken, switchyard, summarize, now: config.flowsNow, holder: flowsHolder});
+  const scheduler = createScheduler({store, orgops, token: serviceToken, switchyard, now: config.flowsNow, holder: flowsHolder});
+  registerFlowRoutes(app, {store, orgops, enabled: canvasEnabled, switchyard, worker: handoff, summarize, scheduler});
   const flows = {
     enabled: canvasEnabled,
-    tick: handoff.tick,
+    /** One flows tick: hand-offs, then scheduled runs. */
+    tick: async () => { await handoff.tick(); await scheduler.tick(); },
     /** Wake the worker when a linked chat's turn completes; null without a service token. */
     watch: (baseUrl: string) => serviceToken ? watchEngine({baseUrl, token: serviceToken, onTurnCompleted: handoff.wake}) : null,
   };
@@ -149,5 +154,5 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     const env=config.projectNamer?undefined:await orgops.projectNamingEnv({model:input.model,token:managementKey,agentName:namingSource,agentId:namingSource===managementName?managementId:undefined});
     return {...input,env};
   }});
-  return { app, store, orgops, projectNaming, contextAgents, switchyard, summarize, handoff, flows };
+  return { app, store, orgops, projectNaming, contextAgents, switchyard, summarize, handoff, scheduler, flows };
 }

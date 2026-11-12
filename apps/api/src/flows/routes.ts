@@ -10,6 +10,7 @@ import { channelAccess, linkRights } from './access';
 import type { Switchyard, SwitchyardState } from './identity';
 import { FlowActionError, NOTHING_TO_SEND, pausedWhy, type HandoffWorker } from './handoff';
 import { registerForkRoutes } from './forks';
+import { missedNeeds, registerScheduleRoutes, type Scheduler } from './scheduler';
 import type { Summarize } from './summarize';
 
 const NOT_SET_UP = 'Hand-offs are not set up on this server';
@@ -27,8 +28,8 @@ export type Availability = {
  * Links between chats. Engine chats, participants and events are read through the viewer's own
  * session; Switchyard joins and posts with the service token. Flag off: every route answers 404.
  */
-export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchyard, worker, summarize }: {
-  store: ProductDb; orgops: OrgOpsClient; enabled: boolean; switchyard: Switchyard; worker: HandoffWorker; summarize: Summarize;
+export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchyard, worker, summarize, scheduler }: {
+  store: ProductDb; orgops: OrgOpsClient; enabled: boolean; switchyard: Switchyard; worker: HandoffWorker; summarize: Summarize; scheduler: Scheduler;
 }) {
   const routes = new Hono<{ Variables: { human: Human } }>();
   routes.onError((error, c) => {
@@ -218,7 +219,7 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
     return c.body(null, 204);
   });
 
-  /** The viewer's hand-offs awaiting their OK and their links the worker paused. */
+  /** The viewer's hand-offs awaiting their OK, their links the worker paused and their schedules' missed runs. */
   routes.get('/api/flows/needs', async c => {
     const human = c.get('human');
     const channels = await viewerChannels(c.req.raw.headers);
@@ -251,11 +252,14 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
           gate: { kind: 'paused', linkId: link.id },
         };
       }),
+      ...missedNeeds(store, human.id),
     ];
     return c.json({ items: items.sort((a, b) => b.at - a.at) });
   });
 
-  registerForkRoutes(routes, { store, orgops, switchyard, summarize, tools: { fail, parse, body, viewerChannels, titles, join: joinBoth } });
+  const tools = { fail, parse, body, viewerChannels, titles, join: joinBoth };
+  registerForkRoutes(routes, { store, orgops, switchyard, summarize, tools });
+  registerScheduleRoutes(routes, { store, orgops, switchyard, scheduler, tools });
 
   // Unknown flow endpoints never fall through to the engine proxy.
   routes.all('/api/flows', () => { throw notFound(); });

@@ -649,8 +649,10 @@ chats, and connecting chats (the `+` port, the chat picker, a new step and the o
 chat's Setup line with its links row), and flow items in Needs you with the open
 chat's Where it stands (Approve, Request changes, and Run now for missed runs), and
 forks (`Fork from here` on a message, the seeded fork placed under its parent with
-`fork of …`, the forked chip, and findings flowing back over the fork line). Not yet
-built: schedules and webhooks.
+`fork of …`, the forked chip, and findings flowing back over the fork line), and
+the schedules API and scheduler (migration `015_schedules.sql`, `/api/flows/schedules`,
+runs booked as engine triggers in the creator's time zone, missed runs in Needs you
+and Run now). Not yet built: the schedule UI and webhooks.
 Access that comes only through a team counts as no access for flows.
 
 ## First-visit visual orientation

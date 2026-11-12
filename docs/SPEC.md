@@ -1202,8 +1202,9 @@ another, forks, schedules and webhook triggers. Design: section 8 of
 plan: [the Phase 3 plan](superpowers/plans/2026-11-11-switchyard-canvas-phase3.md).
 Everything is behind `NEST_ENABLE_CANVAS=1`; with the flag off every `/api/flows/*`
 route answers 404, whoever asks. This section grows as the phase lands; so far it
-covers the service agent, links, how the board shows them, the hand-off worker and
-the canvas UI for links (lines, labels and the Hand-off popover).
+covers the service agent, links, how the board shows them, the hand-off worker, the
+canvas UI for links (lines, labels and the Hand-off popover), forks, and the
+schedules API with its scheduler (the schedule UI is still to come).
 
 1. Data. Migration `014_links_forks.sql` adds:
    - `product_links`: one row per link, keyed by id and unique per
@@ -1220,8 +1221,23 @@ the canvas UI for links (lines, labels and the Hand-off popover).
    - `product_forks`: each forked chat's parent chat and event, and its findings link.
    - `product_flow_leases`: single-worker leases.
 
-   Types are in `packages/schemas/src/flows.ts`. Ids and settings only: engine chats,
-   events and subscriptions are never mirrored.
+   Migration `015_schedules.sql` adds:
+   - `product_schedules`: one row per schedule: the chat, the agent to wake, the
+     prompt (at most 4,000 characters), the rule as JSON, the creator's IANA time
+     zone, `on_flag` and `paused_reason` (`access`, `agent-left` or `unavailable`
+     when Nest paused it; none when a person did), the creator, a `version`, and
+     the next run: `next_at` and the engine event booked for it, `next_event_id`
+     (null until booked). A chat can have at most 10 schedules and a person at most
+     100 (400 beyond).
+   - `product_schedule_runs`: one row per `(schedule_id, kind, due_at)`, where kind is
+     `scheduled` or `manual` (Run now). It holds the engine event id and the status:
+     `booked`, `started`, `missed` (with a reason), `late` or `superseded`. Runs go
+     with their schedule.
+   - `product_triggers`: webhook triggers (the token kept only as a sha256 and a hint),
+     used by the webhook work.
+
+   Types are in `packages/schemas/src/flows.ts` and `schedules.ts`. Ids and settings
+   only: engine chats, events and subscriptions are never mirrored.
 
 2. The service agent. Background posts come from a real engine agent named
    `NEST_SWITCHYARD_AGENT_NAME` (default `Switchyard`). Nest creates it through the
@@ -1325,6 +1341,11 @@ the canvas UI for links (lines, labels and the Hand-off popover).
        `hit 20 an hour`, `access changed`, `{who} left the chat` or
        `chat unavailable`, and `gate {kind:'paused', linkId}`. A link paused by a
        person (no reason) is not listed.
+     - `missed`, one per schedule of the viewer's whose newest settled run was
+       missed (none once a later run starts, or after Run now), on the schedule's
+       chat: `short` `Missed run · {reason}`, `from` the agent, `at` the due time,
+       `detail` `Scheduled run · {ruleText} · {agent}. Missed {Mon 09:00}: {reason}.
+       Nothing ran.` and `gate {kind:'missed', scheduleId, runId}`.
 
      Titles follow the viewer's own access, as in the links list.
    - `POST /api/flows/forks` takes `{childChannelId, parentChannelId, parentEventId,
@@ -1358,6 +1379,40 @@ the canvas UI for links (lines, labels and the Hand-off popover).
    - `GET /api/flows/forks?parentChannelId=X` answers `{forks:[{childChannelId,
      parentEventId, title}]}` for a chat the viewer can read (404 otherwise); a fork
      the viewer cannot read is titled `a private chat`.
+   - `GET /api/flows/schedules` answers `{schedules, agentMade}`. `schedules` are the
+     schedules in every chat the viewer can read, as `Schedule & {lastRun, chatTitle,
+     canEdit, canManage}`: `nextAt` is null while paused, `lastRun` is the newest run
+     already due (not superseded), `canEdit` (prompt, agent, rule) is the creator's,
+     and `canManage` (pause, delete, Run now) the creator's or a chat member's.
+     `agentMade` lists the engine's future scheduled events that agents booked
+     themselves, read with the viewer's session (`GET /api/events?scheduled=1&limit=200`,
+     so only chats the viewer can see), from sources `agent:<name>` other than the
+     service agent: `{eventId, channelId, agent, at, text}`, shown as `set by <name>`.
+   - `POST /api/flows/schedules` takes `{id, channelId, agent, prompt, rule, timezone}`
+     (`NewScheduleSchema`; an unknown time zone, a bad rule or a prompt over 4,000
+     characters answers 400). The viewer must post in the chat by the flows rule
+     (403 `You need to be able to post in this chat`), the agent must be an `AGENT`
+     participant (409 `Add {agent} to the chat first`; the service agent itself is
+     400), and the service agent must be usable (503). Switchyard joins the chat, the
+     schedule is stored with its first time, the first run is booked, and the note
+     `Scheduled · {ruleText} · {agent}` is posted, waking nobody, with the key
+     `nest:note:schedule:<id>`. It answers 201 with the schedule; a retry with the
+     same id and settings answers 200 and posts nothing more; the same id with other
+     settings answers 409. When the engine cannot take the booking, the schedule
+     still stands and the scheduler books it.
+   - `PATCH /api/flows/schedules/:id` takes `{prompt?, agent?, rule?, on?, version}`.
+     Settings are the creator's alone; `on` is also open to members of the chat (403
+     otherwise). A change of settings or of `on` first cancels the booked engine event
+     (an outage answers 502 and changes nothing), then stores the change; a schedule
+     left on gets its next time from now and is booked again. A stale version answers
+     409 with the current schedule.
+   - `DELETE /api/flows/schedules/:id?version=N` answers 204 for the creator or a chat
+     member, after cancelling the booked event. Runs already posted stay in the chat.
+   - `POST /api/flows/schedules/:id/run` (Run now) answers 201 `{runId}` for a chat
+     member who can post (403 otherwise; 409 when the agent left the chat).
+
+   For schedules, someone who neither created the schedule nor can read its chat gets
+   404.
 
    For `PATCH`, `DELETE` and Send now, someone who neither created the link nor can
    read either chat gets 404, as if it did not exist. Creating, changing and removing
@@ -1426,6 +1481,59 @@ the canvas UI for links (lines, labels and the Hand-off popover).
 
    Switchyard never takes a turn: it stays stopped, its own posts never route to it,
    and a "nobody" hand-off targets it, so no agent wakes.
+
+   The scheduler (`apps/api/src/flows/scheduler.ts`) runs in the same flows tick,
+   right after the hand-off worker, under the same lease holder, so with two API
+   processes only the one holding the lease delivers hand-offs and books runs.
+   - Rules (`packages/schemas/src/schedules.ts`, days Monday = 0 … Sunday = 6, times
+     `HH:MM`): `once` (a weekday and time; it turns itself off after its run), `daily`,
+     `weekdays`, `weekly` (1–7 sorted, unique days), `monthly` (day 1–28) and
+     `interval` (5–1440 minutes). Copy follows the mock: `ruleText` reads
+     `Every 30 min`, `Every day at 09:00`, `Weekdays at 08:00`, `Every Monday, Friday
+     at 09:00`, `Monthly on day 3 at 10:00`, `Once · Wednesday 10:00` and (webhooks)
+     `When the webhook is called`; `shortRule` reads `30 min`, `Daily 09:00`,
+     `Weekdays 08:00`, `Mon Fri 09:00`, `Monthly`, `Once Wed 10:00` and `webhook`.
+   - Time zones and DST. Wall-clock times are in the creator's IANA time zone, checked
+     with `Intl.DateTimeFormat` (so `UTC` is accepted). `nextRunAt(rule, tz, after)` is
+     pure: it walks local dates from `after` (at most 400 days) and converts each
+     candidate with the zone's offset read around it. A time that does not exist (the
+     spring-forward gap) runs one hour later; an ambiguous time (the autumn repeat)
+     runs at its first occurrence. `interval` runs `after` plus its minutes. In
+     `Europe/Sofia`, Monday 09:00 runs at 07:00 UTC on 2026-03-23 and 06:00 UTC on
+     2026-03-30; daily 03:30 runs at 01:30 UTC on 2026-03-29 and 00:30 UTC on
+     2026-10-25.
+   - Booking. Each schedule has at most one booked run: an engine
+     `agent.scheduled.trigger` posted as the service agent with `deliverAt` = the next
+     time, targeted at the agent, with the key `nest:schedule:<id>:<dueAt>` and
+     `payload.nestSwitchyard {kind:'run', setBy:<creator>, scheduleId}`. Its text is
+     `Scheduled run · {ruleText} · set up by {creator}`, a blank line and the prompt.
+     The engine wakes only that agent when it is due. A crash or a lost answer between
+     the post and Nest saving it is retried with the same key, so the engine returns
+     the event it stored. Before booking, a schedule whose creator can no longer post
+     in the chat pauses with `access`, one whose agent left with `agent-left` (also on
+     the engine's 400), and one whose chat is gone with `unavailable`. A booking that
+     lands after the schedule was paused, changed or removed is cancelled again.
+   - Each tick, in order: schedules whose booked time has come move on to their next
+     time (from the later of now and the due time); a schedule that could not be booked
+     by its time plus the 10-minute grace records a `missed` run with the reason
+     `engine unavailable` and moves on; then, with the engine reachable, booked runs
+     that are due are checked and unbooked schedules are booked.
+   - Started, missed, late. A due run is `started` when the agent's first
+     `agent.turn.started` in that chat after the due time has `createdAt` within the
+     grace (`GET /api/events?channelId&type=agent.turn.started&source=agent:<name>&after`).
+     Without one after the grace it is `missed`, with the reason `runner offline`
+     (the agent's assigned runner is not online in `GET /api/runners`), `agent stopped`
+     (its `desiredState` is not `RUNNING`) or `no turn started`. A turn after the grace,
+     within a day and before the schedule's next run, makes a missed run `late`, which
+     leaves Needs you.
+   - Pause, edit and delete cancel the booked event (`DELETE /api/events/:id`). An
+     event already due (409) cannot be cancelled; its run is left to the check above.
+   - Run now posts an immediate trigger (no `deliverAt`) with the key
+     `nest:schedule:<id>:now:<runId>`, `payload.nestSwitchyard {kind:'run',
+     setBy:<person>, scheduleId, runId}` and the text `Run started by {username}`, a
+     blank line and the prompt. It is recorded as a `manual` run, checked like any
+     other, and every missed run of the schedule becomes `superseded`.
+   - Logs name schedules and runs by id and reason only, never prompts or trigger text.
 
 7. Links on the canvas (`apps/user-ui/src/canvas/Links.tsx`, `HandoffPopover.tsx`,
    `useFlows.ts`, `flows-api.ts`, `link-geometry.ts`). The UI reads
@@ -1598,8 +1706,12 @@ the canvas UI for links (lines, labels and the Hand-off popover).
      card shows `fork of {parent}` under its title (the mock's `c-fork`), hidden at
      compact zoom. The fork line and its label toggle are as in item 7.
 11. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
-   `handoff.test.ts`, `access.test.ts`, `forks.test.ts` and the fork case in `canvas-board.test.ts`
+   `handoff.test.ts`, `access.test.ts`, `forks.test.ts`, `schedules.test.ts` and the fork case in `canvas-board.test.ts`
    run against the real engine and Nest handlers with temporary databases.
+   `schedules.test.ts` fakes `Date` for both the engine and Nest and covers booking,
+   a lost booking answer, the shared lease, started, missed, late, Run now, pause and
+   resume, an engine outage, agent-made schedules and the permissions;
+   `packages/schemas/src/schedules.test.ts` pins the rule copy and the DST cases.
    `handoff.test.ts` covers a lost post response followed by a restart (exactly one
    hand-off), an engine outage, the cap, lost access and the engine watch.
    `tests/browser/canvas/links.ts` drives the lines, labels and popover in a browser

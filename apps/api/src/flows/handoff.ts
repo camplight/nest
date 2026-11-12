@@ -8,6 +8,11 @@ import type { Summarize } from './summarize';
 
 export const FLOWS_LEASE = 'flows';
 const LEASE_MS = 60_000;
+/**
+ * The single-worker lease the hand-off worker and the scheduler share: one holder per API process, so when two
+ * processes run, only one of them delivers hand-offs and books runs. True while `holder` holds it.
+ */
+export const holdFlowsLease = (store: ProductDb, holder: string, at: number) => store.flows.lease(FLOWS_LEASE, holder, LEASE_MS, at);
 const HOUR_MS = 3_600_000;
 const PAGE = 100;
 /** Pages of completed turns read per source and tick; the rest waits for the next tick. */
@@ -297,7 +302,7 @@ export function createHandoffWorker({ store, orgops, token, switchyard, summariz
 
   async function run() {
     const at = now();
-    if (!flows.lease(FLOWS_LEASE, holder, LEASE_MS, at)) return;
+    if (!holdFlowsLease(store, holder, at)) return;
     const service = await serviceOrNull();
     if (!service) return;
     const ctx = snapshot(service);
