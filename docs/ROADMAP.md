@@ -654,7 +654,9 @@ the schedules API and scheduler (migration `015_schedules.sql`, `/api/flows/sche
 runs booked as engine triggers in the creator's time zone, missed runs in Needs you
 and Run now), and the schedule UI (the open chat's clock and Schedule popover, card
 badges, schedule strips and chip in the Setup line, the top bar's Scheduled list, and
-scheduled runs as `↳` lines in the chat). Not yet built: webhooks.
+scheduled runs as `↳` lines in the chat), and repeats typed in the bottom box
+(`every Monday at 9 …` shows a chip and is scheduled for the new chat after Send).
+Not yet built: webhooks.
 Access that comes only through a team counts as no access for flows.
 
 ## First-visit visual orientation

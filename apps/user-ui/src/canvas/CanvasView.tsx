@@ -7,6 +7,7 @@ import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 import {addChatMember,removeChatMember} from '../chat-members';
 import {StartChat} from '../ProjectStart';
+import {browserZone,type TypedSchedule} from '../dock-schedule';
 import {boardApi,createCanvas,setCardHome,deleteCanvas,getAgentPins,getHidden,isCanvasGone,isPinsConflict,putAgentPins,listCanvases,renameCanvas,setHidden,withFreshVersion} from './api';
 import {CanvasSwitcher} from './CanvasSwitcher';
 import {ShareDialog} from './ShareDialog';
@@ -109,12 +110,14 @@ const NO_PULSES: ReadonlyMap<string, CardPulse> = new Map();
 const NOTHING: ReadonlySet<string> = new Set();
 const NO_LINKS: LinkView[] = [];
 const NO_JOBS: readonly ScheduleJob[] = [];
-/** The browser's IANA time zone, sent with a new schedule. */
-const browserZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } };
 /** The mock's toasts after a schedule is saved and deleted. */
 export const scheduledToast = (rule: Parameters<typeof ruleText>[0], nextAt: number | null, now: number) =>
   nextAt === null ? `${ruleText(rule)}.` : `${ruleText(rule)}. Next run ${relTime(nextAt, now)}.`;
 export const SCHEDULE_DELETED = 'Schedule deleted. Past runs stay in the chat.';
+/** The mock's toast after a bottom-box send that repeats (Task 12), and the notices when it could not be scheduled. */
+export const typedScheduledToast = (rule: Parameters<typeof ruleText>[0]) => `Scheduled: ${ruleText(rule)}. First run now, then on schedule.`;
+export const NOT_SCHEDULED_NO_AGENT = 'Not scheduled: mention an agent to run it.';
+export const notScheduled = (reason: string) => `Not scheduled: ${reason}${/[.!?]$/.test(reason) ? '' : '.'}`;
 const SCHEDULE_TITLE = 'Schedule or trigger: run this on a timer or when something happens';
 /** The mock's newStep toast (without its rename hint: a card title is renamed from the chat, not by double-click). */
 export const NEW_STEP_TOAST = 'New step added. Pick who picks it up.';
@@ -691,8 +694,22 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
    */
   const [dockKey, setDockKey] = useState(0);
   const refreshRef = useRef(refreshChannels); refreshRef.current = refreshChannels;
-  const created = useCallback(async (project: Project) => {
+  /**
+   * A typed repeat from the bottom box, saved once its chat exists and the message is sent. A failure keeps the chat and
+   * the message and only says why; the lead agent is the chat's, so the engine has it as a member already.
+   */
+  const scheduleTyped = useCallback(async (channelId: string, typed: TypedSchedule) => {
+    if (!typed.agent) { say(NOT_SCHEDULED_NO_AGENT); return; }
+    try {
+      await createSchedule({id: crypto.randomUUID(), channelId, agent: typed.agent, prompt: typed.prompt, rule: typed.rule, timezone: browserZone()});
+      say(typedScheduledToast(typed.rule));
+    } catch (error) {
+      say(notScheduled(flowError(error, 'the schedule could not be saved')));
+    } finally { flows.refresh(); }
+  }, [say, flows.refresh]);
+  const created = useCallback(async (project: Project, typed?: {schedule?: TypedSchedule}) => {
     setDockKey(n => n + 1);
+    if (typed?.schedule && project.channelId) void scheduleTyped(project.channelId, typed.schedule);
     const before = store.snapshot().board?.canvas.id;
     await refreshRef.current().catch(() => {});
     const channelId = project.channelId;
@@ -708,7 +725,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     openRef.current(channelId, mode);
     // Centre the card once the chat beside it has taken its room; a focus chat moves the view itself as it opens in place.
     if (mode === 'split') requestAnimationFrame(() => requestAnimationFrame(() => controls.current?.reveal({channelId})));
-  }, [store, place, jumpTo]);
+  }, [store, place, jumpTo, scheduleTyped]);
   /**
    * The open chat's header moves its card into an area (a free spot under the title bar; the area
    * grows to fit) or, with no area, just outside the one it is in. A loose chat is placed straight
@@ -1236,7 +1253,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       <PhoneList key={board.canvas.id} board={board} pulses={pulses} loose={shownLoose} titles={titles} projects={projects}
         onOpenChat={openLoose} openChannelId={chatShown ? chatChannelId : null} areaContext={areaContext} onAreaContext={openAreaContext} looseKey={phoneLoose}
         reviews={reviews} flows={flows.needs} onRunNow={runNow} onNeedsShown={setPhoneNeedsOpen}/>
-      {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!chatShown} fileDropAccept={outsideCanvasChat} onFilesDropped={dockFiles}/></div> : null}
+      {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice schedules={flowsOn} onCreated={created} fileDrop={!chatShown} fileDropAccept={outsideCanvasChat} onFilesDropped={dockFiles}/></div> : null}
     </div>;
   } else {
     // Keyed by canvas so the saved view, gestures and measured card heights start fresh per canvas.
@@ -1254,7 +1271,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         <AgentTray suggested={tray.suggested} pinned={tray.pinned} pins={shownPins} pinsReady={pins !== null} onTogglePin={toggle}
           agents={roster} humanId={humanId} owners={owners} busy={busy} cards={board.cards} areas={board.areas} open={pickerOpen} onOpenChange={showPicker}/>
         {/* Files dropped on empty canvas start a chat here, even beside a split chat; a focus chat takes every drop itself. */}
-        {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice onCreated={created} fileDrop={!focusChat}
+        {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice schedules={flowsOn} onCreated={created} fileDrop={!focusChat}
           fileDropAccept={outsideCanvasChat} fileDropOverlay={false} onFilesDropped={dockFiles}/></div> : null}
         {fileDrag ? <p className="canvas-file-hint" role="status">{board.canvas.role === 'view' ? FILE_DRAG_HINT_VIEW : FILE_DRAG_HINT}</p> : null}
       </div>

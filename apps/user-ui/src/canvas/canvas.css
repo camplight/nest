@@ -940,6 +940,53 @@
   min-height: 40px;
   padding: 0 18px;
 }
+/*
+ * A typed repeat (Task 12): the mock's `.pchip.sch2` before the message, in the accent. Text is the badge's mixed accent
+ * and the ✕ muted (the mock's faint is 4.37:1 on the chip in light), both 4.5:1 in either theme (devices.ts). On a phone
+ * it takes its own line.
+ */
+.project-start-dock-chips {
+  display: flex;
+  flex: none;
+  align-items: center;
+  align-self: center;
+  max-width: 46%;
+  min-width: 0;
+}
+.pchip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  max-width: 190px;
+  border: 1px solid var(--nest-border);
+  background: var(--canvas-surface-2);
+  border-radius: 8px;
+  padding: 3px 4px 3px 8px;
+  font: 500 12px Inter, sans-serif;
+  white-space: nowrap;
+}
+.pchip > span { overflow: hidden; text-overflow: ellipsis; }
+.pchip > svg { flex: none; }
+.pchip button {
+  flex: none;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--nest-muted);
+  padding: 2px 4px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.pchip button:hover:enabled { color: var(--nest-text); }
+.pchip button:disabled { cursor: default; }
+.pchip button:focus-visible { outline: 2px solid var(--nest-lime); outline-offset: 1px; }
+.pchip.sch2 { border-color: var(--nest-accent); color: color-mix(in srgb, var(--nest-accent) 75%, var(--nest-text)); }
+@media (max-width: 760px) {
+  .project-start-dock-row:has(.project-start-dock-chips) { flex-wrap: wrap; }
+  .project-start-dock-chips { order: -1; flex-basis: 100%; max-width: 100%; padding: 2px 2px 0; }
+}
 .project-start-assistant.is-compact {
   padding: 2px 8px;
   gap: 4px 8px;

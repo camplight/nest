@@ -2,9 +2,10 @@ import {useAttachments,restoreAttachments} from './attachments';
 import {ChatAttachments} from './components/ChatAttachments';
 import {ChatFileDrop} from './components/ChatFileDrop';
 import {projectDraftKey} from './drafts';
-import {useEffect,useRef,useState,type ChangeEvent,type FormEvent,type KeyboardEvent} from 'react';
-import {NewProjectSchema,SelectedMentionSchema,MessageAttachmentSchema,MAX_MESSAGE_ATTACHMENTS,type SendMessage,type Project,type SelectedMention,type ProjectMemberOption} from '@nest/schemas';
+import {useEffect,useMemo,useRef,useState,type ChangeEvent,type FormEvent,type KeyboardEvent} from 'react';
+import {NewProjectSchema,SelectedMentionSchema,MessageAttachmentSchema,MAX_MESSAGE_ATTACHMENTS,type SendMessage,type Project,ruleText,type SelectedMention,type ProjectMemberOption} from '@nest/schemas';
 import {apiJson,getApiHeaders} from './api';
+import {browserZone,ruleKey,typedSchedule,type TypedSchedule} from './dock-schedule';
 import {ProjectCreateForm} from './ProjectCreateForm';
 import {useMentionPicker} from './components/useMentionPicker';
 import {reconcileMentions} from './mentions';
@@ -12,7 +13,7 @@ import {useVoiceNote} from './voice/useVoiceNote';
 import {voiceCapError} from './voice/voice-note';
 import {VoiceButton,VoiceStatus} from './voice/VoiceButton';
 
-type Draft={id:string;messageId:string;ownerId:string;text:string;mentions:SelectedMention[];submitted:boolean;attachments?:SendMessage['attachments'];metadata?:{name:string;description:string};channelId?:string;assistant?:string|null;assistantDismissed?:boolean};
+type Draft={id:string;messageId:string;ownerId:string;text:string;mentions:SelectedMention[];submitted:boolean;attachments?:SendMessage['attachments'];metadata?:{name:string;description:string};channelId?:string;assistant?:string|null;assistantDismissed?:boolean;scheduleDismissed?:string};
 const legacyStorageKey='nest-new-project-chat';
 function readDraft(owner:string){try{const saved=localStorage.getItem(projectDraftKey(owner));if(saved)return saved;}catch{}try{return sessionStorage.getItem(legacyStorageKey);}catch{return null;}}
 function writeDraft(owner:string,value:Draft){
@@ -32,7 +33,7 @@ function restore(ownerId:string):Draft {
       const mentions=SelectedMentionSchema.array().max(30).parse(saved.mentions);
       const metadata=saved.metadata?NewProjectSchema.pick({name:true,description:true}).parse(saved.metadata):undefined;
       const files=MessageAttachmentSchema.array().max(MAX_MESSAGE_ATTACHMENTS).safeParse(saved.attachments??[]);
-      return {attachments:files.success?files.data:[],id:saved.id,messageId:saved.messageId,ownerId,text:saved.text,mentions,metadata,assistantDismissed:saved.assistantDismissed===true,assistant:typeof saved.assistant==='string'?saved.assistant:saved.assistant===null?null:undefined,channelId:typeof saved.channelId==='string'?saved.channelId:undefined,submitted:saved.submitted===true};
+      return {attachments:files.success?files.data:[],id:saved.id,messageId:saved.messageId,ownerId,text:saved.text,mentions,metadata,assistantDismissed:saved.assistantDismissed===true,scheduleDismissed:typeof saved.scheduleDismissed==='string'?saved.scheduleDismissed.slice(0,200):undefined,assistant:typeof saved.assistant==='string'?saved.assistant:saved.assistant===null?null:undefined,channelId:typeof saved.channelId==='string'?saved.channelId:undefined,submitted:saved.submitted===true};
     }
   }catch{}
   return {id:crypto.randomUUID(),messageId:crypto.randomUUID(),ownerId,text:'',mentions:[],submitted:false};
@@ -51,8 +52,11 @@ export function ProjectStart(props:{ownerId:string;onCreated:(project:Project)=>
  * `fileDrop={false}` leaves window-wide file drops to another target, such as a chat open on the canvas.
  * `fileDropOverlay={false}` hides the drop overlay (the canvas shows its own hint); `onFilesDropped` hears of each accepted drop.
  * `voice` shows voice notes (Phase 2, canvas flag); without it there is no mic.
+ * `schedules` (dock, flows on) shows a chip for a repeating rule typed in the message, such as `every Monday at 9 …`;
+ * after a successful send `onCreated` gets it as `typed.schedule` for the canvas to save. ✕ drops it until the text
+ * asks for a different rule.
  */
-export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=true,fileDropAccept,fileDropOverlay=true,onFilesDropped,voice:voiceOn=false}:{ownerId:string;onCreated:(project:Project)=>void;onCancel?:()=>void;variant?:'page'|'dock';fileDrop?:boolean;fileDropAccept?:(target:EventTarget|null)=>boolean;fileDropOverlay?:boolean;onFilesDropped?:(count:number)=>void;voice?:boolean}) {
+export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=true,fileDropAccept,fileDropOverlay=true,onFilesDropped,voice:voiceOn=false,schedules=false}:{ownerId:string;onCreated:(project:Project,typed?:{schedule?:TypedSchedule})=>void;onCancel?:()=>void;variant?:'page'|'dock';fileDrop?:boolean;fileDropAccept?:(target:EventTarget|null)=>boolean;fileDropOverlay?:boolean;onFilesDropped?:(count:number)=>void;voice?:boolean;schedules?:boolean}) {
   const [draft,setDraft]=useState(()=>restore(ownerId));
   const {attachments,setAttachments,uploadFiles,error:attachmentError}=useAttachments(ownerId+':'+draft.id,restoreAttachments(draft.attachments??[]));
   const readyFiles=attachments.flatMap(item=>item.uploaded&&item.status==='ready'?[{fileId:item.uploaded.fileId,name:item.uploaded.name,mime:item.uploaded.mime,size:item.uploaded.size}]:[]);
@@ -80,6 +84,11 @@ export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=tr
     onDiscard:fileId=>setAttachments(items=>items.filter(item=>item.localId!==fileId)),
     onAudio:audio=>setAttachments(items=>[...items,{localId:audio.fileId,name:audio.name,mime:audio.mime,size:audio.size,status:'ready',uploaded:{...audio,localId:audio.fileId}}])
   });
+  const scheduling=schedules&&variant==='dock';
+  const typed=useMemo(()=>scheduling?typedSchedule({text:draft.text,mentions:draft.mentions,assistant:draft.assistant,now:Date.now(),tz:browserZone()}):null,[scheduling,draft.text,draft.mentions,draft.assistant]);
+  const typedKey=typed?ruleKey(typed.rule):null,typedRule=typedKey!==null&&typedKey!==draft.scheduleDismissed?typed:null;
+  // ✕ holds only while the text asks for that same rule: once it reads as another rule, or none, the chip can come back.
+  useEffect(()=>{if(scheduling&&draft.scheduleDismissed&&typedKey!==draft.scheduleDismissed&&!draft.submitted)setDraft(current=>({...current,scheduleDismissed:undefined}));},[scheduling,typedKey,draft.scheduleDismissed,draft.submitted]);
   const recipients=[...new Map(draft.mentions.map(mention=>[mention.kind+':'+mention.name,mention])).values()];
   const picker=useMentionPicker({value:draft.text,onChange:text=>setDraft(current=>({...current,text,mentions:reconcileMentions(current.text,text,current.mentions)})),onChoose:(text,mention)=>setDraft(current=>({...current,text,mentions:[...reconcileMentions(current.text,text,current.mentions),mention]})),textareaRef,candidates:roster.map(member=>({id:member.subscriberType+':'+member.subscriberId,name:member.subscriberId,kind:member.subscriberType==='AGENT'?'Agent':'Person',inConversation:false})),channelId:'new-project',disabled:locked,projectDraft:true,variant:variant==='dock'?'chat':'default'});
   async function submit(event:FormEvent) {
@@ -96,7 +105,9 @@ export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=tr
       const sending={...next,channelId:project.channelId};setDraft(sending);try{if(JSON.parse(readDraft(ownerId)??'null')?.id===next.id)setStored(writeDraft(ownerId,sending));}catch{}
       await apiJson('/api/messages',{method:'POST',headers:getApiHeaders(),body:JSON.stringify({id:next.messageId,channelId:project.channelId,text:next.text,mentions:next.mentions,attachments:next.attachments,...(next.assistant&&!recipients.some(m=>m.kind==='AGENT')?{targetAgentName:next.assistant}:{})})});
       try{if(JSON.parse(readDraft(ownerId)??'null')?.id===next.id){localStorage.removeItem(projectDraftKey(ownerId));sessionStorage.removeItem(legacyStorageKey);};}catch{}
-      if(mounted.current)onCreated(project);
+      // A typed repeat is saved by the canvas only now, once the chat exists and the message is in it.
+      const schedule=scheduling?typedSchedule({text:next.text,mentions:next.mentions,assistant:next.assistant,dismissed:next.scheduleDismissed,now:Date.now(),tz:browserZone()})??undefined:undefined;
+      if(mounted.current)onCreated(project,schedule?{schedule}:undefined);
     }catch(reason){if(mounted.current)setError(message(reason));}finally{if(mounted.current)setBusy(false);}
   }
   const canSend=!busy&&!uploading&&!failed&&(!!draft.text.trim()||readyFiles.length>0)&&(rosterReady||draft.submitted);
@@ -112,6 +123,16 @@ export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=tr
   const onTextKey=(event:KeyboardEvent<HTMLTextAreaElement>)=>{if(picker.onKeyDown(event))return;if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing&&event.keyCode!==229){event.preventDefault();event.currentTarget.form?.requestSubmit();}};
   const errorNotice=error&&<div className="notice error" role="alert">{error}<p>Your message is saved. Retry unchanged to finish this project.</p></div>;
   const dropFiles=<ChatFileDrop scope={ownerId+':'+draft.id} enabled={fileDrop} accept={fileDropAccept} overlay={fileDropOverlay} disabledReason={locked?'Finish sending this project before attaching more files.':undefined} onFiles={files=>{if(locked)return;uploadFiles(files);textareaRef.current?.focus({preventScroll:true});onFilesDropped?.(files.length);}}/>;
+  const dismissSchedule=()=>{if(!typedRule)return;const dismissed=ruleKey(typedRule.rule);setDraft(current=>({...current,scheduleDismissed:dismissed}));textareaRef.current?.focus({preventScroll:true});};
+  // The mock's `.pchip.sch2`, first among the box's chips. A status region reads the rule out as it appears or changes.
+  const scheduleChip=scheduling&&<>
+    <span className="canvas-visually-hidden" role="status">{typedRule?`Will repeat: ${ruleText(typedRule.rule)}`:''}</span>
+    {typedRule&&<span className="project-start-dock-chips"><span className="pchip sch2" title="Will repeat. You can change it in the chat.">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+      <span>{ruleText(typedRule.rule)}</span>
+      <button type="button" aria-label="Don't repeat" disabled={locked} onClick={dismissSchedule}>✕</button>
+    </span></span>}
+  </>;
   if(variant==='dock')return <section className="project-start-dock" aria-label="Start a chat">
     {dropFiles}
     <form className="project-start-dock-form" onSubmit={submit}>
@@ -123,6 +144,7 @@ export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=tr
       <div className="project-start-dock-row">
         <button type="button" className="project-start-dock-attach" aria-label="Attach files" title="Attach files" disabled={locked} onClick={()=>fileInputRef.current?.click()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21 11-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></svg></button>
         {voiceOn&&<VoiceButton voice={voice} variant="dock" disabled={locked}/>}
+        {scheduleChip}
         <div className="mention-input">{picker.popup}<textarea ref={textareaRef} {...picker.textareaProps} aria-label="Message" placeholder="Start a new chat. Type @ to bring someone in." value={draft.text} maxLength={32000} rows={1} disabled={locked} onChange={onTextChange} onKeyDown={onTextKey}/></div>
         <button className="canvas-button project-start-dock-send" disabled={!canSend}>{busy?'Starting…':draft.submitted?'Retry send':'Send'}</button>
       </div>

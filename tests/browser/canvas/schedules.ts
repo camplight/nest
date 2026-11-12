@@ -231,4 +231,123 @@ await runChatTest('canvas schedules: a phone has Scheduled in its top bar, text 
   await sheet.waitFor();
   await list.waitFor({state:'detached'});
   await until(()=>sheet.evaluate(el=>el.contains(document.activeElement)),inside=>inside,'focus in the opened chat');
+
+  // The bottom box's typed-repeat chip takes its own line above the message, inside the window (Task 12).
+  await page.keyboard.press('Escape');
+  await sheet.waitFor({state:'detached'});
+  const message=page.getByRole('region',{name:'Start a chat',exact:true}).getByRole('textbox',{name:'Message',exact:true});
+  await message.fill('every Monday at 9 post the recap');
+  const chip=page.locator('.project-start-dock .pchip.sch2');
+  await chip.waitFor();
+  const [chipBox,boxBox]=[(await chip.boundingBox())!,(await message.boundingBox())!];
+  assert.ok(chipBox.x>=0&&chipBox.x+chipBox.width<=viewport.width,`the chip fits: ${JSON.stringify(chipBox)}`);
+  assert.ok(chipBox.y+chipBox.height<=boxBox.y+1,`the chip sits above the message: ${JSON.stringify({chipBox,boxBox})}`);
+  assert.ok(boxBox.width>=150,`the message keeps its width: ${boxBox.width}`);
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal page scroll with the chip');
 },{canvas:true,flows:true,viewport:{width:375,height:740},hasTouch:true});
+
+// Task 12: a repeat typed in the bottom box. Synthetic text and agents only.
+const TYPED='Every Monday at 09:00';
+const dock=(page:Page)=>page.getByRole('region',{name:'Start a chat',exact:true});
+async function pickPip(page:Page,box:Locator){
+  await box.pressSequentially('@Pi');
+  await page.getByRole('listbox',{name:'Mention people and agents'}).getByRole('option').filter({hasText:'Pip'}).click();
+}
+async function typedBoard(h:ChatHarness){
+  const {id}=await call<{id:string}>(h,'POST','/api/canvases',{id:crypto.randomUUID(),name:'Typed schedules'});
+  await h.page.goto(`${h.base}/?view=canvas&canvas=${id}`);
+  const box=dock(h.page).getByRole('textbox',{name:'Message',exact:true});
+  await box.waitFor();
+  return box;
+}
+
+await runChatTest('canvas schedules: a repeat typed in the bottom box shows a chip, ✕ drops it, and Send saves it for the mentioned agent',async h=>{
+  const {page}=h;
+  const box=await typedBoard(h);
+  const chip=dock(page).locator('.pchip.sch2');
+  const status=dock(page).locator('[role="status"].canvas-visually-hidden');
+  // A positive control, then `every time` reads as no rule: the chip goes.
+  await box.fill('every day');
+  await chip.waitFor();
+  await box.fill('do it every time');
+  await chip.waitFor({state:'detached'});
+  assert.equal(await status.innerText(),'','nothing to announce');
+
+  // Pip picked from the mention list, then the rule: the chip comes first, before the message, and is announced.
+  await box.fill('');
+  await pickPip(page,box);
+  await box.pressSequentially('every Monday at 9 post the recap');
+  assert.equal(await box.inputValue(),'@Pip every Monday at 9 post the recap');
+  await chip.waitFor();
+  assert.equal(await chip.locator(':scope > span').innerText(),TYPED);
+  assert.equal(await chip.getAttribute('title'),'Will repeat. You can change it in the chat.');
+  assert.equal(await status.textContent(),`Will repeat: ${TYPED}`);
+  assert.equal(await chip.evaluate(el=>{const row=el.closest('.project-start-dock-row')!;return [...row.querySelectorAll('.pchip, .mention-input')][0]===el;}),true,'first, before the message');
+  // ✕ shows keyboard focus (Shift+Tab from the message), then drops the chip and returns focus to the message.
+  const x=chip.getByRole('button',{name:'Don\'t repeat',exact:true});
+  await box.focus();
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await x.evaluate(el=>document.activeElement===el),true,'✕ is next before the message');
+  const ring=await x.evaluate(el=>{const s=getComputedStyle(el);return {style:s.outlineStyle,width:s.outlineWidth};});
+  assert.ok(ring.style==='solid'&&ring.width!=='0px',`✕ shows its focus: ${JSON.stringify(ring)}`);
+  await page.keyboard.press('Enter');
+  await chip.waitFor({state:'detached'});
+  assert.equal(await box.evaluate(el=>document.activeElement===el),true,'focus back on the message');
+  assert.equal(await box.inputValue(),'@Pip every Monday at 9 post the recap','the text stays');
+
+  // Still the same rule: still dropped. Retyped (the text read as no rule in between): the chip is back.
+  await box.press('End');
+  await box.press('Backspace');
+  assert.equal(await chip.count(),0,'editing the rest of the text keeps it dropped');
+  await box.fill('');
+  await pickPip(page,box);
+  await box.pressSequentially('every Monday at 9 post the recap');
+  await chip.waitFor();
+  assert.equal(await chip.locator(':scope > span').innerText(),TYPED);
+  // Send opens the new chat, says so, and saves the weekly schedule for Pip.
+  const zone=await page.evaluate(()=>Intl.DateTimeFormat().resolvedOptions().timeZone);
+  await dock(page).getByRole('button',{name:'Send',exact:true}).click();
+  const sheet=page.locator('.canvas-chat');
+  await sheet.waitFor();
+  await until(()=>notices(page),list=>list.includes(`Scheduled: ${TYPED}. First run now, then on schedule.`),'the scheduled toast');
+  const [saved]=await until(()=>schedules(h),list=>list.length===1,'the schedule');
+  assert.deepEqual([saved.agent,saved.prompt,saved.rule,saved.timezone],['Pip','every Monday at 9 post the recap',{kind:'weekly',days:[0],time:'09:00'},zone]);
+  const made=await call<Array<{channelId:string;name:string}>>(h,'GET','/api/projects');
+  assert.equal(made.find(p=>p.channelId===saved.channelId)?.name,'every Monday at 9 post the recap','in the chat the send made');
+  await until(()=>srcLines(sheet),lines=>lines.includes(`Scheduled · ${TYPED} · Pip`),'the note in the new chat');
+  assert.equal(await box.inputValue(),'','the box starts over');
+  assert.equal(await chip.count(),0,'with no chip');
+},{canvas:true,flows:true});
+
+await runChatTest('canvas schedules: a typed repeat with no agent, or one the API refuses, keeps the chat and says why',async h=>{
+  const {page}=h;
+  const box=await typedBoard(h);
+  const chip=dock(page).locator('.pchip.sch2');
+  assert.equal(await dock(page).getByRole('button',{name:'Start without my agent',exact:true}).count(),0,'no assistant agent joins');
+  await box.fill('every day check the synthetic build');
+  await chip.waitFor();
+  await dock(page).getByRole('button',{name:'Send',exact:true}).click();
+  await until(()=>notices(page),list=>list.includes('Not scheduled: mention an agent to run it.'),'the no-agent notice');
+  await page.locator('.canvas-chat').waitFor();
+
+  // Too long to repeat: the API says no, the chat and its message stay.
+  await box.fill('');
+  await pickPip(page,box);
+  await box.evaluate((el,tail)=>{const area=el as HTMLTextAreaElement;const set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')!.set!;set.call(area,area.value+tail);area.dispatchEvent(new Event('input',{bubbles:true}));},'every day '+'synthetic '.repeat(410));
+  await chip.waitFor();
+  const before=(await call<Array<{channelId:string}>>(h,'GET','/api/projects')).length;
+  await dock(page).getByRole('button',{name:'Send',exact:true}).click();
+  await until(()=>notices(page),list=>list.some(t=>t.startsWith('Not scheduled: ')&&t!=='Not scheduled: mention an agent to run it.'),'the refused notice');
+  assert.equal((await call<unknown[]>(h,'GET','/api/projects')).length,before+1,'the chat was made all the same');
+  assert.equal((await schedules(h)).length,0,'nothing scheduled');
+},{canvas:true,flows:true});
+
+await runChatTest('canvas schedules: with flows not set up, a rule typed in the bottom box is just text',async h=>{
+  const {page}=h;
+  const {enabled}=await call<{enabled:boolean}>(h,'GET','/api/flows/availability');
+  assert.equal(enabled,false,'flows are off here');
+  const box=await typedBoard(h);
+  await box.fill('every Monday at 9 post the recap');
+  await dock(page).getByRole('button',{name:'Send',exact:true}).waitFor();
+  assert.equal(await dock(page).locator('.pchip, [role="status"].canvas-visually-hidden').count(),0,'no chip and no announcement');
+},{canvas:true});

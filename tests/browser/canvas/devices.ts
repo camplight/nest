@@ -317,6 +317,12 @@ await runChatTest('canvas devices: card text keeps 4.5:1 contrast in light and d
     // Closed from the keyboard, so the forced-colours check below still sees keyboard focus (:focus-visible).
     await page.keyboard.press('Escape');
     await sheet.waitFor({state:'detached'});
+    // The bottom box's typed-repeat chip (Task 12): its rule and its ✕.
+    const dockBox=page.getByRole('region',{name:'Start a chat',exact:true}).getByRole('textbox',{name:'Message',exact:true});
+    await dockBox.fill('every Monday at 9 post the recap');
+    await page.locator('.project-start-dock .pchip.sch2').waitFor();
+    ratios[`typed repeat ${theme}`]=await assertContrast(page,`typed repeat, ${theme}`,['Every Monday at 09:00','✕'],'.project-start-dock .pchip.sch2');
+    await dockBox.fill('');
 
     await useTheme(mate.page,theme);
     await mate.page.goto(`${base}/?view=canvas&canvas=${id}`);

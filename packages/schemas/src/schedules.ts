@@ -142,6 +142,52 @@ export function nextRunAt(rule: ScheduleRule, tz: string, after: number): number
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Typed schedules: the bottom box's chip (the mock's parseSched, excerpt 481-492, made strict).
+
+const DAY_NAMES = DAYL.map(d => d.toLowerCase()).join('|');
+const TRIGGER = new RegExp(`\\bevery (?:day|morning|evening|weekday|${DAY_NAMES}|week|month|\\d+ ?min(?:ute)?s?)\\b|\\bdaily\\b|\\bweekdays?\\b|\\btomorrow\\b`);
+const DAY_NAME = new RegExp(`\\b(${DAY_NAMES})s?\\b`);
+
+/**
+ * The repeating rule a typed message asks for, such as `every Monday at 9 …`, or null. Deterministic: `now` and `tz`
+ * only fix `tomorrow`'s weekday. A result always passes ScheduleRuleSchema; anything else, including an unknown time
+ * zone or an impossible time, is null. It never throws.
+ */
+export function parseScheduleText(text: string, now: number, tz: string): ScheduleRule | null {
+  try {
+    if (typeof text !== 'string') return null;
+    const s = text.toLowerCase();
+    if (!TRIGGER.test(s)) return null;
+    const mins = s.match(/\bevery (\d+) ?min/);
+    if (mins) return valid({ kind: 'interval', mins: Number(mins[1]) });
+    const at = s.match(/\bat (\d+)(?::(\d+))?\s*(am|pm)?(?![a-z0-9])/);
+    let hh = at ? Number(at[1]) : /\bmorning\b/.test(s) ? 8 : /\bevening\b/.test(s) ? 18 : 9;
+    if (at?.[2] !== undefined && at[2].length !== 2) return null;
+    const mm = at?.[2] ? Number(at[2]) : 0;
+    if (at?.[3] === 'pm' && hh < 12) hh += 12;
+    else if (at?.[3] === 'am' && hh === 12) hh = 0;
+    if (hh > 23 || mm > 59) return null;
+    const time = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+    if (/\btomorrow\b/.test(s)) {
+      const w = wallAt(now, tz);
+      const today = (new Date(Date.UTC(w.y, w.mo, w.d)).getUTCDay() + 6) % 7;
+      return valid({ kind: 'once', day: (today + 1) % 7, time });
+    }
+    if (/\bweekdays?\b|\bevery morning\b/.test(s)) return valid({ kind: 'weekdays', time });
+    const day = s.match(DAY_NAME);
+    if (day) return valid({ kind: 'weekly', days: [DAYL.findIndex(d => d.toLowerCase() === day[1])], time });
+    if (/\bmonth\b/.test(s)) return valid({ kind: 'monthly', dom: 1, time });
+    return valid({ kind: 'daily', time });
+  } catch {
+    return null;
+  }
+}
+function valid(rule: ScheduleRule): ScheduleRule | null {
+  const parsed = ScheduleRuleSchema.safeParse(rule);
+  return parsed.success ? parsed.data : null;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Copy, exactly as the mock (excerpt 409-416). `at` is a once rule's run as atText; without it, the rule's own day.
 
 export function ruleText(rule: RuleLike, at?: string): string {

@@ -270,4 +270,10 @@ await runChatTest('canvas flag off: no voice notes, no Apps here bar, no file ti
   await page.goto(`${base}/?view=projects&create=project`);
   await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Record a voice note',exact:true}).count(),0,'no mic when starting a project');
+  // No typed-repeat chip (Phase 3): a rule in the message is just text.
+  await page.getByRole('textbox',{name:'Message',exact:true}).fill('every Monday at 9 post the recap');
+  await page.getByRole('button',{name:'Send',exact:true}).waitFor();
+  assert.equal(await page.locator('.pchip, .project-start-dock-chips').count(),0,'no schedule chip');
+  assert.equal(await page.getByRole('button',{name:'Don\'t repeat',exact:true}).count(),0,'no Don\'t repeat');
+  assert.equal(await page.getByText('Every Monday at 09:00',{exact:false}).count(),0,'no rule text');
 });

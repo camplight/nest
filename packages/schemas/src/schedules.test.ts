@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_SCHEDULES_PER_CHAT, MAX_SCHEDULES_PER_CREATOR, MISSED_GRACE_MS, NewScheduleSchema, ScheduleRuleSchema, SchedulePatchSchema,
-  atText, isTimeZone, nextRunAt, relTime, ruleText, shortRule, type ScheduleRule,
+  atText, isTimeZone, nextRunAt, parseScheduleText, relTime, ruleText, shortRule, type ScheduleRule,
 } from './schedules';
 
 const id = '11111111-1111-4111-8111-111111111111';
@@ -105,5 +105,62 @@ describe('schedule schemas', () => {
   });
   it('exports the limits', () => {
     expect([MISSED_GRACE_MS, MAX_SCHEDULES_PER_CHAT, MAX_SCHEDULES_PER_CREATOR]).toEqual([600_000, 10, 100]);
+  });
+});
+
+describe('parseScheduleText', () => {
+  // Wednesday 2026-11-11, 12:00 in Sofia.
+  const now = Date.UTC(2026, 10, 11, 10);
+  const parse = (text: string, at = now, tz = 'Europe/Sofia') => parseScheduleText(text, at, tz);
+  it('reads the brief\'s examples', () => {
+    expect(parse('every Monday at 9 send the digest')).toEqual({ kind: 'weekly', days: [0], time: '09:00' });
+    expect(parse('every 15 min check errors')).toEqual({ kind: 'interval', mins: 15 });
+    expect(parse('every 2 min')).toBeNull();
+    expect(parse('daily at 6pm')).toEqual({ kind: 'daily', time: '18:00' });
+    expect(parse('tomorrow at 9:30am')).toEqual({ kind: 'once', day: 3, time: '09:30' });
+    expect(parse('weekdays at 8')).toEqual({ kind: 'weekdays', time: '08:00' });
+    expect(parse('every month')).toEqual({ kind: 'monthly', dom: 1, time: '09:00' });
+    expect(parse('every day at 25:00')).toBeNull();
+    expect(parse('do it every time')).toBeNull();
+    expect(parse('every evening')).toEqual({ kind: 'daily', time: '18:00' });
+  });
+  it('needs a trigger word', () => {
+    expect(parse('send the digest at 9')).toBeNull();
+    expect(parse('everyone at 9')).toBeNull();
+    expect(parse('')).toBeNull();
+    expect(parse('@Pip every Monday at 9 post the recap')).toEqual({ kind: 'weekly', days: [0], time: '09:00' });
+    expect(parse('Every Friday post the notes')).toEqual({ kind: 'weekly', days: [4], time: '09:00' });
+  });
+  it('keeps intervals between 5 and 1440 minutes', () => {
+    expect(parse('every 5 minutes')).toEqual({ kind: 'interval', mins: 5 });
+    expect(parse('every 1440 mins')).toEqual({ kind: 'interval', mins: 1440 });
+    expect(parse('every 1441 min')).toBeNull();
+    expect(parse('every 4min')).toBeNull();
+  });
+  it('reads 12am, 12pm and minutes, and refuses impossible times', () => {
+    expect(parse('daily at 12am')).toEqual({ kind: 'daily', time: '00:00' });
+    expect(parse('daily at 12pm')).toEqual({ kind: 'daily', time: '12:00' });
+    expect(parse('daily at 7:05 pm')).toEqual({ kind: 'daily', time: '19:05' });
+    expect(parse('every morning')).toEqual({ kind: 'weekdays', time: '08:00' });
+    expect(parse('every weekday at 17:45')).toEqual({ kind: 'weekdays', time: '17:45' });
+    expect(parse('every day at 9:60')).toBeNull();
+    expect(parse('every day at 9:5')).toBeNull();
+    expect(parse('every day at 123')).toBeNull();
+  });
+  it('takes tomorrow\'s weekday in the given time zone', () => {
+    // Wednesday 23:30 UTC is already Thursday 01:30 in Sofia: tomorrow is Friday.
+    expect(parse('tomorrow at 9', Date.UTC(2026, 10, 11, 23, 30))).toEqual({ kind: 'once', day: 4, time: '09:00' });
+    expect(parse('tomorrow at 9', Date.UTC(2026, 10, 11, 23, 30), 'UTC')).toEqual({ kind: 'once', day: 3, time: '09:00' });
+    // Sunday in Sofia: tomorrow is Monday.
+    expect(parse('tomorrow', Date.UTC(2026, 10, 15, 10))).toEqual({ kind: 'once', day: 0, time: '09:00' });
+  });
+  it('never throws: an unknown time zone or odd input is null, and every result passes the schema', () => {
+    expect(parse('tomorrow at 9', now, 'Mars/Olympus')).toBeNull();
+    expect(parseScheduleText(undefined as unknown as string, now, 'UTC')).toBeNull();
+    expect(parse('every day', Number.NaN)).toEqual({ kind: 'daily', time: '09:00' });
+    expect(parse('tomorrow', Number.NaN)).toBeNull();
+    for (const text of ['every week', 'every Sunday at 11pm', 'daily', 'every 30 min', 'tomorrow at 12am', 'every month at 6:15am']) {
+      expect(ScheduleRuleSchema.safeParse(parse(text)).success, text).toBe(true);
+    }
   });
 });

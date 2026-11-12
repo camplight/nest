@@ -1769,13 +1769,31 @@ come.
      by server time as a `↳` line with its first line only (`Scheduled run · {rule} ·
      set up by {person}`, or `Run started by you`). With the flag off neither the
      query nor the line exists.
+   - A repeat typed in the bottom box (`ProjectStart.tsx` dock, `dock-schedule.ts`,
+     `parseScheduleText` in `@nest/schemas`). As the person types, a rule the text asks
+     for (`every Monday at 9 …`, `every 15 min`, `daily at 6pm`, `weekdays at 8`,
+     `tomorrow at 9:30am`, `every month`, `every evening`) shows as the mock's chip
+     before the message: a clock, the rule (`Every Monday at 09:00`) and `✕` (`Don't
+     repeat`), titled `Will repeat. You can change it in the chat.`, and a status
+     region reads `Will repeat: {rule}`. The parser needs `every day|morning|evening|
+     weekday|{day}|week|month|N min`, `daily`, `weekdays` or `tomorrow` (`every time`
+     is no rule), keeps intervals within 5–1440 minutes, refuses impossible times and
+     never throws. `✕` drops the chip until the text reads as another rule, or none.
+     After a successful send the canvas posts `POST /api/flows/schedules` for the new
+     chat with the first mentioned agent, else the assistant agent joining it, the
+     text without its @mentions as the prompt and the browser's time zone, and toasts
+     `Scheduled: {rule}. First run now, then on schedule.`. With no agent it saves
+     nothing and says `Not scheduled: mention an agent to run it.`; a refusal keeps
+     the chat and says `Not scheduled: {reason}.`. The chip exists only with flows set
+     up; on a phone it takes its own line above the message.
 12. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
    `handoff.test.ts`, `access.test.ts`, `forks.test.ts`, `schedules.test.ts` and the fork case in `canvas-board.test.ts`
    run against the real engine and Nest handlers with temporary databases.
    `schedules.test.ts` fakes `Date` for both the engine and Nest and covers booking,
    a lost booking answer, the shared lease, started, missed, late, Run now, pause and
    resume, an engine outage, agent-made schedules and the permissions;
-   `packages/schemas/src/schedules.test.ts` pins the rule copy and the DST cases.
+   `packages/schemas/src/schedules.test.ts` pins the rule copy, the DST cases and the
+   typed-rule parser; `dock-schedule.test.ts` the prompt, lead agent and `✕`.
    `handoff.test.ts` covers a lost post response followed by a restart (exactly one
    hand-off), an engine outage, the cap, lost access and the engine watch.
    `tests/browser/canvas/links.ts` drives the lines, labels and popover in a browser
@@ -1790,7 +1808,9 @@ come.
    opening as a loose chat. `tests/browser/canvas/schedules.ts` schedules a run from
    the clock, then checks the badge, chip, strip, note and top-bar count, Run now, a
    missed run (the harness moves the scheduler's clock), the Scheduled list with an
-   agent's own run, pause and delete, and a view-role member's read-only view.
+   agent's own run, pause and delete, and a view-role member's read-only view; then a
+   repeat typed in the bottom box (the chip, `✕`, Send saving it for the mentioned
+   agent, no agent, a refused one, a phone, and none without flows).
    `needs.test.ts` and `ChatDigest.test.tsx` cover the merge and the digest, missed
    runs included; `schedule-jobs.test.ts` the badge, strip, chip and list groups.
 
