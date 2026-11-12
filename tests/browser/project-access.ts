@@ -115,8 +115,10 @@ try{
       const activeAfterDenialText=await activeAfterDenial.text();
       assert.equal(activeAfterDenial.status,200,activeAfterDenialText);
       assert.deepEqual(JSON.parse(activeAfterDenialText),[],'The owner API no longer returns the denied request');
-      try{await firstNotifications.getByText('No pending project access requests.',{exact:true}).waitFor();}
-      catch(error){console.error('Notifications after denial:',await firstNotifications.textContent().catch(()=>'<dialog unavailable>'));throw error;}
+      await firstNotifications.waitFor({state:'detached'});
+      const notificationsAfterDenial=await openNotifications(ownerPage);
+      await notificationsAfterDenial.getByText('No pending project access requests.',{exact:true}).waitFor();
+      await ownerPage.keyboard.press('Escape');
 
       await requesterPage.reload();
       await requesterPage.getByRole('heading',{name:'Your request was not approved',exact:true}).waitFor();
@@ -127,7 +129,10 @@ try{
       await ownerPage.reload();
       const secondNotifications=await openNotifications(ownerPage);
       await secondNotifications.getByRole('button',{name:'Approve requester@example.com for Project Nightingale',exact:true}).click();
-      await secondNotifications.getByText('No pending project access requests.',{exact:true}).waitFor();
+      await secondNotifications.waitFor({state:'detached'});
+      const notificationsAfterApproval=await openNotifications(ownerPage);
+      await notificationsAfterApproval.getByText('No pending project access requests.',{exact:true}).waitFor();
+      await ownerPage.keyboard.press('Escape');
       await requesterPage.getByRole('heading',{name:'Project Nightingale',level:1,exact:true}).waitFor({timeout:15_000});
       const composer=requesterPage.getByRole('textbox',{name:'Message',exact:true});
       await composer.waitFor();
