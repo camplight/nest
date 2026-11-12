@@ -62,7 +62,11 @@ export function linkLabel(l: { label: string; when: LinkWhen; on: boolean; kind:
 export type FlowNeed = {
   key: string; kind: 'approval' | 'paused' | 'missed'; channelId: string; at: number; from: string | null;
   short: string; reason: string; detail: string;
-  gate: { kind: 'approval'; deliveryId: string; linkId: string } | { kind: 'paused'; linkId: string } | { kind: 'missed'; scheduleId: string; runId: string };
+  gate:
+    | { kind: 'approval'; deliveryId: string; linkId: string } | { kind: 'paused'; linkId: string }
+    | { kind: 'missed'; scheduleId: string; runId: string }
+    /** A schedule Nest paused (kind 'paused'); resumed with PATCH /api/flows/schedules/:id {on:true}. No buttons yet. */
+    | { kind: 'schedule-paused'; scheduleId: string };
 };
 
 /** The findings link a fork gets, stored child → parent and drawn parent → child. */

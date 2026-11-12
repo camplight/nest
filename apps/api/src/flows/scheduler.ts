@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Hono } from 'hono';
+import { z } from 'zod';
 import { CanvasConflictError, type ProductDb, type ScheduleRecord } from '@nest/db';
 import { EngineError, type EngineChannel, type EngineEvent, type Human, type OrgOpsClient, type ServiceAgent, type ServiceClient } from '@nest/orgops-client';
 import {
@@ -10,10 +11,14 @@ import type { Channel } from '../canvases';
 import { channelAccess } from './access';
 import { SwitchyardUnavailableError, type Switchyard } from './identity';
 import { FlowActionError, holdFlowsLease, type Actor } from './handoff';
+
+type PauseReason = Exclude<SchedulePausedReason, null>;
 import type { ForkRouteTools } from './forks';
 
 /** How long after a missed run's due time a turn still marks it late. */
 const LATE_WINDOW_MS = 24 * 3_600_000;
+/** A booked run is checked once more for access and its agent on the tick within this long before it is due. */
+const RECHECK_MS = 60_000;
 const NOT_SET_UP = 'Schedules are not set up on this server';
 
 const str = (value: unknown) => (typeof value === 'string' ? value : '');
@@ -63,10 +68,31 @@ export function createScheduler({ store, orgops, token, switchyard, now = Date.n
     }
   }
 
-  const following = (s: ScheduleRecord, from: number) => (s.rule.kind === 'once' ? null : nextRunAt(s.rule, s.timezone, from));
-  function pause(s: ScheduleRecord, reason: Exclude<SchedulePausedReason, null>) {
+  /**
+   * The time after a run due at `due`, seen at `at`. Intervals stay on their grid (due + k·mins), so ticks running late
+   * never make them drift; the other rules take their next wall-clock time after `at`.
+   */
+  function following(s: ScheduleRecord, due: number, at: number): number | null {
+    if (s.rule.kind === 'once') return null;
+    if (s.rule.kind === 'interval') {
+      const step = s.rule.mins * 60_000;
+      return due + (Math.floor(Math.max(0, at - due) / step) + 1) * step;
+    }
+    return nextRunAt(s.rule, s.timezone, Math.max(at, due));
+  }
+  function pause(s: ScheduleRecord, reason: PauseReason) {
     schedules.pause(s.id, reason, 'system');
     log(`[flows] schedule ${s.id} paused: ${reason}`);
+  }
+
+  /** Whether a schedule may run now, by the flows access rule: its creator posts in the chat and its agent is in it. */
+  async function check(s: ScheduleRecord, ctx: Snapshot): Promise<{ reason: PauseReason } | { creator: Actor }> {
+    const channel = (await ctx.channels()).get(s.channelId);
+    if (!channel) return { reason: 'unavailable' };
+    const creator = (await ctx.humans()).get(s.createdBy);
+    if (!creator || !channelAccess(channel, creator).post) return { reason: 'access' };
+    if (!isAgentIn(channel, s.agent)) return { reason: 'agent-left' };
+    return { creator };
   }
 
   /** Cancels an engine event booked for a schedule. True when it is gone; false when it is already due (409). */
@@ -78,18 +104,33 @@ export function createScheduler({ store, orgops, token, switchyard, now = Date.n
   }
 
   /**
+   * True when the schedule as stored now would book exactly this event: on, due at the same time, and either already
+   * booked with it or about to post the same text to the same agent. Such an event belongs to whoever changed the
+   * schedule last (or to the next tick, which gets it back by its key), so it is never cancelled.
+   */
+  function wantedNow(before: ScheduleRecord, event: EngineEvent, username: string): boolean {
+    const current = schedules.schedule(before.id);
+    if (!current || !current.on || current.nextAt !== before.nextAt) return false;
+    if (current.nextEventId) return current.nextEventId === event.id;
+    return !event.payloadTruncated && str(event.payload?.text) === scheduledRunText(current, username) && event.payload?.targetAgentName === current.agent;
+  }
+  async function dropUnlessWanted(ctx: Snapshot, before: ScheduleRecord, event: EngineEvent, username: string) {
+    if (wantedNow(before, event, username)) return;
+    await cancelEvent(ctx.service, event.id).catch(error => log(`[flows] cancelling a stale booking for schedule ${before.id} failed: ${describe(error)}`));
+  }
+
+  /**
    * Books a schedule's next run, unless it is off, booked or has no next time. Pauses it when its creator can no longer
    * post in the chat (`access`), its agent left (`agent-left`) or the chat is gone (`unavailable`). An engine event
-   * stored under the key with other text (an edit raced the booking) is replaced once.
+   * stored under the key with other text (a booking left over from before an edit) is replaced once, but only while
+   * the schedule is still as this booking read it; a newer writer's event is left to that writer.
    */
   async function bookOne(s: ScheduleRecord, ctx: Snapshot, at: number): Promise<EngineEvent | null> {
     if (!s.on || s.nextEventId || s.nextAt === null) return null;
-    const channel = (await ctx.channels()).get(s.channelId);
-    if (!channel) { pause(s, 'unavailable'); return null; }
-    const creator = (await ctx.humans()).get(s.createdBy);
-    if (!creator || !channelAccess(channel, creator).post) { pause(s, 'access'); return null; }
-    if (!isAgentIn(channel, s.agent)) { pause(s, 'agent-left'); return null; }
-    const text = scheduledRunText(s, creator.username);
+    const verdict = await check(s, ctx);
+    if ('reason' in verdict) { pause(s, verdict.reason); return null; }
+    const { username } = verdict.creator;
+    const text = scheduledRunText(s, username);
     const post = () => switchyard.post({
       type: 'agent.scheduled.trigger', channelId: s.channelId, deliverAt: s.nextAt!, target: s.agent, text,
       kind: 'run', setBy: s.createdBy, idempotencyKey: `nest:schedule:${s.id}:${s.nextAt}`, meta: { scheduleId: s.id },
@@ -98,31 +139,65 @@ export function createScheduler({ store, orgops, token, switchyard, now = Date.n
     try {
       event = await post();
       const stale = !event.payloadTruncated && (str(event.payload?.text) !== text || event.payload?.targetAgentName !== s.agent);
-      if (stale && await cancelEvent(ctx.service, event.id)) event = await post();
+      if (stale) {
+        const current = schedules.schedule(s.id);
+        if (!current || current.version !== s.version || current.nextEventId !== null) {
+          await dropUnlessWanted(ctx, s, event, username);
+          return null;
+        }
+        if (await cancelEvent(ctx.service, event.id)) event = await post();
+      }
     } catch (error) {
-      // The engine refuses a trigger whose target is not an agent in the chat.
-      if (error instanceof EngineError && error.status === 400) { pause(s, 'agent-left'); return null; }
+      if (error instanceof EngineError && error.status === 400) {
+        // The engine refuses a trigger whose target is not an agent in the chat; any other refusal is only logged.
+        const fresh = (await ctx.service.channels()).find(ch => ch.id === s.channelId);
+        if (!fresh || !isAgentIn(fresh, s.agent)) { pause(s, 'agent-left'); return null; }
+      }
       throw error;
     }
     if (schedules.markBooked(s.id, s.nextAt, event.id, at, s.version)) return event;
-    // Paused, changed or removed meanwhile: the event is not this schedule's booking, so it must not run.
-    if (schedules.schedule(s.id)?.nextEventId !== event.id) {
-      await cancelEvent(ctx.service, event.id).catch(error => log(`[flows] cancelling a stale booking for schedule ${s.id} failed: ${describe(error)}`));
-    }
+    // Paused, changed or removed meanwhile: cancel the event unless the schedule as it is now wants exactly it.
+    await dropUnlessWanted(ctx, s, event, username);
     return null;
+  }
+
+  // Booked runs already re-checked shortly before they are due, as `<scheduleId>:<eventId>`.
+  const rechecked = new Set<string>();
+  /**
+   * Once per booking, on the first tick within 60 s of its time: a creator who can no longer post, or an agent (or
+   * chat) that is gone, cancels the booked event and pauses the schedule, so the prompt never runs without access.
+   */
+  async function recheckSoon(ctx: Snapshot, at: number) {
+    const soon = schedules.bookedBetween(at, at + RECHECK_MS);
+    const keys = new Set(soon.map(s => `${s.id}:${s.nextEventId}`));
+    for (const key of rechecked) if (!keys.has(key)) rechecked.delete(key);
+    for (const s of soon) {
+      const key = `${s.id}:${s.nextEventId}`;
+      if (rechecked.has(key)) continue;
+      try {
+        const verdict = await check(s, ctx);
+        if ('reason' in verdict) {
+          await cancel(s);
+          pause(s, verdict.reason);
+        }
+        rechecked.add(key);
+      } catch (error) {
+        log(`[flows] re-checking schedule ${s.id} failed: ${describe(error)}`);
+      }
+    }
   }
 
   /** Local work, no engine needed: move booked schedules past their due time on, and miss what could not be booked. */
   function moveOn(at: number) {
     for (const s of schedules.bookedDue(at)) {
       try {
-        schedules.moveOn(s.id, { nextAt: s.nextAt!, eventId: s.nextEventId }, following(s, Math.max(at, s.nextAt!)), s.rule.kind === 'once');
+        schedules.moveOn(s.id, { nextAt: s.nextAt!, eventId: s.nextEventId }, following(s, s.nextAt!, at), s.rule.kind === 'once');
       } catch (error) { log(`[flows] moving schedule ${s.id} on failed: ${describe(error)}`); }
     }
     for (const s of schedules.unbooked()) {
-      if (s.nextAt! + MISSED_GRACE_MS > at) continue;
+      if (at <= s.nextAt! + MISSED_GRACE_MS) continue;
       try {
-        const next = following(s, Math.max(at, s.nextAt!));
+        const next = following(s, s.nextAt!, at);
         schedules.insertRun({ scheduleId: s.id, dueAt: s.nextAt!, kind: 'scheduled', status: 'missed', reason: 'engine unavailable', now: at });
         schedules.moveOn(s.id, { nextAt: s.nextAt!, eventId: null }, next, s.rule.kind === 'once');
         log(`[flows] schedule ${s.id} missed a run: engine unavailable`);
@@ -184,9 +259,19 @@ export function createScheduler({ store, orgops, token, switchyard, now = Date.n
     const ctx = snapshot(service);
     try { await settleDue(ctx, at); } catch (error) { log(`[flows] checking scheduled runs failed: ${describe(error)}`); }
     try { await settleLate(ctx, at); } catch (error) { log(`[flows] checking missed runs failed: ${describe(error)}`); }
+    try { await recheckSoon(ctx, at); } catch (error) { log(`[flows] re-checking booked runs failed: ${describe(error)}`); }
     for (const s of schedules.unbooked()) {
       try { await bookOne(s, ctx, at); } catch (error) { log(`[flows] booking schedule ${s.id} failed: ${describe(error)}`); }
     }
+  }
+
+  // Ticks and bookings asked for by a person run one at a time in this process; across processes, only the lease holder
+  // books. So the only writes that can land during a booking are a person's cancel and change, which bookOne re-checks.
+  let lock: Promise<unknown> = Promise.resolve();
+  function exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const result = lock.then(fn);
+    lock = result.catch(() => undefined);
+    return result;
   }
 
   // One tick at a time; a tick asked for while one runs runs once after it.
@@ -194,25 +279,32 @@ export function createScheduler({ store, orgops, token, switchyard, now = Date.n
   let queued: Promise<void> | null = null;
   function tick(): Promise<void> {
     if (!current) {
-      current = run().catch(error => log(`[flows] schedule tick failed: ${describe(error)}`)).finally(() => { current = null; });
+      current = exclusive(run).catch(error => log(`[flows] schedule tick failed: ${describe(error)}`)).finally(() => { current = null; });
       return current;
     }
     queued ??= current.then(() => { queued = null; return tick(); });
     return queued;
   }
 
-  /** Books one schedule now (after create, resume or edit). Failures are logged; the next tick retries. */
-  async function book(scheduleId: string): Promise<boolean> {
-    try {
-      const s = schedules.schedule(scheduleId);
-      if (!s?.on || s.nextEventId) return false;
-      const service = await serviceOrNull();
-      if (!service) return false;
-      return (await bookOne(s, snapshot(service), now())) !== null;
-    } catch (error) {
-      log(`[flows] booking schedule ${scheduleId} failed: ${describe(error)}`);
-      return false;
-    }
+  /**
+   * Books one schedule now (after create, resume or edit), after any running tick and only while this process holds the
+   * flows lease; otherwise the holder books it on its next tick. Failures are logged; the next tick retries.
+   */
+  function book(scheduleId: string): Promise<boolean> {
+    return exclusive(async () => {
+      try {
+        const at = now();
+        if (!holdFlowsLease(store, holder, at)) return false;
+        const s = schedules.schedule(scheduleId);
+        if (!s?.on || s.nextEventId) return false;
+        const service = await serviceOrNull();
+        if (!service) return false;
+        return (await bookOne(s, snapshot(service), at)) !== null;
+      } catch (error) {
+        log(`[flows] booking schedule ${scheduleId} failed: ${describe(error)}`);
+        return false;
+      }
+    });
   }
 
   /**
@@ -265,9 +357,28 @@ export function createScheduler({ store, orgops, token, switchyard, now = Date.n
 }
 export type Scheduler = ReturnType<typeof createScheduler>;
 
-/** The creator's missed runs for Needs you: the newest per schedule, until a later run settles. */
+/** How a schedule Nest paused reads in Needs you (ruling T10-R2). */
+export function schedulePausedWhy(reason: PauseReason, agent: string): string {
+  if (reason === 'access') return "you can't post here any more";
+  if (reason === 'agent-left') return `${agent} left the chat`;
+  return 'the engine was unavailable';
+}
+
+/**
+ * The creator's schedule items for Needs you: each schedule Nest paused (until it is resumed or deleted), and each
+ * schedule's newest missed run (until a later run settles or Run now).
+ */
 export function missedNeeds(store: ProductDb, creatorId: string): FlowNeed[] {
-  return store.schedules.missedFor(creatorId).map(({ run, schedule: s }): FlowNeed => {
+  const paused = store.schedules.pausedFor(creatorId).map((s): FlowNeed => {
+    const why = schedulePausedWhy(s.pausedReason!, s.agent);
+    return {
+      key: `schedule-paused:${s.id}`, kind: 'paused', channelId: s.channelId, at: s.updatedAt, from: null,
+      short: `Schedule paused · ${why}`, reason: why,
+      detail: `${ruleText(s.rule)} · ${s.agent} does not run until you resume it.`,
+      gate: { kind: 'schedule-paused', scheduleId: s.id },
+    };
+  });
+  return [...paused, ...store.schedules.missedFor(creatorId).map(({ run, schedule: s }): FlowNeed => {
     const reason = run.reason ?? 'no turn started';
     return {
       key: `missed:${run.id}`, kind: 'missed', channelId: s.channelId, at: run.dueAt, from: s.agent,
@@ -275,7 +386,7 @@ export function missedNeeds(store: ProductDb, creatorId: string): FlowNeed[] {
       detail: `Scheduled run · ${ruleText(s.rule)} · ${s.agent}. Missed ${atText(run.dueAt, s.timezone)}: ${reason}. Nothing ran.`,
       gate: { kind: 'missed', scheduleId: s.id, runId: run.id },
     };
-  });
+  })];
 }
 
 /**
@@ -289,7 +400,7 @@ export function registerScheduleRoutes(routes: Hono<{ Variables: { human: Human 
   const { fail, parse, body, viewerChannels, titles, join } = tools;
   const schedules = store.schedules;
   const notFound = () => fail(404, 'Not found');
-  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const uuid = z.string().uuid();
 
   const rightsOf = (s: ScheduleRecord, channel: Channel | undefined, viewer: Human) => {
     const creator = s.createdBy === viewer.id;
@@ -301,7 +412,7 @@ export function registerScheduleRoutes(routes: Hono<{ Variables: { human: Human 
   }
   /** A schedule the viewer may act on; someone who cannot read its chat and did not create it gets 404. */
   async function scheduleFor(c: any) {
-    if (!uuid.test(c.req.param('id'))) throw notFound();
+    if (!uuid.safeParse(c.req.param('id')).success) throw notFound();
     const human = c.get('human') as Human;
     const channels = await viewerChannels(c.req.raw.headers);
     const s = schedules.schedule(c.req.param('id'));
@@ -340,8 +451,10 @@ export function registerScheduleRoutes(routes: Hono<{ Variables: { human: Human 
     const at = scheduler.now();
     const nextAt = nextRunAt(input.rule, input.timezone, at);
     if (nextAt === null) throw fail(400, 'This schedule never runs');
-    await join([input.channelId]);
     const existed = schedules.schedule(input.id) !== null;
+    // The limits come before Switchyard joins, so a refused schedule changes nothing in the engine.
+    if (!existed) schedules.checkLimits(input.channelId, human.id);
+    await join([input.channelId]);
     let s: ScheduleRecord;
     try {
       s = schedules.createSchedule({ ...input, createdBy: human.id, now: at, nextAt });
@@ -402,10 +515,9 @@ export function registerScheduleRoutes(routes: Hono<{ Variables: { human: Human 
   });
 
   routes.post('/api/flows/schedules/:id/run', async c => {
-    const { s, human, channels } = await scheduleFor(c);
+    const { s, human, channels, rights } = await scheduleFor(c);
     const channel = channels.get(s.channelId);
-    const access = channelAccess(channel, human);
-    if (!access.member || !access.post) throw fail(403, 'Only a member of the chat can start a run');
+    if (!rights.canManage || !channelAccess(channel, human).post) throw fail(403, 'Only the person who set up this schedule or a member of the chat can start a run');
     if (!isAgentIn(channel, s.agent)) throw fail(409, `Add ${s.agent} to the chat first`);
     return c.json(await scheduler.runNow(s.id, human), 201);
   });

@@ -1346,6 +1346,12 @@ schedules API with its scheduler (the schedule UI is still to come).
        chat: `short` `Missed run · {reason}`, `from` the agent, `at` the due time,
        `detail` `Scheduled run · {ruleText} · {agent}. Missed {Mon 09:00}: {reason}.
        Nothing ran.` and `gate {kind:'missed', scheduleId, runId}`.
+     - `paused`, one per schedule of the viewer's that Nest paused, until it is resumed
+       or deleted: `short` `Schedule paused · {why}`, where `why` is `you can't post
+       here any more` (`access`), `{agent} left the chat` (`agent-left`) or `the engine
+       was unavailable` (`unavailable`: the chat is missing from the engine), and
+       `gate {kind:'schedule-paused', scheduleId}`. The UI shows it without buttons, like
+       a paused link.
 
      Titles follow the viewer's own access, as in the links list.
    - `POST /api/flows/forks` takes `{childChannelId, parentChannelId, parentEventId,
@@ -1388,12 +1394,15 @@ schedules API with its scheduler (the schedule UI is still to come).
      themselves, read with the viewer's session (`GET /api/events?scheduled=1&limit=200`,
      so only chats the viewer can see), from sources `agent:<name>` other than the
      service agent: `{eventId, channelId, agent, at, text}`, shown as `set by <name>`.
+     The 200 are counted before Nest's own bookings are filtered out, so a viewer who
+     can see more than about 200 future Nest bookings may miss agent-made ones.
    - `POST /api/flows/schedules` takes `{id, channelId, agent, prompt, rule, timezone}`
      (`NewScheduleSchema`; an unknown time zone, a bad rule or a prompt over 4,000
      characters answers 400). The viewer must post in the chat by the flows rule
      (403 `You need to be able to post in this chat`), the agent must be an `AGENT`
      participant (409 `Add {agent} to the chat first`; the service agent itself is
-     400), and the service agent must be usable (503). Switchyard joins the chat, the
+     400), the chat and the viewer must have room for it (400, checked before anything
+     reaches the engine), and the service agent must be usable (503). Switchyard joins the chat, the
      schedule is stored with its first time, the first run is booked, and the note
      `Scheduled · {ruleText} · {agent}` is posted, waking nobody, with the key
      `nest:note:schedule:<id>`. It answers 201 with the schedule; a retry with the
@@ -1408,8 +1417,9 @@ schedules API with its scheduler (the schedule UI is still to come).
      409 with the current schedule.
    - `DELETE /api/flows/schedules/:id?version=N` answers 204 for the creator or a chat
      member, after cancelling the booked event. Runs already posted stay in the chat.
-   - `POST /api/flows/schedules/:id/run` (Run now) answers 201 `{runId}` for a chat
-     member who can post (403 otherwise; 409 when the agent left the chat).
+   - `POST /api/flows/schedules/:id/run` (Run now) answers 201 `{runId}` for the
+     creator or a chat member who can post in the chat (403 otherwise; 409 when the
+     agent left the chat).
 
    For schedules, someone who neither created the schedule nor can read its chat gets
    404.
@@ -1511,11 +1521,23 @@ schedules API with its scheduler (the schedule UI is still to come).
      the post and Nest saving it is retried with the same key, so the engine returns
      the event it stored. Before booking, a schedule whose creator can no longer post
      in the chat pauses with `access`, one whose agent left with `agent-left` (also on
-     the engine's 400), and one whose chat is gone with `unavailable`. A booking that
-     lands after the schedule was paused, changed or removed is cancelled again.
+     an engine 400 when a fresh read shows the agent gone; any other 400 is logged and
+     retried), and one whose chat is gone with `unavailable`. The same check runs once
+     more for each booked run on the first tick within 60 s of its time: a failure
+     cancels the booked event and pauses the schedule, so a prompt never runs after
+     its creator lost access.
+   - Bookings never race each other: in one process, ticks and the bookings that create,
+     resume and edit ask for run one at a time, and only the process holding the flows
+     lease books (another process's request leaves it to the holder's next tick). A
+     booking that lands after a person paused, changed or removed the schedule is
+     cancelled, unless the schedule as it now stands would book exactly that event
+     (same time, text and agent), which then stays for its writer. An event found under
+     the key with other text is replaced only while the schedule is still at the
+     version the booking read.
    - Each tick, in order: schedules whose booked time has come move on to their next
-     time (from the later of now and the due time); a schedule that could not be booked
-     by its time plus the 10-minute grace records a `missed` run with the reason
+     time (from the later of now and the due time; `interval` rules stay on their grid,
+     due + k × minutes); a schedule still unbooked more than the 10-minute grace after
+     its time records a `missed` run with the reason
      `engine unavailable` and moves on; then, with the engine reachable, booked runs
      that are due are checked and unbooked schedules are booked.
    - Started, missed, late. A due run is `started` when the agent's first

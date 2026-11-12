@@ -101,6 +101,16 @@ describe('schedule store', () => {
     expect(store.schedules.removeSchedule(s.id, 'u')).toBeNull();
     expect(store.schedules.schedule(s.id)).toBeNull();
   });
+  it('lists bookings due soon and the schedules Nest paused', () => {
+    const s = mk('c1');
+    store.schedules.markBooked(s.id, 5000, 'e1', 2);
+    expect(store.schedules.bookedBetween(4000, 5000).map(x => x.id)).toEqual([s.id]);
+    expect(store.schedules.bookedBetween(5000, 6000)).toEqual([]);
+    expect(store.schedules.pausedFor('u')).toEqual([]);
+    store.schedules.pause(s.id, 'agent-left', 'system');
+    expect(store.schedules.pausedFor('u')).toEqual([expect.objectContaining({ id: s.id, pausedReason: 'agent-left' })]);
+    expect(() => store.schedules.checkLimits('c1', 'u')).not.toThrow();
+  });
   it('pauses and resumes', () => {
     const s = mk('c1');
     store.schedules.pause(s.id, 'access', 'system');

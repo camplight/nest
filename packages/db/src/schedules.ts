@@ -40,6 +40,12 @@ export function createScheduleStore(db: Database.Database, clock: () => number =
   const count = (column: 'channel_id' | 'created_by', value: string) =>
     (db.prepare(`SELECT COUNT(*) n FROM product_schedules WHERE ${column}=?`).get(value) as { n: number }).n;
 
+  /** Throws CanvasLimitError when the chat (10) or the creator (100) has no room for another schedule. */
+  function checkLimits(channelId: string, createdBy: string): void {
+    if (count('channel_id', channelId) >= MAX_SCHEDULES_PER_CHAT) throw new CanvasLimitError(`A chat can have at most ${MAX_SCHEDULES_PER_CHAT} schedules`);
+    if (count('created_by', createdBy) >= MAX_SCHEDULES_PER_CREATOR) throw new CanvasLimitError(`You can have at most ${MAX_SCHEDULES_PER_CREATOR} schedules`);
+  }
+
   /** A retry with the same id and settings returns the stored schedule; the same id with other settings is a conflict. */
   function createSchedule(input: NewScheduleRecord): ScheduleRecord {
     return db.transaction(() => {
@@ -50,8 +56,7 @@ export function createScheduleStore(db: Database.Database, clock: () => number =
           && s.createdBy === input.createdBy && JSON.stringify(s.rule) === JSON.stringify(input.rule)) return s;
         throw new CanvasConflictError(null);
       }
-      if (count('channel_id', input.channelId) >= MAX_SCHEDULES_PER_CHAT) throw new CanvasLimitError(`A chat can have at most ${MAX_SCHEDULES_PER_CHAT} schedules`);
-      if (count('created_by', input.createdBy) >= MAX_SCHEDULES_PER_CREATOR) throw new CanvasLimitError(`You can have at most ${MAX_SCHEDULES_PER_CREATOR} schedules`);
+      checkLimits(input.channelId, input.createdBy);
       db.prepare('INSERT INTO product_schedules(id,channel_id,agent_name,prompt,rule_json,timezone,on_flag,created_by,version,next_at,next_event_id,paused_reason,created_at,updated_at) VALUES (?,?,?,?,?,?,1,?,0,?,NULL,NULL,?,?)')
         .run(input.id, input.channelId, input.agent, input.prompt, JSON.stringify(input.rule), input.timezone, input.createdBy, input.nextAt, input.now, input.now);
       audit('schedule-created', input.createdBy, { scheduleId: input.id, channelId: input.channelId, kind: input.rule.kind });
@@ -69,6 +74,13 @@ export function createScheduleStore(db: Database.Database, clock: () => number =
   /** Schedules whose booked run is due by `at`: time to move on to the next one. */
   const bookedDue = (at: number): ScheduleRecord[] =>
     (db.prepare('SELECT * FROM product_schedules WHERE next_event_id IS NOT NULL AND next_at<=? ORDER BY next_at, id').all(at) as ScheduleRow[]).map(toSchedule);
+
+  /** Booked schedules due after `from` and by `to`. */
+  const bookedBetween = (from: number, to: number): ScheduleRecord[] =>
+    (db.prepare('SELECT * FROM product_schedules WHERE next_event_id IS NOT NULL AND next_at>? AND next_at<=? ORDER BY next_at, id').all(from, to) as ScheduleRow[]).map(toSchedule);
+  /** The creator's schedules that Nest paused (a reason is set), oldest change first. */
+  const pausedFor = (createdBy: string): ScheduleRecord[] =>
+    (db.prepare('SELECT * FROM product_schedules WHERE created_by=? AND on_flag=0 AND paused_reason IS NOT NULL ORDER BY updated_at, id').all(createdBy) as ScheduleRow[]).map(toSchedule);
 
   /**
    * Records the engine event booked for `nextAt`, with its `booked` run, only while the schedule is still on, still
@@ -188,7 +200,7 @@ export function createScheduleStore(db: Database.Database, clock: () => number =
   }
 
   return {
-    createSchedule, schedule, schedulesIn, unbooked, bookedDue, markBooked, moveOn, unbook, patchSchedule, pause, removeSchedule,
+    createSchedule, checkLimits, schedule, schedulesIn, unbooked, bookedDue, bookedBetween, pausedFor, markBooked, moveOn, unbook, patchSchedule, pause, removeSchedule,
     run, insertRun, setRunEvent, deleteRun, runsDue, missedSince, runAfter, settleRun, supersedeMissed, lastRun, missedFor,
   };
 }

@@ -29,6 +29,8 @@ describe('schedules against the unchanged engine', () => {
   let owner: H, mate: H, ownerId: string, a: string, c: string;
   // Transport faults: every request fails; every service POST /api/events fails; or the next one's answer is lost.
   let outage: boolean, failPosts: boolean, dropNextPost: boolean;
+  // Holds the next service POST of a scheduled trigger until its gate opens; `held` is called when it arrives.
+  let hold: { held: () => void; gate: Promise<void> } | null;
   const logs: string[] = [];
 
   const call = (h: H, method: string, path: string, body?: unknown) =>
@@ -74,6 +76,14 @@ describe('schedules against the unchanged engine', () => {
     (product.store.db.prepare('SELECT id FROM product_schedule_runs WHERE schedule_id=? ORDER BY due_at, kind').all(scheduleId) as { id: string }[])
       .map(r => product.store.schedules.run(r.id)!);
   const at = (ms: number) => vi.setSystemTime(ms);
+  /** Holds the next trigger post: resolves once it is held, with the function that lets it through. */
+  const holdNextTrigger = () => {
+    let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    return new Promise<() => void>(resolve => { hold = { held: () => resolve(release), gate }; });
+  };
+  const status = async (eventId: string) => (await runner('GET', `/api/events/${eventId}`)).status;
+  const unsubscribe = (type: 'HUMAN' | 'AGENT', id: string) => call(owner, 'POST', `/api/channels/${a}/unsubscribe`, { subscriberType: type, subscriberId: id });
   const tick = () => product.flows.tick();
 
   beforeEach(async () => {
@@ -81,13 +91,19 @@ describe('schedules against the unchanged engine', () => {
     at(MON_0800);
     vi.stubEnv('ORGOPS_MASTER_KEY', Buffer.alloc(32, 99).toString('base64'));
     dir = mkdtempSync(join(tmpdir(), 'nest-schedules-test-'));
-    outage = false; failPosts = false; dropNextPost = false; logs.length = 0;
+    outage = false; failPosts = false; dropNextPost = false; hold = null; logs.length = 0;
     engine = createEngine({ dbPath: join(dir, 'engine.sqlite'), dataDir: dir, projectRoot: dir, adminUser: 'owner', adminPass: 'password', runnerToken: RUNNER });
     client = createOrgOpsClient('http://engine', (async (url, init) => {
       if (outage) throw new TypeError('fetch failed');
       const target = new URL(String(url));
       const servicePost = init?.method === 'POST' && target.pathname === '/api/events' && new Headers(init?.headers).get('x-orgops-runner-token');
       if (failPosts && servicePost) throw new TypeError('fetch failed');
+      if (hold && servicePost && String(init?.body ?? '').includes('"agent.scheduled.trigger"')) {
+        const current = hold;
+        hold = null;
+        current.held();
+        await current.gate;
+      }
       const response = await engine.app.fetch(new Request(url, init));
       if (dropNextPost && servicePost) {
         // The engine stored the event; Nest never learns its id.
@@ -188,6 +204,112 @@ describe('schedules against the unchanged engine', () => {
       expect((await triggers(a)).map(t => t.deliverAt)).toEqual([MON_0900]);
       expect(product.store.schedules.schedule(s.id)?.nextEventId).toBeTruthy();
     } finally { other.store.close(); }
+  });
+
+  it("never cancels an edit's booking when the edit lands while a tick is booking (I1)", async () => {
+    failPosts = true;
+    const s = await create(owner, {});
+    failPosts = false;
+    const held = holdNextTrigger();
+    const ticking = tick();
+    const release = await held;
+    // The tick read version 0 and its post is in flight. Another process's edit lands meanwhile (same time, new
+    // prompt) and its booking is already in the engine under the same key.
+    product.store.schedules.patchSchedule(s.id, { prompt: 'Recap the month' }, 0, ownerId, MON_0900);
+    const edit = await emit('agent.scheduled.trigger', 'agent:Switchyard', a, {
+      text: 'Scheduled run · Every Monday at 09:00 · set up by owner\n\nRecap the month', targetAgentName: 'Pip',
+      nestSwitchyard: { kind: 'run', setBy: ownerId, scheduleId: s.id },
+    }, { deliverAt: MON_0900, idempotencyKey: `nest:schedule:${s.id}:${MON_0900}` });
+    release();
+    await ticking;
+    expect(await status(edit.id)).toBe(200);
+    await tick();
+    expect((await triggers(a)).map(t => t.id)).toEqual([edit.id]);
+    expect(product.store.schedules.schedule(s.id)?.nextEventId).toBe(edit.id);
+  });
+
+  it('books the edited text when a PATCH lands while a tick is booking the old one', async () => {
+    failPosts = true;
+    const s = await create(owner, {});
+    failPosts = false;
+    const held = holdNextTrigger();
+    const ticking = tick();
+    const release = await held;
+    const patching = call(owner, 'PATCH', `/api/flows/schedules/${s.id}`, { prompt: 'Recap the month', version: 0 });
+    for (let i = 0; i < 100 && product.store.schedules.schedule(s.id)!.version === 0; i++) await new Promise(r => setTimeout(r, 5));
+    release();
+    await ticking;
+    expect((await patching).status).toBe(200);
+    const [trigger, ...rest] = await triggers(a);
+    expect(rest).toEqual([]);
+    expect(trigger.payload.text).toBe('Scheduled run · Every Monday at 09:00 · set up by owner\n\nRecap the month');
+    expect(product.store.schedules.schedule(s.id)?.nextEventId).toBe(trigger.id);
+  });
+
+  it('cancels and pauses a booked run when its creator lost access, on the tick within 60 s of its time (I2, I3)', async () => {
+    const s = await create(mate, {});
+    const booked = product.store.schedules.schedule(s.id)!.nextEventId!;
+    expect((await unsubscribe('HUMAN', 'mate')).status).toBe(200);
+    // Not re-checked on every tick: five minutes before, the booking stands.
+    at(MON_0900 - 5 * MIN);
+    await tick();
+    expect(await status(booked)).toBe(200);
+    at(MON_0900 - 30_000);
+    await tick();
+    expect(await status(booked)).toBe(404);
+    expect(product.store.schedules.schedule(s.id)).toMatchObject({ on: false, pausedReason: 'access', nextEventId: null });
+    expect(runs(s.id)).toEqual([]);
+    const items = (await needs(mate)).filter(n => n.kind === 'paused');
+    expect(items).toEqual([expect.objectContaining({
+      key: `schedule-paused:${s.id}`, channelId: a, short: "Schedule paused · you can't post here any more",
+      gate: { kind: 'schedule-paused', scheduleId: s.id },
+    })]);
+    expect((await needs(owner)).filter(n => n.kind === 'paused')).toEqual([]);
+    // Back in the chat, the creator resumes; the item clears and the run is booked again.
+    expect((await call(owner, 'POST', `/api/channels/${a}/subscribe`, { subscriberType: 'HUMAN', subscriberId: 'mate' })).status).toBe(200);
+    const resumed = await call(mate, 'PATCH', `/api/flows/schedules/${s.id}`, { on: true, version: 1 });
+    expect(resumed.status, await resumed.clone().text()).toBe(200);
+    expect((await needs(mate)).filter(n => n.kind === 'paused')).toEqual([]);
+    expect((await triggers(a)).map(t => t.deliverAt)).toEqual([MON_0900]);
+  });
+
+  it('pauses with agent-left when the agent leaves before its run, until the schedule is deleted', async () => {
+    const s = await create(owner, {});
+    expect((await unsubscribe('AGENT', 'Pip')).status).toBe(200);
+    at(MON_0900 - 30_000);
+    await tick();
+    expect(await triggers(a)).toEqual([]);
+    expect(product.store.schedules.schedule(s.id)).toMatchObject({ on: false, pausedReason: 'agent-left' });
+    expect((await needs(owner)).find(n => n.kind === 'paused')?.short).toBe('Schedule paused · Pip left the chat');
+    expect((await call(owner, 'DELETE', `/api/flows/schedules/${s.id}?version=1`)).status).toBe(204);
+    expect((await needs(owner)).filter(n => n.kind === 'paused')).toEqual([]);
+  });
+
+  it('runs a once rule a single time, keeps intervals on their grid, and says no turn started for a running agent', async () => {
+    const once = await create(owner, { rule: { kind: 'once', day: 0, time: '09:00' } });
+    const every = await create(owner, { rule: { kind: 'interval', mins: 15 } });
+    expect(every.nextAt).toBe(MON_0800 + 15 * MIN);
+    at(MON_0800 + 15 * MIN + 7_000);
+    await tick();
+    expect(product.store.schedules.schedule(every.id)?.nextAt).toBe(MON_0800 + 30 * MIN);
+    engine.db.prepare("UPDATE agents SET desired_state='RUNNING' WHERE name='Pip'").run();
+    at(MON_0800 + 26 * MIN);
+    await tick();
+    expect(runs(every.id)[0]).toMatchObject({ status: 'missed', reason: 'no turn started' });
+    at(MON_0900 + MIN);
+    await turnStarted(a);
+    await tick();
+    expect(runs(once.id)).toEqual([expect.objectContaining({ status: 'started' })]);
+    expect(product.store.schedules.schedule(once.id)).toMatchObject({ on: false, nextAt: null, pausedReason: null });
+    expect((await triggers(a)).filter(t => (t.payload.nestSwitchyard as { scheduleId?: string }).scheduleId === once.id)).toHaveLength(1);
+  });
+
+  it("answers 404 for a schedule in a chat the viewer cannot read, and lets its creator Run now in a chat they post in", async () => {
+    const s = await create(owner, { channelId: c, agent: 'Pom' });
+    expect((await call(mate, 'PATCH', `/api/flows/schedules/${s.id}`, { on: false, version: 0 })).status).toBe(404);
+    expect((await call(mate, 'DELETE', `/api/flows/schedules/${s.id}?version=0`)).status).toBe(404);
+    expect((await call(mate, 'POST', `/api/flows/schedules/${s.id}/run`)).status).toBe(404);
+    expect((await call(owner, 'POST', `/api/flows/schedules/${s.id}/run`)).status).toBe(201);
   });
 
   it('marks a run started when the agent starts a turn in the grace, then books the next week', async () => {
@@ -298,6 +420,9 @@ describe('schedules against the unchanged engine', () => {
     expect(runs(s.id)).toEqual([]);
     at(MON_0900 + 10 * MIN);
     await tick();
+    expect(runs(s.id)).toEqual([]);
+    at(MON_0900 + 10 * MIN + 1000);
+    await tick();
     expect(runs(s.id)).toEqual([expect.objectContaining({ dueAt: MON_0900, status: 'missed', reason: 'engine unavailable', eventId: null })]);
     expect(product.store.schedules.schedule(s.id)?.nextAt).toBe(MON_0900 + WEEK);
     outage = false; failPosts = false;
@@ -328,5 +453,11 @@ describe('schedules against the unchanged engine', () => {
     expect((await call(mate, 'POST', `/api/flows/schedules/${randomUUID()}/run`)).status).toBe(404);
     for (let i = 0; i < 10; i++) await create(owner, { rule: { kind: 'interval', mins: 60 + i } });
     await create(owner, {}, 400);
+    // Over the limit, Switchyard does not join the chat.
+    const pomChat = await chat('D', [{ type: 'AGENT', id: 'Pom' }]);
+    for (let i = 0; i < 10; i++) product.store.schedules.createSchedule({ id: randomUUID(), channelId: pomChat, agent: 'Pom', prompt: 'x', rule: { kind: 'daily', time: '09:00' }, timezone: 'UTC', createdBy: ownerId, now: 1, nextAt: null });
+    await create(owner, { channelId: pomChat, agent: 'Pom' }, 400);
+    const d = ((await (await call(owner, 'GET', '/api/channels')).json()) as { id: string; participants: { subscriberId: string }[] }[]).find(ch => ch.id === pomChat)!;
+    expect(d.participants.map(p => p.subscriberId)).not.toContain('Switchyard');
   });
 });
