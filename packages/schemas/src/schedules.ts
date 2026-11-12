@@ -199,22 +199,27 @@ const DAY_ANY = new RegExp(`\\b${DAY_WORD}\\b`, 'g');
 const DAY_CUE = /\b(?:every|on)\s+$/;
 const DAY_JOIN = /^\s*(?:(?:,|&|\/|and)\s*)+$/;
 const DAY_RANGE = /^\s*(?:-|–|—|to|through|thru)\s*$/;
+/** What must come right before a range's first day when the text also asks for every day (`every`, `on`, `every day`, `daily`). */
+const RANGE_CUE = /(?:\b(?:every|on)\s+|\b(?:every day|daily)\s*,?\s*)$/;
+const EVERY_DAY = /\bevery day\b|\bdaily\b/;
 
 /**
  * The days a text names as days, Mon=0, sorted. Short names are common words (`sat`, `sun`, `c'mon`), so a day counts
  * only right after `every` or `on`, or after a list joiner (`,` `and` `&` `/`) that follows a counted day. A full name
  * also counts anywhere after `every` or `on`. A range (`mon to fri`, `monday-friday`) counts both ends and the days
- * between.
+ * between; when the text also says `every day` or `daily`, only right after `every`, `on`, `every day` or `daily`, so
+ * a range in ordinary text (`the mon-fri team … every day`) leaves the repeat daily.
  */
 function namedDays(s: string): number[] {
   const cue = s.search(/\b(?:every|on)\b/);
+  const daily = EVERY_DAY.test(s);
   const found = [...s.matchAll(DAY_ANY)].map(m => ({
     day: SHORT_DAYS.indexOf(m[1].slice(0, 3)), full: m[1].endsWith('day'), start: m.index!, end: m.index! + m[0].length,
   }));
   const counted = new Set<number>(), days = new Set<number>();
   found.forEach((m, i) => {
     const prev = i > 0 ? found[i - 1] : null, gap = prev ? s.slice(prev.end, m.start) : '';
-    if (prev && DAY_RANGE.test(gap)) {
+    if (prev && DAY_RANGE.test(gap) && (!daily || RANGE_CUE.test(s.slice(0, prev.start)))) {
       for (let d = prev.day; ; d = (d + 1) % 7) { days.add(d); if (d === m.day) break; }
       counted.add(i - 1).add(i);
       return;

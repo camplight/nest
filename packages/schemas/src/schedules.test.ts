@@ -185,6 +185,18 @@ describe('parseScheduleText', () => {
     expect(parse('every tue–thu')).toEqual({ kind: 'weekly', days: [1, 2, 3], time: '09:00' });
     expect(parse('every fri to mon')).toEqual({ kind: 'weekly', days: [0, 4, 5, 6], time: '09:00' });
   });
+  it('with every day or daily, counts a day range only right after every, on or the daily words (T12 R1)', () => {
+    expect(parse('the mon-fri team needs a digest every day')).toEqual({ kind: 'daily', time: '09:00' });
+    expect(parse('every day post the sat-sun rota')).toEqual({ kind: 'daily', time: '09:00' });
+    expect(parse('sat to sun shifts: every day remind them')).toEqual({ kind: 'daily', time: '09:00' });
+    expect(parse('every day: wed to fri off')).toEqual({ kind: 'daily', time: '09:00' });
+    expect(parse('daily at 8, the mon-fri crew')).toEqual({ kind: 'daily', time: '08:00' });
+    // A cued range still counts.
+    expect(parse('every day on mon-wed at 8')).toEqual({ kind: 'weekly', days: [0, 1, 2], time: '08:00' });
+    expect(parse('daily mon to fri')).toEqual({ kind: 'weekdays', time: '09:00' });
+    // Without every day or daily, a range needs no cue.
+    expect(parse('every week, mon to wed')).toEqual({ kind: 'weekly', days: [0, 1, 2], time: '09:00' });
+  });
   it('reads evening and morning hours and a.m./p.m.', () => {
     expect(parse('every evening at 7')).toEqual({ kind: 'daily', time: '19:00' });
     expect(parse('every evening at 7am')).toEqual({ kind: 'daily', time: '07:00' });

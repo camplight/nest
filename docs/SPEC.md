@@ -1882,7 +1882,9 @@ deviations; item 16 the checks.
      only right after `every` or `on`, or after a list joiner that follows a counted day
      (so `I sat down`, `the sun`, `c'mon` stay words); a full name anywhere after `every`
      or `on`. A range counts its days, and Monday to Friday (`mon to fri`,
-     `monday-friday`) is `weekdays`. A bare `every week` is weekly on today in the
+     `monday-friday`) is `weekdays`; when the text also says `every day` or `daily`, a
+     range counts only right after `every`, `on`, `every day` or `daily`, so `the
+     mon-fri team needs a digest every day` stays daily. A bare `every week` is weekly on today in the
      browser's zone. `✕` drops the chip until the
      text reads as another rule, or none. After a successful send the canvas posts
      `POST /api/flows/schedules` for the new chat, with the sent message's id as the
