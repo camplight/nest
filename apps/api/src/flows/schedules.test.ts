@@ -325,6 +325,46 @@ describe('schedules against the unchanged engine', () => {
     expect((await triggers(a)).filter(t => (t.payload.nestSwitchyard as { scheduleId?: string }).scheduleId === once.id)).toHaveLength(1);
   });
 
+  it('records one combined missed run for the occurrences a Nest restart skipped (final I2)', async () => {
+    const every = await create(owner, { rule: { kind: 'interval', mins: 5 } });
+    at(MON_0800 + 4 * MIN);
+    await tick();
+    expect(runs(every.id)).toEqual([expect.objectContaining({ dueAt: MON_0800 + 5 * MIN, status: 'booked' })]);
+    // Nest is down for 12 minutes: 08:05 fires in the engine, 08:10 and 08:15 were never booked.
+    at(MON_0800 + 16 * MIN);
+    await tick();
+    const missed = runs(every.id).filter(r => r.dueAt > MON_0800 + 5 * MIN && r.status === 'missed');
+    expect(missed).toEqual([expect.objectContaining({ kind: 'scheduled', dueAt: MON_0800 + 15 * MIN, reason: 'no turn started', eventId: null })]);
+    expect(product.store.schedules.schedule(every.id)?.nextAt).toBe(MON_0800 + 20 * MIN);
+    expect((await needs(owner)).filter(n => n.kind === 'missed')).toEqual([expect.objectContaining({
+      key: `missed:${missed[0].id}`, at: MON_0800 + 15 * MIN, short: 'Missed run · no turn started', gate: { kind: 'missed', scheduleId: every.id, runId: missed[0].id },
+    })]);
+    // Later ticks add nothing for the same window.
+    await tick();
+    expect(runs(every.id).filter(r => r.status === 'missed' && r.dueAt > MON_0800 + 5 * MIN)).toHaveLength(1);
+  });
+
+  it('records one missed run at the latest day a daily schedule skipped over two days down (final I2)', async () => {
+    const daily = await create(owner, { rule: { kind: 'daily', time: '09:00' } });
+    at(MON_0800 + 30 * MIN);
+    await tick();
+    at(MON_0900 + 2 * 24 * 60 * MIN + 30 * MIN);
+    await tick();
+    expect(runs(daily.id).filter(r => r.dueAt > MON_0900 && r.status === 'missed')).toEqual([expect.objectContaining({ dueAt: MON_0900 + 2 * 24 * 60 * MIN, reason: 'no turn started' })]);
+    expect(product.store.schedules.schedule(daily.id)?.nextAt).toBe(MON_0900 + 3 * 24 * 60 * MIN);
+  });
+
+  it('says engine unavailable for occurrences skipped while the engine was unreachable (final I2)', async () => {
+    const every = await create(owner, { rule: { kind: 'interval', mins: 5 } });
+    at(MON_0800 + 4 * MIN);
+    await tick();
+    outage = true;
+    at(MON_0800 + 16 * MIN);
+    await tick();
+    expect(runs(every.id).filter(r => r.status === 'missed')).toEqual([expect.objectContaining({ dueAt: MON_0800 + 15 * MIN, reason: 'engine unavailable' })]);
+    outage = false;
+  });
+
   it("answers 404 for a schedule in a chat the viewer cannot read, and lets its creator Run now in a chat they post in", async () => {
     const s = await create(owner, { channelId: c, agent: 'Pom' });
     expect((await call(mate, 'PATCH', `/api/flows/schedules/${s.id}`, { on: false, version: 0 })).status).toBe(404);

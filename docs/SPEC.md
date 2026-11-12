@@ -1594,7 +1594,11 @@ deviations; item 16 the checks.
      version the booking read.
    - Each tick, in order: schedules whose booked time has come move on to their next
      time (from the later of now and the due time; `interval` rules stay on their grid,
-     due + k × minutes); a schedule still unbooked more than the 10-minute grace after
+     due + k × minutes). When that jump passes further occurrences (Nest was restarted
+     or down), one combined `missed` run is recorded at the latest of them, with
+     `engine unavailable` when the service agent check could not reach the engine on
+     that tick and `no turn started` otherwise, so it reaches Needs you with Run now;
+     a schedule still unbooked more than the 10-minute grace after
      its time records a `missed` run with the reason
      `engine unavailable` and moves on; then, with the engine reachable, booked runs
      that are due are checked and unbooked schedules are booked.

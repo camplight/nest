@@ -78,6 +78,21 @@ export function createScheduler({ store, orgops, token, switchyard, now = Date.n
     }
     return nextRunAt(s.rule, s.timezone, Math.max(at, due));
   }
+  /**
+   * The latest occurrence strictly between `due` and `next` (the time `following` chose): one Nest skipped because it
+   * was not ticking (a restart or downtime), or null when none was skipped.
+   */
+  function skippedBefore(s: ScheduleRecord, due: number, next: number | null): number | null {
+    if (next === null || s.rule.kind === 'once') return null;
+    if (s.rule.kind === 'interval') {
+      const latest = next - s.rule.mins * 60_000;
+      return latest > due ? latest : null;
+    }
+    let latest: number | null = null;
+    // Bounded: a weekly rule covers about 19 years of downtime; past that, the newest counted one is recorded.
+    for (let t = nextRunAt(s.rule, s.timezone, due), i = 0; t !== null && t < next && i < 1000; t = nextRunAt(s.rule, s.timezone, t), i++) latest = t;
+    return latest;
+  }
   function pause(s: ScheduleRecord, reason: PauseReason) {
     schedules.pause(s.id, reason, 'system');
     log(`[flows] schedule ${s.id} paused: ${reason}`);
@@ -185,11 +200,19 @@ export function createScheduler({ store, orgops, token, switchyard, now = Date.n
     }
   }
 
-  /** Local work, no engine needed: move booked schedules past their due time on, and miss what could not be booked. */
-  function moveOn(at: number) {
+  /**
+   * Local work, no engine needed: move booked schedules past their due time on, and miss what could not be booked.
+   * Occurrences a booked schedule skipped while Nest was not ticking (a restart or downtime) are recorded as one
+   * combined missed run at the latest of them, with `skipReason`, so none is lost silently.
+   */
+  function moveOn(at: number, skipReason: MissedReason) {
     for (const s of schedules.bookedDue(at)) {
       try {
-        schedules.moveOn(s.id, { nextAt: s.nextAt!, eventId: s.nextEventId }, following(s, s.nextAt!, at), s.rule.kind === 'once');
+        const next = following(s, s.nextAt!, at);
+        const skipped = skippedBefore(s, s.nextAt!, next);
+        if (!schedules.moveOn(s.id, { nextAt: s.nextAt!, eventId: s.nextEventId }, next, s.rule.kind === 'once') || skipped === null) continue;
+        schedules.insertRun({ scheduleId: s.id, dueAt: skipped, kind: 'scheduled', status: 'missed', reason: skipReason, now: at });
+        log(`[flows] schedule ${s.id} missed skipped runs: ${skipReason}`);
       } catch (error) { log(`[flows] moving schedule ${s.id} on failed: ${describe(error)}`); }
     }
     for (const s of schedules.unbooked()) {
@@ -251,8 +274,9 @@ export function createScheduler({ store, orgops, token, switchyard, now = Date.n
   async function run() {
     const at = now();
     if (!holdFlowsLease(store, holder, at)) return;
-    moveOn(at);
+    // Asked first, so runs skipped while Nest was down say whether the engine could be reached.
     const service = await serviceOrNull();
+    moveOn(at, service ? 'no turn started' : 'engine unavailable');
     if (!service) return;
     const ctx = snapshot(service);
     try { await settleDue(ctx, at); } catch (error) { log(`[flows] checking scheduled runs failed: ${describe(error)}`); }
