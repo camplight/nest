@@ -106,8 +106,16 @@ try{
       const firstNotifications=await openNotifications(ownerPage);
       await firstNotifications.getByRole('alert').filter({hasText:'Could not load mentions'}).waitFor();
       await firstNotifications.getByText('requester@example.com requested access to Project Nightingale',{exact:true}).waitFor();
+      const denialResponse=ownerPage.waitForResponse(response=>new URL(response.url()).pathname===`/api/projects/${projectId}/access-requests/${submittedRequestIds[0]}/decision`);
       await firstNotifications.getByRole('button',{name:'Deny requester@example.com for Project Nightingale',exact:true}).click();
-      await firstNotifications.getByText('No pending project access requests.',{exact:true}).waitFor();
+      const denied=await denialResponse;
+      assert.equal(denied.status(),200,await denied.text());
+      assert.equal(product.store.projectAccess.get(submittedRequestIds[0])?.status,'denied','Denial is persisted before the owner inbox refreshes');
+      const activeAfterDenial=await product.app.request('/api/project-access-requests',{headers:ownerHeaders});
+      assert.equal(activeAfterDenial.status,200,await activeAfterDenial.text());
+      assert.deepEqual(await activeAfterDenial.json(),[],'The owner API no longer returns the denied request');
+      try{await firstNotifications.getByText('No pending project access requests.',{exact:true}).waitFor();}
+      catch(error){console.error('Notifications after denial:',await firstNotifications.textContent().catch(()=>'<dialog unavailable>'));throw error;}
 
       await requesterPage.reload();
       await requesterPage.getByRole('heading',{name:'Your request was not approved',exact:true}).waitFor();
