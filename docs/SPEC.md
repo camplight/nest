@@ -1348,8 +1348,8 @@ schedules API with its scheduler (the schedule UI is still to come).
        Nothing ran.` and `gate {kind:'missed', scheduleId, runId}`.
      - `paused`, one per schedule of the viewer's that Nest paused, until it is resumed
        or deleted: `short` `Schedule paused · {why}`, where `why` is `you can't post
-       here any more` (`access`), `{agent} left the chat` (`agent-left`) or `the engine
-       was unavailable` (`unavailable`: the chat is missing from the engine), and
+       here any more` (`access`), `{agent} left the chat` (`agent-left`) or `this chat is no
+       longer available` (`unavailable`: the chat is missing from the engine), and
        `gate {kind:'schedule-paused', scheduleId}`. The UI shows it without buttons, like
        a paused link.
 

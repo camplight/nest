@@ -361,7 +361,7 @@ export type Scheduler = ReturnType<typeof createScheduler>;
 export function schedulePausedWhy(reason: PauseReason, agent: string): string {
   if (reason === 'access') return "you can't post here any more";
   if (reason === 'agent-left') return `${agent} left the chat`;
-  return 'the engine was unavailable';
+  return 'this chat is no longer available';
 }
 
 /**

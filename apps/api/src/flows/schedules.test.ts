@@ -8,6 +8,7 @@ import { shouldHandleEventForAgent } from '../../../../vendor/orgops/apps/agent-
 import { createOrgOpsClient, type EngineEvent } from '@nest/orgops-client';
 import type { AgentMadeSchedule, FlowNeed, ScheduleRun, ScheduleView } from '@nest/schemas';
 import { createApp } from '../app';
+import { schedulePausedWhy } from './scheduler';
 
 const RUNNER = 'runner-secret';
 type H = Record<string, string>;
@@ -281,6 +282,7 @@ describe('schedules against the unchanged engine', () => {
     expect(await triggers(a)).toEqual([]);
     expect(product.store.schedules.schedule(s.id)).toMatchObject({ on: false, pausedReason: 'agent-left' });
     expect((await needs(owner)).find(n => n.kind === 'paused')?.short).toBe('Schedule paused · Pip left the chat');
+    expect([schedulePausedWhy('access', 'Pip'), schedulePausedWhy('unavailable', 'Pip')]).toEqual(["you can't post here any more", 'this chat is no longer available']);
     expect((await call(owner, 'DELETE', `/api/flows/schedules/${s.id}?version=1`)).status).toBe(204);
     expect((await needs(owner)).filter(n => n.kind === 'paused')).toEqual([]);
   });
