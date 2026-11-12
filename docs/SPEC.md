@@ -1298,6 +1298,10 @@ deviations; item 16 the checks.
      `summaries` is always `'fallback'` for now and nothing reads it; whether a
      summary uses a model is decided per hand-off (item 6). `webhooks` equals `enabled`:
      a webhook call posts as the service agent, so it works exactly when flows do.
+   - Errors: an engine outage answers 502 `The engine is unavailable. Links are kept;
+     refresh and retry.`; a service agent that becomes unusable during a request
+     (its name taken, the token gone) answers 503 `Hand-offs are not set up on this
+     server`, like the checks before it.
    - `GET /api/flows/links?channelId=X` lists the links touching X, as
      `Link & {fromTitle, toTitle, canManage, canEdit}`. The viewer must be able to
      read X in the engine, else 404. Titles are the project name, else the chat name;
@@ -1409,7 +1413,9 @@ deviations; item 16 the checks.
      `fork · findings flow back`, created by the viewer) lets findings flow back, and
      the fork is recorded. It answers 201 `{childChannelId, linkId}`. A repeat for the
      same child and message answers 200 with the same body and posts nothing; the
-     same child with another message answers 409. Forking needs only read access to the parent, so a
+     same child with another message answers 409. A request that loses a race to
+     another message's fork of the same child answers 409 and removes the findings
+     link it made. Forking needs only read access to the parent, so a
      fork of a chat the viewer cannot post in (an archived one) gets a findings link
      that the worker pauses (`access`) at its first delivery.
    - `GET /api/flows/forks?parentChannelId=X` answers `{forks:[{childChannelId,

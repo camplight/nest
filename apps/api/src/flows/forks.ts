@@ -102,7 +102,11 @@ export function registerForkRoutes(routes: Hono<{ Variables: { human: Human } }>
     store.flows.recordFork({ childChannelId: input.childChannelId, parentChannelId: input.parentChannelId, parentEventId: input.parentEventId, linkId: link.id, createdBy: human.id });
     // A concurrent fork of the same chat from another message got there first.
     const stored = store.flows.forkOf([input.childChannelId])[0];
-    if (stored.parentChannelId !== input.parentChannelId || stored.parentEventId !== input.parentEventId) throw fail(409, 'This chat is already a fork of another message');
+    if (stored.parentChannelId !== input.parentChannelId || stored.parentEventId !== input.parentEventId) {
+      // This request's findings link would carry the child's results into a chat it is not a fork of.
+      if (stored.linkId !== link.id) store.flows.removeLink(link.id, human.id);
+      throw fail(409, 'This chat is already a fork of another message');
+    }
     return c.json({ childChannelId: input.childChannelId, linkId: stored.linkId }, 201);
   });
 

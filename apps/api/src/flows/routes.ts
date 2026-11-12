@@ -7,7 +7,7 @@ import { isEngineOutage, type EngineEvent, type Human, type OrgOpsClient } from 
 import { LinkPatchSchema, NewLinkSchema, type FlowNeed, type Link } from '@nest/schemas';
 import type { Channel } from '../canvases';
 import { channelAccess, isAgentIn, linkRights } from './access';
-import type { Switchyard, SwitchyardState } from './identity';
+import { SwitchyardUnavailableError, type Switchyard, type SwitchyardState } from './identity';
 import { FlowActionError, NOTHING_TO_SEND, pausedWhy, type HandoffWorker } from './handoff';
 import { registerForkRoutes } from './forks';
 import { missedNeeds, registerScheduleRoutes, type Scheduler } from './scheduler';
@@ -39,6 +39,8 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
     if (error instanceof HTTPException) return c.json({ error: error.message }, error.status);
     if (error instanceof CanvasLimitError) return c.json({ error: error.message }, 400);
     if (error instanceof FlowActionError) return c.json({ error: error.message }, error.status);
+    // The service agent became unusable mid-request (name taken, token gone): flows are not set up, not an outage.
+    if (error instanceof SwitchyardUnavailableError) return c.json({ error: NOT_SET_UP }, 503);
     console.error('Flow request failed:', error.name);
     return c.json({ error: 'The engine is unavailable. Links are kept; refresh and retry.' }, 502);
   });

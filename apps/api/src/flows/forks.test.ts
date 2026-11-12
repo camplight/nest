@@ -17,6 +17,8 @@ describe('forks against the unchanged engine', () => {
   let owner: H, mate: H, reader: H, ownerId: string;
   let a: string, b: string;
   let summaries: Parameters<Summarize>[0][];
+  // Runs inside the fork request, between Switchyard joining and posting the seed.
+  let duringSummary: (() => Promise<void>) | null;
   const json = { 'content-type': 'application/json' };
   const call = (h: H, method: string, path: string, body?: unknown) =>
     product.app.request(path, { method, headers: h, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -57,11 +59,11 @@ describe('forks against the unchanged engine', () => {
     dir = mkdtempSync(join(tmpdir(), 'nest-forks-test-'));
     engine = createEngine({ dbPath: join(dir, 'engine.sqlite'), dataDir: dir, projectRoot: dir, adminUser: 'owner', adminPass: 'password', runnerToken: RUNNER });
     const client = createOrgOpsClient('http://engine', (async (url, init) => engine.app.fetch(new Request(url, init))) as typeof fetch);
-    summaries = [];
+    summaries = []; duringSummary = null;
     product = createApp({
       orgops: client, dbPath: join(dir, 'product.sqlite'), canvasEnabled: true, contextFilesDir: join(dir, 'context-files'),
       connectionEngineToken: RUNNER, switchyardName: 'Switchyard', switchyardWorkspaceRoot: join(dir, 'managed'),
-      summarize: async input => { summaries.push(input); return { text: `Summary (by test):\n${input.texts.length} messages`, model: 'test' }; },
+      summarize: async input => { summaries.push(input); await duringSummary?.(); return { text: `Summary (by test):\n${input.texts.length} messages`, model: 'test' }; },
     });
     owner = await login('owner');
     ownerId = (await (await call(owner, 'GET', '/api/humans')).json()).find((h: any) => h.username === 'owner').id;
@@ -125,6 +127,36 @@ describe('forks against the unchanged engine', () => {
     expect(await (await call(reader, 'GET', `/api/flows/forks?parentChannelId=${a}`)).json())
       .toEqual({ forks: [{ childChannelId: child, parentEventId: message.id, title: 'a private chat' }] });
     expect((await call(mate, 'GET', `/api/flows/forks?parentChannelId=${a}`)).status).toBe(404);
+  });
+
+  it('removes its findings link when a concurrent fork of the same chat from another message won (409)', async () => {
+    const message = await say(a, 'agent:Pip', 'Agreed on more data.');
+    const elsewhere = await say(b, 'agent:Pom', 'Something in B');
+    const child = await project(owner, 'Fork: Agreed', ['Pip']);
+    // The other request records its fork (child → B) while this one is summarising.
+    duringSummary = async () => {
+      const other = product.store.flows.createLink({ id: randomUUID(), kind: 'fork', from: child, to: b, label: 'fork · findings flow back', createdBy: ownerId, now: Date.now(), scannedTo: 0 });
+      product.store.flows.recordFork({ childChannelId: child, parentChannelId: b, parentEventId: elsewhere.id, linkId: other.id, createdBy: ownerId });
+    };
+    const res = await fork(owner, { childChannelId: child, parentChannelId: a, parentEventId: message.id });
+    expect(res.status).toBe(409);
+    expect(product.store.flows.linksTouching([child]).map(l => [l.from, l.to])).toEqual([[child, b]]);
+    expect(product.store.flows.forkOf([child])).toEqual([expect.objectContaining({ parentChannelId: b })]);
+  });
+
+  it('answers 503, not 502, when the service agent becomes unusable during a fork', async () => {
+    const message = await say(a, 'agent:Pip', 'Agreed on more data.');
+    const child = await project(owner, 'Fork: Agreed', ['Pip']);
+    // After Switchyard joined, someone replaces it with an agent Nest did not make.
+    duringSummary = async () => {
+      expect((await call(owner, 'DELETE', '/api/agents/Switchyard')).status).toBe(200);
+      expect((await call(owner, 'POST', '/api/agents', { name: 'Switchyard', modelId: 'test', workspacePath: join(dir, 'other'), description: 'Routes my trains', desiredState: 'STOPPED' })).status).toBe(201);
+    };
+    const res = await fork(owner, { childChannelId: child, parentChannelId: a, parentEventId: message.id });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'Hand-offs are not set up on this server' });
+    expect(product.store.flows.forkOf([child])).toEqual([]);
+    expect(await seeds(child)).toEqual([]);
   });
 
   it('targets nobody when the author is not an agent in the fork, and uses the viewer\'s time zone', async () => {
