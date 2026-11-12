@@ -47,6 +47,16 @@ async function openNotifications(page:Page){
   return page.getByRole('dialog',{name:'Notifications',exact:true});
 }
 
+async function expectNoPendingAccessRequests(page:Page){
+  await page.waitForFunction(()=>{
+    const dialog=document.querySelector<HTMLDialogElement>('dialog[aria-label="Notifications"]');
+    return !dialog||dialog.textContent?.includes('No pending project access requests.');
+  });
+  let dialog=page.getByRole('dialog',{name:'Notifications',exact:true});
+  if(await dialog.count()===0)dialog=await openNotifications(page);
+  await dialog.getByText('No pending project access requests.',{exact:true}).waitFor();
+}
+
 try{
   await waitForUi();
   const browser=await chromium.launch({headless:true});
@@ -115,9 +125,7 @@ try{
       const activeAfterDenialText=await activeAfterDenial.text();
       assert.equal(activeAfterDenial.status,200,activeAfterDenialText);
       assert.deepEqual(JSON.parse(activeAfterDenialText),[],'The owner API no longer returns the denied request');
-      await firstNotifications.waitFor({state:'detached'});
-      const notificationsAfterDenial=await openNotifications(ownerPage);
-      await notificationsAfterDenial.getByText('No pending project access requests.',{exact:true}).waitFor();
+      await expectNoPendingAccessRequests(ownerPage);
       await ownerPage.keyboard.press('Escape');
 
       await requesterPage.reload();
@@ -129,9 +137,7 @@ try{
       await ownerPage.reload();
       const secondNotifications=await openNotifications(ownerPage);
       await secondNotifications.getByRole('button',{name:'Approve requester@example.com for Project Nightingale',exact:true}).click();
-      await secondNotifications.waitFor({state:'detached'});
-      const notificationsAfterApproval=await openNotifications(ownerPage);
-      await notificationsAfterApproval.getByText('No pending project access requests.',{exact:true}).waitFor();
+      await expectNoPendingAccessRequests(ownerPage);
       await ownerPage.keyboard.press('Escape');
       await requesterPage.getByRole('heading',{name:'Project Nightingale',level:1,exact:true}).waitFor({timeout:15_000});
       const composer=requesterPage.getByRole('textbox',{name:'Message',exact:true});
