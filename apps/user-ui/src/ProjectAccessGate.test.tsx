@@ -70,6 +70,27 @@ it('reuses one request UUID after an uncertain response and rotates it after con
   expect(ids).toEqual(['request-1', 'request-1', 'request-3']);
 });
 
+it('retains the request UUID after an uncertain HTTP server error', async () => {
+  const originalFetch = globalThis.fetch;
+  const ids: string[] = [];
+  globalThis.fetch = (async (_input, init) => {
+    const id = (JSON.parse(String(init?.body)) as {id: string}).id;
+    ids.push(id);
+    if (ids.length === 1) return Response.json({error: 'Synthetic lost response'}, {status: 502});
+    return Response.json({status: 'pending', request: {id, createdAt: 123}});
+  }) as typeof fetch;
+
+  try {
+    const submitter = createProjectAccessRequestSubmitter('project-id', {createId: () => 'request-id'});
+    await expect(submitter.submit()).rejects.toThrow('Synthetic lost response');
+    expect(submitter.hasPending()).toBe(true);
+    await expect(submitter.submit()).resolves.toMatchObject({status: 'pending'});
+    expect(ids).toEqual(['request-id', 'request-id']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 it('renders the disabled requesting state', () => {
   const html = render({status: 'requestable'}, true);
   expect(html).toContain('Requesting…');

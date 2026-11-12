@@ -20,7 +20,11 @@ async function sendAccessRequest(projectId: string, id: string) {
     body: JSON.stringify({id}),
   });
   const text = await response.text();
-  if (!response.ok) throw new DefinitiveAccessRequestError(text || `Request failed: ${response.status}`);
+  if (!response.ok) {
+    const error = text || `Request failed: ${response.status}`;
+    if (response.status >= 400 && response.status < 500) throw new DefinitiveAccessRequestError(error);
+    throw new Error(error);
+  }
   return JSON.parse(text) as ProjectAccessRequesterState;
 }
 
