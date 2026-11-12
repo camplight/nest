@@ -625,7 +625,10 @@ chats a person archived (hid) from their Loose chats). They hold layout only; th
 are in `packages/schemas/src/canvas.ts` and the store in `packages/db/src/canvases.ts`.
 Migration `013_agent_pins.sql` adds `product_agent_pins`: one row per engine human id
 with the ordered names of the agents that person pinned to their canvas tray (no row
-until they first save pins); the store is `packages/db/src/agent-pins.ts`. Both databases already participate in
+until they first save pins); the store is `packages/db/src/agent-pins.ts`.
+Migrations `014_links_forks.sql`, `015_schedules.sql` and `016_triggers.sql` add the
+canvas flows: links, deliveries, forks, leases, schedules, runs and webhook triggers
+(see [Switchyard canvas (Phase 3)](#switchyard-canvas-phase-3), item 1). Both databases already participate in
 host-controller deployment snapshots and rollback.
 
 Branding includes displayName (1–60 chars), logoUrl, primaryColor, accentColor,
@@ -1201,11 +1204,11 @@ another, forks, schedules and webhook triggers. Design: section 8 of
 [the Switchyard design](superpowers/specs/2026-11-08-switchyard-canvas-design.md);
 plan: [the Phase 3 plan](superpowers/plans/2026-11-11-switchyard-canvas-phase3.md).
 Everything is behind `NEST_ENABLE_CANVAS=1`; with the flag off every `/api/flows/*`
-route and `/api/hooks/*` answer 404, whoever asks. This section grows as the phase
-lands; so far it covers the service agent, links, how the board shows them, the
-hand-off worker, the canvas UI for links (lines, labels and the Hand-off popover),
-forks, schedules (the API, the scheduler and the canvas UI) and webhook triggers
-(item 13).
+route and `/api/hooks/*` answer 404, whoever asks. Items 1–6 cover the data, the
+service agent, access, the routes, the board and the background work (the hand-off
+worker and the scheduler); items 7–11 the canvas UI for links, Needs you, forks and
+schedules; item 12 webhooks; items 13–15 the thresholds, operations and mockup
+deviations; item 16 the checks.
 
 1. Data. Migration `014_links_forks.sql` adds:
    - `product_links`: one row per link, keyed by id and unique per
@@ -1285,7 +1288,8 @@ forks, schedules (the API, the scheduler and the canvas UI) and webhook triggers
      unreachable, or refused the token; the server log names the status, never the
      token). `serviceAgent` is the agent's name, so the UI can leave it out of agent
      lists, or `null` when there is no token or the name belongs to someone else.
-     `summaries` is `'fallback'` until that task lands. `webhooks` equals `enabled`:
+     `summaries` is always `'fallback'` for now and nothing reads it; whether a
+     summary uses a model is decided per hand-off (item 6). `webhooks` equals `enabled`:
      a webhook call posts as the service agent, so it works exactly when flows do.
    - `GET /api/flows/links?channelId=X` lists the links touching X, as
      `Link & {fromTitle, toTitle, canManage, canEdit}`. The viewer must be able to
@@ -1520,7 +1524,15 @@ forks, schedules (the API, the scheduler and the canvas UI) and webhook triggers
    blank line and:
    - `results`: each result's text cut to 8,000 characters, joined, at most 24,000 in
      all, with the results' attachments (at most 20);
-   - `summary`: the labelled summary from the default model, or the labelled fallback;
+   - `summary`: the turn's results summarised (`summarize.ts`, through the project
+     naming path: `defaultAgentModelId` resolved by `/api/models`, with the provider
+     keys of the project-naming or management agent). The input is the last 12,000
+     characters, the output at most 400 tokens, and one 20 s deadline covers the
+     model lookup and the call. It reads `Summary (by {model}):` and the text, and is
+     audited to the link's creator as `audit.flows.summary` (purpose, ids, model and
+     token counts). Without a model, or on any failure or an empty answer, it reads
+     `Summary unavailable. The latest result, shortened:` and the last result cut to
+     1,200 characters. Fork seeds use the same summariser (item 4);
    - `all`: `The whole conversation is attached.`, with `Transcript - {title}.md`
      uploaded through the engine: the chat's last 1,000 messages up to the turn, each
      as `**{author}** · {ISO time}` and its text, at most 2 MiB (oldest dropped). A
@@ -1709,7 +1721,7 @@ forks, schedules (the API, the scheduler and the canvas UI) and webhook triggers
      newest item's `short` as their pill, so a source chat reads `Approve hand-off to
      {target}`, and the turn's agent row reads `needs you · {reason}`.
    - A missed run's row (desktop list and the phone's Needs you segment) ends with
-     `Run now` (`POST /api/flows/schedules/:id/run`, served by the schedules work);
+     `Run now` (`POST /api/flows/schedules/:id/run`, item 4);
      the other rows jump to their chat.
    - The open chat's digest (the mock's `.digest`, above the Setup line) shows only
      while the chat has an approval, a review or a missed run: `Where it stands`, then
@@ -1844,7 +1856,7 @@ forks, schedules (the API, the scheduler and the canvas UI) and webhook triggers
      (so `I sat down`, `the sun`, `c'mon` stay words); a full name anywhere after `every`
      or `on`. A range counts its days, and Monday to Friday (`mon to fri`,
      `monday-friday`) is `weekdays`. A bare `every week` is weekly on today in the
-     browser's zone (T12-R1). `✕` drops the chip until the
+     browser's zone. `✕` drops the chip until the
      text reads as another rule, or none. After a successful send the canvas posts
      `POST /api/flows/schedules` for the new chat, with the sent message's id as the
      schedule's (a second send of the same draft cannot add another), the first
@@ -1857,53 +1869,7 @@ forks, schedules (the API, the scheduler and the canvas UI) and webhook triggers
      `… add {agent} to the chat first.`, `… you can't schedule in this chat.`
      (403) or `… set it up from the chat's clock instead.`. The chip exists only with
      flows set up; on a phone it takes its own line above the message.
-12. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
-   `handoff.test.ts`, `access.test.ts`, `forks.test.ts`, `schedules.test.ts` and the fork case in `canvas-board.test.ts`
-   run against the real engine and Nest handlers with temporary databases.
-   `schedules.test.ts` fakes `Date` for both the engine and Nest and covers booking,
-   a lost booking answer, the shared lease, started, missed, late, Run now, pause and
-   resume, an engine outage, agent-made schedules and the permissions;
-   `packages/schemas/src/schedules.test.ts` pins the rule copy, the DST cases and the
-   typed-rule parser; `dock-schedule.test.ts` the prompt, lead agent and `✕`.
-   `handoff.test.ts` covers a lost post response followed by a restart (exactly one
-   hand-off), an engine outage, the cap, lost access and the engine watch.
-   `tests/browser/canvas/links.ts` drives the lines, labels and popover in a browser
-   against the real engine, API and worker (the harness's `flows` option ticks the
-   worker every 200 ms), through pause, a delivered hand-off and disconnect, then
-   connecting by dragging the port onto a card and onto empty canvas (a new step),
-   the chat picker, the Setup line and its links row, loose chats and a phone, and
-   an approval link through Needs you, Approve, Request changes with a reply, and a
-   project review approved from the open chat. `tests/browser/canvas/forks.ts` forks
-   Pip's message from the open chat (placement, the fork line and label, the seed,
-   the chip, findings flowing back and pausing them) and a view-role member's fork
-   opening as a loose chat. `tests/browser/canvas/schedules.ts` schedules a run from
-   the clock, then checks the badge, chip, strip, note and top-bar count, Run now, a
-   missed run (the harness moves the scheduler's clock), the Scheduled list with an
-   agent's own run, pause and delete, and a view-role member's read-only view; then a
-   repeat typed in the bottom box (the chip, `✕`, Send saving it for the mentioned
-   agent, no agent, one too long, a phone, and none without flows).
-   `needs.test.ts` and `ChatDigest.test.tsx` cover the merge and the digest, missed
-   runs included; `schedule-jobs.test.ts` the badge, strip, chip and list groups,
-   webhooks included. `apps/api/src/flows/hooks.test.ts` covers webhooks against the
-   real engine with no cookie: the URL format and hash-only storage, a call posted to
-   the agent, one message per delivery id (a 300-character id included), the fence
-   choice, 413 at 65,537 bytes (with no or a wrong `content-length`), the attachment
-   over 16,000 characters, the inline cut by encoded size and at a surrogate pair,
-   429 with `Retry-After` on the 31st call in a minute (by the injected clock), 503
-   with `Retry-After` and no pause when the engine fetch throws, `/api/files` answers
-   503 or the service agent is unusable (by a fault in the injected transport), one
-   message for the retry after an outage, rotation, pause, lost access and a departed
-   agent (paused, with the Needs you item), 404 for unknown tokens, other methods,
-   other spellings of the path and the flag off, no CORS headers, the engine never
-   asked for a hook path, no token or payload in the logs, and 401 on the trigger
-   routes without a session.
-   `tests/browser/canvas/schedules.ts` makes a webhook from the clock, calls its URL
-   from Node, and checks the `↳ Webhook` line, the strip, the list row, the masked URL,
-   Rotate URL and pause, and on a phone that the rotated webhook popover fits 375 px
-   with no sideways scroll; `devices.ts` measures the webhook strip and popover text
-   (8.18:1 dark, 6.76:1 light at the minimum).
-
-13. Webhooks (`apps/api/src/flows/hooks.ts`). `POST /api/hooks/<token>` is public: it
+12. Webhooks (`apps/api/src/flows/hooks.ts`). `POST /api/hooks/<token>` is public: it
    is registered first in `createApp`, before every cookie-auth route and the engine
    proxy, reads no cookie or session, and sets no CORS headers. Every other method or
    path under `/api/hooks` answers 404 there too, so the proxy never forwards it. A
@@ -1961,6 +1927,165 @@ forks, schedules (the API, the scheduler and the canvas UI) and webhook triggers
      in the engine's files. Any other failure answers 404 with no detail. Tokens, URLs
      and payloads are never logged or echoed: logs name the trigger id and an error
      status or name only.
+
+13. Thresholds and limits. The numbers above, in one place:
+
+    | Setting | Value |
+    |---|---|
+    | Flows tick (hand-off worker, then scheduler) | every 15 s, under the `flows` lease (60 s) |
+    | Engine-watch wake-up | 500 ms after a completed turn; reconnect 1 s doubling to 30 s |
+    | Catch-up reads | 100 turns a page, at most 20 pages per source chat a tick |
+    | Delivery claim | 60 s lease; a refused retry fails after 5 attempts |
+    | Hand-off cap | 20 per link per rolling hour, then paused (`cap`) |
+    | Result text | 8,000 characters per message, 24,000 per hand-off, 20 attachments |
+    | Summary | 12,000 characters in, 400 tokens out, 20 s; fallback 1,200 characters |
+    | Transcript (`all`) | the last 1,000 messages, at most 2 MiB |
+    | Fork seed | a summary of up to 40 messages; the quote at most 2,000 characters |
+    | Service-agent adoption | re-decided every 60 s; its run state is read before every join, post and drain |
+    | Missed-run grace | 10 min after the due time; a later turn within 24 h, before the next run, makes it `late` |
+    | Access re-check before a run | on the first tick within 60 s of its time |
+    | Next-run search | at most 400 days ahead |
+    | Agent-made schedules read | 200 future events per request |
+    | Client polling (needs, schedules) | every 15 s while visible, and on focus |
+    | Flows request body | 64 KB (413) |
+    | Link label, webhook name | 60 characters (400) |
+    | Links touching one chat | 50 (400) |
+    | Schedule or webhook prompt | 4,000 characters (400) |
+    | Schedules | 10 per chat, 100 per creator (400) |
+    | Rules | `interval` 5–1440 minutes; `monthly` day 1–28 |
+    | Webhooks | 5 per chat (400) |
+    | Webhook body | 65,536 bytes (413) |
+    | Webhook rate | 30 accepted calls per trigger in any 60 s, per API process (429) |
+    | Webhook outage | 503 with `Retry-After: 30` |
+    | Webhook inline payload | 16,000 characters and 40,000 JSON bytes; a fence over 16 characters attaches it all |
+    | Webhook delivery id | 200 characters, else its sha256 |
+
+14. Operations.
+    - Setup. Flows need `NEST_ENABLE_CANVAS=1` and a service token
+      (`NEST_CONNECTION_METADATA_TOKEN`, else `NEST_RUNNER_TOKEN`); without a token
+      availability reports `no-service-token` and the UI shows no links, forks,
+      schedules or webhooks. `NEST_SWITCHYARD_AGENT_NAME` names the service agent
+      (unset or empty means `Switchyard`). Nest creates the agent (item 2) on the first
+      flows tick after start or the first availability request, with the default
+      agent model and the workspace `{NEST_ENGINE_DATA_DIR or .nest-data}/workspaces/
+      managed/switchyard`; nothing has to be made by hand. Webhook URLs need the
+      reverse proxy to route `/api/hooks/*` to the Nest API and set
+      `x-forwarded-proto` and `x-forwarded-host` (Caddy does).
+    - Recovery. The server log line `[switchyard] service agent {name} unavailable:
+      {problem}` says why flows are off, once per change; availability gives the
+      reason to the UI.
+      - `name-taken`: an engine agent with that name is not the one Nest made (another
+        description, owner, visibility or mode). Rename or remove that agent, or
+        restore the description Nest wrote; the next check (within 60 s) adopts or
+        creates the agent again.
+      - `engine-unavailable`: the engine is down or refused the token (the log names
+        the status). Hand-offs, bookings and webhook calls resume on their own: the
+        worker retries with the same keys, unbooked runs past their grace are recorded
+        as missed with `engine unavailable`, and webhook callers get 503 and retry.
+      - Someone started the agent: Nest stops it before its next join, post or drain
+        and audits `audit.flows.service_agent.stopped`.
+      - Keep the agent and its name once flows exist. Nest joins a chat only when a
+        link, fork, schedule or webhook is made there, so an agent created again under
+        a new name or after a deletion has not joined the chats the old one did.
+    - Backups. Snapshot both databases together. The product DB
+      (`.nest-product/nest.sqlite`) holds links and their hand-off cursors,
+      deliveries, forks, schedules and runs, webhook token hashes and the
+      `switchyard.agent` setting; the engine DB holds the service agent, its
+      subscriptions, every posted message and the booked `agent.scheduled.trigger`
+      events. Hand-offs, bookings and webhook calls use deterministic keys, so one
+      replayed after restoring an older product DB returns the event the engine
+      already stored instead of posting it twice. Restoring an older
+      product DB also brings back webhook URLs rotated since, so rotate those again.
+
+15. Mockup deviations. The mock (`switchyard-nest-vision.html`) decides look, copy and
+    interaction; the design spec decides behaviour and permissions. Phase 3 differs
+    from the mock on purpose in these ways. From the plan:
+    1. There is no `When something happens in an app` kind (item 12).
+    2. The webhook URL is `https://{host}/api/hooks/nest_hook_…`, shown in full only
+       after creation or rotation and masked afterwards with `Rotate URL`, not a
+       permanent readonly `/hooks/{chat}-7f3a`.
+    3. `Fork from here` is offered on any message, your own and those in loose chats
+       included, but never on a Switchyard line.
+    4. The fork-label toggle toasts describe findings flowing from the fork back to
+       the parent (item 7); the mock's wording describes the opposite direction.
+    5. The Setup line shows agent chips without `· model`, the schedule chip and
+       `N connected`; no runner, repo or sandbox chips (Phase 4), and the Phase 2 Apps
+       here bar stays where it is.
+    6. Where it stands appears only when something waits on you (an approval, a review
+       or a missed run); there are no generated digests.
+    7. Needs you stays the Phase 1 list, not the mock's cycling button; missed rows
+       and the digest get `Run now`.
+    8. Agent-made schedules are read-only: no Run now or Edit.
+    9. The schedule summary names the time zone (`Times are in {zone}.`).
+    10. The new-step toast drops `Double-click its title to rename it.`.
+    11. `Who picks it up` lists agents only.
+    12. The Switchyard face appears in the chat's sub-line, and its posts render as
+        `↳` lines followed by their body and files.
+    13. Missed reasons are only `runner offline`, `agent stopped`,
+        `engine unavailable` and `no turn started`.
+    14. A summary hand-off says how it was made: `Summary (by {model}):` or
+        `Summary unavailable. The latest result, shortened:`.
+
+    Added while building:
+    15. Link labels, popover headings and schedule badges use darker faint text than
+        the mock's `--faint`, so they reach 4.5:1 (items 7 and 11).
+    16. A webhook needs a Name (`What calls it, e.g. Sentry`): the API stores a label,
+        and it tells a chat's webhooks apart.
+    17. A typed `every week` with no day means weekly on today's weekday.
+    18. The typed-schedule chip sits after the attach and mic buttons, and its `✕`
+        uses `--nest-muted`.
+    19. `Fork from here` sits top-left on your own (right-aligned) messages, so it
+        never covers their text.
+    20. View-role canvas members cannot connect chats (no port, connect buttons,
+        `+ Connect` or picker), because a connection changes the shared canvas.
+    21. Phones get the chat picker with its new-step row, and the top bar's Scheduled
+        button as text only.
+
+16. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
+   `handoff.test.ts`, `access.test.ts`, `forks.test.ts`, `schedules.test.ts` and the fork case in `canvas-board.test.ts`
+   run against the real engine and Nest handlers with temporary databases.
+   `schedules.test.ts` fakes `Date` for both the engine and Nest and covers booking,
+   a lost booking answer, the shared lease, started, missed, late, Run now, pause and
+   resume, an engine outage, agent-made schedules and the permissions;
+   `packages/schemas/src/schedules.test.ts` pins the rule copy, the DST cases and the
+   typed-rule parser; `dock-schedule.test.ts` the prompt, lead agent and `✕`.
+   `handoff.test.ts` covers a lost post response followed by a restart (exactly one
+   hand-off), an engine outage, the cap, lost access and the engine watch.
+   `tests/browser/canvas/links.ts` drives the lines, labels and popover in a browser
+   against the real engine, API and worker (the harness's `flows` option ticks the
+   worker every 200 ms), through pause, a delivered hand-off and disconnect, then
+   connecting by dragging the port onto a card and onto empty canvas (a new step),
+   the chat picker, the Setup line and its links row, loose chats and a phone, and
+   an approval link through Needs you, Approve, Request changes with a reply, and a
+   project review approved from the open chat. `tests/browser/canvas/forks.ts` forks
+   Pip's message from the open chat (placement, the fork line and label, the seed,
+   the chip, findings flowing back and pausing them) and a view-role member's fork
+   opening as a loose chat. `tests/browser/canvas/schedules.ts` schedules a run from
+   the clock, then checks the badge, chip, strip, note and top-bar count, Run now, a
+   missed run (the harness moves the scheduler's clock), the Scheduled list with an
+   agent's own run, pause and delete, and a view-role member's read-only view; then a
+   repeat typed in the bottom box (the chip, `✕`, Send saving it for the mentioned
+   agent, no agent, one too long, a phone, and none without flows).
+   `needs.test.ts` and `ChatDigest.test.tsx` cover the merge and the digest, missed
+   runs included; `schedule-jobs.test.ts` the badge, strip, chip and list groups,
+   webhooks included. `apps/api/src/flows/hooks.test.ts` covers webhooks against the
+   real engine with no cookie: the URL format and hash-only storage, a call posted to
+   the agent, one message per delivery id (a 300-character id included), the fence
+   choice, 413 at 65,537 bytes (with no or a wrong `content-length`), the attachment
+   over 16,000 characters, the inline cut by encoded size and at a surrogate pair,
+   429 with `Retry-After` on the 31st call in a minute (by the injected clock), 503
+   with `Retry-After` and no pause when the engine fetch throws, `/api/files` answers
+   503 or the service agent is unusable (by a fault in the injected transport), one
+   message for the retry after an outage, rotation, pause, lost access and a departed
+   agent (paused, with the Needs you item), 404 for unknown tokens, other methods,
+   other spellings of the path and the flag off, no CORS headers, the engine never
+   asked for a hook path, no token or payload in the logs, and 401 on the trigger
+   routes without a session.
+   `tests/browser/canvas/schedules.ts` makes a webhook from the clock, calls its URL
+   from Node, and checks the `↳ Webhook` line, the strip, the list row, the masked URL,
+   Rotate URL and pause, and on a phone that the rotated webhook popover fits 375 px
+   with no sideways scroll; `devices.ts` measures the webhook strip and popover text
+   (8.18:1 dark, 6.76:1 light at the minimum).
 
 ## Private Community catalog
 

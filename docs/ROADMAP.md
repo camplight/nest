@@ -566,9 +566,10 @@ CI runs `npm run test:ui:canvas` (desktop, tablet and phone, with a 150-card,
 30-agent scale check). Pull request: to be added by the operator. Not deployed.
 
 Deferred to later phases, as the design sets out: links between chats, forks,
-schedules and triggers, per-chat agent setup,
-sandboxes and repos. Needs you covers unread mentions and tasks waiting for review
-only; approvals, picks and missed runs arrive with Phases 3 and 4. Inviting agents
+schedules and triggers (these arrived with Phase 3), per-chat agent setup,
+sandboxes and repos. Needs you covered unread mentions and tasks waiting for review
+only; approvals and missed runs have since arrived with Phase 3, and picks arrive
+with Phase 4. Inviting agents
 on the canvas works by drag only, with no keyboard or touch route yet. Moving cards
 and areas is by pointer or touch drag only; a keyboard route to move them is
 deferred too. Loose chats the person has hidden are not searchable with Ctrl/Cmd+K
@@ -631,36 +632,47 @@ Smaller differences from the mockup are left as follow-ups:
   - the canvas summary line
 - **Canvas:** a legend for working, waiting on you and gone quiet.
 
-## Switchyard canvas — Phase 3 in progress on the branch
+## Switchyard canvas — Phase 3 implemented on the branch
 
-Flows between chats: links that hand one chat's results to another, forks,
-schedules and webhook triggers, still behind `NEST_ENABLE_CANVAS=1`. Background
-posts come from a stopped engine agent, `Switchyard`, that Nest posts as with its
-service token; no engine change is needed. Plan:
-[Phase 3 plan](superpowers/plans/2026-11-11-switchyard-canvas-phase3.md). Behaviour
-and routes: [SPEC.md, Switchyard canvas (Phase 3)](SPEC.md#switchyard-canvas-phase-3).
+Flows between chats, still behind `NEST_ENABLE_CANVAS=1`:
 
-Done so far: the service agent, the link store (migration `014_links_forks.sql`),
-the link API with its permissions (`/api/flows/links`, `/api/flows/availability`),
-links and fork parents on the board, summaries, and the hand-off worker with Send
-now, approvals and the Needs you items it serves (`/api/flows/needs`), and on the
-canvas the link lines and labels, the Hand-off popover, Switchyard lines in
-chats, and connecting chats (the `+` port, the chat picker, a new step and the open
-chat's Setup line with its links row), and flow items in Needs you with the open
-chat's Where it stands (Approve, Request changes, and Run now for missed runs), and
-forks (`Fork from here` on a message, the seeded fork placed under its parent with
-`fork of …`, the forked chip, and findings flowing back over the fork line), and
-the schedules API and scheduler (migration `015_schedules.sql`, `/api/flows/schedules`,
-runs booked as engine triggers in the creator's time zone, missed runs in Needs you
-and Run now), and the schedule UI (the open chat's clock and Schedule popover, card
-badges, schedule strips and chip in the Setup line, the top bar's Scheduled list, and
-scheduled runs as `↳` lines in the chat), and repeats typed in the bottom box
-(`every Monday at 9 …` shows a chip and is scheduled for the new chat after Send),
-and webhooks (migration `016_triggers.sql`, `/api/flows/triggers` and the public
-`POST /api/hooks/<token>`: a hash-only token shown once with rotation, 64 KiB bodies,
-30 calls a minute per process, the Webhook kind in the Schedule popover and its strip
-and list row). App-event triggers are not offered.
-Access that comes only through a team counts as no access for flows.
+- **Links** hand one chat's results, a summary or the whole conversation to another
+  chat, when an agent finishes, after the creator's OK, or on Send now. They are
+  drawn as lines with labels and a Hand-off popover, and made by dragging a card's
+  `+` port, from the chat picker, or as a new step.
+- **Forks** start a new chat from any message, seeded with a summary, with findings
+  flowing back to the parent.
+- **Schedules** run an agent in a chat once, daily, on weekdays, weekly, monthly or
+  every few minutes, in the creator's time zone. They are set from the open chat's
+  clock or typed in the bottom box (`every Monday at 9 …`). Missed runs show in Needs
+  you with Run now.
+- **Webhooks** run an agent when `POST /api/hooks/<token>` is called. The token is
+  stored as a hash, shown once and can be rotated; bodies are limited to 64 KiB and
+  calls to 30 a minute per process.
+- Approvals, paused links and schedules, and missed runs join Needs you and the open
+  chat's Where it stands.
+
+Background posts come from a stopped engine agent, `Switchyard`
+(`NEST_SWITCHYARD_AGENT_NAME`), that Nest posts as with its service token; no engine
+change was needed. Nest stores flows in migrations `014_links_forks.sql`,
+`015_schedules.sql` and `016_triggers.sql`, so deployments must snapshot both
+databases. Plan:
+[Phase 3 plan](superpowers/plans/2026-11-11-switchyard-canvas-phase3.md). Behaviour,
+routes, thresholds and the deliberate differences from the mockup:
+[SPEC.md, Switchyard canvas (Phase 3)](SPEC.md#switchyard-canvas-phase-3).
+Implemented on `feat/switchyard-canvas`; not pushed or deployed.
+
+Follow-ups:
+
+- App-event triggers through Composio. The integrations provider has no trigger
+  subscriptions, webhook endpoint or signature checks yet, so that kind is not
+  offered.
+- Team and viewer-share access in flow checks. Today access that comes only through
+  a team or a viewer share counts as none, so such a link or schedule pauses.
+- Engine recurrence (upstream proposal U3), as an optional simplification of Nest
+  booking one run at a time.
+- Fork history (upstream proposal U6), so a fork can carry its parent's history
+  rather than a seeded summary.
 
 ## First-visit visual orientation
 
