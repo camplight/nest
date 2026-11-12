@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {CHAT_EVENT_QUERIES,adaptiveMessageBatchSize,chatQueryUrls,fetchChannelPage,type Cursors} from './history';
+import {CHAT_EVENT_QUERIES,adaptiveMessageBatchSize,chatEventQueries,chatQueryUrls,fetchChannelPage,type Cursors} from './history';
 import {upsertEvents} from './timeline';
 import type {EventRow} from '../types';
 
@@ -32,6 +32,12 @@ const filterOf=(url:string)=>FILTERS.find(filter=>new URL(url,'http://nest.test'
 const mainRequests=(requests:string[])=>requests.filter(url=>!url.includes('after='));
 
 describe('chatQueryUrls',()=>{
+ it('an eighth query for scheduled runs, only with the canvas flag (R20)',()=>{
+  expect(chatEventQueries(false)).toBe(CHAT_EVENT_QUERIES);
+  const urls=chatQueryUrls('c1',30,undefined,chatEventQueries(true));
+  expect(urls.map(entry=>entry.key)).toEqual([...KEYS,'scheduled']);
+  expect(urls.at(-1)!.url).toBe('/api/events?channelId=c1&limit=30&order=desc&type=agent.scheduled.trigger');
+ });
  it('seven queries',()=>{
   const urls=chatQueryUrls('c1',30);
   expect(urls.map(entry=>entry.key)).toEqual(KEYS);

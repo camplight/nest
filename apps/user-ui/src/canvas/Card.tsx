@@ -14,6 +14,8 @@ import type {NeedsItem} from './needs';
 import {participantRows,shownRows,type ParticipantRow,type RowState} from './rows';
 import {useServiceAgent} from './useFlows';
 import {ForkIcon,LinkIcon} from './Links';
+import {scheduleBadge} from './ScheduledList';
+import type {ScheduleJob} from './schedule-jobs';
 
 export type CardProps = {
   card: BoardCard;
@@ -56,6 +58,8 @@ export type CardProps = {
   onConnect?(channelId: string, anchor: HTMLElement): void;
   /** A dragged `+` port is over this card: releasing here connects to it (the mock's `.linktarget`). */
   linkTarget?: boolean;
+  /** This chat's scheduled jobs (flows set up): the mock's badge under the last activity. */
+  schedules?: readonly ScheduleJob[];
 };
 export const CONNECT_TITLE = 'Connect: pass this chat\'s results to another chat';
 export const PORT_TITLE = 'Drag to another chat to pass results along';
@@ -261,7 +265,7 @@ function OpenBody({card, pulse, needs, viewer, onNudge, facesDraggable, dragging
 }
 
 export const Card = memo(function Card({card, draggable, dx, dy, dragging, measure, pulse, needs = NO_NEEDS, viewer = '', onNudge, onRemove, onOpen, open = false,
-  facesDraggable = false, draggingFace = null, dropping = false, selected = false, areaTitle, areaTint, onConnect, linkTarget = false}: CardProps) {
+  facesDraggable = false, draggingFace = null, dropping = false, selected = false, areaTitle, areaTint, onConnect, linkTarget = false, schedules}: CardProps) {
   const title = cardTitle(card);
   const ref = useCallback((element: HTMLElement | null) => measure(card.channelId, element), [card.channelId, measure]);
   const opens = card.access === 'open' && onOpen ? onOpen : undefined;
@@ -280,7 +284,11 @@ export const Card = memo(function Card({card, draggable, dx, dy, dragging, measu
     style={{width: card.w, transform: `translate(${card.x + dx}px, ${card.y + dy}px)`}}>
     <div className="canvas-card-head">
       <h3 className="canvas-card-title">{title}</h3>
-      {card.access === 'open' && pulse?.lastActivityAt ? <LastActivity at={pulse.lastActivityAt}/> : null}
+      {/* The mock's c-last over the schedule badge, right-aligned in one column. */}
+      {card.access === 'open' && (pulse?.lastActivityAt || schedules?.length) ? <span className="canvas-card-meta">
+        {pulse?.lastActivityAt ? <LastActivity at={pulse.lastActivityAt}/> : null}
+        {scheduleBadge(schedules)}
+      </span> : null}
     </div>
     {/* The mock's c-fork: which chat this one was forked from ('another chat' when the viewer cannot read it). */}
     {card.access === 'open' && card.forkOf ? <p className="c-fork"><ForkIcon/>fork of {card.forkOf.title}</p> : null}

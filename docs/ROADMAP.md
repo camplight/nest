@@ -652,7 +652,9 @@ forks (`Fork from here` on a message, the seeded fork placed under its parent wi
 `fork of …`, the forked chip, and findings flowing back over the fork line), and
 the schedules API and scheduler (migration `015_schedules.sql`, `/api/flows/schedules`,
 runs booked as engine triggers in the creator's time zone, missed runs in Needs you
-and Run now). Not yet built: the schedule UI and webhooks.
+and Run now), and the schedule UI (the open chat's clock and Schedule popover, card
+badges, schedule strips and chip in the Setup line, the top bar's Scheduled list, and
+scheduled runs as `↳` lines in the chat). Not yet built: webhooks.
 Access that comes only through a team counts as no access for flows.
 
 ## First-visit visual orientation

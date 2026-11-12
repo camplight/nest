@@ -1203,8 +1203,9 @@ plan: [the Phase 3 plan](superpowers/plans/2026-11-11-switchyard-canvas-phase3.m
 Everything is behind `NEST_ENABLE_CANVAS=1`; with the flag off every `/api/flows/*`
 route answers 404, whoever asks. This section grows as the phase lands; so far it
 covers the service agent, links, how the board shows them, the hand-off worker, the
-canvas UI for links (lines, labels and the Hand-off popover), forks, and the
-schedules API with its scheduler (the schedule UI is still to come).
+canvas UI for links (lines, labels and the Hand-off popover), forks, and
+schedules (the API, the scheduler and the canvas UI). Webhook triggers are still to
+come.
 
 1. Data. Migration `014_links_forks.sql` adds:
    - `product_links`: one row per link, keyed by id and unique per
@@ -1727,7 +1728,46 @@ schedules API with its scheduler (the schedule UI is still to come).
      opens the fork (as a card's chat on the canvas, else as a loose chat). A fork's
      card shows `fork of {parent}` under its title (the mock's `c-fork`), hidden at
      compact zoom. The fork line and its label toggle are as in item 7.
-11. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
+11. Schedules on the canvas (`SchedulePopover.tsx`, `ScheduledList.tsx`,
+   `schedule-jobs.ts`, `useFlows.ts`, `flows-api.ts`, `CanvasView.tsx`, `Card.tsx`,
+   `ChatSetup.tsx`, `chat/history.ts`, `chat/timeline.ts`). Shown only with the canvas
+   flag on and flows set up.
+   - The client reads `GET /api/flows/schedules` with the needs: every 15 s while the
+     page is visible, on focus and after any schedule change. Never with the flag off.
+   - The open chat's header has a clock button (`Schedule or trigger: …`, after
+     Split) for anyone who can post there and is not a view-role canvas member. It
+     opens the Schedule popover (the mock's `renderSchedPop`): `What should happen`,
+     `Who does it` (the chat's agents, then the person's pinned agents; one not yet in
+     the chat is added to it on save, when the person may add agents), `When` (Once,
+     Every day, Weekdays, Every week, Every month, Every few minutes; the mock's
+     Webhook arrives with webhooks) with day buttons, a time or an interval, and a
+     summary `{agent} will {prompt} · {rule}. Next run: {Mon 09:00} (in 4 days). If a
+     run can't start, it shows up in Needs you. Times are in {zone}.`. A new schedule
+     uses the browser's time zone; an existing one keeps its own. `Schedule it` toasts
+     `{ruleText}. Next run {in …}.`; a 409 is retried once on the current version.
+   - Cards show a `.sch` badge beside their last activity: the short rule (`Mon Wed
+     09:00`), `missed` when a run was missed, dimmed when paused, with `+N` for more.
+     Agents' own booked runs (`agentMade`) count too.
+   - The open chat's Setup line adds a schedule chip (the short rule, or `missed run`
+     in coral). Expanded, each schedule is a `.sch-strip`: the rule, the agent, `set
+     by {person}` when someone else made it, `next in …` or `paused`, then `missed
+     {Mon 09:00}: {reason}` or `last run {Mon 09:00} ✓`. `Run now` shows for the
+     creator or a chat member who can post; `Edit` for the creator or a chat member.
+     Only the creator changes what, who and when: for anyone else the popover is read
+     only, with Pause and Delete. An agent's own run has no buttons. Run now and the
+     popover's buttons use `aria-disabled` while busy, so focus stays.
+   - The top bar's `Scheduled` (before Search; not on a phone) counts the canvas's
+     live jobs, or `N missed` in coral. It opens the list `Scheduled on {canvas}`
+     with `All` and `Set by agents`, grouped Missed, Next 24 hours, Later and Paused.
+     A row names its chat, rule, `set by …` and `loose chat` when the chat is not on
+     this canvas, and jumps to the chat. Delete toasts `Schedule deleted. Past runs
+     stay in the chat.`.
+   - In the chat, with the canvas flag on, history adds an eighth query
+     (`type=agent.scheduled.trigger`) and the timeline shows each trigger that is due
+     by server time as a `↳` line with its first line only (`Scheduled run · {rule} ·
+     set up by {person}`, or `Run started by you`). With the flag off neither the
+     query nor the line exists.
+12. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
    `handoff.test.ts`, `access.test.ts`, `forks.test.ts`, `schedules.test.ts` and the fork case in `canvas-board.test.ts`
    run against the real engine and Nest handlers with temporary databases.
    `schedules.test.ts` fakes `Date` for both the engine and Nest and covers booking,
@@ -1745,8 +1785,12 @@ schedules API with its scheduler (the schedule UI is still to come).
    project review approved from the open chat. `tests/browser/canvas/forks.ts` forks
    Pip's message from the open chat (placement, the fork line and label, the seed,
    the chip, findings flowing back and pausing them) and a view-role member's fork
-   opening as a loose chat. `needs.test.ts` and
-   `ChatDigest.test.tsx` cover the merge and the digest, missed runs included.
+   opening as a loose chat. `tests/browser/canvas/schedules.ts` schedules a run from
+   the clock, then checks the badge, chip, strip, note and top-bar count, Run now, a
+   missed run (the harness moves the scheduler's clock), the Scheduled list with an
+   agent's own run, pause and delete, and a view-role member's read-only view.
+   `needs.test.ts` and `ChatDigest.test.tsx` cover the merge and the digest, missed
+   runs included; `schedule-jobs.test.ts` the badge, strip, chip and list groups.
 
 ## Private Community catalog
 
@@ -2319,7 +2363,7 @@ Project and standalone chats render their message list with assistant-ui. The ol
 
 1. Runtime. `ChatThread` (`apps/user-ui/src/chat/ChatThread.tsx`) drives assistant-ui through `useExternalStoreRuntime` with `isRunning: false`. Nest's channel events store (`chat/channel-events.ts`) stays the source of truth: the runtime only renders the timeline Nest builds from engine events, and sending stays with Nest's composer and `POST /api/messages`. assistant-ui never sends, edits or regenerates on its own.
 
-2. History. The first page issues 7 engine event queries (`chat/history.ts`, `CHAT_EVENT_QUERIES`: messages, failed turns, turn events, tool events, context telemetry, wrapper turns and process events), each with its own cursor, so a busy query family never hides another. Later pages issue up to 7: `requestedQueries` skips every query family whose cursor is exhausted. Scrolling near the top loads the previous page. A deep link to a message outside the loaded pages fetches that event alone through `GET /api/events/:id` and shows it as detached; detached events never move the paging cursors, and an "Earlier messages not loaded" marker separates them from the loaded history. A deep-linked message is scrolled into view, focused and highlighted by the thread itself.
+2. History. The first page issues 7 engine event queries (`chat/history.ts`, `CHAT_EVENT_QUERIES`: messages, failed turns, turn events, tool events, context telemetry, wrapper turns and process events), plus scheduled-run triggers with the canvas flag on (Switchyard canvas, Phase 3, item 11), each with its own cursor, so a busy query family never hides another. Later pages issue up to 7 (8 with the flag on): `requestedQueries` skips every query family whose cursor is exhausted. Scrolling near the top loads the previous page. A deep link to a message outside the loaded pages fetches that event alone through `GET /api/events/:id` and shows it as detached; detached events never move the paging cursors, and an "Earlier messages not loaded" marker separates them from the loaded history. A deep-linked message is scrolled into view, focused and highlighted by the thread itself.
 
 3. Working row. While an agent's turn is active, a working row with the agent's avatar, name and an animated indicator follows the message that triggered it (or the last item when that message is not loaded). It is a `role="status"` element. It starts with `agent.turn.started` or `wrapper.turn.started`, shows the latest codex or wrapped progress text from `agent.turn.phase` events (only that whitelisted text, never tool arguments or output), and ends when the turn completes or fails, when a newer turn of the same agent supersedes it, or when the agent was stopped after the turn began. There is no time limit. Agents created through `POST /api/agents` without a `desiredState` default to RUNNING (only the agent-copy route and `POST /api/federation/agents/transfer`, the remote leg of a copy, default to STOPPED), and the engine bumps `updatedAt` on every agent update, not only on stop. Stopping an agent sets `desiredState` to STOPPED and `updatedAt` to the time of the stop in milliseconds, so the row ends when `desiredState` is STOPPED and `updatedAt` is later than the turn's first event. `desiredState` alone is not used, because an agent may already be STOPPED before the turn began, and `runtimeState` is not used, because agents without a live runner report STOPPED while their events still arrive. `WorkingRow` renders `AgentAvatar` inside a plain sized `div`, not the `.agent-portrait` wrapper message headers use. The participants panel line is unchanged.
 

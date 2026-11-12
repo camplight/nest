@@ -1,7 +1,7 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
 import {useCallback,useEffect,useId,useLayoutEffect,useMemo,useReducer,useRef,useState,useSyncExternalStore,type CSSProperties,type FormEvent,type MutableRefObject,type ReactNode} from 'react';
 import {Columns2,Ellipsis,FileText,Search,Share2,SquareArrowOutUpRight,X} from 'lucide-react';
-import {AGENT_PIN_LIMIT_MESSAGE,CanvasTint,type AgentPins,type BoardLink,type Link,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
+import {AGENT_PIN_LIMIT_MESSAGE,CanvasTint,relTime,ruleText,type AgentPins,type BoardLink,type Link,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
@@ -36,7 +36,7 @@ import {errorText,getContextSummary,uploadContextFile,type PanelScope} from './c
 import {chatSees,contextLabel,joinNames,type ChatSees} from './context-label';
 import {cardSheet,clearOfDrawer,looseSheet,samePlace,stageBounds,type SheetPlace} from './sheet';
 import {isServiceAgent,useFlows} from './useFlows';
-import {LinkConflict,createLink,deleteLink,flowError,getLinks,patchLatest,sendNow,type LinkView} from './flows-api';
+import {LinkConflict,createLink,createSchedule,deleteLink,deleteSchedule,flowError,getLinks,patchLatest,patchSchedule,runScheduleNow,sendNow,type LinkView} from './flows-api';
 import {useDigestActions,type ChangeRequests} from './useDigestActions';
 import {ChatDigest,agentLine} from './ChatDigest';
 import {participantRows} from './rows';
@@ -45,6 +45,9 @@ import {LinkPicker} from './LinkPicker';
 import {ChatSetup} from './ChatSetup';
 import {LinkIcon} from './Links';
 import {startFork,type ForkResult,type ForkSource} from './fork';
+import {SchedulePopover,type ScheduleDraft} from './SchedulePopover';
+import {ClockIcon,ScheduledList,scheduleStrip} from './ScheduledList';
+import {jobsByChannel,scheduleJobs,scheduledCount,setupChip,type ScheduleJob} from './schedule-jobs';
 import './canvas.css';
 
 export type CanvasHuman = {id?: string; username: string};
@@ -105,6 +108,14 @@ const SYNC_INTERVAL_MS = 5000;
 const NO_PULSES: ReadonlyMap<string, CardPulse> = new Map();
 const NOTHING: ReadonlySet<string> = new Set();
 const NO_LINKS: LinkView[] = [];
+const NO_JOBS: readonly ScheduleJob[] = [];
+/** The browser's IANA time zone, sent with a new schedule. */
+const browserZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } };
+/** The mock's toasts after a schedule is saved and deleted. */
+export const scheduledToast = (rule: Parameters<typeof ruleText>[0], nextAt: number | null, now: number) =>
+  nextAt === null ? `${ruleText(rule)}.` : `${ruleText(rule)}. Next run ${relTime(nextAt, now)}.`;
+export const SCHEDULE_DELETED = 'Schedule deleted. Past runs stay in the chat.';
+const SCHEDULE_TITLE = 'Schedule or trigger: run this on a timer or when something happens';
 /** The mock's newStep toast (without its rename hint: a card title is renamed from the chat, not by double-click). */
 export const NEW_STEP_TOAST = 'New step added. Pick who picks it up.';
 const TINTS = CanvasTint.options;
@@ -637,6 +648,19 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     [cards, channels, projects, boardIds, hidden, username, humanId, pulses, cardNeeds, showHidden]);
   const shownLoose = useMemo(() => showHidden ? loose.filter(chat => !hidden.has(chat.channelId)) : loose, [loose, hidden, showHidden]);
   const looseHot = useMemo(() => shownLoose.some(looseNeedsYou), [shownLoose]);
+  // Scheduled jobs (flows): the viewer's schedules and agents' own booked runs. Cards show a badge, the open chat its strips,
+  // and the top bar the jobs in chats on this canvas or loose.
+  const jobs = useMemo(() => scheduleJobs({schedules: flows.schedules.schedules, agentMade: flows.schedules.agentMade, viewerId: humanId, names: owners, tz: browserZone()}),
+    [flows.schedules, humanId, owners]);
+  const jobsCache = useRef<ReadonlyMap<string, readonly ScheduleJob[]>>(new Map());
+  const cardJobs = useMemo(() => {
+    const next = jobsByChannel(jobs, jobsCache.current);
+    jobsCache.current = next;
+    return next;
+  }, [jobs]);
+  const canvasJobs = useMemo(() => jobs.filter(job => titles.has(job.channelId)), [jobs, titles]);
+  const [schedList, setSchedList] = useState<HTMLElement | null>(null);
+  useEffect(() => { setSchedList(null); }, [canvasId]);
   const [highlight, setHighlight] = useState<{id: string; n: number} | null>(null);
   const highlightCount = useRef(0);
   useEffect(() => { setHighlight(null); }, [canvasId]);
@@ -1055,9 +1079,101 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     setLinkPick(null);
     setFlowPop({linkId: link.id, anchor, view: link, chat: true});
   }, []);
+  /**
+   * The clock popover (the mock's openSched): a new schedule for the open chat from its header's clock, or one of its
+   * schedules from a strip's Edit. Saving first adds an agent who is not in the chat yet (manage rights, as `+ Someone else`).
+   */
+  const [schedPop, setSchedPop] = useState<{channelId: string; scheduleId: string | null; anchor: HTMLElement | null; newId: string} | null>(null);
+  const schedPopRef = useRef(schedPop); schedPopRef.current = schedPop;
+  useEffect(() => { setSchedPop(null); }, [canvasId]);
+  // It belongs to the open chat: closing or switching the chat closes it, and so does its schedule being deleted elsewhere.
+  const popSchedule = schedPop?.scheduleId ? flows.schedules.schedules.find(s => s.id === schedPop.scheduleId) ?? null : null;
+  const schedPopStale = Boolean(schedPop && (!chatShown || schedPop.channelId !== chatChannelId || (schedPop.scheduleId && !popSchedule)));
+  useEffect(() => { if (schedPopStale) setSchedPop(null); }, [schedPopStale]);
+  const schedulesRef = useRef(flows.schedules.schedules); schedulesRef.current = flows.schedules.schedules;
+  const peopleRef = useRef(chatPeople); peopleRef.current = chatPeople;
+  const openSchedule = useCallback((channelId: string, scheduleId: string | null, anchor: HTMLElement | null) => {
+    setFlowPop(null); setLinkPick(null); setSchedList(null);
+    setSchedPop(current => current && current.channelId === channelId && current.scheduleId === scheduleId && current.anchor === anchor ? null
+      : {channelId, scheduleId, anchor, newId: crypto.randomUUID()});
+  }, []);
+  const closeSchedPop = useCallback(() => setSchedPop(null), []);
+  /** Whether the person may add agents to this chat: a card's rule, or for a loose chat the same rule on its channel. */
+  const canAddTo = useCallback((channelId: string) => {
+    const card = cardFor(channelId);
+    if (card) return manageable(card);
+    const channel = visibleRef.current.find(c => c.id === channelId), project = projects.find(p => p.channelId === channelId);
+    return Boolean(channel?.canManage && !channel.archivedAt && (!project || project.ownerId === humanId));
+  }, [store, manageable, projects, humanId]);
+  const saveSchedule = useCallback(async (draft: ScheduleDraft): Promise<boolean> => {
+    const pop = schedPopRef.current;
+    if (!pop) return false;
+    const {channelId} = pop, by = humanRef.current;
+    const current = pop.scheduleId ? schedulesRef.current.find(s => s.id === pop.scheduleId) : null;
+    if (pop.scheduleId && !current) return false;
+    if (!peopleRef.current.some(p => p.subscriberType === 'AGENT' && p.subscriberId === draft.agent)) {
+      if (!canAddTo(channelId)) { say(CANT_ADD); return false; }
+      const card = cardFor(channelId);
+      try {
+        const fresh = await addChatMember({channelId, projectId: card?.access === 'open' ? card.projectId : projects.find(p => p.channelId === channelId)?.id ?? null,
+          member: {subscriberType: 'AGENT', subscriberId: draft.agent}, fetch: apiFetch, fetchJson: apiJson});
+        if (!settle(fresh, by)) return false;
+      } catch { if (humanRef.current === by) say(`Could not add ${draft.agent}. Try again.`); return false; }
+    }
+    try {
+      const saved = current
+        ? await patchSchedule(current.id, {
+          ...(draft.prompt !== current.prompt ? {prompt: draft.prompt} : {}),
+          ...(draft.agent !== current.agent ? {agent: draft.agent} : {}),
+          ...(JSON.stringify(draft.rule) !== JSON.stringify(current.rule) ? {rule: draft.rule} : {}),
+        }, current.version)
+        : await createSchedule({id: pop.newId, channelId, agent: draft.agent, prompt: draft.prompt, rule: draft.rule, timezone: browserZone()});
+      if (schedPopRef.current === pop) setSchedPop(null);
+      say(scheduledToast(saved.rule, saved.nextAt, Date.now()));
+      flows.refresh();
+      return true;
+    } catch (error) {
+      say(flowError(error, 'Could not save the schedule. Try again.'));
+      return false;
+    }
+  }, [canAddTo, projects, settle, say, flows.refresh]);
+  const pauseSchedule = useCallback(async (on: boolean) => {
+    const pop = schedPopRef.current, current = pop?.scheduleId ? schedulesRef.current.find(s => s.id === pop.scheduleId) : null;
+    if (!pop || !current) return;
+    try {
+      await patchSchedule(current.id, {on}, current.version);
+      if (schedPopRef.current === pop) setSchedPop(null);
+      flows.refresh();
+    } catch (error) { say(flowError(error, on ? 'Could not resume the schedule. Try again.' : 'Could not pause the schedule. Try again.')); }
+  }, [say, flows.refresh]);
+  const removeSchedule = useCallback(async () => {
+    const pop = schedPopRef.current, current = pop?.scheduleId ? schedulesRef.current.find(s => s.id === pop.scheduleId) : null;
+    if (!pop || !current) return;
+    try {
+      await deleteSchedule(current.id, current.version);
+      if (schedPopRef.current === pop) setSchedPop(null);
+      say(SCHEDULE_DELETED);
+      flows.refresh();
+    } catch (error) { say(flowError(error, 'Could not delete the schedule. Try again.')); }
+  }, [say, flows.refresh]);
+  /** A strip's Run now: posts the run at once; the chat shows `↳ Run started by you`. */
+  const runJob = useCallback(async (job: ScheduleJob) => {
+    if (!job.schedule) return;
+    try { await runScheduleNow(job.schedule.id); } catch (error) { say(flowError(error, 'Could not start the run. Try again.')); } finally { flows.refresh(); }
+  }, [say, flows.refresh]);
+  // Strips and the Setup chip for the open chat. Run now needs the right to manage it and to post here; Edit follows the
+  // server (canEdit or canManage, read-only settings without canEdit), so a view-role canvas member gets it only from there.
+  const chatJobs = chatShown && chatChannelId ? cardJobs.get(chatChannelId) ?? NO_JOBS : NO_JOBS;
+  const chatCanPost = Boolean(chatChannel && chatChannel.canPost !== false && !chatChannel.archivedAt);
+  const chatStrips = chatJobs.length ? <>{chatJobs.map(job => scheduleStrip(job, {now: Date.now(), canRun: Boolean(job.schedule?.canManage && chatCanPost), onRunNow: runJob,
+    onEdit: job.schedule && (job.schedule.canEdit || job.schedule.canManage) ? (j, anchor) => openSchedule(j.channelId, j.schedule!.id, anchor) : undefined}))}</> : null;
+  // The header's clock: anyone who can post in the chat, except a view-role member of this canvas (T7-R1).
+  const chatSchedule = flowsOn && chatShown && chatChannelId && board && board.canvas.role !== 'view' && chatCanPost
+    ? (anchor: HTMLElement) => openSchedule(chatChannelId, null, anchor) : undefined;
+  const chatAgents = chatPeople.filter(p => p.subscriberType === 'AGENT' && !isServiceAgent(p.subscriberId, service)).map(p => p.subscriberId);
   const chatOnBoard = openCard?.access === 'open';
   const chatSetup = flowsOn && chatShown && chatChannelId ? <ChatSetup key={chatChannelId} channelId={chatChannelId} loose={!chatOnBoard} links={setupLinks}
-    agents={chatPeople.filter(p => p.subscriberType === 'AGENT' && !isServiceAgent(p.subscriberId, service)).map(p => p.subscriberId)} viewer={humanId}
+    agents={chatAgents} viewer={humanId} schedules={chatStrips} scheduleChip={setupChip(chatJobs)}
     onConnect={canLink ? anchor => openLinkPick(chatChannelId, anchor) : undefined} onOpenLink={openChatLink}/> : null;
   const chatConnect = canLink && chatOnBoard && chatChannelId ? (anchor: HTMLElement) => openLinkPick(chatChannelId, anchor) : undefined;
   // Where it stands: what in the open chat waits on the person, with Approve / Request changes or Run now in place. A refusal
@@ -1080,6 +1196,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   useEffect(() => { if (switcherOpen) void reloadList().catch(() => {}); }, [switcherOpen, reloadList]);
   useEffect(() => { setSharing(false); }, [canvasId]);
 
+  const schedCount = scheduledCount(canvasJobs);
   const canvasVersion = () => store.snapshot().board?.canvas.version ?? 0;
   const freshVersion = async () => (await reloadList()).find(c => c.id === canvasId)?.version ?? null;
   const createNew = async (newName: string) => { const created = await createCanvas(newName); await reloadList().catch(() => {}); onSelectCanvas(created.id); };
@@ -1131,7 +1248,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
           needs={cardNeeds} viewer={username} onNotice={say} onAreaCreated={setRenameAreaId} renameAreaId={renameAreaId} onRenameStarted={renameStarted}
           onViewChange={viewChanged} onEmptyPress={focusChat ? emptyPress : undefined} onFit={focusChat ? fitCloses : undefined}
           links={shownLinks} onOpenLink={openFlowLink} onToggleFork={toggleFork}
-          canConnect={canConnect} onConnect={connectCards} onNewStep={canPlace ? dropNewStep : undefined} onLinkPick={openLinkPick}/>
+          canConnect={canConnect} onConnect={connectCards} onNewStep={canPlace ? dropNewStep : undefined} onLinkPick={openLinkPick} schedules={flowsOn ? cardJobs : undefined}/>
         <AgentTray suggested={tray.suggested} pinned={tray.pinned} pins={shownPins} pinsReady={pins !== null} onTogglePin={toggle}
           agents={roster} humanId={humanId} owners={owners} busy={busy} cards={board.cards} areas={board.areas} open={pickerOpen} onOpenChange={showPicker}/>
         {/* Files dropped on empty canvas start a chat here, even beside a split chat; a focus chat takes every drop itself. */}
@@ -1147,6 +1264,10 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       {/* On phones Needs you is a segment of the list instead. */}
       {phone ? null : <NeedsYou pulses={pulses} titles={titles} projects={projects} reviews={reviews} flows={flows.needs} onRunNow={runNow} onOpenChange={setNeedsOpen} onJump={jumpTo}/>}
       {/* Top-bar labels collapse to their icons as the bar narrows (canvas.css); the text stays as the name. */}
+      {flowsOn && board && !phone ? <button type="button" className="canvas-search-button canvas-sched-button" title="Scheduled jobs on this canvas" aria-haspopup="dialog"
+        aria-expanded={Boolean(schedList)} onClick={event => { const button = event.currentTarget; setSchedPop(null); setSchedList(current => current ? null : button); }}>
+        <ClockIcon/><span className="canvas-bar-label">Scheduled</span><span className={`cnt${schedCount.hot ? ' hot' : ''}`}>{schedCount.text}</span>
+      </button> : null}
       <button type="button" className="canvas-search-button" title="Search the canvas (Ctrl+K)" onClick={() => setSearchOpen(true)}>
         <Search size={16} aria-hidden="true"/><span className="canvas-bar-label">Search</span>
       </button>
@@ -1201,7 +1322,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         canPlace={board.canvas.role !== 'view'} draggable onNewArea={newArea} onArchive={hide} onClose={closeDrawer} now={Date.now}
         onOpenChat={openLoose} highlight={highlight} focusKey={drawerFocus}/> : null}
       {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} anchor={sheetAnchor} drawerOpen={drawerOpen} watchView={watchView} title={chatTitle} sub={chatSub} area={chatArea} onPlace={placeHere} onUseHere={useHere}
-        digest={chatDigest} setup={chatSetup} onConnect={chatConnect}
+        digest={chatDigest} setup={chatSetup} onConnect={chatConnect} onSchedule={chatSchedule}
         announce={memberNotice && board ? {id: memberNotice.id, text: memberNotice.text} : state.notice && state.canvasId === canvasId ? {id: `store:${state.notice}`, text: state.notice} : null}
         onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
         {chat}
@@ -1218,6 +1339,11 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         fromAgent={agentsOf(flowCards?.from)[0] ?? null} candidates={flowCards?.to?.access === 'open' ? agentsOf(flowCards.to) : flowPop.view.who ? [flowPop.view.who] : []}
         pinned={shownPins} anchor={flowPop.anchor} editable={flowPop.view.canEdit && board.canvas.role !== 'view'}
         onChange={changeFlow} onLabelDraft={draftFlowLabel} onDisconnect={disconnectFlow} onSendNow={sendFlow} onClose={closeFlowPop}/> : null}
+      {schedPop && !schedPopStale && board ? <SchedulePopover key={`${schedPop.channelId}:${schedPop.scheduleId ?? schedPop.newId}`} chat={{channelId: schedPop.channelId, title: chatTitle}}
+        schedule={popSchedule} agents={chatAgents} pinned={shownPins.filter(name => !isServiceAgent(name, service))} timezone={browserZone()} anchor={schedPop.anchor} now={Date.now}
+        onSave={saveSchedule} onPause={popSchedule?.canManage ? pauseSchedule : undefined} onDelete={popSchedule?.canManage ? removeSchedule : undefined} onClose={closeSchedPop}/> : null}
+      {schedList && board && flowsOn ? <ScheduledList canvasName={board.canvas.name} jobs={canvasJobs} titles={titles} onCanvas={boardIds} anchor={schedList} now={Date.now}
+        onGoto={channelId => { setSchedList(null); jumpTo(channelId); }} onClose={() => setSchedList(null)}/> : null}
     </div>
   </section>;
 }
@@ -1303,7 +1429,7 @@ function ChatSubline({sub}: {sub: ChatSub}) {
   </p>;
 }
 
-function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub, area, onPlace, onUseHere, digest, setup, announce, onConnect, onMode, onClose, onOpenRegular, children}: {
+function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub, area, onPlace, onUseHere, digest, setup, announce, onConnect, onSchedule, onMode, onClose, onOpenRegular, children}: {
   channelId: string; mode: CanvasChatMode; anchor: SheetAnchor | null; drawerOpen: boolean; watchView(listener: () => void): () => void;
   title: string; sub?: ChatSub; area?: ChatArea; onPlace?(): void; onUseHere?(): Promise<void>;
   /** Where it stands, above the Setup line (the mock's digest before cfgBlock). */
@@ -1317,6 +1443,8 @@ function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub,
   announce?: {id: number | string; text: string} | null;
   /** A chat on this canvas, with hand-offs set up: the header's connect button opens the chat picker under it. */
   onConnect?(anchor: HTMLElement): void;
+  /** Flows set up and the person may schedule here: the header's clock opens the schedule popover under it (loose chats too). */
+  onSchedule?(anchor: HTMLElement): void;
   onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
 }) {
   const panel = useRef<HTMLElement>(null);
@@ -1479,6 +1607,8 @@ function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub,
         <button type="button" className="canvas-chat-icon" aria-label="Split screen" aria-pressed={!focus}
           title={focus ? 'Split screen: the chat on the right, the canvas stays usable' : 'Float over the canvas instead'}
           onClick={() => onMode(focus ? 'split' : 'focus')}><Columns2 size={16} aria-hidden="true"/></button>
+        {onSchedule ? <button type="button" className="canvas-chat-icon canvas-chat-clock" aria-label={SCHEDULE_TITLE} title={SCHEDULE_TITLE}
+          aria-haspopup="dialog" onClick={event => onSchedule(event.currentTarget)}><ClockIcon/></button> : null}
         {onConnect ? <button type="button" className="canvas-chat-icon canvas-chat-connect" aria-label={CHAT_CONNECT_TITLE} title={CHAT_CONNECT_TITLE}
           aria-haspopup="dialog" onClick={event => onConnect(event.currentTarget)}><LinkIcon/></button> : null}
         <span ref={setActionsSlot} className="canvas-chat-slot"/>

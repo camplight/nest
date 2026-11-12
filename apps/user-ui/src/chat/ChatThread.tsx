@@ -76,8 +76,8 @@ export function arrivedWhileAway(previousNewest:number|null,newest:number,nearBo
  return previousNewest!==null&&newest>previousNewest&&!nearBottom;
 }
 
-const newestTimelineAt=(events:EventRow[])=>events.reduce((newest,event)=>
- event.type==='message.created'||isTraceEvent(event)?Math.max(newest,event.createdAt??0):newest,0);
+const newestTimelineAt=(events:EventRow[],scheduledRuns=false)=>events.reduce((newest,event)=>
+ event.type==='message.created'||isTraceEvent(event)||(scheduledRuns&&event.type==='agent.scheduled.trigger')?Math.max(newest,event.createdAt??0):newest,0);
 const distanceFromBottom=(panel:HTMLElement)=>panel.scrollHeight-panel.scrollTop-panel.clientHeight;
 const dayLabel=(ts:number)=>new Intl.DateTimeFormat(undefined,{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(new Date(ts));
 
@@ -240,11 +240,14 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  const slots=useContext(ChatHeaderSlotsContext);
  const previousItems=useRef<TimelineItem[]>([]);
  const serviceAgent=useServiceAgent();
+ // Scheduled runs (the canvas flag, R20): due triggers become `↳` lines; one booked for later stays out until it is due.
+ const scheduledRuns=props.appActivity===true;
  const items=useMemo(()=>{
-  const next=buildTimeline(snapshot.events,{currentUsername,detachedIds:snapshot.detachedIds,serviceAgent},previousItems.current);
+  const next=buildTimeline(snapshot.events,{currentUsername,detachedIds:snapshot.detachedIds,serviceAgent,
+   ...(scheduledRuns?{scheduledRuns:{now:serverClock.serverNow()}}:{})},previousItems.current);
   previousItems.current=next;
   return next;
- },[snapshot.events,snapshot.detachedIds,currentUsername,serviceAgent]);
+ },[snapshot.events,snapshot.detachedIds,currentUsername,serviceAgent,scheduledRuns]);
  // Each active turn's row follows its trigger message, or the last item when the trigger is not loaded (spec 7.5.1).
  const turns=useMemo(()=>activeTurns(snapshot.events,props.agents,snapshot.agentStarts),[snapshot.events,props.agents,snapshot.agentStarts]);
  // A deep-link focus is pending until it scrolled into view and the reader then scrolled themselves (spec 8.5).
@@ -297,7 +300,7 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  },[loadOlder]);
 
  // New content: pinned at the bottom it follows, scrolled up it offers "New messages below".
- const newest=snapshot.loading?null:newestTimelineAt(snapshot.events);
+ const newest=snapshot.loading?null:newestTimelineAt(snapshot.events,scheduledRuns);
  const newestRef=useRef<number|null>(null);
  useLayoutEffect(()=>{
   const previous=newestRef.current;

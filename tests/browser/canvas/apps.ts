@@ -225,10 +225,19 @@ await runChatTest('canvas flag off: no voice notes, no Apps here bar, no file ti
   await h.post(`/api/channels/${h.project.channelId}/subscribe`,{subscriberType:'AGENT',subscriberId:'Wren'});
   const xlsx='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const report=await h.emit('message.created',{text:'Synthetic flag-off report',attachments:[{fileId:'synthetic-off-file',name:'Q3 model.xlsx',mime:xlsx,size:5*1024}]},{source:'agent:Pip'});
+  // A scheduled run that is already due: with the flag on it reads as a `↳ Scheduled run …` line (Phase 3).
+  await h.emit('agent.scheduled.trigger',{text:'Scheduled run · Every day at 09:00 · set up by demo-owner\n\nSynthetic flag-off prompt',targetAgentName:'Pip',
+    nestSwitchyard:{kind:'schedule',scheduleId:'synthetic-off-schedule'}},{source:'agent:Switchyard'});
+  const scheduledQueries:string[]=[];
+  page.on('request',request=>{if(request.url().includes('agent.scheduled.trigger'))scheduledQueries.push(request.url());});
   await page.reload();
   const chips=(name:string)=>page.getByRole('button',{name,exact:true});
   await chips('shell_run completed').nth(1).waitFor();
   await chips('Agent output').waitFor();
+  // No scheduled-run query and no `↳` line: the chat reads as before Phase 3.
+  assert.deepEqual(scheduledQueries,[],'no scheduled-run query');
+  assert.equal(await page.locator('.message-src').count(),0,'no scheduled-run line');
+  assert.equal(await page.getByText('Scheduled run · Every day',{exact:false}).count(),0,'no scheduled-run text');
 
   // Files keep the Attachments list, with its type and size line, and never become tiles.
   const message=page.locator(`#message-${report.id}`);

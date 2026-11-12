@@ -4,6 +4,7 @@ import type {BoardCard} from '@nest/schemas';
 import {Card} from './Card';
 import type {CardPulse} from './pulse';
 import type {NeedsItem} from './needs';
+import type {ScheduleJob} from './schedule-jobs';
 
 const base={canvasId:'cv',channelId:'c1',x:0,y:0,w:280,version:0,placedBy:'h',placedAt:0};
 // A pulse and Needs you items full of chat content: none of it may reach a card the person cannot read.
@@ -34,6 +35,15 @@ describe('Card',()=>{
     expect(html).toContain('canvas-card-rows');
     expect(html).toContain('canvas-card-need');
     expect(html).toContain('Secret question');
+  });
+  it('shows the mock\'s schedule badge under the last activity: missed first, then the first live job, with +N',()=>{
+    const open={...base,access:'open',title:'Recap',canManage:true,archived:false,projectId:null,participants:[],forkOf:null} as BoardCard;
+    const job={key:'s1',channelId:'c1',agent:'Pip',text:'Every Monday, Wednesday at 09:00',short:'Mon Wed 09:00',setBy:null,on:true,next:1,tz:'UTC',missed:null,lastOk:null,schedule:null};
+    const html=(schedules:ScheduleJob[])=>renderToStaticMarkup(<Card card={open} draggable dx={0} dy={0} dragging={false} measure={()=>{}} schedules={schedules}/>);
+    expect(html([job])).toMatch(/<span class="canvas-card-meta"><span class="sch" title="Every Monday, Wednesday at 09:00"><svg[^>]*>.*<\/svg>Mon Wed 09:00<\/span><\/span>/);
+    expect(html([{...job,on:false},{...job,key:'s2',missed:{at:'Mon 09:00',reason:'agent stopped'}}])).toContain('<span class="sch missed" title="Every Monday, Wednesday at 09:00 (+1 more)">');
+    expect(html([{...job,on:false}])).toContain('class="sch off"');
+    expect(html([])).not.toContain('canvas-card-meta');
   });
   it('says which chat a fork came from, under the title (the mock\'s c-fork)',()=>{
     const open={...base,access:'open',title:'Fork: Agreed on more data',canManage:true,archived:false,projectId:null,participants:[]};

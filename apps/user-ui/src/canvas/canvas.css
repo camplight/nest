@@ -3560,7 +3560,7 @@ li.canvas-phone-row[data-access] {
 .digest .btn, .canvas-needs-run { border: 1px solid var(--nest-border); background: var(--nest-surface); color: var(--nest-text); border-radius: 9px; padding: 4px 11px; font: 500 12.5px Inter, sans-serif; white-space: nowrap; cursor: pointer; }
 .digest .btn:hover, .canvas-needs-run:hover { border-color: var(--nest-accent); }
 .digest .btn.pri { background: var(--nest-text); color: var(--nest-bg); border-color: var(--nest-text); font-weight: 600; }
-.digest .btn[aria-disabled="true"], .canvas-needs-run:disabled { opacity: .6; cursor: default; }
+.digest .btn[aria-disabled="true"], .canvas-needs-run[aria-disabled="true"] { opacity: .6; cursor: default; }
 .digest .btn:focus-visible, .canvas-needs-run:focus-visible { outline: 2px solid var(--nest-lime); outline-offset: 2px; }
 /* A missed run's row in Needs you: the row, then Run now. */
 :is(.canvas-needs-row, .canvas-phone-need) { display: flex; gap: 6px; align-items: center; }
@@ -3569,3 +3569,56 @@ li.canvas-phone-row[data-access] {
 @media (max-width: 760px) {
   .canvas-chat-body > :is(.cfg, .digest) { margin: 8px 12px 0; }
 }
+/*
+ * Scheduled jobs (the mock's `.sch`, `.sch-strip`, `.days`, `.srow`, `.slist` and `.ghost .cnt`, CSS copied with Nest tokens):
+ * a card's badge under its last activity, the open chat's strips in its Setup body, the clock popover's day buttons, and
+ * the top bar's Scheduled button and list. Faint text uses the 4.5:1 token (T6-R1); coral text the card alert's mix.
+ */
+.canvas-card-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
+.canvas-world.is-compact .canvas-card-meta .sch { display: none; }
+.sch { display: inline-flex; gap: 4px; align-items: center; font: 600 11px Inter, sans-serif; color: var(--nest-accent); background: color-mix(in srgb, var(--nest-accent) 10%, transparent); border-radius: 999px; padding: 1px 7px 1px 5px; white-space: nowrap; }
+.sch svg { width: 12px; height: 12px; flex: none; }
+.sch.missed { color: var(--canvas-alert); background: color-mix(in srgb, var(--nest-coral) 12%, transparent); }
+.sch.off { color: var(--canvas-faint-text); background: var(--canvas-surface-2); }
+.cfg-body > .sch-strip { display: flex; gap: 8px; align-items: center; margin: 8px 10px 0; padding: 8px 10px; border: 1px solid var(--nest-border); border-radius: 10px; font-size: 12.5px; line-height: 1.4; color: var(--nest-muted); white-space: normal; }
+.sch-strip > svg { width: 15px; height: 15px; color: var(--nest-accent); flex: none; }
+.sch-strip b { color: var(--nest-text); }
+.sch-strip b.sch-missed { color: var(--canvas-alert); }
+.sch-strip.missed { border-color: color-mix(in srgb, var(--nest-coral) 50%, var(--nest-border)); }
+.sch-strip.missed > svg { color: var(--canvas-alert); }
+.sch-strip .sp { margin-left: auto; display: flex; gap: 6px; flex: none; }
+.sch-strip .btn { border: 1px solid var(--nest-border); background: var(--nest-surface); color: var(--nest-text); border-radius: 9px; padding: 3px 9px; font: 500 12px Inter, sans-serif; white-space: nowrap; cursor: pointer; }
+.sch-strip .btn:hover { border-color: var(--nest-accent); }
+.sch-strip .btn[aria-disabled="true"] { opacity: .6; cursor: default; }
+.sch-strip .btn:focus-visible { outline: 2px solid var(--nest-lime); outline-offset: 2px; }
+.cfg .sm-chip.warn { color: var(--canvas-alert); font-weight: 600; }
+.cfg .sm-chip.warn svg { color: var(--canvas-alert); }
+.canvas-sched-pop label.iv-l { display: block; }
+.canvas-sched-pop textarea.iv-in { resize: vertical; min-height: 52px; }
+.canvas-sched-pop .sched-when { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.canvas-sched-pop .sched-when .iv-in { width: auto; font-size: 13px; }
+.canvas-flow-pop .days { display: flex; gap: 4px; flex-wrap: wrap; }
+.canvas-flow-pop .days button { width: 36px; height: 30px; border-radius: 8px; border: 1px solid var(--nest-border); background: var(--nest-surface); font: 500 12px Inter, sans-serif; color: var(--nest-text); cursor: pointer; }
+/* The mock's white reads under 4.5:1 on the dark theme's lime accent; the page background reads in both. */
+.canvas-flow-pop .days button.on { background: var(--nest-accent); border-color: var(--nest-accent); color: var(--nest-bg); }
+.canvas-flow-pop .days button:disabled { cursor: default; }
+.canvas-flow-pop :is(.days button, .pick, .btn, .srow):focus-visible { outline: 2px solid var(--nest-lime); outline-offset: 2px; }
+.canvas-flow-pop .btn[aria-disabled="true"] { opacity: .6; cursor: default; }
+.canvas-flow-pop .calm { color: var(--nest-muted); font-size: 12px; }
+.canvas-sched-list .optrow { margin-top: 10px; }
+.canvas-sched-list .slist { max-height: 420px; overflow: auto; margin: 6px -4px 0; }
+.canvas-sched-list .slist .grp { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--canvas-faint-text); padding: 10px 4px 3px; }
+.canvas-sched-list .srow { display: flex; gap: 10px; align-items: center; width: 100%; border: 0; background: transparent; text-align: left; padding: 7px 4px; border-radius: 9px; color: var(--nest-text); font: inherit; font-size: 13px; cursor: pointer; }
+.canvas-sched-list .srow:hover { background: var(--nest-muted-surface); }
+.canvas-sched-list .srow .agent-portrait { flex: none; border-radius: 999px; }
+.canvas-sched-list .srow-main { min-width: 0; overflow-wrap: anywhere; }
+.canvas-sched-list .srow .sm2 { display: block; font-size: 11.5px; color: var(--nest-muted); }
+.canvas-sched-list .srow .when { margin-left: auto; text-align: right; font-size: 12px; color: var(--nest-muted); white-space: nowrap; flex: none; }
+.canvas-sched-list .srow .when b { display: block; color: var(--nest-text); font-weight: 600; }
+.canvas-sched-list .srow.missed .when b { color: var(--canvas-alert); }
+.canvas-sched-list .sched-empty { padding: 10px 4px 0; margin: 0; }
+.canvas-sched-list .iv-foot .calm { margin-right: auto; font-size: 12px; align-self: center; line-height: 1.4; }
+.canvas-sched-button > svg { width: 16px; height: 16px; flex: none; }
+.canvas-sched-button .cnt { font: 700 11px Inter, sans-serif; background: var(--canvas-surface-2); border-radius: 999px; padding: 0 6px; margin-left: 2px; }
+/* Forest on coral (5.98:1), as the danger button: the mock's white on coral is below 4.5:1. */
+.canvas-sched-button .cnt.hot { background: var(--nest-coral); color: var(--nest-forest); }

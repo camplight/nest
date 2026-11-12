@@ -1,11 +1,12 @@
-// The open chat's collapsed Setup line (the mock's cfgBlock): a summary of its agents and how many chats it is connected
-// to, opening onto the schedule strips (Task 11) and the links row (the mock's linksRow): `Gets from ← A`, `Passes to → B`
+// The open chat's collapsed Setup line (the mock's cfgBlock): a summary of its agents, its schedules and how many chats it
+// is connected to, opening onto the schedule strips and the links row (the mock's linksRow): `Gets from ← A`, `Passes to → B`
 // chips that open the Hand-off popover, and `+ Connect`. Loose chats have no links row. Whether it is open is remembered
 // per person in this browser.
 import {Fragment,useState,type ReactNode} from 'react';
 import {AgentAvatar} from '../components/AgentAvatar';
 import type {LinkView} from './flows-api';
 import {LinkIcon} from './Links';
+import {ClockIcon} from './ScheduledList';
 
 export type ChatSetupProps = {
   channelId: string;
@@ -13,8 +14,10 @@ export type ChatSetupProps = {
   loose: boolean;
   /** Every link touching this chat that the viewer can read (forks are counted and listed elsewhere). */
   links: readonly LinkView[];
-  /** The schedule strips, first in the body (Task 11). */
+  /** The schedule strips, first in the body. */
   schedules?: ReactNode;
+  /** The summary's schedule chip (the mock's `sm-chip`): `missed run` (warn) or the first schedule's short rule. */
+  scheduleChip?: {text: string; warn: boolean} | null;
   /** The chat's agents, without the service agent. */
   agents: readonly string[];
   /** The signed-in person: the open state is theirs. */
@@ -37,12 +40,13 @@ function writeOpen(viewer: string, open: boolean) {
 export const connectedCount = (channelId: string, links: readonly LinkView[]) =>
   links.filter(l => l.kind === 'link' && (l.from === channelId || l.to === channelId)).length;
 
-export function ChatSetup({channelId, loose, links, schedules, agents, viewer, onConnect, onOpenLink}: ChatSetupProps) {
+export function ChatSetup({channelId, loose, links, schedules, scheduleChip, agents, viewer, onConnect, onOpenLink}: ChatSetupProps) {
   const [open, setOpen] = useState(() => readOpen(viewer));
   const ins = links.filter(l => l.kind === 'link' && l.to === channelId), outs = links.filter(l => l.kind === 'link' && l.from === channelId);
   const connected = connectedCount(channelId, links);
   const bits: {key: string; node: ReactNode}[] = [
     ...agents.map(name => ({key: `a:${name}`, node: <span className="sm-chip"><AgentAvatar name={name} size={18}/>{name}</span>})),
+    ...(scheduleChip ? [{key: 'schedule', node: <span className={`sm-chip${scheduleChip.warn ? ' warn' : ''}`}><ClockIcon/>{scheduleChip.text}</span>}] : []),
     ...(connected ? [{key: 'links', node: <span className="sm-chip"><LinkIcon/>{connected} connected</span>}] : []),
   ];
   const chip = (link: LinkView, dir: 'in' | 'out') => {

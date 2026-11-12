@@ -1,14 +1,16 @@
 // Live events of the active channel (spec 3.3, 6.1, 6.2, 8.3): first page, older pages, refresh, deep-link focus,
 // realtime dedup and merge. Framework-free; useChannelEvents binds it to React. One core per authenticated session.
 import type {EventRow} from '../types';
-import {fetchChannelPage,type Cursors} from './history';
+import {chatEventQueries,fetchChannelPage,type Cursors} from './history';
 import {isTraceEvent,upsertEvents} from './timeline';
 import {agentLifecycleStart,mergeAgentStarts,type AgentStarts} from './lifecycles';
 
 export type ChannelEventsSnapshot={channelId:string|null;events:EventRow[];detachedIds:ReadonlySet<string>;
  loading:boolean;loadingOlder:boolean;hasOlder:boolean;error:string|null;agentStarts?:AgentStarts;activityUnavailable?:boolean};
 export type RefreshResult={newTimeline:boolean;newestMessageAt:number};
-type Deps={fetchJson:<T>(url:string)=>Promise<T>;limit:()=>number;loadAgentStarts?:()=>Promise<AgentStarts>};
+type Deps={fetchJson:<T>(url:string)=>Promise<T>;limit:()=>number;loadAgentStarts?:()=>Promise<AgentStarts>;
+ /** The canvas flag (R20): scheduled runs are read and taken live too. Read at each request. */
+ scheduledRuns?:()=>boolean};
 
 const LOAD_ERROR='Unable to load messages';
 const OLDER_ERROR='Unable to load previous messages';
@@ -58,7 +60,8 @@ export function createChannelEventsCore(deps:Deps){
   state=next;
   for(const listener of [...listeners])listener();
  };
- const page=(channelId:string,from?:Cursors)=>fetchChannelPage(channelId,deps.limit(),from,deps.fetchJson);
+ const scheduledRuns=()=>deps.scheduledRuns?.()===true;
+ const page=(channelId:string,from?:Cursors)=>fetchChannelPage(channelId,deps.limit(),from,deps.fetchJson,chatEventQueries(scheduledRuns()));
  const head=async(channelId:string)=>{
   const [latest,activity]=await Promise.all([page(channelId),deps.loadAgentStarts?.()
    .then(starts=>({starts,unavailable:false})).catch(()=>({starts:{},unavailable:true}))]);
@@ -200,7 +203,7 @@ export function createChannelEventsCore(deps:Deps){
 
   ingest(event:EventRow):{accepted:boolean}{
    const channelId=state.channelId;
-   if(channelId===null||event.channelId!==channelId||!isTimelineEvent(event))return {accepted:false};
+   if(channelId===null||event.channelId!==channelId||!(isTimelineEvent(event)||(scheduledRuns()&&event.type==='agent.scheduled.trigger')))return {accepted:false};
    noteTimeline(channelId,[event]);
    update({events:upsertEvents(state.events,[event])});
    return {accepted:true};

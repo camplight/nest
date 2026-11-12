@@ -300,6 +300,9 @@ function consumeShareToken(channelId?: string | null) {
   window.history.replaceState(null, "", url);
 }
 
+// The canvas flag as the channel core reads it (scheduled runs in the chat, R20): App mirrors canvasAvailable here.
+const chatFlags = { scheduledRuns: false };
+
 function createSessionChannelEvents() {
   const limit = () =>
     adaptiveMessageBatchSize(
@@ -309,7 +312,7 @@ function createSessionChannelEvents() {
         }
       ).connection
     );
-  return createChannelEventsCore({ fetchJson: apiJson, limit, loadAgentStarts:()=>fetchAgentStarts(apiJson) });
+  return createChannelEventsCore({ fetchJson: apiJson, limit, loadAgentStarts:()=>fetchAgentStarts(apiJson), scheduledRuns:()=>chatFlags.scheduledRuns });
 }
 
 const NO_EVENTS: EventRow[] = [];
@@ -353,6 +356,7 @@ export default function App() {
   const [canvasChat, setCanvasChat] = useState(readCanvasChat);
   // null until the product API answers; the Canvas entry shows only when it says available.
   const [canvasAvailable, setCanvasAvailable] = useState<boolean | null>(null);
+  chatFlags.scheduledRuns = canvasAvailable === true;
   const [selectedCommunitySkill, setSelectedCommunitySkill] = useState<string|null>(()=>new URL(window.location.href).searchParams.get("skill"));
   const [projectIndex, setProjectIndex] = useState<Project[]>([]);
   const [projectTab, setProjectTab] = useState(readProjectTab);
@@ -989,7 +993,7 @@ export default function App() {
       chatVisibleRef.current &&
       Boolean(eventChannelId) &&
       eventChannelId === currentActiveId &&
-      (event.type === "message.created" || isTraceEvent(event));
+      (event.type === "message.created" || isTraceEvent(event) || (chatFlags.scheduledRuns && event.type === "agent.scheduled.trigger"));
     if (sighting === "update") {
       if (activeTimelineEvent) core.ingest(event);
       return;
@@ -1242,6 +1246,10 @@ export default function App() {
   useEffect(() => {
     if (view === "canvas" && canvasAvailable === false) selectChannel(null, { replace: true });
   }, [view, canvasAvailable]);
+  // A chat loaded before the flag's answer reads its scheduled runs once the canvas turns out to be on.
+  useEffect(() => {
+    if (canvasAvailable === true) void refreshChannelEvents();
+  }, [canvasAvailable]);
 
   useEffect(() => {
     if (!authenticated || mustChangePassword) return;

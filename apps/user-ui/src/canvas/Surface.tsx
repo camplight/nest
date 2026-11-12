@@ -9,6 +9,7 @@ import {droppedFiles,outsideFileDropTargets} from '../components/file-drop';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {areaSummaries,type CardPulse} from './pulse';
 import type {NeedsItem} from './needs';
+import type {ScheduleJob} from './schedule-jobs';
 import {ORIGIN,areaMembers,cardCentre,clampZoom,fit,growToFit,isCompact,toCanvas,visible,zoomAt,type Point,type Rect,type Size,type View} from './geometry';
 import {CARD_PLACE_HEIGHT} from './loose';
 import {clearOfDrawer,presentView,stageBounds} from './sheet';
@@ -83,6 +84,8 @@ export type SurfaceProps = {
   onNewStep?(from: string, at: Point): void;
   /** A card's connect button was pressed: open the chat picker under it. */
   onLinkPick?(from: string, anchor: HTMLElement): void;
+  /** Each chat's scheduled jobs (flows set up): an open card's badge under its last activity. */
+  schedules?: ReadonlyMap<string, readonly ScheduleJob[]>;
 };
 const NO_RECTS: ReadonlyMap<string, Rect> = new Map();
 export type FileDropTarget = {kind: 'card'; channelId: string} | {kind: 'area'; areaId: string};
@@ -173,7 +176,7 @@ const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + 
 export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null,
   onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onOpenCanvas, onDropFiles,
   needs = NO_NEEDS, viewer = '', onNotice, onAreaCreated, renameAreaId = null, onRenameStarted, onViewChange, onEmptyPress, onFit,
-  links, onOpenLink, onToggleFork, canConnect, onConnect, onNewStep, onLinkPick}: SurfaceProps) {
+  links, onOpenLink, onToggleFork, canConnect, onConnect, onNewStep, onLinkPick, schedules}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
   // Without a known human the view is not remembered, so it can never land under another person's key.
   const key = humanId ? viewKey(humanId, board.canvas.id) : null;
@@ -788,7 +791,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
           facesDraggable={Boolean(onRemoveAgent && canManageCard?.(card))}
           draggingFace={preview?.kind === 'face' && preview.id === card.channelId ? preview.agent : null}
           dropping={dropId === card.channelId} selected={card.channelId === selectedChannelId}
-          areaTitle={home?.title} areaTint={home?.tint}
+          areaTitle={home?.title} areaTint={home?.tint} schedules={card.access === 'open' ? schedules?.get(card.channelId) : undefined}
           onConnect={onLinkPick && canConnect?.(card) ? pickLink : undefined} linkTarget={preview?.kind === 'link' && preview.over === card.channelId}/>;
       })}
     </div>

@@ -43,8 +43,9 @@ export type ChatDigestProps = {
  */
 export function RunNowButton({item, onRunNow, className = 'btn', named = false}: {item: NeedsItem; onRunNow(item: NeedsItem): Promise<void>; className?: string; named?: boolean}) {
   const [busy, setBusy] = useState(false);
-  return <button type="button" className={className} disabled={busy} aria-label={named ? `Run now: ${item.chatTitle}` : undefined}
-    onClick={() => { setBusy(true); void onRunNow(item).finally(() => setBusy(false)); }}>Run now</button>;
+  // aria-disabled, not disabled: a disabled button drops focus to the page body.
+  return <button type="button" className={className} aria-disabled={busy || undefined} aria-label={named ? `Run now: ${item.chatTitle}` : undefined}
+    onClick={() => { if (busy) return; setBusy(true); void onRunNow(item).finally(() => setBusy(false)); }}>Run now</button>;
 }
 
 export function ChatDigest(props: ChatDigestProps) {

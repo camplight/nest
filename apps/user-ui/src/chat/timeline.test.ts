@@ -11,6 +11,20 @@ const t2=tr('t2','tool.started',1200);
 const e2=msg('e2','agent:Pip',{text:'Done'},1300);
 
 describe('buildTimeline',()=>{
+ it('scheduled runs: a due trigger is a `↳` line with its first line, only with the canvas flag (R20)',()=>{
+  const run=(id:string,text:string,createdAt:number,extra:Partial<EventRow>={}):EventRow=>
+   ({id,type:'agent.scheduled.trigger',source:'agent:Switchyard',payload:{text,targetAgentName:'Pip',nestSwitchyard:{kind:'run'}},createdAt,...extra});
+  const booked=run('s1','Scheduled run · Weekdays at 08:00 · set up by Lena\n\nSummarise new email.',900,{deliverAt:1000});
+  const now=run('s2','Run started by alek\n\nSummarise new email.',1100);
+  const later=run('s3','Scheduled run · Weekdays at 08:00 · set up by Lena\n\nSummarise new email.',1200,{deliverAt:5000});
+  const agent:EventRow={id:'s4',type:'agent.scheduled.trigger',source:'agent:Pom',payload:{text:'Look at the error rate again',targetAgentName:'Pom'},createdAt:1300,deliverAt:1400};
+  expect(buildTimeline([e1,booked,now,later,agent],opts).map(item=>item.id)).toEqual(['e1']);
+  const items=buildTimeline([e1,booked,now,later,agent],{...opts,scheduledRuns:{now:2000}});
+  expect(items.map(item=>item.kind==='message'?[item.id,item.switchyard,item.text]:[item.id])).toEqual([
+   ['e1',undefined,'Hi'],['s1','Scheduled run · Weekdays at 08:00 · set up by Lena',''],['s2','Run started by you',''],['s4','Look at the error rate again',''],
+  ]);
+  expect(items[1]!.meta).toMatchObject({displayAt:1000,targetAgents:[],isMine:false});
+ });
  it('explains omitted engine message payloads while retaining their identity',()=>{
   const event=msg('large','human:alek',{truncated:true,originalBytes:100000},1000,{payloadTruncated:true});
   const [item]=buildTimeline([event],opts);

@@ -464,6 +464,8 @@ await runChatTest('canvas top bar: one row with a long canvas name from 1024 px 
   await heading.waitFor();
   assert.equal(await heading.getAttribute('title'),name,'the full name is the title');
   await page.getByRole('button',{name:'Needs you (0)',exact:true}).waitFor();
+  // Scheduled sits before Search in the same row (Phase 3).
+  await page.locator('.canvas-sched-button').waitFor();
   // The collapsed rail at three widths, then the expanded sidebar at 1440 (a narrower bar at the same window width).
   const cases:[number,string][]=[[1440,'rail'],[1280,'rail'],[1024,'rail'],[1440,'sidebar']];
   for(const [width,sidebar] of cases){
@@ -487,7 +489,7 @@ await runChatTest('canvas top bar: one row with a long canvas name from 1024 px 
         page:document.documentElement.scrollWidth,inner:innerWidth};
     });
     const where=`at ${width} (${sidebar}): ${JSON.stringify(bar)}`;
-    assert.ok(bar.controls.length>=9,`the name, canvas menu, Share, Context, Loose chats, Needs you, Search and the workspace controls ${where}`);
+    assert.ok(bar.controls.length>=10,`the name, canvas menu, Share, Context, Loose chats, Needs you, Scheduled, Search and the workspace controls ${where}`);
     // The canvas's own 36 px buttons share their top edge; the 44 px workspace icons and the name share the row's centre.
     const top=bar.controls[0].top,middle=(top+bar.controls[0].bottom)/2;
     for(const control of bar.controls){
@@ -500,4 +502,4 @@ await runChatTest('canvas top bar: one row with a long canvas name from 1024 px 
     assert.ok(bar.scroll<=bar.client,`the bar does not overflow ${where}`);
     assert.ok(bar.page<=bar.inner,`the page does not scroll sideways ${where}`);
   }
-},{canvas:true,viewport:{width:1440,height:900}});
+},{canvas:true,flows:true,viewport:{width:1440,height:900}});

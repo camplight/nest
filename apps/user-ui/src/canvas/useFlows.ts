@@ -1,11 +1,13 @@
 // Flows on the client: whether hand-offs are set up here, the Switchyard service agent's name, the viewer's flow
-// Needs you items (polled every 15 s while the page is visible, and on focus) and a reader for one chat's links.
+// Needs you items and schedules (each polled every 15 s while the page is visible, and on focus; never with the flag off
+// or flows unavailable) and a reader for one chat's links.
 import {useCallback,useEffect,useRef,useState,useSyncExternalStore} from 'react';
 import type {FlowNeed} from '@nest/schemas';
-import {getAvailability,getLinks,getNeeds,type FlowsAvailability,type LinkView} from './flows-api';
+import {getAvailability,getLinks,getNeeds,getSchedules,type FlowsAvailability,type LinkView,type ScheduleList} from './flows-api';
 
 export const FLOW_NEEDS_MS = 15_000;
 const NO_NEEDS: FlowNeed[] = [];
+const NO_SCHEDULES: ScheduleList = {schedules: [], agentMade: []};
 
 // One availability read per page: App (for the chat views) and the canvas share it. A failed read, or an answer that
 // flows are unavailable (an engine outage), is read again the next time a view asks.
@@ -45,9 +47,11 @@ export type Flows = {
   availability: FlowsAvailability | null;
   /** The viewer's approvals and paused links, newest first. */
   needs: FlowNeed[];
+  /** Every schedule in a chat the viewer can read, and agents' own booked runs; empty until read. */
+  schedules: ScheduleList;
   /** Every link touching a chat the viewer can read, with titles, version and rights. */
   links(channelId: string): Promise<LinkView[]>;
-  /** Re-reads the needs now (after an approve, pause or disconnect). */
+  /** Re-reads the needs and schedules now (after an approve, pause, disconnect, Run now or a schedule change). */
   refresh(): void;
 };
 
@@ -56,11 +60,15 @@ export function useFlows(enabled: boolean): Flows {
   useEffect(() => { if (enabled) void loadAvailability(); }, [enabled]);
   const on = enabled && Boolean(current?.enabled);
   const [needs, setNeeds] = useState<FlowNeed[]>(NO_NEEDS);
+  const [schedules, setSchedules] = useState<ScheduleList>(NO_SCHEDULES);
   const reload = useRef<() => void>(() => {});
   useEffect(() => {
-    if (!on) { setNeeds(NO_NEEDS); return; }
+    if (!on) { setNeeds(NO_NEEDS); setSchedules(NO_SCHEDULES); return; }
     let live = true;
-    const load = () => { getNeeds().then(items => { if (live) setNeeds(items); }).catch(() => {}); };
+    const load = () => {
+      getNeeds().then(items => { if (live) setNeeds(items); }).catch(() => {});
+      getSchedules().then(list => { if (live) setSchedules(current => JSON.stringify(current) === JSON.stringify(list) ? current : list); }).catch(() => {});
+    };
     const tick = () => { if (document.visibilityState !== 'hidden') load(); };
     load();
     reload.current = load;
@@ -70,5 +78,5 @@ export function useFlows(enabled: boolean): Flows {
   }, [on]);
   const links = useCallback((channelId: string) => getLinks(channelId), []);
   const refresh = useCallback(() => reload.current(), []);
-  return {availability: enabled ? current : null, needs, links, refresh};
+  return {availability: enabled ? current : null, needs, schedules, links, refresh};
 }

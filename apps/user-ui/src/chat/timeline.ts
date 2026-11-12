@@ -13,7 +13,12 @@ export type TimelineItem=
  |{kind:'activity';id:string;meta:ChatMeta;tone:'agent'|'system';events:EventRow[]};
 type BuildOptions={currentUsername:string;detachedIds?:ReadonlySet<string>;
  /** The Switchyard service agent's name (flows): its posts that carry payload.nestSwitchyard become Switchyard lines. */
- serviceAgent?:string|null};
+ serviceAgent?:string|null;
+ /**
+  * The canvas flag (R20): each `agent.scheduled.trigger` that is due by `now` (server time) becomes a `↳` line with its
+  * first line of text (`Scheduled run · … · set up by …`, `Run started by you`). A booked run still in the future is left out.
+  */
+ scheduledRuns?:{now:number}};
 
 // Ported from classic App.tsx (MARKDOWN_HINT_RE, URL_RE).
 const MARKDOWN_HINT_RE=
@@ -124,6 +129,17 @@ function messageItem(event:EventRow,opts:BuildOptions):TimelineItem{
   ...(switchyard?{switchyard:lineEnd<0?full:full.slice(0,lineEnd)}:{})};
 }
 
+// A scheduled run's trigger: only its first line, as a `↳` line (the prompt is for the agent; the line says what ran).
+function scheduledItem(event:EventRow,opts:BuildOptions):TimelineItem{
+ const full=messageText(event),lineEnd=full.indexOf('\n');
+ let line=(lineEnd<0?full:full.slice(0,lineEnd)).trim()||'Scheduled run';
+ if(line===`Run started by ${opts.currentUsername}`)line='Run started by you';
+ const kind=authorKind(event.source);
+ const meta:ChatMeta={eventId:event.id,authorKind:kind,authorName:sourceLabel(event.source),isMine:false,displayAt:displayTime(event),targetAgents:[]};
+ if(opts.detachedIds?.has(event.id))meta.detached=true;
+ return {kind:'message',id:event.id,meta,text:'',markdown:false,attachments:[],event,switchyard:line};
+}
+
 function activityItem(events:EventRow[],id:string,opts:BuildOptions):TimelineItem{
  const first=events[0]!;
  const tone=events.some(event=>event.type==='agent.turn.failed'||event.type==='tool.failed')?'system':'agent';
@@ -184,6 +200,10 @@ export function buildTimeline(events:EventRow[],opts:BuildOptions,previous?:read
   if(event.type==='message.created'){
    flush();
    reuse(messageItem(event,opts));
+  }else if(opts.scheduledRuns&&event.type==='agent.scheduled.trigger'){
+   if(event.deliverAt!==undefined&&event.deliverAt!==null&&event.deliverAt>opts.scheduledRuns.now)continue;
+   flush();
+   reuse(scheduledItem(event,opts));
   }else if(isTraceEvent(event))trace.push(event);
  }
  flush();

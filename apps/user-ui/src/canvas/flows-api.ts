@@ -1,6 +1,6 @@
-// Typed helpers for the product /api/flows routes (apps/api/src/flows/routes.ts): availability, links, needs and the
-// decisions taken from Needs you (a hand-off's OK, a project task's review, Run now).
-import type {FlowNeed,ForkView,Link,LinkPatch,NewFork,NewLink,ProjectDetail,Task} from '@nest/schemas';
+// Typed helpers for the product /api/flows routes (apps/api/src/flows/routes.ts and scheduler.ts): availability, links,
+// needs, schedules and the decisions taken from Needs you (a hand-off's OK, a project task's review, Run now).
+import type {AgentMadeSchedule,FlowNeed,ForkView,Link,LinkPatch,NewFork,NewLink,NewSchedule,ProjectDetail,SchedulePatch,ScheduleView,Task} from '@nest/schemas';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 
 export type FlowsAvailability = {enabled: boolean; reason?: string; serviceAgent: string | null; summaries: 'model' | 'fallback'; webhooks: boolean};
@@ -79,6 +79,48 @@ export async function reviewTask(projectId: string, taskId: string, decision: 'a
   return apiJson<Task>(`${project}/tasks/${encodeURIComponent(taskId)}/reviews`, write('POST', {version: task.version, decision, feedback}));
 }
 
-/** Run now for a missed scheduled run: `POST /api/flows/schedules/:id/run` (Task 10 serves it). */
+/** Run now (a strip's, or a missed run's in Needs you): `POST /api/flows/schedules/:id/run`. */
 export const runScheduleNow = (scheduleId: string) =>
-  apiJson<{runId: string}>(`/api/flows/schedules/${encodeURIComponent(scheduleId)}/run`, {method: 'POST', headers: getApiHeaders()});
+  apiJson<{runId: string}>(`${schedulePath(scheduleId)}/run`, {method: 'POST', headers: getApiHeaders()});
+
+/** Every schedule in a chat the viewer can read, and the future runs agents booked themselves (`set by {agent}`). */
+export type ScheduleList = {schedules: ScheduleView[]; agentMade: AgentMadeSchedule[]};
+export const getSchedules = () => apiJson<ScheduleList>('/api/flows/schedules');
+/** A versioned schedule write lost a race: `current` is the stored schedule, or null when it was deleted. */
+export class ScheduleConflict extends Error {
+  constructor(readonly current: ScheduleView | null) {
+    super('Schedule changed');
+    this.name = 'ScheduleConflict';
+  }
+}
+function scheduleConflict(error: unknown): unknown {
+  if (!(error instanceof ApiError) || error.status !== 409) return error;
+  try {
+    const body = JSON.parse(error.message) as {error?: string; current?: ScheduleView | null};
+    if (body.error === 'Schedule changed') return new ScheduleConflict(body.current ?? null);
+  } catch {}
+  return error;
+}
+const schedulePath = (id: string) => `/api/flows/schedules/${encodeURIComponent(id)}`;
+/** Books the first run. A repeat with the same id answers the stored schedule. */
+export const createSchedule = (input: NewSchedule) => apiJson<ScheduleView>('/api/flows/schedules', write('POST', input));
+/** One versioned write, retried once on the current version when another write got in first. */
+export async function patchSchedule(id: string, patch: Omit<SchedulePatch, 'version'>, version: number): Promise<ScheduleView> {
+  const once = async (at: number) => {
+    try { return await apiJson<ScheduleView>(schedulePath(id), write('PATCH', {...patch, version: at})); } catch (error) { throw scheduleConflict(error); }
+  };
+  try { return await once(version); } catch (error) {
+    if (!(error instanceof ScheduleConflict) || !error.current) throw error;
+    return once(error.current.version);
+  }
+}
+/** Deletes a schedule and its booked run; runs already posted stay in the chat. */
+export async function deleteSchedule(id: string, version: number): Promise<void> {
+  const once = async (at: number) => {
+    try { await apiFetch(`${schedulePath(id)}?version=${at}`, {method: 'DELETE'}); } catch (error) { throw scheduleConflict(error); }
+  };
+  try { await once(version); } catch (error) {
+    if (!(error instanceof ScheduleConflict)) throw error;
+    if (error.current) await once(error.current.version);
+  }
+}

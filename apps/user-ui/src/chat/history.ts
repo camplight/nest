@@ -1,9 +1,9 @@
-// Channel history paging (spec 6.1, 8.3): the 7 event queries, one cursor per query, adaptive page size.
+// Channel history paging (spec 6.1, 8.3): the 7 event queries (8 with the canvas flag), one cursor per query, adaptive page size.
 // Cursors come only from each query's own page rows, so events merged from elsewhere (deep links) never move them.
 import type {EventRow} from '../types';
 import {upsertEvents} from './timeline';
 
-type ChatEventQuery={key:string;type?:string;typePrefix?:string};
+export type ChatEventQuery={key:string;type?:string;typePrefix?:string};
 
 // Ported from classic loadMessages; same order and filters, now used for every page.
 export const CHAT_EVENT_QUERIES:ReadonlyArray<ChatEventQuery>=[
@@ -15,6 +15,9 @@ export const CHAT_EVENT_QUERIES:ReadonlyArray<ChatEventQuery>=[
  {key:'wrapper',typePrefix:'wrapper.turn.'},
  {key:'process',typePrefix:'process.'},
 ];
+// Phase 3 (canvas flag only, R20): scheduled runs, shown as `↳ Scheduled run · …` and `↳ Run started by …` lines.
+export const SCHEDULED_QUERY:ChatEventQuery={key:'scheduled',type:'agent.scheduled.trigger'};
+export const chatEventQueries=(scheduledRuns:boolean):ReadonlyArray<ChatEventQuery>=>scheduledRuns?[...CHAT_EVENT_QUERIES,SCHEDULED_QUERY]:CHAT_EVENT_QUERIES;
 // Per query key: oldest createdAt in the contiguous window, null = exhausted. A missing key is not started yet.
 export type Cursors=Readonly<Record<string,number|null>>;
 
@@ -30,12 +33,12 @@ function queryUrl(channelId:string,limit:number,query:ChatEventQuery,range:{befo
  return `/api/events?${params.toString()}`;
 }
 
-function requestedQueries(cursors?:Cursors){
- return CHAT_EVENT_QUERIES.filter(query=>cursors?.[query.key]!==null);
+function requestedQueries(cursors?:Cursors,queries:ReadonlyArray<ChatEventQuery>=CHAT_EVENT_QUERIES){
+ return queries.filter(query=>cursors?.[query.key]!==null);
 }
 
-export function chatQueryUrls(channelId:string,limit:number,cursors?:Cursors):Array<{key:string;url:string}>{
- return requestedQueries(cursors).map(query=>{
+export function chatQueryUrls(channelId:string,limit:number,cursors?:Cursors,queries:ReadonlyArray<ChatEventQuery>=CHAT_EVENT_QUERIES):Array<{key:string;url:string}>{
+ return requestedQueries(cursors,queries).map(query=>{
   const before=cursors?.[query.key];
   return {key:query.key,url:queryUrl(channelId,limit,query,typeof before==='number'?{before}:{})};
  });
@@ -44,11 +47,11 @@ export function chatQueryUrls(channelId:string,limit:number,cursors?:Cursors):Ar
 const oldestCreatedAt=(rows:EventRow[])=>Math.min(...rows.map(row=>row.createdAt??0));
 
 export async function fetchChannelPage(channelId:string,limit:number,cursors:Cursors|undefined,
- fetchJson:<T>(url:string)=>Promise<T>):Promise<{events:EventRow[];cursors:Cursors;newest:Cursors;hasMore:boolean}>{
+ fetchJson:<T>(url:string)=>Promise<T>,all:ReadonlyArray<ChatEventQuery>=CHAT_EVENT_QUERIES):Promise<{events:EventRow[];cursors:Cursors;newest:Cursors;hasMore:boolean}>{
  const next:Record<string,number|null>={};
- for(const query of CHAT_EVENT_QUERIES)next[query.key]=null;
- const queries=requestedQueries(cursors);
- const pages=await Promise.all(chatQueryUrls(channelId,limit,cursors).map(entry=>fetchJson<EventRow[]>(entry.url)));
+ for(const query of all)next[query.key]=null;
+ const queries=requestedQueries(cursors,all);
+ const pages=await Promise.all(chatQueryUrls(channelId,limit,cursors,all).map(entry=>fetchJson<EventRow[]>(entry.url)));
  const full=queries.flatMap((query,index)=>{
   const rows=pages[index]!;
   return rows.length>0&&rows.length>=limit?[{query,oldest:oldestCreatedAt(rows)}]:[];
@@ -58,7 +61,7 @@ export async function fetchChannelPage(channelId:string,limit:number,cursors:Cur
  const boundaries=await Promise.all(full.map(({query,oldest})=>
   fetchJson<EventRow[]>(queryUrl(channelId,BOUNDARY_LIMIT,query,{before:oldest+1,after:oldest-1}))));
  const newest:Record<string,number|null>={};
- for(const query of CHAT_EVENT_QUERIES)newest[query.key]=null;
+ for(const query of all)newest[query.key]=null;
  for(let index=0;index<queries.length;index++){
   const rows=pages[index]!;
   newest[queries[index]!.key]=rows.length?Math.max(...rows.map(row=>row.createdAt??0)):null;
