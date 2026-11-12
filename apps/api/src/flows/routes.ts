@@ -6,7 +6,7 @@ import { CanvasConflictError, CanvasLimitError, type ProductDb } from '@nest/db'
 import { isEngineOutage, type EngineEvent, type Human, type OrgOpsClient } from '@nest/orgops-client';
 import { LinkPatchSchema, NewLinkSchema, type FlowNeed, type Link } from '@nest/schemas';
 import type { Channel } from '../canvases';
-import { channelAccess, linkRights } from './access';
+import { channelAccess, isAgentIn, linkRights } from './access';
 import type { Switchyard, SwitchyardState } from './identity';
 import { FlowActionError, NOTHING_TO_SEND, pausedWhy, type HandoffWorker } from './handoff';
 import { registerForkRoutes } from './forks';
@@ -75,8 +75,6 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
       return ch ? projects.get(id)?.name ?? ch.name ?? '' : PRIVATE_CHAT_TITLE;
     };
   }
-  const isAgentIn = (channel: Channel | undefined, name: string) =>
-    (channel?.participants ?? []).some(p => p.subscriberType === 'AGENT' && p.subscriberId === name);
   const requireAgent = (channel: Channel | undefined, who: string | null | undefined) => {
     if (who && !isAgentIn(channel, who)) throw fail(409, `Add ${who} to the chat first`);
   };

@@ -5,6 +5,10 @@ export type AccessChannel = {
 };
 export type ChannelAccess = { read: boolean; post: boolean; member: boolean };
 
+/** Whether `name` is an AGENT participant of the chat. */
+export const isAgentIn = (channel: AccessChannel | undefined, name: string) =>
+  (channel?.participants ?? []).some(p => p.subscriberType === 'AGENT' && p.subscriberId === name);
+
 /**
  * Access decided from an engine channel record alone, so background work can apply it with the
  * service token and the API applies the same rule at creation (S9):

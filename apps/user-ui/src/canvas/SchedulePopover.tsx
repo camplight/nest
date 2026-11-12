@@ -84,7 +84,8 @@ export type SchedulePopoverProps = {
 
 export function SchedulePopover({chat, schedule, trigger = null, webhooks = false, url = null, agents, pinned, timezone, anchor, now, onSave, onSaveWebhook, onRotate, onPause, onDelete, onClose}: SchedulePopoverProps) {
   const item = schedule ?? trigger;
-  const editable = item ? item.canEdit : true;
+  // While a webhook's full URL is shown the footer is only Done, so the fields are read only: nothing typed is lost.
+  const editable = (item ? item.canEdit : true) && !url;
   const tz = schedule?.timezone ?? timezone;
   const [prompt, setPrompt] = useState(item?.prompt ?? '');
   const [label, setLabel] = useState(trigger?.label ?? '');
@@ -198,7 +199,7 @@ export function SchedulePopover({chat, schedule, trigger = null, webhooks = fals
     <div className="iv-foot">
       {item && onDelete ? <button type="button" className="btn" style={{marginRight: 'auto'}} aria-disabled={busy || undefined} onClick={() => act(onDelete)}>Delete</button> : null}
       {item && onPause ? <button type="button" className="btn" aria-disabled={busy || undefined} onClick={() => act(() => onPause(!item.on))}>{item.on ? 'Pause' : 'Resume'}</button> : null}
-      {editable && !url ? <>
+      {editable ? <>
         <button type="button" className="btn" onClick={onClose}>Cancel</button>
         <button type="button" className="btn pri" aria-disabled={!ready || busy || undefined} onClick={save}>{item ? 'Save' : 'Schedule it'}</button>
       </> : <button type="button" className="btn pri" onClick={onClose}>Done</button>}

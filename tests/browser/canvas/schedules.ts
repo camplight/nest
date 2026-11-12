@@ -207,6 +207,9 @@ await runChatTest('canvas schedules: a view-role canvas member sees the badge an
   await until(()=>page.evaluate(()=>Boolean(document.activeElement?.closest('.canvas-chat, .canvas-card'))),inside=>inside,'focus on the chat');
 },{canvas:true,flows:true});
 
+// A webhook URL as the popover shows it once (Task 13).
+const HOOK_URL=/^http:\/\/127\.0\.0\.1:\d+\/api\/hooks\/nest_hook_[A-Za-z0-9_-]{43}$/;
+
 await runChatTest('canvas schedules: a phone has Scheduled in its top bar, text only, and its list opens the chat',async h=>{
   const {page,base}=h, chat=h.project.channelId;
   const canvasId=await scheduleBoard(h);
@@ -233,6 +236,26 @@ await runChatTest('canvas schedules: a phone has Scheduled in its top bar, text 
   await list.waitFor({state:'detached'});
   await until(()=>sheet.evaluate(el=>el.contains(document.activeElement)),inside=>inside,'focus in the opened chat');
 
+  // The webhook popover in its widest state, after Rotate URL (full URL, Copy, the note), fits the phone (Task 13).
+  await call(h,'POST','/api/flows/triggers',{id:crypto.randomUUID(),channelId:chat,agent:'Pip',prompt:'Triage the new issue.',label:'Sentry'});
+  await refocus(page);
+  await sheet.locator('.cfg > summary').tap();
+  const hookStrip=sheet.locator('.sch-strip[data-trigger-id]');
+  await hookStrip.waitFor();
+  await hookStrip.getByRole('button',{name:'Edit',exact:true}).tap();
+  const edit=page.getByRole('dialog',{name:'Edit schedule',exact:true});
+  await edit.getByRole('button',{name:'Rotate URL',exact:true}).tap();
+  const hookUrl=edit.getByLabel('Webhook URL',{exact:true});
+  await until(()=>hookUrl.inputValue(),value=>HOOK_URL.test(value),'the rotated URL');
+  for(const [what,part] of [['popover',edit],['URL',hookUrl],['Copy',edit.getByRole('button',{name:'Copy',exact:true})],['note',edit.locator('.sched-hook-note')]] as const){
+    const at=(await part.boundingBox())!;
+    assert.ok(at.x>=0&&at.x+at.width<=viewport.width+0.5,`the webhook ${what} fits: ${JSON.stringify(at)}`);
+  }
+  assert.ok(await edit.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'no sideways scroll in the popover');
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal page scroll with the webhook popover');
+  await edit.getByRole('button',{name:'Done',exact:true}).tap();
+  await edit.waitFor({state:'detached'});
+
   // The bottom box's typed-repeat chip takes its own line above the message, inside the window (Task 12).
   await page.keyboard.press('Escape');
   await sheet.waitFor({state:'detached'});
@@ -249,7 +272,6 @@ await runChatTest('canvas schedules: a phone has Scheduled in its top bar, text 
 
 // Task 13: a webhook from the clock. Its URL is shown once, a call from outside (no cookie) lands in the chat, the URL is
 // masked afterwards, and Rotate URL makes a new one. Synthetic payloads only.
-const HOOK_URL=/^http:\/\/127\.0\.0\.1:\d+\/api\/hooks\/nest_hook_[A-Za-z0-9_-]{43}$/;
 await runChatTest('canvas schedules: a webhook shows its URL once, a call lands in the chat, and Rotate URL replaces it',async h=>{
   const {page,base}=h;
   const canvasId=await scheduleBoard(h);

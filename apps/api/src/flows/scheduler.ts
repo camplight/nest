@@ -8,7 +8,7 @@ import {
   type AgentMadeSchedule, type FlowNeed, type MissedReason, type SchedulePausedReason, type ScheduleView, type TriggerView,
 } from '@nest/schemas';
 import type { Channel } from '../canvases';
-import { channelAccess } from './access';
+import { channelAccess, isAgentIn } from './access';
 import { SwitchyardUnavailableError, type Switchyard } from './identity';
 import { FlowActionError, holdFlowsLease, type Actor } from './handoff';
 
@@ -24,8 +24,6 @@ const NOT_SET_UP = 'Schedules are not set up on this server';
 const str = (value: unknown) => (typeof value === 'string' ? value : '');
 const describe = (error: unknown) =>
   error instanceof EngineError ? `engine status ${error.status}` : error instanceof Error ? error.name : 'unknown error';
-const isAgentIn = (channel: { participants?: { subscriberType: string; subscriberId: string }[] } | undefined, name: string) =>
-  (channel?.participants ?? []).some(p => p.subscriberType === 'AGENT' && p.subscriberId === name);
 /** The trigger a scheduled run posts: who set it up first, then the prompt. */
 export const scheduledRunText = (s: ScheduleRecord, username: string) => `Scheduled run · ${ruleText(s.rule)} · set up by ${username}\n\n${s.prompt}`;
 
