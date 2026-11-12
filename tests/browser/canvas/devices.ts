@@ -274,6 +274,10 @@ await runChatTest('canvas devices: card text keeps 4.5:1 contrast in light and d
   // A paused link from the failing chat to the quiet one: its label and the Hand-off popover's headings use the faint text.
   const link=await call<{id:string;version:number}>(h,'POST','/api/flows/links',{id:crypto.randomUUID(),from:failing.channelId,to:h.project.channelId});
   await call(h,'PATCH',`/api/flows/links/${link.id}`,{on:false,version:link.version});
+  // Schedules (Task 11): a live badge on the quiet card, a paused one on the failing card.
+  await call(h,'POST','/api/flows/schedules',{id:crypto.randomUUID(),channelId:h.project.channelId,agent:agentName,prompt:'Synthetic recap',rule:{kind:'weekly',days:[0],time:'09:00'},timezone:'UTC'});
+  const off=await call<{id:string;version:number}>(h,'POST','/api/flows/schedules',{id:crypto.randomUUID(),channelId:failing.channelId,agent:agentName,prompt:'Synthetic check',rule:{kind:'weekdays',time:'08:00'},timezone:'UTC'});
+  await call(h,'PATCH',`/api/flows/schedules/${off.id}`,{on:false,version:off.version});
 
   await page.goto(`${base}/?view=canvas&canvas=${id}`);
   const ratios:Record<string,number>={};
@@ -295,6 +299,24 @@ await runChatTest('canvas devices: card text keeps 4.5:1 contrast in light and d
     ratios[`hand-off headings ${theme}`]=await assertContrast(page,`hand-off headings, ${theme}`,['What passes along','When','Who picks it up','Name on the line'],'.canvas-flow-pop .iv-l');
     await page.keyboard.press('Escape');
     await page.locator('.canvas-flow-pop').waitFor({state:'detached'});
+    // The schedule badges (live and paused), the open chat's strip, and the clock popover's selected day.
+    await cardAt(page,failing.channelId).locator('.sch.off').waitFor();
+    ratios[`schedule badges ${theme}`]=await assertContrast(page,`schedule badges, ${theme}`,['Mon 09:00','Weekdays 08:00'],'.canvas-card .sch');
+    await page.getByRole('button',{name:'Open chat Synthetic chat project',exact:true}).click();
+    const sheet=page.getByRole('dialog',{name:'Open chat Synthetic chat project',exact:true});
+    await sheet.locator('.cfg > summary').waitFor();
+    // Setup stays open once opened (the first theme's pass leaves it so).
+    if(!await sheet.locator('.cfg').evaluate(el=>(el as HTMLDetailsElement).open))await sheet.locator('.cfg > summary').click();
+    await sheet.locator('.sch-strip').waitFor();
+    ratios[`schedule strip ${theme}`]=await assertContrast(page,`schedule strip, ${theme}`,['Every Monday at 09:00'],'.canvas-chat .sch-strip');
+    await sheet.getByRole('button',{name:'Schedule or trigger: run this on a timer or when something happens',exact:true}).click();
+    await page.locator('.canvas-sched-pop .days button.on').waitFor();
+    ratios[`selected day ${theme}`]=await assertContrast(page,`selected day, ${theme}`,['Mon'],'.canvas-sched-pop .days button.on');
+    await page.keyboard.press('Escape');
+    await page.locator('.canvas-sched-pop').waitFor({state:'detached'});
+    // Closed from the keyboard, so the forced-colours check below still sees keyboard focus (:focus-visible).
+    await page.keyboard.press('Escape');
+    await sheet.waitFor({state:'detached'});
 
     await useTheme(mate.page,theme);
     await mate.page.goto(`${base}/?view=canvas&canvas=${id}`);

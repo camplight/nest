@@ -1,7 +1,7 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
 import {useCallback,useEffect,useId,useLayoutEffect,useMemo,useReducer,useRef,useState,useSyncExternalStore,type CSSProperties,type FormEvent,type MutableRefObject,type ReactNode} from 'react';
 import {Columns2,Ellipsis,FileText,Search,Share2,SquareArrowOutUpRight,X} from 'lucide-react';
-import {AGENT_PIN_LIMIT_MESSAGE,CanvasTint,relTime,ruleText,type AgentPins,type BoardLink,type Link,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
+import {AGENT_PIN_LIMIT_MESSAGE,CanvasTint,relTime,ruleText,type AgentPins,type BoardLink,type Link,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project,type ScheduleView} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
@@ -1105,7 +1105,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     const channel = visibleRef.current.find(c => c.id === channelId), project = projects.find(p => p.channelId === channelId);
     return Boolean(channel?.canManage && !channel.archivedAt && (!project || project.ownerId === humanId));
   }, [store, manageable, projects, humanId]);
-  const saveSchedule = useCallback(async (draft: ScheduleDraft): Promise<boolean> => {
+  const saveSchedule = useCallback(async (draft: ScheduleDraft, opened: ScheduleView | null): Promise<boolean> => {
     const pop = schedPopRef.current;
     if (!pop) return false;
     const {channelId} = pop, by = humanRef.current;
@@ -1120,12 +1120,14 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         if (!settle(fresh, by)) return false;
       } catch { if (humanRef.current === by) say(`Could not add ${draft.agent}. Try again.`); return false; }
     }
+    // Only what the person changed since the popover opened: someone else's edit in the meantime stays.
+    const base = opened ?? current;
     try {
-      const saved = current
+      const saved = current && base
         ? await patchSchedule(current.id, {
-          ...(draft.prompt !== current.prompt ? {prompt: draft.prompt} : {}),
-          ...(draft.agent !== current.agent ? {agent: draft.agent} : {}),
-          ...(JSON.stringify(draft.rule) !== JSON.stringify(current.rule) ? {rule: draft.rule} : {}),
+          ...(draft.prompt !== base.prompt ? {prompt: draft.prompt} : {}),
+          ...(draft.agent !== base.agent ? {agent: draft.agent} : {}),
+          ...(JSON.stringify(draft.rule) !== JSON.stringify(base.rule) ? {rule: draft.rule} : {}),
         }, current.version)
         : await createSchedule({id: pop.newId, channelId, agent: draft.agent, prompt: draft.prompt, rule: draft.rule, timezone: browserZone()});
       if (schedPopRef.current === pop) setSchedPop(null);
@@ -1264,7 +1266,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       {/* On phones Needs you is a segment of the list instead. */}
       {phone ? null : <NeedsYou pulses={pulses} titles={titles} projects={projects} reviews={reviews} flows={flows.needs} onRunNow={runNow} onOpenChange={setNeedsOpen} onJump={jumpTo}/>}
       {/* Top-bar labels collapse to their icons as the bar narrows (canvas.css); the text stays as the name. */}
-      {flowsOn && board && !phone ? <button type="button" className="canvas-search-button canvas-sched-button" title="Scheduled jobs on this canvas" aria-haspopup="dialog"
+      {flowsOn && board ? <button type="button" className="canvas-search-button canvas-sched-button" title="Scheduled jobs on this canvas" aria-haspopup="dialog"
         aria-expanded={Boolean(schedList)} onClick={event => { const button = event.currentTarget; setSchedPop(null); setSchedList(current => current ? null : button); }}>
         <ClockIcon/><span className="canvas-bar-label">Scheduled</span><span className={`cnt${schedCount.hot ? ' hot' : ''}`}>{schedCount.text}</span>
       </button> : null}

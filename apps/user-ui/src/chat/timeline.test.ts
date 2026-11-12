@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {buildTimeline,dayKey,isContinuation,isTraceEvent,toThreadMessage,upsertEvents} from './timeline';
+import {buildTimeline,dayKey,isContinuation,isTraceEvent,newestTimelineAt,toThreadMessage,upsertEvents} from './timeline';
 import type {EventRow} from '../types';
 const opts={currentUsername:'alek'};
 const msg=(id:string,source:string,payload:Record<string,unknown>={text:'Hi'},createdAt=1000,extra:Partial<EventRow>={}):EventRow=>({id,type:'message.created',source,payload,createdAt,...extra});
@@ -279,5 +279,16 @@ describe('additions',()=>{
   const named=buildTimeline([q,z],opts,buildTimeline([z],opts));
   expect(named.map(item=>item.id)).toEqual(['z']);
   expect(buildTimeline([p,m1,r,m2,q,m3,x,z],opts,[...chain,...named]).map(item=>item.id)).toEqual(['x','m1','x~1','m2','z','m3','x~2']);
+ });
+});
+
+describe('newestTimelineAt',()=>{
+ it('counts a scheduled run from when it is due, never one booked for later, and only with the flag',()=>{
+  const run=(id:string,createdAt:number,deliverAt?:number):EventRow=>({id,type:'agent.scheduled.trigger',source:'agent:Switchyard',payload:{text:'Scheduled run'},createdAt,...(deliverAt===undefined?{}:{deliverAt})});
+  const events=[e1,run('due',900,1500),run('later',1600,9000)];
+  expect(newestTimelineAt(events)).toBe(1000);
+  expect(newestTimelineAt(events,{now:2000})).toBe(1500);
+  expect(newestTimelineAt([...events,run('now',1700)],{now:2000})).toBe(1700);
+  expect(newestTimelineAt(events,{now:9000})).toBe(9000);
  });
 });

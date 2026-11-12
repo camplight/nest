@@ -66,9 +66,17 @@ await runChatTest('canvas schedules: the clock, the badge and strip, Run now, a 
   assert.equal(await scheduled.getAttribute('title'),'Scheduled jobs on this canvas');
   assert.equal(await scheduled.evaluate(el=>el.nextElementSibling?.classList.contains('canvas-search-button')&&!el.nextElementSibling.classList.contains('canvas-sched-button')),true,'before Search');
 
-  // The clock: Pip, what to do, every week on Monday (on already) and Wednesday at 09:00.
-  await sheet.getByRole('button',{name:CLOCK,exact:true}).click();
+  // The clock: Escape closes its popover and focus goes back to it.
+  const clock=sheet.getByRole('button',{name:CLOCK,exact:true});
+  await clock.click();
   const pop=page.getByRole('dialog',{name:'Schedule',exact:true});
+  await pop.waitFor();
+  await page.keyboard.press('Escape');
+  await pop.waitFor({state:'detached'});
+  assert.equal(await clock.evaluate(el=>document.activeElement===el),true,'focus is back on the clock');
+  assert.equal(await sheet.count(),1,'Escape closed the popover, not the chat');
+  // Pip, what to do, every week on Monday (on already) and Wednesday at 09:00.
+  await clock.click();
   await pop.waitFor();
   assert.equal(await pop.locator('h2').innerText(),`Schedule · ${CHAT}`);
   assert.deepEqual(await pop.locator('.optrow').nth(1).locator('button').allInnerTexts(),['Once','Every day','Weekdays','Every week','Every month','Every few minutes'],'no Webhook until its form (T11-R1)');
@@ -129,6 +137,7 @@ await runChatTest('canvas schedules: the clock, the badge and strip, Run now, a 
   assert.match(await rows.innerText(),/^Error watch\s+Once · \w{3} \d\d:\d\d · set by Pom · loose chat\s+\w{3} \d\d:\d\d\s+in (1|2) h$/);
   await list.getByRole('button',{name:'Done',exact:true}).click();
   await list.waitFor({state:'detached'});
+  assert.equal(await scheduled.evaluate(el=>document.activeElement===el),true,'Done returns focus to Scheduled');
 
   // Run now from the missed strip clears it.
   await runNow.click();
@@ -146,7 +155,9 @@ await runChatTest('canvas schedules: the clock, the badge and strip, Run now, a 
   assert.match(await strip.innerText(),new RegExp(`^${RULE} · Pip · paused`));
   await scheduled.click();
   await list.getByRole('region',{name:'Paused',exact:true}).locator('.srow',{hasText:CHAT}).waitFor();
-  await list.getByRole('button',{name:'Done',exact:true}).click();
+  await page.keyboard.press('Escape');
+  await list.waitFor({state:'detached'});
+  assert.equal(await scheduled.evaluate(el=>document.activeElement===el),true,'Escape returns focus to Scheduled');
 
   // Delete: the toast, the strip and badge go, and the past lines stay.
   await strip.getByRole('button',{name:'Edit',exact:true}).click();
@@ -173,7 +184,8 @@ await runChatTest('canvas schedules: a view-role canvas member sees the badge an
   const page=mate.page;
   const sheet=await openChat(page,base,canvasId);
   await until(()=>text(page.locator(`.canvas-card[data-channel-id="${chat}"] .sch`)),t=>t==='Weekdays 08:00','the badge');
-  assert.equal(await sheet.getByRole('button',{name:CLOCK,exact:true}).count(),0,'no clock for a view-role member');
+  await sheet.getByRole('button',{name:'Split screen',exact:true}).waitFor();
+  assert.equal(await sheet.getByRole('button',{name:CLOCK,exact:true}).count(),0,'no clock for a view-role member, beside a rendered header');
   await sheet.locator('.cfg > summary').click();
   const strip=sheet.locator('.sch-strip');
   assert.match(await strip.innerText(),/^Weekdays at 08:00 · Pip · set by demo-owner · next /);
@@ -186,5 +198,37 @@ await runChatTest('canvas schedules: a view-role canvas member sees the badge an
   assert.equal(await edit.getByRole('button',{name:'Pause',exact:true}).count(),1);
   await edit.getByRole('button',{name:'Done',exact:true}).click();
   await page.locator('.canvas-sched-button').click();
-  await page.getByRole('dialog',{name:'Scheduled jobs',exact:true}).locator('.srow',{hasText:'set by demo-owner'}).waitFor();
+  const row=page.getByRole('dialog',{name:'Scheduled jobs',exact:true}).locator('.srow',{hasText:'set by demo-owner'});
+  await row.waitFor();
+  // A row goes to its chat, which keeps focus (the list closing does not pull it back to Scheduled).
+  await row.click();
+  await page.getByRole('dialog',{name:'Scheduled jobs',exact:true}).waitFor({state:'detached'});
+  await until(()=>page.evaluate(()=>Boolean(document.activeElement?.closest('.canvas-chat, .canvas-card'))),inside=>inside,'focus on the chat');
 },{canvas:true,flows:true});
+
+await runChatTest('canvas schedules: a phone has Scheduled in its top bar, text only, and its list opens the chat',async h=>{
+  const {page,base}=h, chat=h.project.channelId;
+  const canvasId=await scheduleBoard(h);
+  await call(h,'POST','/api/flows/schedules',{id:crypto.randomUUID(),channelId:chat,agent:'Pip',prompt:'Summarise new email.',rule:{kind:'weekdays',time:'08:00'},timezone:'UTC'});
+  await page.goto(`${base}/?view=canvas&canvas=${canvasId}`);
+  await page.getByRole('region',{name:'Canvas list',exact:true}).waitFor();
+  const scheduled=page.locator('.canvas-sched-button');
+  await until(()=>text(scheduled.locator('.cnt')),t=>t==='1','the count');
+  assert.equal(await scheduled.locator('svg').evaluate(el=>getComputedStyle(el).display),'none','text only, like Search');
+  assert.equal(await scheduled.locator('.canvas-bar-label').evaluate(el=>el.getBoundingClientRect().width>1),true,'the label shows');
+  const viewport=page.viewportSize()!;
+  const box=(await scheduled.boundingBox())!;
+  assert.ok(box.x>=0&&box.x+box.width<=viewport.width,`inside the window: ${JSON.stringify(box)}`);
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal page scroll');
+  await scheduled.tap();
+  const list=page.getByRole('dialog',{name:'Scheduled jobs',exact:true});
+  await list.waitFor();
+  const shown=(await list.boundingBox())!;
+  assert.ok(shown.x>=0&&shown.x+shown.width<=viewport.width,`the list fits: ${JSON.stringify(shown)}`);
+  // A row opens its chat full screen, which takes focus (not the Scheduled button the list closed back to).
+  await list.locator('.srow',{hasText:CHAT}).tap();
+  const sheet=page.getByRole('dialog',{name:`Open chat ${CHAT}`,exact:true});
+  await sheet.waitFor();
+  await list.waitFor({state:'detached'});
+  await until(()=>sheet.evaluate(el=>el.contains(document.activeElement)),inside=>inside,'focus in the opened chat');
+},{canvas:true,flows:true,viewport:{width:375,height:740},hasTouch:true});

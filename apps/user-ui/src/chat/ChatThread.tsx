@@ -18,7 +18,7 @@ import {MessageActions} from './MessageActions';
 import {MessageBody} from './MessageBody';
 import type {ReplyTarget} from './quote-types';
 import {SelectionQuote} from './SelectionQuote';
-import {buildTimeline,dayKey,isContinuation,isTraceEvent,toThreadMessage,type ChatMeta,type TimelineItem} from './timeline';
+import {buildTimeline,dayKey,isContinuation,newestTimelineAt,toThreadMessage,type ChatMeta,type TimelineItem} from './timeline';
 import {Button} from './ui/button';
 import {DaySeparator} from './ui/day-separator';
 import {cn} from './ui/lib/utils';
@@ -76,8 +76,6 @@ export function arrivedWhileAway(previousNewest:number|null,newest:number,nearBo
  return previousNewest!==null&&newest>previousNewest&&!nearBottom;
 }
 
-const newestTimelineAt=(events:EventRow[],scheduledRuns=false)=>events.reduce((newest,event)=>
- event.type==='message.created'||isTraceEvent(event)||(scheduledRuns&&event.type==='agent.scheduled.trigger')?Math.max(newest,event.createdAt??0):newest,0);
 const distanceFromBottom=(panel:HTMLElement)=>panel.scrollHeight-panel.scrollTop-panel.clientHeight;
 const dayLabel=(ts:number)=>new Intl.DateTimeFormat(undefined,{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(new Date(ts));
 
@@ -300,7 +298,7 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  },[loadOlder]);
 
  // New content: pinned at the bottom it follows, scrolled up it offers "New messages below".
- const newest=snapshot.loading?null:newestTimelineAt(snapshot.events,scheduledRuns);
+ const newest=snapshot.loading?null:newestTimelineAt(snapshot.events,scheduledRuns?{now:serverClock.serverNow()}:null);
  const newestRef=useRef<number|null>(null);
  useLayoutEffect(()=>{
   const previous=newestRef.current;

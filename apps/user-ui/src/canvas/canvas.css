@@ -3572,14 +3572,15 @@ li.canvas-phone-row[data-access] {
 /*
  * Scheduled jobs (the mock's `.sch`, `.sch-strip`, `.days`, `.srow`, `.slist` and `.ghost .cnt`, CSS copied with Nest tokens):
  * a card's badge under its last activity, the open chat's strips in its Setup body, the clock popover's day buttons, and
- * the top bar's Scheduled button and list. Faint text uses the 4.5:1 token (T6-R1); coral text the card alert's mix.
+ * the top bar's Scheduled button and list. Text is darker than the mock's where it falls under 4.5:1 (T6-R1): the badge's
+ * accent is mixed with the text colour and a paused badge is muted; coral text uses the card alert's mix.
  */
 .canvas-card-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
 .canvas-world.is-compact .canvas-card-meta .sch { display: none; }
-.sch { display: inline-flex; gap: 4px; align-items: center; font: 600 11px Inter, sans-serif; color: var(--nest-accent); background: color-mix(in srgb, var(--nest-accent) 10%, transparent); border-radius: 999px; padding: 1px 7px 1px 5px; white-space: nowrap; }
+.sch { display: inline-flex; gap: 4px; align-items: center; font: 600 11px Inter, sans-serif; color: color-mix(in srgb, var(--nest-accent) 75%, var(--nest-text)); background: color-mix(in srgb, var(--nest-accent) 10%, transparent); border-radius: 999px; padding: 1px 7px 1px 5px; white-space: nowrap; }
 .sch svg { width: 12px; height: 12px; flex: none; }
 .sch.missed { color: var(--canvas-alert); background: color-mix(in srgb, var(--nest-coral) 12%, transparent); }
-.sch.off { color: var(--canvas-faint-text); background: var(--canvas-surface-2); }
+.sch.off { color: var(--nest-muted); background: var(--canvas-surface-2); }
 .cfg-body > .sch-strip { display: flex; gap: 8px; align-items: center; margin: 8px 10px 0; padding: 8px 10px; border: 1px solid var(--nest-border); border-radius: 10px; font-size: 12.5px; line-height: 1.4; color: var(--nest-muted); white-space: normal; }
 .sch-strip > svg { width: 15px; height: 15px; color: var(--nest-accent); flex: none; }
 .sch-strip b { color: var(--nest-text); }
@@ -3599,8 +3600,9 @@ li.canvas-phone-row[data-access] {
 .canvas-sched-pop .sched-when .iv-in { width: auto; font-size: 13px; }
 .canvas-flow-pop .days { display: flex; gap: 4px; flex-wrap: wrap; }
 .canvas-flow-pop .days button { width: 36px; height: 30px; border-radius: 8px; border: 1px solid var(--nest-border); background: var(--nest-surface); font: 500 12px Inter, sans-serif; color: var(--nest-text); cursor: pointer; }
-/* The mock's white reads under 4.5:1 on the dark theme's lime accent; the page background reads in both. */
-.canvas-flow-pop .days button.on { background: var(--nest-accent); border-color: var(--nest-accent); color: var(--nest-bg); }
+/* The mock's white on the light accent (4.69:1); on the dark theme's lime accent white is under 4.5:1, so the page background. */
+.canvas-flow-pop .days button.on { background: var(--nest-accent); border-color: var(--nest-accent); color: #fff; }
+:root[data-theme="dark"] .canvas-flow-pop .days button.on { color: var(--nest-bg); }
 .canvas-flow-pop .days button:disabled { cursor: default; }
 .canvas-flow-pop :is(.days button, .pick, .btn, .srow):focus-visible { outline: 2px solid var(--nest-lime); outline-offset: 2px; }
 .canvas-flow-pop .btn[aria-disabled="true"] { opacity: .6; cursor: default; }
@@ -3616,7 +3618,6 @@ li.canvas-phone-row[data-access] {
 .canvas-sched-list .srow .when { margin-left: auto; text-align: right; font-size: 12px; color: var(--nest-muted); white-space: nowrap; flex: none; }
 .canvas-sched-list .srow .when b { display: block; color: var(--nest-text); font-weight: 600; }
 .canvas-sched-list .srow.missed .when b { color: var(--canvas-alert); }
-.canvas-sched-list .sched-empty { padding: 10px 4px 0; margin: 0; }
 .canvas-sched-list .iv-foot .calm { margin-right: auto; font-size: 12px; align-self: center; line-height: 1.4; }
 .canvas-sched-button > svg { width: 16px; height: 16px; flex: none; }
 .canvas-sched-button .cnt { font: 700 11px Inter, sans-serif; background: var(--canvas-surface-2); border-radius: 999px; padding: 0 6px; margin-left: 2px; }

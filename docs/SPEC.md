@@ -1755,12 +1755,14 @@ come.
      creator or a chat member who can post; `Edit` for the creator or a chat member.
      Only the creator changes what, who and when: for anyone else the popover is read
      only, with Pause and Delete. An agent's own run has no buttons. Run now and the
-     popover's buttons use `aria-disabled` while busy, so focus stays.
-   - The top bar's `Scheduled` (before Search; not on a phone) counts the canvas's
-     live jobs, or `N missed` in coral. It opens the list `Scheduled on {canvas}`
+     popover's buttons use `aria-disabled` while busy, so focus stays. Text is darker
+     than the mock's where it would fall under 4.5:1 (the badge, a paused badge, and
+     the selected day in the dark theme), checked by `tests/browser/canvas/devices.ts`.
+   - The top bar's `Scheduled` (before Search; text only on a phone, like Search)
+     counts the canvas's live jobs, or `N missed` in coral. It opens the list `Scheduled on {canvas}`
      with `All` and `Set by agents`, grouped Missed, Next 24 hours, Later and Paused.
      A row names its chat, rule, `set by …` and `loose chat` when the chat is not on
-     this canvas, and jumps to the chat. Delete toasts `Schedule deleted. Past runs
+     this canvas, and jumps to the chat, which takes focus. Delete toasts `Schedule deleted. Past runs
      stay in the chat.`.
    - In the chat, with the canvas flag on, history adds an eighth query
      (`type=agent.scheduled.trigger`) and the timeline shows each trigger that is due

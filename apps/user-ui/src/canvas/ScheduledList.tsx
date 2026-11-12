@@ -69,6 +69,8 @@ export function ScheduledList({canvasName, jobs, titles, onCanvas, anchor, now, 
   const ref = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const anchorRef = useRef(anchor); anchorRef.current = anchor;
+  /** Set when a row was pressed: the list closes into that chat, so focus goes there, not back to Scheduled. */
+  const going = useRef(false);
   // Under the button (r.left - 80, r.bottom + 12), inside the window; Escape and a press outside close it.
   const place = usePopPlacement(ref, anchor, 80, 12);
   usePopDismiss(ref, anchorRef, onClose);
@@ -77,6 +79,15 @@ export function ScheduledList({canvasName, jobs, titles, onCanvas, anchor, now, 
     heading.current?.focus({preventScroll: true});
     return () => {
       const view = ref.current?.closest<HTMLElement>('.canvas-view') ?? document;
+      if (going.current) {
+        // The chat focuses itself when it opens; one already open is focused here.
+        requestAnimationFrame(() => {
+          const active = document.activeElement;
+          if (active && active !== document.body && active.isConnected) return;
+          view.querySelector<HTMLElement>('.canvas-chat')?.focus({preventScroll: true});
+        });
+        return;
+      }
       [anchorRef.current, previous, view.querySelector<HTMLElement>('.canvas-surface')].find(element => element?.isConnected)?.focus({preventScroll: true});
     };
   }, []);
@@ -93,7 +104,7 @@ export function ScheduledList({canvasName, jobs, titles, onCanvas, anchor, now, 
         <div className="grp" aria-hidden="true">{group.title}</div>
         {group.jobs.map(job => {
           const [when, sub] = rowWhen(job, at);
-          return <button key={job.key} type="button" className={`srow${job.missed ? ' missed' : ''}`} data-channel-id={job.channelId} onClick={() => onGoto(job.channelId)}>
+          return <button key={job.key} type="button" className={`srow${job.missed ? ' missed' : ''}`} data-channel-id={job.channelId} onClick={() => { going.current = true; onGoto(job.channelId); }}>
             <AgentAvatar name={job.agent} size={28}/>
             <span className="srow-main">{titles.get(job.channelId) ?? 'Untitled chat'}
               <span className="sm2">{job.text}{job.setBy ? ` · set by ${job.setBy}` : ''}{onCanvas.has(job.channelId) ? '' : ' · loose chat'}</span></span>
@@ -101,7 +112,6 @@ export function ScheduledList({canvasName, jobs, titles, onCanvas, anchor, now, 
           </button>;
         })}
       </section>)}
-      {groups.length ? null : <p className="calm sched-empty">{filter === 'all' ? 'Nothing is scheduled here yet.' : 'No agent has scheduled anything here.'}</p>}
     </div>
     <div className="iv-foot"><span className="calm">{LIST_FOOT}</span><button type="button" className="btn pri" onClick={onClose}>Done</button></div>
   </div>;

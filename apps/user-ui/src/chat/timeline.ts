@@ -93,6 +93,15 @@ export function isTraceEvent(event:EventRow):boolean{
  return TRACE_TYPES.has(event.type);
 }
 
+// A scheduled run counts from when it is due (`deliverAt`); one booked for later is not on the timeline yet, so it never
+// offers "New messages below".
+export const newestTimelineAt=(events:EventRow[],scheduledRuns:{now:number}|null=null)=>events.reduce((newest,event)=>{
+ if(event.type==='message.created'||isTraceEvent(event))return Math.max(newest,event.createdAt??0);
+ if(!scheduledRuns||event.type!=='agent.scheduled.trigger')return newest;
+ const at=event.deliverAt??event.createdAt??0;
+ return at>scheduledRuns.now?newest:Math.max(newest,at);
+},0);
+
 // Sort key ported from classic mergeEventsChronologically: deliverAt ?? createdAt, then createdAt, then id.
 export function upsertEvents(current:EventRow[],incoming:EventRow[]):EventRow[]{
  const byId=new Map<string,EventRow>();

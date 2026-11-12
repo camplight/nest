@@ -52,8 +52,11 @@ export type SchedulePopoverProps = {
   /** The button the popover sits under; focus returns there on close. */
   anchor: HTMLElement | null;
   now(): number;
-  /** Saves; resolves true once saved (the canvas then closes the popover and says so). */
-  onSave(draft: ScheduleDraft): Promise<boolean>;
+  /**
+   * Saves; resolves true once saved (the canvas then closes the popover and says so). `opened` is the schedule as it was
+   * when the popover opened, so only the fields the person changed are sent.
+   */
+  onSave(draft: ScheduleDraft, opened: ScheduleView | null): Promise<boolean>;
   /** Pause or Resume (the creator or a chat member: `canManage`). */
   onPause?(on: boolean): Promise<void>;
   onDelete?(): Promise<void>;
@@ -68,6 +71,7 @@ export function SchedulePopover({chat, schedule, agents, pinned, timezone, ancho
   const [agent, setAgent] = useState(() => schedule?.agent ?? agents[0] ?? pinned[0] ?? '');
   const [draft, setDraft] = useState(() => draftOf(schedule?.rule ?? null));
   const [busy, setBusy] = useState(false);
+  const opened = useRef(schedule);
   const rule = ruleOf(draft);
   const set = (patch: Partial<Draft>) => setDraft(current => ({...current, ...patch}));
   const kind = (k: Kind) => set({kind: k});
@@ -95,7 +99,7 @@ export function SchedulePopover({chat, schedule, agents, pinned, timezone, ancho
   const save = () => {
     if (!ready || busy || !rule) return;
     setBusy(true);
-    void onSave({agent, prompt: prompt.trim(), rule}).finally(() => setBusy(false));
+    void onSave({agent, prompt: prompt.trim(), rule}, opened.current).finally(() => setBusy(false));
   };
   const act = (run: () => Promise<void>) => { if (busy) return; setBusy(true); void run().finally(() => setBusy(false)); };
   const id = schedule?.id ?? 'new';
@@ -128,7 +132,8 @@ export function SchedulePopover({chat, schedule, agents, pinned, timezone, ancho
         </select>
         : <input className="iv-in" type="time" aria-label="Time" value={draft.time} readOnly={!editable} onChange={event => set({time: event.target.value})}/>}
     </div>
-    <div className="lk-sum" role="status">
+    {/* No live region: the summary repeats the prompt, so it would be read again on every keystroke. */}
+    <div className="lk-sum">
       <b>{agent || 'someone'}</b> will {willDo(prompt)} · <b>{text}</b>.{next !== null ? ` Next run: ${atText(next, tz)} (${relTime(next, at)}).` : ''} If a run can't start, it shows up in Needs you. Times are in {tz}.
     </div>
     <div className="iv-foot">
