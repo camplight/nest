@@ -112,8 +112,9 @@ try{
       assert.equal(denied.status(),200,await denied.text());
       assert.equal(product.store.projectAccess.get(submittedRequestIds[0])?.status,'denied','Denial is persisted before the owner inbox refreshes');
       const activeAfterDenial=await product.app.request('/api/project-access-requests',{headers:ownerHeaders});
-      assert.equal(activeAfterDenial.status,200,await activeAfterDenial.text());
-      assert.deepEqual(await activeAfterDenial.json(),[],'The owner API no longer returns the denied request');
+      const activeAfterDenialText=await activeAfterDenial.text();
+      assert.equal(activeAfterDenial.status,200,activeAfterDenialText);
+      assert.deepEqual(JSON.parse(activeAfterDenialText),[],'The owner API no longer returns the denied request');
       try{await firstNotifications.getByText('No pending project access requests.',{exact:true}).waitFor();}
       catch(error){console.error('Notifications after denial:',await firstNotifications.textContent().catch(()=>'<dialog unavailable>'));throw error;}
 
