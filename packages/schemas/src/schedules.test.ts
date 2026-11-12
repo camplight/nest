@@ -167,6 +167,24 @@ describe('parseScheduleText', () => {
     expect(parse('every Thurs at 4pm')).toEqual({ kind: 'weekly', days: [3], time: '16:00' });
     expect(parse('every mondays')).toEqual({ kind: 'weekly', days: [0], time: '09:00' });
   });
+  it('counts a short day name only in a day context, so ordinary words stay daily', () => {
+    expect(parse('I sat down with Ana; every day summarise what we discussed')).toEqual({ kind: 'daily', time: '09:00' });
+    expect(parse('every day check the sun exposure log')).toEqual({ kind: 'daily', time: '09:00' });
+    expect(parse("c'mon, every day post the build")).toEqual({ kind: 'daily', time: '09:00' });
+    expect(parse('every day post the sats price')).toEqual({ kind: 'daily', time: '09:00' });
+    expect(parse('daily standup notes, wed is off')).toEqual({ kind: 'daily', time: '09:00' });
+    expect(parse('every day, on sat too')).toEqual({ kind: 'weekly', days: [5], time: '09:00' });
+    expect(parse('every Monday & wed / fri')).toEqual({ kind: 'weekly', days: [0, 2, 4], time: '09:00' });
+    // A full name before any `every` or `on` is just a word.
+    expect(parse('Monday notes: every day add a line')).toEqual({ kind: 'daily', time: '09:00' });
+  });
+  it('reads Monday to Friday as weekdays, and other ranges as their days', () => {
+    expect(parse('every day mon to fri at 8')).toEqual({ kind: 'weekdays', time: '08:00' });
+    expect(parse('daily, monday-friday')).toEqual({ kind: 'weekdays', time: '09:00' });
+    expect(parse('every Monday through Friday at 7pm')).toEqual({ kind: 'weekdays', time: '19:00' });
+    expect(parse('every tue–thu')).toEqual({ kind: 'weekly', days: [1, 2, 3], time: '09:00' });
+    expect(parse('every fri to mon')).toEqual({ kind: 'weekly', days: [0, 4, 5, 6], time: '09:00' });
+  });
   it('reads evening and morning hours and a.m./p.m.', () => {
     expect(parse('every evening at 7')).toEqual({ kind: 'daily', time: '19:00' });
     expect(parse('every evening at 7am')).toEqual({ kind: 'daily', time: '07:00' });

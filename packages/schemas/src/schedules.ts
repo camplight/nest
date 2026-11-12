@@ -148,7 +148,37 @@ export function nextRunAt(rule: ScheduleRule, tz: string, after: number): number
 const DAY_WORD = '(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues|tue|wed|thurs|thur|thu|fri|sat|sun)s?';
 const SHORT_DAYS = DAYS.map(d => d.toLowerCase());
 const TRIGGER = new RegExp(`\\bevery (?:day|morning|evening|weekday|${DAY_WORD}|week|month|\\d+ ?min(?:ute)?s?)\\b|\\bdaily\\b|\\bweekdays?\\b|\\btomorrow\\b`);
-const DAY_NAME = new RegExp(`\\b${DAY_WORD}\\b`, 'g');
+const DAY_ANY = new RegExp(`\\b${DAY_WORD}\\b`, 'g');
+const DAY_CUE = /\b(?:every|on)\s+$/;
+const DAY_JOIN = /^\s*(?:(?:,|&|\/|and)\s*)+$/;
+const DAY_RANGE = /^\s*(?:-|–|—|to|through|thru)\s*$/;
+
+/**
+ * The days a text names as days, Mon=0, sorted. Short names are common words (`sat`, `sun`, `c'mon`), so a day counts
+ * only right after `every` or `on`, or after a list joiner (`,` `and` `&` `/`) that follows a counted day. A full name
+ * also counts anywhere after `every` or `on`. A range (`mon to fri`, `monday-friday`) counts both ends and the days
+ * between.
+ */
+function namedDays(s: string): number[] {
+  const cue = s.search(/\b(?:every|on)\b/);
+  const found = [...s.matchAll(DAY_ANY)].map(m => ({
+    day: SHORT_DAYS.indexOf(m[1].slice(0, 3)), full: m[1].endsWith('day'), start: m.index!, end: m.index! + m[0].length,
+  }));
+  const counted = new Set<number>(), days = new Set<number>();
+  found.forEach((m, i) => {
+    const prev = i > 0 ? found[i - 1] : null, gap = prev ? s.slice(prev.end, m.start) : '';
+    if (prev && DAY_RANGE.test(gap)) {
+      for (let d = prev.day; ; d = (d + 1) % 7) { days.add(d); if (d === m.day) break; }
+      counted.add(i - 1).add(i);
+      return;
+    }
+    if (DAY_CUE.test(s.slice(0, m.start)) || (m.full && cue >= 0 && m.start > cue) || (prev && counted.has(i - 1) && DAY_JOIN.test(gap))) {
+      counted.add(i);
+      days.add(m.day);
+    }
+  });
+  return [...days].sort((a, b) => a - b);
+}
 
 /** The weekday (Mon=0) at instant `t` in `tz`. */
 function weekdayAt(t: number, tz: string): number {
@@ -183,7 +213,8 @@ export function parseScheduleText(text: string, now: number, tz: string): Schedu
     const time = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
     if (/\btomorrow\b/.test(s)) return valid({ kind: 'once', day: (weekdayAt(now, tz) + 1) % 7, time });
     if (/\bweekdays?\b|\bevery morning\b/.test(s)) return valid({ kind: 'weekdays', time });
-    const days = [...new Set([...s.matchAll(DAY_NAME)].map(m => SHORT_DAYS.indexOf(m[1].slice(0, 3))))].sort((a, b) => a - b);
+    const days = namedDays(s);
+    if (days.join() === '0,1,2,3,4') return valid({ kind: 'weekdays', time });
     if (days.length) return valid({ kind: 'weekly', days, time });
     if (/\bevery week\b/.test(s)) return valid({ kind: 'weekly', days: [weekdayAt(now, tz)], time });
     if (/\bmonth\b/.test(s)) return valid({ kind: 'monthly', dom: 1, time });

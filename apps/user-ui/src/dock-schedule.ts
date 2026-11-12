@@ -1,6 +1,6 @@
 // Typed schedules in the canvas bottom box (Phase 3, Task 12): the rule a draft asks for, the chip's key, the agent that
 // runs it and the prompt each run posts. Pure; the box and the canvas decide what to show and when to save.
-import {MAX_SCHEDULES_PER_CHAT,MAX_SCHEDULE_PROMPT,parseScheduleText,type ScheduleRule,type SelectedMention} from '@nest/schemas';
+import {MAX_SCHEDULES_PER_CHAT,MAX_SCHEDULES_PER_CREATOR,MAX_SCHEDULE_PROMPT,parseScheduleText,type ScheduleRule,type SelectedMention} from '@nest/schemas';
 import {ApiError} from './api';
 
 /**
@@ -38,6 +38,8 @@ export function typedSchedule({id,text,mentions,assistant,dismissed,now,tz}:{id:
 export const NOT_SCHEDULED_NO_AGENT='Not scheduled: mention an agent to run it.';
 export const NOT_SCHEDULED_TOO_LONG='Not scheduled: the message is too long to repeat.';
 export const NOT_SCHEDULED_CHAT_FULL=`Not scheduled: this chat already has ${MAX_SCHEDULES_PER_CHAT} schedules.`;
+export const NOT_SCHEDULED_YOURS_FULL=`Not scheduled: you already have ${MAX_SCHEDULES_PER_CREATOR} schedules.`;
+export const notScheduledAgentOut=(agent:string)=>`Not scheduled: add ${agent} to the chat first.`;
 export const NOT_SCHEDULED_NO_ACCESS='Not scheduled: you can\'t schedule in this chat.';
 export const NOT_SCHEDULED_OTHER='Not scheduled: set it up from the chat\'s clock instead.';
 /** Why a typed repeat was not saved, in people's words: never the API's validation text. */
@@ -46,6 +48,9 @@ export function notScheduledText(error:unknown){
   let reason='';try{reason=String((JSON.parse(error.message) as {error?:unknown}).error??'');}catch{reason=error.message;}
   if(error.status===403)return NOT_SCHEDULED_NO_ACCESS;
   if(error.status===400&&/^A chat can have at most/.test(reason))return NOT_SCHEDULED_CHAT_FULL;
+  if(error.status===400&&/^You can have at most/.test(reason))return NOT_SCHEDULED_YOURS_FULL;
+  const out=error.status===409?/^Add (.+) to the chat first$/.exec(reason):null;
+  if(out)return notScheduledAgentOut(out[1]);
   if(error.status===400&&new RegExp(`at most ${MAX_SCHEDULE_PROMPT} character`).test(reason))return NOT_SCHEDULED_TOO_LONG;
   return NOT_SCHEDULED_OTHER;
 }

@@ -1,7 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import type {SelectedMention} from '@nest/schemas';
 import {ApiError} from './api';
-import {NOT_SCHEDULED_CHAT_FULL,NOT_SCHEDULED_NO_ACCESS,NOT_SCHEDULED_OTHER,NOT_SCHEDULED_TOO_LONG,leadAgent,notScheduledText,promptTooLong,ruleKey,schedulePrompt,typedSchedule} from './dock-schedule';
+import {NOT_SCHEDULED_CHAT_FULL,NOT_SCHEDULED_YOURS_FULL,NOT_SCHEDULED_NO_ACCESS,NOT_SCHEDULED_OTHER,NOT_SCHEDULED_TOO_LONG,leadAgent,notScheduledText,promptTooLong,ruleKey,schedulePrompt,typedSchedule} from './dock-schedule';
 
 const at=(text:string,name:string,kind:'AGENT'|'HUMAN'='AGENT'):SelectedMention=>{const start=text.indexOf('@'+name);return {kind,name,start,end:start+name.length+1};};
 // Wednesday 2026-11-11, 12:00 in Sofia.
@@ -41,7 +41,10 @@ describe('typed schedules in the bottom box',()=>{
     expect(NOT_SCHEDULED_CHAT_FULL).toBe('Not scheduled: this chat already has 10 schedules.');
     expect(notScheduledText(api(403,'You need to be able to post in this chat'))).toBe(NOT_SCHEDULED_NO_ACCESS);
     expect(NOT_SCHEDULED_NO_ACCESS).toBe('Not scheduled: you can\'t schedule in this chat.');
-    for(const error of [api(409,'Add Pip to the chat first'),api(400,'Unknown time zone'),api(502,'The engine is unavailable.'),new TypeError('Failed to fetch')])
+    expect(notScheduledText(api(400,'You can have at most 100 schedules'))).toBe('Not scheduled: you already have 100 schedules.');
+    expect(NOT_SCHEDULED_YOURS_FULL).toBe('Not scheduled: you already have 100 schedules.');
+    expect(notScheduledText(api(409,'Add Pip to the chat first'))).toBe('Not scheduled: add Pip to the chat first.');
+    for(const error of [api(409,'Schedule ID already used'),api(400,'Unknown time zone'),api(502,'The engine is unavailable.'),new TypeError('Failed to fetch')])
       expect(notScheduledText(error)).toBe('Not scheduled: set it up from the chat\'s clock instead.');
     expect(NOT_SCHEDULED_OTHER).toBe('Not scheduled: set it up from the chat\'s clock instead.');
     expect([promptTooLong('x'.repeat(4000)),promptTooLong(' x'.repeat(2001))]).toEqual([false,true]);

@@ -1779,8 +1779,12 @@ come.
      weekday|{day}|week|month|N min`, `daily`, `weekdays` or `tomorrow` (`every time`
      is no rule), keeps intervals within 5–1440 minutes, reads `am`/`pm`/`a.m.`/`p.m.`
      and `evening at 7` as 19:00, refuses impossible times and never throws. Every day
-     named, full or short (`every mon, wed`), joins one weekly rule; a bare `every week`
-     is weekly on today in the browser's zone (T12-R1). `✕` drops the chip until the
+     named, full or short (`every mon, wed`), joins one weekly rule. A short name counts
+     only right after `every` or `on`, or after a list joiner that follows a counted day
+     (so `I sat down`, `the sun`, `c'mon` stay words); a full name anywhere after `every`
+     or `on`. A range counts its days, and Monday to Friday (`mon to fri`,
+     `monday-friday`) is `weekdays`. A bare `every week` is weekly on today in the
+     browser's zone (T12-R1). `✕` drops the chip until the
      text reads as another rule, or none. After a successful send the canvas posts
      `POST /api/flows/schedules` for the new chat, with the sent message's id as the
      schedule's (a second send of the same draft cannot add another), the first
@@ -1789,7 +1793,8 @@ come.
      First run now, then on schedule.`. Otherwise the chat stays and a notice says why,
      never in the API's words: `Not scheduled: mention an agent to run it.`, `… the
      message is too long to repeat.` (over 4,000 characters, checked before posting),
-     `… this chat already has 10 schedules.`, `… you can't schedule in this chat.`
+     `… this chat already has 10 schedules.`, `… you already have 100 schedules.`,
+     `… add {agent} to the chat first.`, `… you can't schedule in this chat.`
      (403) or `… set it up from the chat's clock instead.`. The chip exists only with
      flows set up; on a phone it takes its own line above the message.
 12. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
