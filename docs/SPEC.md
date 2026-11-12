@@ -1909,7 +1909,7 @@ deviations; item 16 the checks.
    of Nest should exclude or redact `/api/hooks/*` in its access log if it keeps one.
    App-event triggers (Composio) are not offered: the integrations provider has no
    trigger subscriptions, webhook endpoint or signature checks, so the kind would
-   need new infrastructure (Phase 3 Ruling 4); a webhook already covers Sentry,
+   need new infrastructure; a webhook already covers Sentry,
    GitHub, Stripe and anything else that can call a URL.
    - In order: the token must look like `nest_hook_` and 43 base64url characters and
      its sha256 must match an `on` trigger, else 404 `{error:'Not found'}`. With the
@@ -2021,6 +2021,11 @@ deviations; item 16 the checks.
         Switchyard lines. If anyone starts it, it takes turns in all those chats. After
         a rename, stop the old agent and keep it stopped, or delete it (which removes
         its subscriptions).
+    - Turning flows off. With `NEST_ENABLE_CANVAS` off, or no service token, Nest
+      stops ticking but does not cancel what it already booked: each schedule's next
+      `agent.scheduled.trigger` is still in the engine and runs once more when due,
+      and that run is never settled. To stop them too, pause or delete the schedules
+      before turning flows off; turning them back on settles what is due.
     - Backups. Snapshot both databases together. The product DB
       (`.nest-product/nest.sqlite`) holds links and their hand-off cursors,
       deliveries, forks, schedules and runs, webhook token hashes and the
@@ -2074,6 +2079,17 @@ deviations; item 16 the checks.
         `+ Connect` or picker), because a connection changes the shared canvas.
     21. Phones get the chat picker with its new-step row, and the top bar's Scheduled
         button as text only.
+    22. A schedule's `Edit` shows for anyone who may pause it (`canManage`); someone
+        other than its creator gets the popover read-only, headed `Edit schedule`, with
+        only Pause, Delete and Done, since the strip has no other way to pause.
+    23. A webhook strip has no `Run now`: a webhook runs when its URL is called.
+    24. After a webhook is created (or its URL rotated), the popover stays open showing
+        the full URL, read-only with only Done, so the URL can be copied; it is never
+        shown again.
+    25. The schedule popover says `Add an agent to this chat first.` when the chat has
+        no agent to pick, and names a missing agent `someone` in its summary; the
+        Scheduled list keeps the mock's empty list and footer, with no empty-state
+        line of its own.
 
 16. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
    `handoff.test.ts`, `access.test.ts`, `forks.test.ts`, `schedules.test.ts` and the fork case in `canvas-board.test.ts`
