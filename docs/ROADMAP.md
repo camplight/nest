@@ -673,6 +673,13 @@ Follow-ups:
   booking one run at a time.
 - Fork history (upstream proposal U6), so a fork can carry its parent's history
   rather than a seeded summary.
+- The canvas on phones, as the design mockup shows. At 760 px and below Nest
+  replaces the canvas with a list (Areas, Needs you, Loose chats), following the
+  design spec; the mockup keeps the canvas there and only hides the rail, legend
+  and zoom buttons, with the drawer and open chat at screen width. Reuse the
+  tablet pinch and pan, open chats in place at screen width, keep the list as a
+  `List` toggle, and leave connecting by dragging the `+` port off on touch (the
+  chat picker covers it). Needs a design-spec update and phone browser checks.
 
 ## First-visit visual orientation
 
