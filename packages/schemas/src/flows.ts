@@ -62,6 +62,11 @@ export function linkLabel(l: { label: string; when: LinkWhen; on: boolean; kind:
 export type FlowNeed = {
   key: string; kind: 'approval' | 'paused' | 'missed'; channelId: string; at: number; from: string | null;
   short: string; reason: string; detail: string;
+  /**
+   * The chat's title as the server sees it: its card title, else `a chat you can no longer open` (deleted, or the
+   * viewer lost access). The client prefers its own title and falls back to this one, so no item is dropped.
+   */
+  chatTitle?: string;
   gate:
     | { kind: 'approval'; deliveryId: string; linkId: string } | { kind: 'paused'; linkId: string }
     | { kind: 'missed'; scheduleId: string; runId: string }

@@ -160,13 +160,19 @@ export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, o
   } else if (segment === 'needs') {
     panel = needs.length ? <ul className="canvas-phone-rows" aria-label="Needs you">
       {needs.map(item => <li key={item.key} className="canvas-phone-need">
-        <button type="button" className="canvas-phone-row" onClick={() => onOpenChat(item.channelId)}>
+        {item.canOpen ? <button type="button" className="canvas-phone-row" onClick={() => onOpenChat(item.channelId)}>
           <span className="canvas-phone-main">
             <span className="canvas-phone-title">{item.chatTitle}</span>
             <span className="canvas-phone-meta">{item.detail}</span>
           </span>
           <span className="canvas-phone-age">{ago(item.at, now)}</span>
-        </button>
+        </button> : <div className="canvas-phone-row" data-inert="true">
+          <span className="canvas-phone-main">
+            <span className="canvas-phone-title">{item.chatTitle}</span>
+            <span className="canvas-phone-meta">{item.detail}</span>
+          </span>
+          <span className="canvas-phone-age">{ago(item.at, now)}</span>
+        </div>}
         {item.gate?.kind === 'missed' ? <RunNowButton item={item} onRunNow={onRunNow} className="canvas-needs-run" named/> : null}
       </li>)}
     </ul> : <p className="canvas-phone-empty">Nothing needs you right now.</p>;

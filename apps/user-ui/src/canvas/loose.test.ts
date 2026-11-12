@@ -94,8 +94,8 @@ describe('filterLoose',()=>{
 describe('looseStatus',()=>{
   const agent=(name:string,state:AgentPulse['state'],extra:Partial<AgentPulse>={}):AgentPulse=>({name,state,since:NOW-HOUR,...extra});
   const live=(agents:AgentPulse[],people:CardPulse['people']=[]):CardPulse=>({...pulse(NOW-HOUR),agents,people});
-  const review:NeedsItem={key:'review:t1',kind:'review',channelId:'c1',chatTitle:'Refunds',detail:'',at:NOW,from:'Pip',short:'Review Approve refund',reason:'Approve refund'};
-  const mention:NeedsItem={key:'mention:m1',kind:'mention',channelId:'c1',chatTitle:'Refunds',detail:'',at:NOW-HOUR,from:'sarah',short:'sarah: Can you check?',reason:'Can you check?'};
+  const review:NeedsItem={key:'review:t1',kind:'review',channelId:'c1',chatTitle:'Refunds',detail:'',at:NOW,from:'Pip',short:'Review Approve refund',reason:'Approve refund',canOpen:true};
+  const mention:NeedsItem={key:'mention:m1',kind:'mention',channelId:'c1',chatTitle:'Refunds',detail:'',at:NOW-HOUR,from:'sarah',short:'sarah: Can you check?',reason:'Can you check?',canOpen:true};
 
   it('needs you with the newest Needs you item\'s reason, even while an agent works',()=>{
     expect(looseStatus(['Pip'],live([agent('Pip','working',{activity:'Drafting'})]),[review,mention])).toEqual({state:'need',reason:'Approve refund',line:'Pip · Drafting'});

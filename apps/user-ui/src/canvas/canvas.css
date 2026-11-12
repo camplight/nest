@@ -3611,7 +3611,9 @@ li.canvas-phone-row[data-access] {
 .digest .btn:focus-visible, .canvas-needs-run:focus-visible { outline: 2px solid var(--nest-lime); outline-offset: 2px; }
 /* A missed run's row in Needs you: the row, then Run now. */
 :is(.canvas-needs-row, .canvas-phone-need) { display: flex; gap: 6px; align-items: center; }
-:is(.canvas-needs-row, .canvas-phone-need) > button:first-child { flex: 1; min-width: 0; }
+:is(.canvas-needs-row, .canvas-phone-need) > :first-child { flex: 1; min-width: 0; }
+.canvas-needs-item[data-inert] { cursor: default; }
+.canvas-needs-item[data-inert]:hover { background: transparent; }
 .canvas-needs-run { flex: none; }
 @media (max-width: 760px) {
   .canvas-chat-body > :is(.cfg, .digest) { margin: 8px 12px 0; }

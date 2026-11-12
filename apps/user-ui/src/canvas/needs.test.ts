@@ -45,8 +45,22 @@ describe('needsYouItems',()=>{
     expect(items.map(i=>[i.key,i.kind,i.chatTitle])).toEqual([['approval:d1','approval','Invoices'],['mention:m1','mention','Invoices'],['missed:r1','missed','Launch'],['review:t1','review','Launch']]);
     expect(items[0]).toMatchObject({from:'Pip',short:'Approve hand-off to Launch',reason:'Approve hand-off to Launch',detail:'Pip finished something in Invoices. It goes to Launch after your OK.'});
   });
-  it('drops a flow item for a chat missing from titles',()=>{
+  it('drops a flow item only when neither titles nor the server name its chat',()=>{
     expect(needsYouItems({pulses:new Map(),titles,reviews:[],projects:[],flows:[approval('d1','locked',9),missed('r1','gone',8)]})).toEqual([]);
+    expect(needsYouItems({pulses:new Map(),titles,reviews:[],projects:[],flows:[{...missed('r1','gone',8),chatTitle:''}]})).toEqual([]);
+  });
+  it('keeps a Nest-made pause in a chat the person can no longer open, under the server\'s title, and does not let it jump',()=>{
+    const deleted:FlowNeed={key:'schedule-paused:s1',kind:'paused',channelId:'gone',at:20,from:null,short:'Schedule paused · this chat is no longer available',
+      reason:'this chat is no longer available',detail:'Every day at 09:00 · Pip does not run until you resume it.',gate:{kind:'schedule-paused',scheduleId:'s1'},chatTitle:'a chat you can no longer open'};
+    const lost:FlowNeed={key:'paused:l1',kind:'paused',channelId:'archived',at:10,from:null,short:'Hand-off to Launch paused · access changed',
+      reason:'access changed',detail:'Nothing passes from Old to Launch until you resume it.',gate:{kind:'paused',linkId:'l1'},chatTitle:'Old'};
+    const items=needsYouItems({pulses:new Map(),titles,reviews:[],projects:[],flows:[lost,deleted,{...approval('d1','c1',5),chatTitle:'Stale name'}]});
+    expect(items.map(i=>[i.key,i.chatTitle,i.short,i.canOpen])).toEqual([
+      ['schedule-paused:s1','a chat you can no longer open','Schedule paused · this chat is no longer available',false],
+      ['paused:l1','Old','Hand-off to Launch paused · access changed',false],
+      // The client's own title wins for a chat it shows.
+      ['approval:d1','Invoices','Approve hand-off to Launch',true],
+    ]);
   });
   it('passes each item\'s gate through, and gives a review its project and task',()=>{
     const items=needsYouItems({pulses:new Map([['c1',pulse('m1')]]),titles,reviews:[review('t1','p2',500)],projects:[project('p2','c2')],flows:[approval('d1','c1',300),missed('r1','c2',200)]});

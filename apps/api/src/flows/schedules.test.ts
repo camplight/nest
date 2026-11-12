@@ -261,9 +261,10 @@ describe('schedules against the unchanged engine', () => {
     expect(product.store.schedules.schedule(s.id)).toMatchObject({ on: false, pausedReason: 'access', nextEventId: null });
     expect(runs(s.id)).toEqual([]);
     const items = (await needs(mate)).filter(n => n.kind === 'paused');
+    // Mate can no longer see chat A, so the server names it: the client lists the item instead of dropping it.
     expect(items).toEqual([expect.objectContaining({
       key: `schedule-paused:${s.id}`, channelId: a, short: "Schedule paused · you can't post here any more",
-      gate: { kind: 'schedule-paused', scheduleId: s.id },
+      gate: { kind: 'schedule-paused', scheduleId: s.id }, chatTitle: 'a chat you can no longer open',
     })]);
     expect((await needs(owner)).filter(n => n.kind === 'paused')).toEqual([]);
     // Back in the chat, the creator resumes; the item clears and the run is booked again.
@@ -272,6 +273,24 @@ describe('schedules against the unchanged engine', () => {
     expect(resumed.status, await resumed.clone().text()).toBe(200);
     expect((await needs(mate)).filter(n => n.kind === 'paused')).toEqual([]);
     expect((await triggers(a)).map(t => t.deliverAt)).toEqual([MON_0900]);
+  });
+
+  it('pauses a schedule whose chat was deleted and names it in Needs you as a chat that can no longer be opened (final I1)', async () => {
+    const d = await chat('D', [{ type: 'AGENT', id: 'Pom' }]);
+    const s = await create(owner, { channelId: d, agent: 'Pom' });
+    expect((await call(owner, 'DELETE', `/api/channels/${d}`)).status).toBeLessThan(300);
+    at(MON_0900 - 30_000);
+    await tick();
+    expect(product.store.schedules.schedule(s.id)).toMatchObject({ on: false, pausedReason: 'unavailable', nextEventId: null });
+    expect((await needs(owner)).filter(n => n.kind === 'paused')).toEqual([expect.objectContaining({
+      key: `schedule-paused:${s.id}`, channelId: d, short: 'Schedule paused · this chat is no longer available',
+      chatTitle: 'a chat you can no longer open',
+    })]);
+    // A chat the viewer still sees keeps its own title.
+    await create(owner, {});
+    at(MON_0900 + 11 * MIN);
+    await tick();
+    expect((await needs(owner)).find(n => n.kind === 'missed')?.chatTitle).toBe('A');
   });
 
   it('pauses with agent-left when the agent leaves before its run, until the schedule is deleted', async () => {

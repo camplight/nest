@@ -14,7 +14,7 @@ const pulse:CardPulse={
   lastActivityAt:null,artifacts:[{fileId:'f1',name:'secret.pdf'}] as CardPulse['artifacts'],fileCount:1,
   needsYou:[{kind:'mention',id:'m1',at:1,sender:'mate',text:'Secret question'}],apps:{apps:[],reads:0,changes:0},
 };
-const needs:NeedsItem[]=[{key:'mention:m1',kind:'mention',channelId:'c1',chatTitle:'x',detail:'mate: Secret question',at:1,from:'mate',short:'mate: Secret question',reason:'Secret question'}];
+const needs:NeedsItem[]=[{key:'mention:m1',kind:'mention',channelId:'c1',chatTitle:'x',detail:'mate: Secret question',at:1,from:'mate',short:'mate: Secret question',reason:'Secret question',canOpen:true}];
 const render=(card:BoardCard)=>renderToStaticMarkup(<Card card={card} draggable dx={0} dy={0} dragging={false} measure={()=>{}} pulse={pulse} needs={needs} viewer="me"
   onOpen={()=>{}} onRemove={()=>{}} onNudge={async()=>{}}/>);
 

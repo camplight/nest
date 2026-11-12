@@ -15,10 +15,18 @@ export type NeedsItem = {
   reason: string;
   /** Absent for a mention: there is nothing to decide in place. */
   gate?: NeedsGate;
+  /**
+   * False for a flow item whose chat the person cannot open here (deleted, archived or no longer theirs): it is listed
+   * under the server's title, and its row does not jump.
+   */
+  canOpen: boolean;
 };
 export type NeedsInput = {
   pulses: ReadonlyMap<string, CardPulse>;
-  /** Visible chats only (open cards and loose chats). A chat missing here never appears: locked, unavailable or not the person's. */
+  /**
+   * Visible chats only (open cards and loose chats). A mention or review in a chat missing here never appears; a flow
+   * item falls back to the server's `chatTitle`, so a pause Nest made in a chat the person lost still shows.
+   */
   titles: ReadonlyMap<string, string>;
   reviews: DashboardTask[];
   projects: Project[];
@@ -34,7 +42,7 @@ export function needsYouItems({pulses, titles, reviews, projects, flows}: NeedsI
     if (chatTitle === undefined) continue;
     for (const mention of pulse.needsYou) {
       items.push({key: `mention:${mention.id}`, kind: 'mention', channelId, chatTitle, detail: `${mention.sender}: ${mention.text}`, at: mention.at,
-        from: mention.sender, short: `${mention.sender}: ${oneLine(mention.text)}`, reason: oneLine(mention.text)});
+        from: mention.sender, short: `${mention.sender}: ${oneLine(mention.text)}`, reason: oneLine(mention.text), canOpen: true});
     }
   }
   const channelOf = new Map(projects.map(project => [project.id, project.channelId]));
@@ -43,13 +51,14 @@ export function needsYouItems({pulses, titles, reviews, projects, flows}: NeedsI
     const chatTitle = channelId === undefined ? undefined : titles.get(channelId);
     if (channelId === undefined || chatTitle === undefined) continue;
     items.push({key: `review:${task.id}`, kind: 'review', channelId, chatTitle, detail: `${task.title} needs review${task.agentName ? ` · ${task.agentName}` : ''}`, at: task.updatedAt,
-      from: task.agentName || null, short: `Review ${task.title}`, reason: task.title, gate: {kind: 'review', projectId: task.projectId, taskId: task.id}});
+      from: task.agentName || null, short: `Review ${task.title}`, reason: task.title, gate: {kind: 'review', projectId: task.projectId, taskId: task.id}, canOpen: true});
   }
   for (const need of flows) {
-    const chatTitle = titles.get(need.channelId);
+    const known = titles.get(need.channelId);
+    const chatTitle = known ?? (need.chatTitle || undefined);
     if (chatTitle === undefined) continue;
     items.push({key: need.key, kind: need.kind, channelId: need.channelId, chatTitle, detail: need.detail, at: need.at,
-      from: need.from, short: need.short, reason: need.reason, gate: need.gate});
+      from: need.from, short: need.short, reason: need.reason, gate: need.gate, canOpen: known !== undefined});
   }
   return items.sort((a, b) => b.at - a.at);
 }

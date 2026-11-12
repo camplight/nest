@@ -17,6 +17,8 @@ import type { Summarize } from './summarize';
 const NOT_SET_UP = 'Hand-offs are not set up on this server';
 /** The title of a chat the viewer cannot read. */
 export const PRIVATE_CHAT_TITLE = 'a private chat';
+/** A Needs you item's title for a chat the viewer no longer has (deleted, or access lost). */
+export const GONE_CHAT_TITLE = 'a chat you can no longer open';
 const uuid = z.string().uuid();
 const DecisionSchema = z.object({ decision: z.enum(['approve', 'decline']) }).strict();
 
@@ -255,7 +257,11 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
       ...missedNeeds(store, human.id),
       ...triggerNeeds(store, human.id),
     ];
-    return c.json({ items: items.sort((a, b) => b.at - a.at) });
+    // Every item names its chat, so the client can list one whose chat it cannot show (deleted, archived or no longer
+    // the viewer's) instead of dropping it: a pause Nest made is never silent.
+    const chatTitle = titles(channels, items.map(i => i.channelId));
+    const named = items.map(i => ({ ...i, chatTitle: channels.has(i.channelId) ? chatTitle(i.channelId) || 'Untitled chat' : GONE_CHAT_TITLE }));
+    return c.json({ items: named.sort((a, b) => b.at - a.at) });
   });
 
   const tools = { fail, parse, body, viewerChannels, titles, join: joinBoth };

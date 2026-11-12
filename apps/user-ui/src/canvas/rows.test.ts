@@ -8,7 +8,7 @@ const agent=(name:string)=>({subscriberType:'AGENT',subscriberId:name});
 const human=(name:string)=>({subscriberType:'HUMAN',subscriberId:name});
 const item=(kind:'mention'|'review',from:string|null,reason:string,at=1):NeedsItem=>{
   const short=kind==='review'?`Review ${reason}`:`${from}: ${reason}`;
-  return {key:`${kind}:${short}`,kind,channelId:'c1',chatTitle:'Launch',detail:short,at,from,short,reason};
+  return {key:`${kind}:${short}`,kind,channelId:'c1',chatTitle:'Launch',detail:short,at,from,short,reason,canOpen:true};
 };
 const rows=(pulse:Partial<CardPulse>,participants=[agent('Pip'),human('mate'),human('me')],needs:NeedsItem[]=[])=>participantRows({participants,pulse:{...base,...pulse},needs,viewer:'me'});
 
@@ -69,7 +69,7 @@ describe('participantRows',()=>{
 
   it('a hand-off awaiting your OK waits on the agent that finished it, never on a person with that name',()=>{
     const approval:NeedsItem={key:'approval:d1',kind:'approval',channelId:'c1',chatTitle:'Launch',detail:'x',at:5,from:'Pip',
-      short:'Approve hand-off to Blog post',reason:'Approve hand-off to Blog post',gate:{kind:'approval',deliveryId:'d1',linkId:'l1'}};
+      short:'Approve hand-off to Blog post',reason:'Approve hand-off to Blog post',gate:{kind:'approval',deliveryId:'d1',linkId:'l1'},canOpen:true};
     const result=rows({agents:[{name:'Pip',state:'done',since:1}]},[agent('Pip'),human('Pip')],[approval]);
     expect(result.map(r=>[r.kind,r.state,r.text])).toEqual([['agent','waiting','needs you · Approve hand-off to Blog post'],['human','idle','']]);
   });

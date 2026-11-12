@@ -1369,6 +1369,10 @@ deviations; item 16 the checks.
        creator without post access, its agent gone or its chat gone), until resumed or
        deleted: `short` `Webhook paused · {why}` with the same `why` as a schedule, and
        `gate {kind:'trigger-paused', triggerId}`. No buttons; the strip's Edit resumes it.
+     - Every item carries `chatTitle`: the chat's card title (project name, else chat
+       name, else `Untitled chat`) when the viewer's engine session lists the chat,
+       archived included, else `a chat you can no longer open` (deleted, or the viewer
+       lost access).
 
      Titles follow the viewer's own access, as in the links list.
    - `POST /api/flows/forks` takes `{childChannelId, parentChannelId, parentEventId,
@@ -1715,8 +1719,12 @@ deviations; item 16 the checks.
    - The client polls `GET /api/flows/needs` every 15 s while the page is visible and
      on focus, and again after an approve, a decline, Run now or a link change. Its
      items join the mentions and reviews in `needsYouItems`, newest first, with the
-     server's `detail`, `short`, `reason`, `from` and `gate`; an item for a chat the
-     person cannot see (not an open card or a loose chat of theirs) is dropped. A
+     server's `detail`, `short`, `reason`, `from` and `gate`. A mention or review in a
+     chat the person cannot see (not an open card or a loose chat of theirs) is
+     dropped. A flow item there is kept under the server's `chatTitle`, so a pause Nest
+     made after the chat was deleted, archived or lost to the creator still shows; its
+     row is inert (no jump) and keeps `Run now` on a missed run. Only an item with
+     neither title is dropped. A
      review item carries `gate {kind:'review', projectId, taskId}`. Cards show the
      newest item's `short` as their pill, so a source chat reads `Approve hand-off to
      {target}`, and the turn's agent row reads `needs you · {reason}`.

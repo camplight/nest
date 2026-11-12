@@ -221,7 +221,7 @@ describe('the hand-off worker against the unchanged engine', () => {
     expect(await needs(owner)).toEqual([{
       key: `approval:${waiting.id}`, kind: 'approval', channelId: a, at: waiting.createdAt, from: 'Pip',
       short: 'Approve hand-off to B', reason: 'Approve hand-off to B', detail: 'Pip finished something in A. It goes to B after your OK.',
-      gate: { kind: 'approval', deliveryId: waiting.id, linkId: l.id },
+      gate: { kind: 'approval', deliveryId: waiting.id, linkId: l.id }, chatTitle: 'A',
     }]);
     expect(await needs(mate)).toEqual([]);
     // Only the creator decides.
@@ -454,6 +454,17 @@ describe('the hand-off worker against the unchanged engine', () => {
       kind: 'paused', channelId: a, short: 'Hand-off to a private chat paused · access changed', gate: { kind: 'paused', linkId: l.id },
     })]);
     expect(await needs(owner)).toEqual([]);
+  });
+
+  it('names the source chat a creator lost in Needs you, so the paused link is not dropped (final I1)', async () => {
+    const l = await link(mate, { from: a, to: b, who: 'Pom' });
+    expect((await call(owner, 'POST', `/api/channels/${a}/unsubscribe`, { subscriberType: 'HUMAN', subscriberId: 'mate' })).status).toBe(200);
+    await turn(a, ['Draft ready']);
+    await tick();
+    expect(product.store.flows.link(l.id)).toMatchObject({ on: false, pausedReason: 'access' });
+    expect(await needs(mate)).toEqual([expect.objectContaining({
+      key: `paused:${l.id}`, kind: 'paused', channelId: a, chatTitle: 'a chat you can no longer open', short: 'Hand-off to B paused · access changed',
+    })]);
   });
 
   it('pauses when the chosen agent leaves the target chat', async () => {

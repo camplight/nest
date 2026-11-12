@@ -3,7 +3,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {ChatDigest,RunNowButton,agentLine,digestItem} from './ChatDigest';
 import type {NeedsItem} from './needs';
 
-const item=(kind:NeedsItem['kind'],short:string,at:number,gate?:NeedsItem['gate']):NeedsItem=>({key:`${kind}:${at}`,kind,channelId:'c1',chatTitle:'Weekly metrics',detail:short,at,from:'Pip',short,reason:short,...(gate?{gate}:{})});
+const item=(kind:NeedsItem['kind'],short:string,at:number,gate?:NeedsItem['gate']):NeedsItem=>({key:`${kind}:${at}`,kind,channelId:'c1',chatTitle:'Weekly metrics',detail:short,at,from:'Pip',short,reason:short,canOpen:true,...(gate?{gate}:{})});
 const mention=item('mention','mate: ping',9);
 const approval=item('approval','Approve hand-off to Blog post',5,{kind:'approval',deliveryId:'d1',linkId:'l1'});
 const review=item('review','Review Launch copy',4,{kind:'review',projectId:'p1',taskId:'t1'});

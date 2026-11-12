@@ -96,11 +96,16 @@ export function NeedsYou({pulses, titles, projects, reviews, flows, onRunNow, on
     {open ? <div className="canvas-needs-panel" id="canvas-needs-list">
       {items.length ? <ul aria-label="Needs you">
         {items.map(item => <li key={item.key} className="canvas-needs-row">
-          <button type="button" className="canvas-needs-item" onClick={() => { setOpen(false); onJump(item.channelId); }}>
+          {item.canOpen ? <button type="button" className="canvas-needs-item" onClick={() => { setOpen(false); onJump(item.channelId); }}>
             <span className="canvas-needs-title">{item.chatTitle}</span>
             <span className="canvas-needs-detail">{item.detail}</span>
             <span className="canvas-needs-age">{ago(item.at, now)}</span>
-          </button>
+          </button> : <div className="canvas-needs-item" data-inert="true">
+            {/* A chat the person can no longer open: the row says what stopped, with nothing to jump to. */}
+            <span className="canvas-needs-title">{item.chatTitle}</span>
+            <span className="canvas-needs-detail">{item.detail}</span>
+            <span className="canvas-needs-age">{ago(item.at, now)}</span>
+          </div>}
           {item.gate?.kind === 'missed' ? <RunNowButton item={item} onRunNow={onRunNow} className="canvas-needs-run" named/> : null}
         </li>)}
       </ul> : <p className="canvas-needs-empty">Nothing needs you right now.</p>}
