@@ -125,7 +125,7 @@ Possible successful bodies:
 - `{ status: "denied", request: { id, decidedAt } }` when the latest request was denied and no newer active request or current membership exists. This lets denial remain visible after refresh or on another device without revealing who decided it.
 - `{ status: "requestable" }` when the project exists, the current human is neither owner nor current member, and the latest historical state does not need to be shown. A previously approved requester whose membership was later removed is requestable again.
 
-It returns a generic 404 `{ error: "Project unavailable" }` when the product project does not exist or cannot accept requests. The response never includes project name, description, owner, channel ID, or participants.
+It returns a generic 404 `{ error: "Project unavailable" }` when the product project does not exist. Requester-scoped OrgOps reads cannot distinguish an active private channel from an archived/deleted inaccessible channel, so an existing product project may remain requestable or pending while its channel is unavailable. The response never includes project name, description, owner, channel ID, or participants; owner listing and decisions still require current active manage/post authority.
 
 `POST /api/projects/:projectId/access-requests`
 
@@ -245,7 +245,7 @@ No external notification is added. The pending screen polls with the existing pr
 - Approval uses the owner’s current human session; requester, runner, Authorization, and scoped-agent headers cannot elevate it.
 - Requester human ID is durable. Username snapshots are display/audit data only.
 - Current OrgOps membership overrides product request history. Removing a HUMAN subscription ends project access on the next request.
-- Archived/deleted project channels cannot be approved until restored; the request remains pending rather than granting stale access.
+- Archived/deleted project channels cannot be distinguished from active private channels by requester-scoped reads, so requests may be created while such a channel is unavailable. They cannot be approved until restored; the request remains pending rather than granting stale access.
 - Project tasks, reviews, connected accounts, agents, and owner settings retain their existing authorization.
 
 ## Failure handling and concurrency

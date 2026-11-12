@@ -28,7 +28,7 @@
 - Approve/deny race after approval starts: the approval claim wins before OrgOps mutation, denial returns 409, and final membership matches the stored decision — pinned in Task 3 API concurrency tests.
 - Lost subscribe/unsubscribe response: retries reconcile current OrgOps membership without duplicate grants, false denials, or false revocation success — pinned in Task 3 API recovery tests.
 - Renamed or deleted requester: approval resolves by durable human ID, uses the current username, and fails closed if the identity no longer exists — pinned in Task 3 identity tests.
-- Missing, archived, or inaccessible project IDs: requester state stays generic and leaks no metadata; owner actions require current manage/post access — pinned in Tasks 2 and 3 authorization tests.
+- Missing project IDs return a generic 404. Existing projects with archived or otherwise requester-inaccessible channels stay metadata-free and may remain requestable/pending because requester-scoped OrgOps reads cannot distinguish them from active private channels; owner actions require current manage/post access — pinned in Tasks 2 and 3 authorization tests.
 - Membership changed outside the workflow: current members load the project, removed members can request again, and pending requests reconcile deterministically — pinned in Tasks 2, 3, and 6.
 
 ---
@@ -163,7 +163,7 @@ Build a two-human fixture against the real embedded OrgOps API. Assert:
 
 - Signed-out and must-change-password callers are rejected.
 - An inaccessible existing project returns only `requestable`; serialized JSON does not contain its name, description, owner ID, or channel ID.
-- Missing/unrequestable project returns generic 404 `{error:'Project unavailable'}`.
+- A missing product project returns generic 404 `{error:'Project unavailable'}`; an existing project whose channel is archived or otherwise requester-inaccessible remains metadata-free and may be requestable/pending.
 - A client UUID creates one pending request; same UUID and a second UUID both reconcile to that request.
 - Request ID reuse by another actor/project returns 409.
 - Owner self-request is rejected; a current member receives `{status:'member'}`.
