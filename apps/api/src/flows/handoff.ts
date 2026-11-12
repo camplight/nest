@@ -350,10 +350,13 @@ export function createHandoffWorker({ store, orgops, token, switchyard, summariz
 
   /**
    * Send now: hands off the newest finished turn with results, unless this link already has it.
-   * For the creator or a member of the receiving chat.
+   * On a manual link, for the creator or a member of the receiving chat; on any other link (After I approve, or
+   * automatic), only for the creator, so nobody else can skip their OK.
    */
   async function deliverNow(linkId: string, actor: Actor): Promise<'sent' | 'nothing'> {
-    if (!flows.link(linkId)) throw new FlowActionError(404, 'Not found');
+    const found = flows.link(linkId);
+    if (!found) throw new FlowActionError(404, 'Not found');
+    if (found.when !== 'manual' && found.createdBy !== actor.id) throw new FlowActionError(403, 'Only the person who set up this hand-off can send it now');
     const link = requireOn(linkId);
     const ctx = await usableService();
     const at = now();

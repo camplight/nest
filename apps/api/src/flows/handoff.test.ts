@@ -340,6 +340,25 @@ describe('the hand-off worker against the unchanged engine', () => {
     expect(deliveries(l.id)).toHaveLength(1);
   });
 
+  it('Send now on an approve or automatic link is the creator\'s alone, so a target member cannot skip the OK (final I3)', async () => {
+    const l = await link(owner, { from: a, to: b, who: 'Pom', when: 'approve' });
+    const auto = await link(owner, { from: b, to: a, who: 'Pip' });
+    await turn(a, ['Draft ready']);
+    await turn(b, ['Notes'], { agent: 'Pom' });
+    for (const id of [l.id, auto.id]) {
+      const refused = await call(mate, 'POST', `/api/flows/links/${id}/send`);
+      expect(refused.status).toBe(403);
+      expect(await refused.json()).toEqual({ error: 'Only the person who set up this hand-off can send it now' });
+      expect(deliveries(id)).toEqual([]);
+    }
+    expect(await handoffs(b)).toEqual([]);
+    expect(await handoffs(a)).toEqual([]);
+    // The creator may.
+    const sent = await call(owner, 'POST', `/api/flows/links/${l.id}/send`);
+    expect(sent.status, await sent.clone().text()).toBe(200);
+    expect((await handoffs(b)).map(e => e.payload.text)).toEqual(['Hand-off from A · set up by owner\n\nDraft ready']);
+  });
+
   it('summary hand-offs carry the labelled summary', async () => {
     const asked: Parameters<Summarize>[0][] = [];
     summary = async input => { asked.push(input); return { text: 'Summary (by test-model):\n- Drafted the post', model: 'test-model' }; };

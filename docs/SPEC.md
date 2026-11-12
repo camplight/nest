@@ -1331,8 +1331,10 @@ deviations; item 16 the checks.
    - `POST /api/flows/links/:id/send` (Send now, for manual links and any other):
      hands off the newest finished turn with results in `from`, unless this link
      already has a delivery for it. It answers `{status:'sent'}`, or 409
-     `Nothing new to hand off yet.`. Open to the creator and members of the target
-     chat (403 otherwise). A paused link answers 409 (`This hand-off is paused`, or
+     `Nothing new to hand off yet.`. On a manual link it is open to the creator and
+     members of the target chat; on an `approve` or `done` link only to the creator
+     (403 `Only the person who set up this hand-off can send it now`), so nobody else
+     can skip the creator's OK. A paused link answers 409 (`This hand-off is paused`, or
      `Hand-off paused · {why}`) and posts nothing; the link is re-read right before
      the claim and before the post. A link that may not deliver (see the worker's
      checks, including the cap) is paused and answers 409 `Hand-off paused · {why}`.
@@ -1655,7 +1657,7 @@ deviations; item 16 the checks.
      is added first (the chat's manage rights; otherwise `You can't add people to
      this chat`). Only the creator (`canEdit`) on a canvas they may edit changes
      the settings; anyone else sees them disabled. `canManage` (the creator or a
-     target member) keeps Pause/Resume, Disconnect and Send now.
+     target member) keeps Pause/Resume, Disconnect and (manual links only) Send now.
    - Disconnect toasts `Disconnected. "{target}" keeps what it already got.`; Send
      now toasts `Sent to "{target}".` or the API's 409 text. Escape (before an open
      chat's own Escape) and a press outside close the popover; a canvas press that
