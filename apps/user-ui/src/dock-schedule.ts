@@ -1,9 +1,13 @@
 // Typed schedules in the canvas bottom box (Phase 3, Task 12): the rule a draft asks for, the chip's key, the agent that
 // runs it and the prompt each run posts. Pure; the box and the canvas decide what to show and when to save.
-import {parseScheduleText,type ScheduleRule,type SelectedMention} from '@nest/schemas';
+import {MAX_SCHEDULES_PER_CHAT,MAX_SCHEDULE_PROMPT,parseScheduleText,type ScheduleRule,type SelectedMention} from '@nest/schemas';
+import {ApiError} from './api';
 
-/** What the bottom box hands the canvas after a send: the rule, its lead agent (none in the chat: null) and the prompt. */
-export type TypedSchedule = {rule:ScheduleRule;agent:string|null;prompt:string};
+/**
+ * What the bottom box hands the canvas after a send: the schedule's id (the sent message's, so a second send of the
+ * same draft cannot make a second schedule), the rule, its lead agent (none in the chat: null) and the prompt.
+ */
+export type TypedSchedule = {id:string;rule:ScheduleRule;agent:string|null;prompt:string};
 
 /** The browser's IANA time zone; a typed rule and its saved schedule use the same one. */
 export function browserZone(){try{return Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';}catch{return 'UTC';}}
@@ -25,8 +29,25 @@ export function leadAgent(text:string,mentions:SelectedMention[],assistant:strin
 }
 
 /** The schedule a draft asks for, unless its chip was dismissed. */
-export function typedSchedule({text,mentions,assistant,dismissed,now,tz}:{text:string;mentions:SelectedMention[];assistant?:string|null;dismissed?:string;now:number;tz:string}):TypedSchedule|null{
+export function typedSchedule({id,text,mentions,assistant,dismissed,now,tz}:{id:string;text:string;mentions:SelectedMention[];assistant?:string|null;dismissed?:string;now:number;tz:string}):TypedSchedule|null{
   const rule=parseScheduleText(text,now,tz);
   if(!rule||ruleKey(rule)===dismissed)return null;
-  return {rule,agent:leadAgent(text,mentions,assistant),prompt:schedulePrompt(text,mentions)};
+  return {id,rule,agent:leadAgent(text,mentions,assistant),prompt:schedulePrompt(text,mentions)};
 }
+
+export const NOT_SCHEDULED_NO_AGENT='Not scheduled: mention an agent to run it.';
+export const NOT_SCHEDULED_TOO_LONG='Not scheduled: the message is too long to repeat.';
+export const NOT_SCHEDULED_CHAT_FULL=`Not scheduled: this chat already has ${MAX_SCHEDULES_PER_CHAT} schedules.`;
+export const NOT_SCHEDULED_NO_ACCESS='Not scheduled: you can\'t schedule in this chat.';
+export const NOT_SCHEDULED_OTHER='Not scheduled: set it up from the chat\'s clock instead.';
+/** Why a typed repeat was not saved, in people's words: never the API's validation text. */
+export function notScheduledText(error:unknown){
+  if(!(error instanceof ApiError))return NOT_SCHEDULED_OTHER;
+  let reason='';try{reason=String((JSON.parse(error.message) as {error?:unknown}).error??'');}catch{reason=error.message;}
+  if(error.status===403)return NOT_SCHEDULED_NO_ACCESS;
+  if(error.status===400&&/^A chat can have at most/.test(reason))return NOT_SCHEDULED_CHAT_FULL;
+  if(error.status===400&&new RegExp(`at most ${MAX_SCHEDULE_PROMPT} character`).test(reason))return NOT_SCHEDULED_TOO_LONG;
+  return NOT_SCHEDULED_OTHER;
+}
+/** A prompt over the API's limit is refused here, before any request. */
+export const promptTooLong=(prompt:string)=>prompt.trim().length>MAX_SCHEDULE_PROMPT;

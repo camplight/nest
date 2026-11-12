@@ -7,7 +7,7 @@ import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 import {addChatMember,removeChatMember} from '../chat-members';
 import {StartChat} from '../ProjectStart';
-import {browserZone,type TypedSchedule} from '../dock-schedule';
+import {NOT_SCHEDULED_NO_AGENT,NOT_SCHEDULED_TOO_LONG,browserZone,notScheduledText,promptTooLong,type TypedSchedule} from '../dock-schedule';
 import {boardApi,createCanvas,setCardHome,deleteCanvas,getAgentPins,getHidden,isCanvasGone,isPinsConflict,putAgentPins,listCanvases,renameCanvas,setHidden,withFreshVersion} from './api';
 import {CanvasSwitcher} from './CanvasSwitcher';
 import {ShareDialog} from './ShareDialog';
@@ -114,10 +114,8 @@ const NO_JOBS: readonly ScheduleJob[] = [];
 export const scheduledToast = (rule: Parameters<typeof ruleText>[0], nextAt: number | null, now: number) =>
   nextAt === null ? `${ruleText(rule)}.` : `${ruleText(rule)}. Next run ${relTime(nextAt, now)}.`;
 export const SCHEDULE_DELETED = 'Schedule deleted. Past runs stay in the chat.';
-/** The mock's toast after a bottom-box send that repeats (Task 12), and the notices when it could not be scheduled. */
+/** The mock's toast after a bottom-box send that repeats (Task 12); the notices when it is not saved are in dock-schedule.ts. */
 export const typedScheduledToast = (rule: Parameters<typeof ruleText>[0]) => `Scheduled: ${ruleText(rule)}. First run now, then on schedule.`;
-export const NOT_SCHEDULED_NO_AGENT = 'Not scheduled: mention an agent to run it.';
-export const notScheduled = (reason: string) => `Not scheduled: ${reason}${/[.!?]$/.test(reason) ? '' : '.'}`;
 const SCHEDULE_TITLE = 'Schedule or trigger: run this on a timer or when something happens';
 /** The mock's newStep toast (without its rename hint: a card title is renamed from the chat, not by double-click). */
 export const NEW_STEP_TOAST = 'New step added. Pick who picks it up.';
@@ -700,11 +698,12 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
    */
   const scheduleTyped = useCallback(async (channelId: string, typed: TypedSchedule) => {
     if (!typed.agent) { say(NOT_SCHEDULED_NO_AGENT); return; }
+    if (promptTooLong(typed.prompt)) { say(NOT_SCHEDULED_TOO_LONG); return; }
     try {
-      await createSchedule({id: crypto.randomUUID(), channelId, agent: typed.agent, prompt: typed.prompt, rule: typed.rule, timezone: browserZone()});
+      await createSchedule({id: typed.id, channelId, agent: typed.agent, prompt: typed.prompt, rule: typed.rule, timezone: browserZone()});
       say(typedScheduledToast(typed.rule));
     } catch (error) {
-      say(notScheduled(flowError(error, 'the schedule could not be saved')));
+      say(notScheduledText(error));
     } finally { flows.refresh(); }
   }, [say, flows.refresh]);
   const created = useCallback(async (project: Project, typed?: {schedule?: TypedSchedule}) => {

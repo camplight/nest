@@ -1,6 +1,7 @@
 import {useAttachments,restoreAttachments} from './attachments';
 import {ChatAttachments} from './components/ChatAttachments';
 import {ChatFileDrop} from './components/ChatFileDrop';
+import {ClockIcon} from './components/ClockIcon';
 import {projectDraftKey} from './drafts';
 import {useEffect,useMemo,useRef,useState,type ChangeEvent,type FormEvent,type KeyboardEvent} from 'react';
 import {NewProjectSchema,SelectedMentionSchema,MessageAttachmentSchema,MAX_MESSAGE_ATTACHMENTS,type SendMessage,type Project,ruleText,type SelectedMention,type ProjectMemberOption} from '@nest/schemas';
@@ -85,7 +86,7 @@ export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=tr
     onAudio:audio=>setAttachments(items=>[...items,{localId:audio.fileId,name:audio.name,mime:audio.mime,size:audio.size,status:'ready',uploaded:{...audio,localId:audio.fileId}}])
   });
   const scheduling=schedules&&variant==='dock';
-  const typed=useMemo(()=>scheduling?typedSchedule({text:draft.text,mentions:draft.mentions,assistant:draft.assistant,now:Date.now(),tz:browserZone()}):null,[scheduling,draft.text,draft.mentions,draft.assistant]);
+  const typed=useMemo(()=>scheduling?typedSchedule({id:draft.messageId,text:draft.text,mentions:draft.mentions,assistant:draft.assistant,now:Date.now(),tz:browserZone()}):null,[scheduling,draft.messageId,draft.text,draft.mentions,draft.assistant]);
   const typedKey=typed?ruleKey(typed.rule):null,typedRule=typedKey!==null&&typedKey!==draft.scheduleDismissed?typed:null;
   // ✕ holds only while the text asks for that same rule: once it reads as another rule, or none, the chip can come back.
   useEffect(()=>{if(scheduling&&draft.scheduleDismissed&&typedKey!==draft.scheduleDismissed&&!draft.submitted)setDraft(current=>({...current,scheduleDismissed:undefined}));},[scheduling,typedKey,draft.scheduleDismissed,draft.submitted]);
@@ -106,7 +107,7 @@ export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=tr
       await apiJson('/api/messages',{method:'POST',headers:getApiHeaders(),body:JSON.stringify({id:next.messageId,channelId:project.channelId,text:next.text,mentions:next.mentions,attachments:next.attachments,...(next.assistant&&!recipients.some(m=>m.kind==='AGENT')?{targetAgentName:next.assistant}:{})})});
       try{if(JSON.parse(readDraft(ownerId)??'null')?.id===next.id){localStorage.removeItem(projectDraftKey(ownerId));sessionStorage.removeItem(legacyStorageKey);};}catch{}
       // A typed repeat is saved by the canvas only now, once the chat exists and the message is in it.
-      const schedule=scheduling?typedSchedule({text:next.text,mentions:next.mentions,assistant:next.assistant,dismissed:next.scheduleDismissed,now:Date.now(),tz:browserZone()})??undefined:undefined;
+      const schedule=scheduling?typedSchedule({id:next.messageId,text:next.text,mentions:next.mentions,assistant:next.assistant,dismissed:next.scheduleDismissed,now:Date.now(),tz:browserZone()})??undefined:undefined;
       if(mounted.current)onCreated(project,schedule?{schedule}:undefined);
     }catch(reason){if(mounted.current)setError(message(reason));}finally{if(mounted.current)setBusy(false);}
   }
@@ -128,7 +129,7 @@ export function StartChat({ownerId,onCreated,onCancel,variant='page',fileDrop=tr
   const scheduleChip=scheduling&&<>
     <span className="canvas-visually-hidden" role="status">{typedRule?`Will repeat: ${ruleText(typedRule.rule)}`:''}</span>
     {typedRule&&<span className="project-start-dock-chips"><span className="pchip sch2" title="Will repeat. You can change it in the chat.">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+      <ClockIcon/>
       <span>{ruleText(typedRule.rule)}</span>
       <button type="button" aria-label="Don't repeat" disabled={locked} onClick={dismissSchedule}>✕</button>
     </span></span>}

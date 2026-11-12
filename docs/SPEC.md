@@ -1777,15 +1777,21 @@ come.
      repeat`), titled `Will repeat. You can change it in the chat.`, and a status
      region reads `Will repeat: {rule}`. The parser needs `every day|morning|evening|
      weekday|{day}|week|month|N min`, `daily`, `weekdays` or `tomorrow` (`every time`
-     is no rule), keeps intervals within 5–1440 minutes, refuses impossible times and
-     never throws. `✕` drops the chip until the text reads as another rule, or none.
-     After a successful send the canvas posts `POST /api/flows/schedules` for the new
-     chat with the first mentioned agent, else the assistant agent joining it, the
-     text without its @mentions as the prompt and the browser's time zone, and toasts
-     `Scheduled: {rule}. First run now, then on schedule.`. With no agent it saves
-     nothing and says `Not scheduled: mention an agent to run it.`; a refusal keeps
-     the chat and says `Not scheduled: {reason}.`. The chip exists only with flows set
-     up; on a phone it takes its own line above the message.
+     is no rule), keeps intervals within 5–1440 minutes, reads `am`/`pm`/`a.m.`/`p.m.`
+     and `evening at 7` as 19:00, refuses impossible times and never throws. Every day
+     named, full or short (`every mon, wed`), joins one weekly rule; a bare `every week`
+     is weekly on today in the browser's zone (T12-R1). `✕` drops the chip until the
+     text reads as another rule, or none. After a successful send the canvas posts
+     `POST /api/flows/schedules` for the new chat, with the sent message's id as the
+     schedule's (a second send of the same draft cannot add another), the first
+     mentioned agent, else the assistant agent joining it, the text without its
+     @mentions as the prompt and the browser's time zone, and toasts `Scheduled: {rule}.
+     First run now, then on schedule.`. Otherwise the chat stays and a notice says why,
+     never in the API's words: `Not scheduled: mention an agent to run it.`, `… the
+     message is too long to repeat.` (over 4,000 characters, checked before posting),
+     `… this chat already has 10 schedules.`, `… you can't schedule in this chat.`
+     (403) or `… set it up from the chat's clock instead.`. The chip exists only with
+     flows set up; on a phone it takes its own line above the message.
 12. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
    `handoff.test.ts`, `access.test.ts`, `forks.test.ts`, `schedules.test.ts` and the fork case in `canvas-board.test.ts`
    run against the real engine and Nest handlers with temporary databases.
@@ -1810,7 +1816,7 @@ come.
    missed run (the harness moves the scheduler's clock), the Scheduled list with an
    agent's own run, pause and delete, and a view-role member's read-only view; then a
    repeat typed in the bottom box (the chip, `✕`, Send saving it for the mentioned
-   agent, no agent, a refused one, a phone, and none without flows).
+   agent, no agent, one too long, a phone, and none without flows).
    `needs.test.ts` and `ChatDigest.test.tsx` cover the merge and the digest, missed
    runs included; `schedule-jobs.test.ts` the badge, strip, chip and list groups.
 

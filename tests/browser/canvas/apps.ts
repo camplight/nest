@@ -270,10 +270,17 @@ await runChatTest('canvas flag off: no voice notes, no Apps here bar, no file ti
   await page.goto(`${base}/?view=projects&create=project`);
   await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Record a voice note',exact:true}).count(),0,'no mic when starting a project');
-  // No typed-repeat chip (Phase 3): a rule in the message is just text.
+  // The page composer never offers a repeat (Phase 3): a rule in the message is just text.
   await page.getByRole('textbox',{name:'Message',exact:true}).fill('every Monday at 9 post the recap');
   await page.getByRole('button',{name:'Send',exact:true}).waitFor();
   assert.equal(await page.locator('.pchip, .project-start-dock-chips').count(),0,'no schedule chip');
   assert.equal(await page.getByRole('button',{name:'Don\'t repeat',exact:true}).count(),0,'no Don\'t repeat');
   assert.equal(await page.getByText('Every Monday at 09:00',{exact:false}).count(),0,'no rule text');
+  // The bottom box, where the typed-repeat chip lives, is the canvas's: with the flag off a canvas link leaves the canvas,
+  // so no bottom box (and no chip) can render.
+  await page.goto(`${base}/?view=canvas`);
+  await page.waitForURL(url=>url.searchParams.get('view')!=='canvas');
+  await page.locator('.sidebar-label').first().waitFor();
+  assert.equal(await page.locator('.canvas-dock, .project-start-dock, .pchip').count(),0,'no bottom box and no chip');
+  assert.equal(await page.getByRole('button',{name:'Canvas',exact:true}).count(),0,'no Canvas in the sidebar');
 });

@@ -144,14 +144,22 @@ export function nextRunAt(rule: ScheduleRule, tz: string, after: number): number
 // ---------------------------------------------------------------------------------------------------------------------
 // Typed schedules: the bottom box's chip (the mock's parseSched, excerpt 481-492, made strict).
 
-const DAY_NAMES = DAYL.map(d => d.toLowerCase()).join('|');
-const TRIGGER = new RegExp(`\\bevery (?:day|morning|evening|weekday|${DAY_NAMES}|week|month|\\d+ ?min(?:ute)?s?)\\b|\\bdaily\\b|\\bweekdays?\\b|\\btomorrow\\b`);
-const DAY_NAME = new RegExp(`\\b(${DAY_NAMES})s?\\b`);
+/** Day names in full or short (`mon`, `tue`/`tues`, `thu`/`thur`/`thurs`, …), optionally plural; the first three letters say which. */
+const DAY_WORD = '(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues|tue|wed|thurs|thur|thu|fri|sat|sun)s?';
+const SHORT_DAYS = DAYS.map(d => d.toLowerCase());
+const TRIGGER = new RegExp(`\\bevery (?:day|morning|evening|weekday|${DAY_WORD}|week|month|\\d+ ?min(?:ute)?s?)\\b|\\bdaily\\b|\\bweekdays?\\b|\\btomorrow\\b`);
+const DAY_NAME = new RegExp(`\\b${DAY_WORD}\\b`, 'g');
+
+/** The weekday (Mon=0) at instant `t` in `tz`. */
+function weekdayAt(t: number, tz: string): number {
+  const w = wallAt(t, tz);
+  return (new Date(Date.UTC(w.y, w.mo, w.d)).getUTCDay() + 6) % 7;
+}
 
 /**
  * The repeating rule a typed message asks for, such as `every Monday at 9 …`, or null. Deterministic: `now` and `tz`
- * only fix `tomorrow`'s weekday. A result always passes ScheduleRuleSchema; anything else, including an unknown time
- * zone or an impossible time, is null. It never throws.
+ * only fix the weekday of `tomorrow` and of a bare `every week` (today's). A result always passes ScheduleRuleSchema;
+ * anything else, including an unknown time zone or an impossible time, is null. It never throws.
  */
 export function parseScheduleText(text: string, now: number, tz: string): ScheduleRule | null {
   try {
@@ -160,22 +168,24 @@ export function parseScheduleText(text: string, now: number, tz: string): Schedu
     if (!TRIGGER.test(s)) return null;
     const mins = s.match(/\bevery (\d+) ?min/);
     if (mins) return valid({ kind: 'interval', mins: Number(mins[1]) });
-    const at = s.match(/\bat (\d+)(?::(\d+))?\s*(am|pm)?(?![a-z0-9])/);
-    let hh = at ? Number(at[1]) : /\bmorning\b/.test(s) ? 8 : /\bevening\b/.test(s) ? 18 : 9;
+    const at = s.match(/\bat (\d+)(?::(\d+))?\s*(?:([ap])\.?m\.?)?(?![a-z0-9])/);
+    const evening = /\bevening\b/.test(s);
+    let hh = at ? Number(at[1]) : /\bmorning\b/.test(s) ? 8 : evening ? 18 : 9;
     if (at?.[2] !== undefined && at[2].length !== 2) return null;
     const mm = at?.[2] ? Number(at[2]) : 0;
-    if (at?.[3] === 'pm' && hh < 12) hh += 12;
-    else if (at?.[3] === 'am' && hh === 12) hh = 0;
+    const half = at?.[3] as 'a' | 'p' | undefined;
+    if (half && (hh < 1 || hh > 12)) return null;
+    if (half === 'p' && hh < 12) hh += 12;
+    else if (half === 'a' && hh === 12) hh = 0;
+    // `every evening at 7` is 19:00; a morning hour is already right.
+    else if (at && !half && evening && hh < 12) hh += 12;
     if (hh > 23 || mm > 59) return null;
     const time = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-    if (/\btomorrow\b/.test(s)) {
-      const w = wallAt(now, tz);
-      const today = (new Date(Date.UTC(w.y, w.mo, w.d)).getUTCDay() + 6) % 7;
-      return valid({ kind: 'once', day: (today + 1) % 7, time });
-    }
+    if (/\btomorrow\b/.test(s)) return valid({ kind: 'once', day: (weekdayAt(now, tz) + 1) % 7, time });
     if (/\bweekdays?\b|\bevery morning\b/.test(s)) return valid({ kind: 'weekdays', time });
-    const day = s.match(DAY_NAME);
-    if (day) return valid({ kind: 'weekly', days: [DAYL.findIndex(d => d.toLowerCase() === day[1])], time });
+    const days = [...new Set([...s.matchAll(DAY_NAME)].map(m => SHORT_DAYS.indexOf(m[1].slice(0, 3))))].sort((a, b) => a - b);
+    if (days.length) return valid({ kind: 'weekly', days, time });
+    if (/\bevery week\b/.test(s)) return valid({ kind: 'weekly', days: [weekdayAt(now, tz)], time });
     if (/\bmonth\b/.test(s)) return valid({ kind: 'monthly', dom: 1, time });
     return valid({ kind: 'daily', time });
   } catch {

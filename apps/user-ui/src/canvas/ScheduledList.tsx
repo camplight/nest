@@ -3,15 +3,12 @@
 // Missed, Starts when something happens, Next 24 hours, Later and Paused. A row opens its chat.
 import {useEffect,useRef,useState} from 'react';
 import {AgentAvatar} from '../components/AgentAvatar';
+import {ClockIcon} from '../components/ClockIcon';
 import {popStyle,usePopDismiss,usePopPlacement} from './HandoffPopover';
 import {agentMadeCount,badgeOf,listGroups,rowWhen,stripState,type ListFilter,type ScheduleJob} from './schedule-jobs';
 
-/** The mock's IC_CLOCK. */
-export function ClockIcon() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden="true">
-    <circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>
-  </svg>;
-}
+/** The mock's IC_CLOCK, shared with the bottom box's typed-repeat chip. */
+export {ClockIcon};
 
 /** A card's badge, under its last activity: `missed`, the first job's short rule, or a paused one greyed; `+N` for more. */
 export function scheduleBadge(jobs: readonly ScheduleJob[] | undefined) {

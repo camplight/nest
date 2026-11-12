@@ -319,7 +319,7 @@ await runChatTest('canvas schedules: a repeat typed in the bottom box shows a ch
   assert.equal(await chip.count(),0,'with no chip');
 },{canvas:true,flows:true});
 
-await runChatTest('canvas schedules: a typed repeat with no agent, or one the API refuses, keeps the chat and says why',async h=>{
+await runChatTest('canvas schedules: a typed repeat with no agent, or one too long to repeat, keeps the chat and says why',async h=>{
   const {page}=h;
   const box=await typedBoard(h);
   const chip=dock(page).locator('.pchip.sch2');
@@ -330,14 +330,14 @@ await runChatTest('canvas schedules: a typed repeat with no agent, or one the AP
   await until(()=>notices(page),list=>list.includes('Not scheduled: mention an agent to run it.'),'the no-agent notice');
   await page.locator('.canvas-chat').waitFor();
 
-  // Too long to repeat: the API says no, the chat and its message stay.
+  // Too long to repeat (over 4000 characters): not scheduled, and the chat and its message stay.
   await box.fill('');
   await pickPip(page,box);
   await box.evaluate((el,tail)=>{const area=el as HTMLTextAreaElement;const set=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')!.set!;set.call(area,area.value+tail);area.dispatchEvent(new Event('input',{bubbles:true}));},'every day '+'synthetic '.repeat(410));
   await chip.waitFor();
   const before=(await call<Array<{channelId:string}>>(h,'GET','/api/projects')).length;
   await dock(page).getByRole('button',{name:'Send',exact:true}).click();
-  await until(()=>notices(page),list=>list.some(t=>t.startsWith('Not scheduled: ')&&t!=='Not scheduled: mention an agent to run it.'),'the refused notice');
+  await until(()=>notices(page),list=>list.includes('Not scheduled: the message is too long to repeat.'),'the too-long notice, not the API\'s validation text');
   assert.equal((await call<unknown[]>(h,'GET','/api/projects')).length,before+1,'the chat was made all the same');
   assert.equal((await schedules(h)).length,0,'nothing scheduled');
 },{canvas:true,flows:true});

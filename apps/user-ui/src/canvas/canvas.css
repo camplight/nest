@@ -967,7 +967,7 @@
   white-space: nowrap;
 }
 .pchip > span { overflow: hidden; text-overflow: ellipsis; }
-.pchip > svg { flex: none; }
+.pchip > svg { flex: none; width: 13px; height: 13px; }
 .pchip button {
   flex: none;
   border: 0;

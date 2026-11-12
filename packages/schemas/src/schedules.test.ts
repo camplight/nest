@@ -154,8 +154,32 @@ describe('parseScheduleText', () => {
     // Sunday in Sofia: tomorrow is Monday.
     expect(parse('tomorrow', Date.UTC(2026, 10, 15, 10))).toEqual({ kind: 'once', day: 0, time: '09:00' });
   });
+  it('takes a bare every week as weekly on today in the given zone (T12-R1)', () => {
+    expect(parse('every week send the report')).toEqual({ kind: 'weekly', days: [2], time: '09:00' });
+    // Wednesday 23:30 UTC is Thursday in Sofia.
+    expect(parse('every week', Date.UTC(2026, 10, 11, 23, 30))).toEqual({ kind: 'weekly', days: [3], time: '09:00' });
+    expect(parse('every week on Friday at 5pm')).toEqual({ kind: 'weekly', days: [4], time: '17:00' });
+  });
+  it('keeps every day named, full or short, sorted and once each', () => {
+    expect(parse('every Monday and Friday')).toEqual({ kind: 'weekly', days: [0, 4], time: '09:00' });
+    expect(parse('every mon, wed')).toEqual({ kind: 'weekly', days: [0, 2], time: '09:00' });
+    expect(parse('every friday, tues and monday, again friday at 10')).toEqual({ kind: 'weekly', days: [0, 1, 4], time: '10:00' });
+    expect(parse('every Thurs at 4pm')).toEqual({ kind: 'weekly', days: [3], time: '16:00' });
+    expect(parse('every mondays')).toEqual({ kind: 'weekly', days: [0], time: '09:00' });
+  });
+  it('reads evening and morning hours and a.m./p.m.', () => {
+    expect(parse('every evening at 7')).toEqual({ kind: 'daily', time: '19:00' });
+    expect(parse('every evening at 7am')).toEqual({ kind: 'daily', time: '07:00' });
+    expect(parse('every morning at 7')).toEqual({ kind: 'weekdays', time: '07:00' });
+    expect(parse('daily at 6 p.m.')).toEqual({ kind: 'daily', time: '18:00' });
+    expect(parse('daily at 6 a.m. sharp')).toEqual({ kind: 'daily', time: '06:00' });
+    expect(parse('daily at 6p.m.')).toEqual({ kind: 'daily', time: '18:00' });
+    expect(parse('daily at 13pm')).toBeNull();
+    expect(parse('daily at 0am')).toBeNull();
+  });
   it('never throws: an unknown time zone or odd input is null, and every result passes the schema', () => {
     expect(parse('tomorrow at 9', now, 'Mars/Olympus')).toBeNull();
+    expect(parse('every week', now, 'Mars/Olympus')).toBeNull();
     expect(parseScheduleText(undefined as unknown as string, now, 'UTC')).toBeNull();
     expect(parse('every day', Number.NaN)).toEqual({ kind: 'daily', time: '09:00' });
     expect(parse('tomorrow', Number.NaN)).toBeNull();
