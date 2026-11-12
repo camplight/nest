@@ -315,6 +315,9 @@
   flex: 1;
   min-width: 0;
 }
+/* The mock's c-fork: `fork of {parent}` under the title. */
+.canvas-card .c-fork { display: flex; gap: 4px; align-items: center; margin: 3px 0 0; color: var(--nest-muted); font: 400 11.5px Inter, sans-serif; overflow-wrap: anywhere; }
+.canvas-card .c-fork svg { flex: none; width: 12px; height: 12px; }
 /* Last activity: compact, top right of the title (the mock's c-last). */
 .canvas-card-activity {
   flex: none;
@@ -526,6 +529,7 @@
   display: none;
 }
 /* Semantic zoom: a big title, faces and a needs-you or quiet marker only. */
+.canvas-world.is-compact .canvas-card .c-fork,
 .canvas-world.is-compact .canvas-card-files,
 .canvas-world.is-compact .canvas-card-apps-row,
 .canvas-world.is-compact .canvas-card-activity,

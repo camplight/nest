@@ -647,8 +647,10 @@ now, approvals and the Needs you items it serves (`/api/flows/needs`), and on th
 canvas the link lines and labels, the Hand-off popover, Switchyard lines in
 chats, and connecting chats (the `+` port, the chat picker, a new step and the open
 chat's Setup line with its links row), and flow items in Needs you with the open
-chat's Where it stands (Approve, Request changes, and Run now for missed runs). Not
-yet built: forks, schedules and webhooks.
+chat's Where it stands (Approve, Request changes, and Run now for missed runs), and
+forks (`Fork from here` on a message, the seeded fork placed under its parent with
+`fork of …`, the forked chip, and findings flowing back over the fork line). Not yet
+built: schedules and webhooks.
 Access that comes only through a team counts as no access for flows.
 
 ## First-visit visual orientation

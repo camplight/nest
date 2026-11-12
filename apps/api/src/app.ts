@@ -114,7 +114,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   }});
   // The hand-off worker; config.flowsNow is its clock (tests and the scheduler move it).
   const handoff = createHandoffWorker({store, orgops, token: serviceToken, switchyard, summarize, now: config.flowsNow});
-  registerFlowRoutes(app, {store, orgops, enabled: canvasEnabled, switchyard, worker: handoff});
+  registerFlowRoutes(app, {store, orgops, enabled: canvasEnabled, switchyard, worker: handoff, summarize});
   const flows = {
     enabled: canvasEnabled,
     tick: handoff.tick,

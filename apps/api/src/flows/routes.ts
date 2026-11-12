@@ -9,6 +9,8 @@ import type { Channel } from '../canvases';
 import { channelAccess, linkRights } from './access';
 import type { Switchyard, SwitchyardState } from './identity';
 import { FlowActionError, NOTHING_TO_SEND, pausedWhy, type HandoffWorker } from './handoff';
+import { registerForkRoutes } from './forks';
+import type { Summarize } from './summarize';
 
 const NOT_SET_UP = 'Hand-offs are not set up on this server';
 /** The title of a chat the viewer cannot read. */
@@ -25,8 +27,8 @@ export type Availability = {
  * Links between chats. Engine chats, participants and events are read through the viewer's own
  * session; Switchyard joins and posts with the service token. Flag off: every route answers 404.
  */
-export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchyard, worker }: {
-  store: ProductDb; orgops: OrgOpsClient; enabled: boolean; switchyard: Switchyard; worker: HandoffWorker;
+export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchyard, worker, summarize }: {
+  store: ProductDb; orgops: OrgOpsClient; enabled: boolean; switchyard: Switchyard; worker: HandoffWorker; summarize: Summarize;
 }) {
   const routes = new Hono<{ Variables: { human: Human } }>();
   routes.onError((error, c) => {
@@ -80,6 +82,17 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
   async function serviceState(): Promise<SwitchyardState> {
     try { return await switchyard.ensure(); } catch { return { ok: false, reason: 'engine-unavailable' }; }
   }
+  /** Switchyard joins each chat (target first), or the request fails with 503; an outage answers 502. */
+  async function joinBoth(channelIds: string[]) {
+    if (!(await serviceState()).ok) throw fail(503, NOT_SET_UP);
+    try {
+      for (const id of channelIds) await switchyard.join(id);
+    } catch (error) {
+      if (isEngineOutage(error)) throw error;
+      console.error('Switchyard could not join a linked chat:', (error as Error).name);
+      throw fail(503, NOT_SET_UP);
+    }
+  }
   /** A link the viewer may act on. Someone who reads neither chat and did not create it cannot tell it exists. */
   async function linkFor(c: any) {
     if (!uuid.safeParse(c.req.param('id')).success) throw notFound();
@@ -126,15 +139,7 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
     // The rule delivery applies (S9): team-only and viewer-share access count as none.
     if (!channelAccess(from, human).read || !channelAccess(to, human).post) throw fail(403, 'You need to read the first chat and post in the second');
     requireAgent(to, input.who);
-    if (!(await serviceState()).ok) throw fail(503, NOT_SET_UP);
-    try {
-      await switchyard.join(input.to);
-      await switchyard.join(input.from);
-    } catch (error) {
-      if (isEngineOutage(error)) throw error;
-      console.error('Switchyard could not join a linked chat:', (error as Error).name);
-      throw fail(503, NOT_SET_UP);
-    }
+    await joinBoth([input.to, input.from]);
     // Only turns after the newest finished one are handed off. With none, the scan starts at 0: every
     // turn it finds completed after this read, including one that completes while the link is created.
     const newest = (await orgops.humanJson<EngineEvent[]>(
@@ -249,6 +254,8 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
     ];
     return c.json({ items: items.sort((a, b) => b.at - a.at) });
   });
+
+  registerForkRoutes(routes, { store, orgops, switchyard, summarize, tools: { fail, parse, body, viewerChannels, titles, join: joinBoth } });
 
   // Unknown flow endpoints never fall through to the engine proxy.
   routes.all('/api/flows', () => { throw notFound(); });

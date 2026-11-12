@@ -9,7 +9,7 @@ import {createChannelEventsCore,type ChannelEventsCore} from './chat/channel-eve
 import {fetchAgentStarts} from './chat/lifecycles';
 import {useChannelEvents} from './chat/useChannelEvents';
 import {adaptiveMessageBatchSize} from './chat/history';
-import {ChatThread, type ChatThreadHandle} from './chat/ChatThread';
+import {ChatThread, type ChatFlows, type ChatThreadHandle} from './chat/ChatThread';
 import {ChatComposer,useComposerSession,type ChatComposerHandle} from './chat/ChatComposer';
 import {Share2} from 'lucide-react';
 import {HuddleButton} from './huddle/HuddleButton';
@@ -25,15 +25,17 @@ import type { OnboardingSummary } from "@nest/schemas";
 import {apiUrl} from './config';
 import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
 import { Community } from "./Community";
-import { CanvasView, type CanvasChatMode } from "./canvas/CanvasView";
-import { useServiceAgent } from "./canvas/useFlows";
+import { CanvasView, type CanvasChatMode, type CanvasForks } from "./canvas/CanvasView";
+import { useFlowsEnabled, useServiceAgent } from "./canvas/useFlows";
+import { flowError, getForks } from "./canvas/flows-api";
+import { startFork, type ForkSource } from "./canvas/fork";
 import { insideCanvasChat, outsideFileDropTargets } from "./components/file-drop";
 import { canvasAvailability } from "./canvas/api";
 import { usePhoneLayout } from "./canvas/PhoneList";
 import { unseenAppAgents } from "./chat/wrapped";
 import { serverClock } from "./server-clock";
 import { createCanvasLive, type CanvasLive } from "./canvas/live";
-import type { Project } from "@nest/schemas";
+import type { ForkView, Project } from "@nest/schemas";
 import { Projects } from "./Projects";
 import { ProjectNavigation } from "./components/ProjectNavigation";
 import { Agents } from "./Agents";
@@ -528,6 +530,21 @@ export default function App() {
   },[authenticated,activeChannelId,userId]);
   // The Switchyard service agent (flows, behind the canvas flag) is never offered as a mention.
   const serviceAgent = useServiceAgent(canvasAvailable === true);
+  // Forks (flows, behind the canvas flag; R20: no flows prop, so no Fork from here or fork chips, with it off). The canvas
+  // registers its own fork (placement under the parent's card); elsewhere the fork opens as its project's chat.
+  const flowsOn = useFlowsEnabled(canvasAvailable === true) && canvasAvailable === true && serviceAgent !== null;
+  const canvasForks = useRef<CanvasForks | null>(null);
+  const [forkList, setForkList] = useState<{ channelId: string; forks: ForkView[] } | null>(null);
+  const [forksRead, setForksRead] = useState(0);
+  useEffect(() => {
+    if (!flowsOn || !activeChannelId) return;
+    let live = true;
+    getForks(activeChannelId).then(forks => { if (live) setForkList({ channelId: activeChannelId, forks }); }).catch(() => {});
+    return () => { live = false; };
+  }, [flowsOn, activeChannelId, forksRead]);
+  const forkMap = useMemo(() => new Map((forkList?.channelId === activeChannelId ? forkList.forks : [])
+    .map(fork => [fork.parentEventId, { channelId: fork.childChannelId, title: fork.title }] as const)), [forkList, activeChannelId]);
+  const forking = useRef(new Set<string>());
   const mentionOptions = useMemo(() => {
     const candidates=mentionCandidates(visibleAgents, humans, activeChannel?.participants ?? [], serviceAgent);
     for(const offer of sharedAssistants.filter(item=>!item.yours)){
@@ -1727,6 +1744,32 @@ export default function App() {
     );
   }
 
+  /** A fork outside the canvas: made, then opened as its project's chat. */
+  async function forkOutsideCanvas(source: ForkSource, parentChannelId: string) {
+    try {
+      const fork = await startFork({ ownerId: userId ?? "", parentChannelId, source });
+      setProjectIndex(await apiJson<Project[]>("/api/projects"));
+      await refreshChannels(undefined, { select: false });
+      selectProject(fork.projectId, null, "chat");
+    } catch (failure) { setError(flowError(failure, "Could not fork this chat. Try again.")); }
+  }
+  const chatFlows: ChatFlows | undefined = flowsOn && serviceAgent && activeChannelId ? {
+    serviceAgent, forks: forkMap,
+    onFork: item => {
+      const key = item.meta.eventId;
+      // One fork per message at a time: a second press while it is made does nothing.
+      if (forking.current.has(key)) return;
+      forking.current.add(key);
+      const source: ForkSource = { eventId: key, text: item.text, author: item.meta.authorName, authorKind: item.meta.authorKind };
+      const canvas = view === "canvas" ? canvasForks.current : null;
+      const run: Promise<unknown> = canvas ? canvas.fork(source, activeChannelId) : forkOutsideCanvas(source, activeChannelId);
+      void run.finally(() => { forking.current.delete(key); setForksRead(n => n + 1); });
+    },
+    onOpenChat: channelId => {
+      const canvas = view === "canvas" ? canvasForks.current : null;
+      if (canvas) canvas.open(channelId); else selectChannel(channelId);
+    },
+  } : undefined;
   const chatWorkspace = <section className={`workspace${view === "workspace" ? " standalone-workspace" : ""}`}>
         <ChatFileDrop scope={`${userId??''}:${activeChannelId??''}`} accept={view==="canvas"&&canvasChat.mode!==null?insideCanvasChat:outsideFileDropTargets} overlay={!(view==="canvas"&&canvasChat.mode!==null)} onFiles={files=>composerRef.current?.enqueueFiles(files)} disabledReason={!activeChannel?'Choose a conversation before attaching files.':activeChannel.archivedAt?'Restore this conversation before attaching files.':!activeChannelCanPost?'This conversation is read-only.':sending?'Wait for this message to finish sending.':undefined}/>
         {view === "workspace" && <WorkspaceTopbar
@@ -1776,6 +1819,7 @@ export default function App() {
             channelLabel={activeConversationName}
             wrappedAgents={wrappedParticipants}
             appActivity={canvasAvailable === true}
+            flows={chatFlows}
             headerMore={activeChannel && activeChannelManageable && <button type="button" className="huddle-launch channel-sharing-launch" aria-haspopup="dialog" aria-expanded={showChannelManageDialog} onClick={() => setShowChannelManageDialog(true)}><Share2 size={17} aria-hidden="true"/>Sharing</button>}
             headerActions={activeChannel && <HuddleButton key={activeChannel.id} channel={activeChannel} label={activeConversationName} username={username} agents={agents} events={threadSnapshot.events} canPost={activeChannelCanPost}/>}
             onPreviewDemo={path => setDemoPreview({channel: activeChannelId!, path})}
@@ -1982,6 +2026,7 @@ export default function App() {
         }}
         onChannels={setChannels}
         changeRequests={{arm: onSent => composerRef.current?.requestChanges(onSent), cancel: composerSession.cancelRequestChanges}}
+        forks={canvasForks}
       /> : null) : view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} onManage={activeChannelManageable?()=>setShowChannelManageDialog(true):undefined} voice={canvasAvailable === true} /> : view === "agents" ? <Agents tab={agentTab} onTab={tab=>selectAgent(selectedAgent,{tab})} onOpenChat={name=>void openAgentChat(name)} requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
         resumeProject={userId?projectIndex.find(p=>p.id===recentProject(userId)):undefined} channels={visibleChannels} projects={projectIndex} onProject={selectProject} unreadCounts={unreadCounts} onCommunity={selectCommunity}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}

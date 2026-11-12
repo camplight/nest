@@ -1,5 +1,5 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
-import {useCallback,useEffect,useId,useLayoutEffect,useMemo,useReducer,useRef,useState,useSyncExternalStore,type CSSProperties,type FormEvent,type ReactNode} from 'react';
+import {useCallback,useEffect,useId,useLayoutEffect,useMemo,useReducer,useRef,useState,useSyncExternalStore,type CSSProperties,type FormEvent,type MutableRefObject,type ReactNode} from 'react';
 import {Columns2,Ellipsis,FileText,Search,Share2,SquareArrowOutUpRight,X} from 'lucide-react';
 import {AGENT_PIN_LIMIT_MESSAGE,CanvasTint,type AgentPins,type BoardLink,type Link,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
@@ -44,6 +44,7 @@ import {HandoffPopover,type HandoffChange} from './HandoffPopover';
 import {LinkPicker} from './LinkPicker';
 import {ChatSetup} from './ChatSetup';
 import {LinkIcon} from './Links';
+import {startFork,type ForkResult,type ForkSource} from './fork';
 import './canvas.css';
 
 export type CanvasHuman = {id?: string; username: string};
@@ -78,7 +79,15 @@ export type CanvasViewProps = {
    * the armed callback; cancel restores it.
    */
   changeRequests?: ChangeRequests;
+  /**
+   * Forks from App's thread (flows set up): the canvas registers how it forks (create, place the fork under its parent's
+   * card and frame it, or open it as a loose chat) and how a fork chip opens a chat.
+   */
+  forks?: MutableRefObject<CanvasForks | null>;
 };
+export type CanvasForks = {fork(source: ForkSource, parentChannelId: string): Promise<ForkResult | null>; open(channelId: string): void};
+/** The mock's fork toast. */
+export const forkToast = (parent: string) => `Forked. The new conversation sees "${parent}" up to that message.`;
 /** A short message over the canvas about a membership change, with Undo after a removal. */
 type MemberNotice = {id: number; text: string; undo?: () => void};
 /** Files dropped on an area going straight into its context, with their combined progress. */
@@ -112,7 +121,7 @@ async function sendNudge(channelId: string, agent: string) {
   await apiJson('/api/messages', {method: 'POST', headers: getApiHeaders(), body: JSON.stringify(nudgeMessage(channelId, agent))});
 }
 
-export function CanvasView({canvasId, humanId, username, humans, channels, projects, agents, onSelectCanvas, onMenu, chat, chatChannelId, chatMode, onOpenChat, onCloseChat, onOpenRegular, onChatFiles, live, refreshChannels, onChannels, changeRequests}: CanvasViewProps) {
+export function CanvasView({canvasId, humanId, username, humans, channels, projects, agents, onSelectCanvas, onMenu, chat, chatChannelId, chatMode, onOpenChat, onCloseChat, onOpenRegular, onChatFiles, live, refreshChannels, onChannels, changeRequests, forks}: CanvasViewProps) {
   const store = useMemo(() => createBoardStore({api: boardApi, now: Date.now, intervalMs: SYNC_INTERVAL_MS}), []);
   // Phones get a list in place of the free canvas.
   const phone = usePhoneLayout();
@@ -958,6 +967,71 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     const card = store.snapshot().board?.cards.find(c => c.channelId === from);
     if (card) void newStep(from, {x: card.x + card.w + 120, y: card.y + 60});
   }, [store, newStep]);
+  /**
+   * Fork from here (the mock's fork()): the new chat goes 40 px right and 360 px below its parent's card when that card is
+   * on this canvas and the person may edit it (into the parent's area, which grows to hold it); the open chat closes and
+   * the fork is framed, flashed and focused. Otherwise (another canvas, a view-role member, a loose parent) the fork
+   * opens as a loose chat. Either way the toast says what the fork sees.
+   */
+  const forkFrom = useCallback(async (source: ForkSource, parentChannelId: string): Promise<ForkResult | null> => {
+    const before = store.snapshot().board;
+    const parentCard = before?.cards.find(card => card.channelId === parentChannelId);
+    const parentTitle = (parentCard?.access === 'open' ? cardTitle(parentCard) : null) ?? candidatesRef.current.find(chat => chat.channelId === parentChannelId)?.title
+      ?? projects.find(project => project.channelId === parentChannelId)?.name ?? channels.find(channel => channel.id === parentChannelId)?.name ?? 'this chat';
+    let result: ForkResult;
+    try { result = await startFork({ownerId: humanRef.current, parentChannelId, source}); } catch (error) {
+      say(flowError(error, 'Could not fork this chat. Try again.'));
+      return null;
+    }
+    await refreshRef.current().catch(() => {});
+    const child = result.childChannelId;
+    const now = store.snapshot().board;
+    const parent = now?.cards.find(card => card.channelId === parentChannelId);
+    let placed = false;
+    if (now && before && now.canvas.id === before.canvas.id && now.canvas.role !== 'view' && parent) {
+      placed = now.cards.some(card => card.channelId === child);
+      if (!placed) {
+        const spot = clampPoint({x: parent.x + 40, y: parent.y + 360});
+        placed = await store.apply({kind: 'placeCards', cards: [{channelId: child, ...spot}]});
+        const area = areaFor(cardCentre(parent), now.areas);
+        const grown = placed && area ? growToFit(area, [{...spot, w: DEFAULT_CARD_WIDTH, h: CARD_PLACE_HEIGHT}]) : null;
+        if (area && grown) await store.apply({kind: 'patchArea', areaId: area.id, patch: grown});
+      }
+    }
+    // Let App's refreshed chat list reach the canvas before opening the chat from it.
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    if (placed && !phoneRef.current) {
+      closeRef.current();
+      setSelectedId(child);
+      // Once the sheet is gone and the card mounted: frame it, flash it and give it focus (never the page body).
+      let tries = 0;
+      const frame = () => {
+        const root = viewRoot.current;
+        const card = root?.querySelector<HTMLElement>(`.canvas-card[data-channel-id="${CSS.escape(child)}"]`);
+        if ((!card || root?.querySelector('.canvas-chat')) && ++tries < 60) { requestAnimationFrame(frame); return; }
+        controls.current?.reveal({channelId: child});
+        if (!card) return;
+        flashCard(card);
+        card.querySelector<HTMLElement>('.canvas-card-open')?.focus({preventScroll: true});
+      };
+      requestAnimationFrame(frame);
+    } else jumpTo(child);
+    void store.refresh({force: true});
+    bumpLinks();
+    say(forkToast(parentTitle));
+    return result;
+  }, [store, projects, channels, say, jumpTo]);
+  /** A fork chip: the chat opens like a card does (in the current mode), or as a loose chat. */
+  const openFork = useCallback((channelId: string) => {
+    if (store.snapshot().board?.cards.some(card => card.channelId === channelId && card.access === 'open')) openFromCard(channelId);
+    else jumpTo(channelId);
+  }, [store, openFromCard, jumpTo]);
+  useEffect(() => {
+    if (!forks) return;
+    const handle: CanvasForks = {fork: forkFrom, open: openFork};
+    forks.current = handle;
+    return () => { if (forks.current === handle) forks.current = null; };
+  }, [forks, forkFrom, openFork]);
   const canLink = flowsOn && Boolean(board) && board?.canvas.role !== 'view';
   const canConnect = useCallback((card: BoardCard) => canLink && card.access === 'open', [canLink]);
   /** The open chat's links (for its Setup line), re-read as the board's links change and after each change made here. */

@@ -1,6 +1,6 @@
 // Typed helpers for the product /api/flows routes (apps/api/src/flows/routes.ts): availability, links, needs and the
 // decisions taken from Needs you (a hand-off's OK, a project task's review, Run now).
-import type {FlowNeed,Link,LinkPatch,NewLink,ProjectDetail,Task} from '@nest/schemas';
+import type {FlowNeed,ForkView,Link,LinkPatch,NewFork,NewLink,ProjectDetail,Task} from '@nest/schemas';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 
 export type FlowsAvailability = {enabled: boolean; reason?: string; serviceAgent: string | null; summaries: 'model' | 'fallback'; webhooks: boolean};
@@ -42,6 +42,12 @@ export const getLinks = async (channelId: string) => (await apiJson<{links: Link
  */
 export const createLink = (input: Pick<NewLink, 'id' | 'from' | 'to'> & {intro?: boolean}) =>
   apiJson<Link>('/api/flows/links', write('POST', input));
+
+/** The forks of a chat the viewer can read; a fork the viewer cannot read is titled `a private chat`. */
+export const getForks = async (parentChannelId: string) =>
+  (await apiJson<{forks: ForkView[]}>(`/api/flows/forks?parentChannelId=${encodeURIComponent(parentChannelId)}`)).forks;
+/** Makes a chat the viewer started a fork of one message: Switchyard seeds it, and findings flow back. A repeat answers the same fork. */
+export const createFork = (input: NewFork) => apiJson<{childChannelId: string; linkId: string | null}>('/api/flows/forks', write('POST', input));
 
 export async function patchLink(id: string, patch: Omit<LinkPatch, 'version'>, version: number): Promise<Link> {
   try { return await apiJson<Link>(linkPath(id), write('PATCH', {...patch, version})); } catch (error) { throw conflict(error); }

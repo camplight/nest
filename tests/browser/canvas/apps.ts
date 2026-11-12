@@ -191,6 +191,8 @@ await runChatTest('chat apps bar: counts, honest timeline lines without the comm
 
   // The composer has the mic with the flag on.
   assert.equal(await page.getByRole('button',{name:'Record a voice note',exact:true}).count(),1);
+  // Flows are not set up (no service token), so no message offers Fork from here.
+  assert.equal(await page.locator('.fork-btn, .forked').count(),0,'no forks without flows');
 
   // A wrapped agent in the chat shows the limitation.
   await h.post('/api/agents',{name:'Wren',icon:'pip',visibility:'PUBLIC',modelId:'wrapped:none',workspacePath:`/tmp/wren-${Date.now()}`,mode:'WRAPPED',assignedRunnerId:'fixture-runner',desiredState:'STOPPED'});
@@ -241,6 +243,10 @@ await runChatTest('canvas flag off: no voice notes, no Apps here bar, no file ti
   assert.equal(await page.getByRole('button',{name:/· Gmail ·/}).count(),0,'no app-call titles');
   assert.equal(await page.locator('.app-line').count(),0,'no app lines');
   assert.equal(await page.getByRole('button',{name:'Record a voice note',exact:true}).count(),0,'no mic in the composer');
+  // No forks (Phase 3): no Fork from here on the agent's message and no fork chips.
+  await message.waitFor();
+  assert.equal(await page.getByRole('button',{name:'Fork from here',exact:true}).count(),0,'no Fork from here');
+  assert.equal(await page.locator('.fork-btn, .forked').count(),0,'no fork chips');
 
   // Details show the recorded payload exactly as before Phase 2.
   await chips('shell_run completed').nth(1).click();

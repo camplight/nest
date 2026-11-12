@@ -13,7 +13,7 @@ import type {AgentPulse,CardPulse} from './pulse';
 import type {NeedsItem} from './needs';
 import {participantRows,shownRows,type ParticipantRow,type RowState} from './rows';
 import {useServiceAgent} from './useFlows';
-import {LinkIcon} from './Links';
+import {ForkIcon,LinkIcon} from './Links';
 
 export type CardProps = {
   card: BoardCard;
@@ -282,6 +282,8 @@ export const Card = memo(function Card({card, draggable, dx, dy, dragging, measu
       <h3 className="canvas-card-title">{title}</h3>
       {card.access === 'open' && pulse?.lastActivityAt ? <LastActivity at={pulse.lastActivityAt}/> : null}
     </div>
+    {/* The mock's c-fork: which chat this one was forked from ('another chat' when the viewer cannot read it). */}
+    {card.access === 'open' && card.forkOf ? <p className="c-fork"><ForkIcon/>fork of {card.forkOf.title}</p> : null}
     {areaTitle ? <p className="canvas-visually-hidden">In area {areaTitle}</p> : null}
     {card.access === 'open' && card.home && !card.home.isHere && card.home.label ? <p className="canvas-card-home">context from {card.home.label}</p> : null}
     {/* The home's setter can no longer read its canvas, so agents read nothing from it; same tag as an unavailable link. */}

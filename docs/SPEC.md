@@ -1327,6 +1327,37 @@ the canvas UI for links (lines, labels and the Hand-off popover).
        person (no reason) is not listed.
 
      Titles follow the viewer's own access, as in the links list.
+   - `POST /api/flows/forks` takes `{childChannelId, parentChannelId, parentEventId,
+     timeZone?}` and makes the child a fork of that message. The viewer must read the
+     parent by the flows rule (403), the event must be a `message.created` in the
+     parent read with the viewer's session (404), and the child must be a project chat
+     the viewer started (403); a child equal to the parent or an unknown `timeZone`
+     answers 400. Switchyard joins both chats and posts the seed into the child with
+     the key `nest:fork:{child}` and `payload.nestSwitchyard {kind:'fork-seed', setBy,
+     parentChannelId, parentEventId}`:
+
+     ```
+     Forked from "{parent title}" · {author}, {HH:MM} · set up by {username}
+
+     {summary of up to 40 messages ending at the forked one}
+
+     > {the forked message, at most 2,000 characters, every line quoted}
+     ```
+
+     `HH:MM` is in the viewer's IANA `timeZone` (UTC without one). The summary is the
+     summariser's (`purpose:'fork'`, attributed to the viewer, `ref {forkId}`), or its
+     labelled fallback. The seed targets the author when the author is an agent in the
+     child, else nobody (the service agent itself). Then a fork link child → parent
+     (`kind:'fork'`, `what:'results'`, `when:'done'`, `who:null`, label
+     `fork · findings flow back`, created by the viewer) lets findings flow back, and
+     the fork is recorded. It answers 201 `{childChannelId, linkId}`. A repeat for the
+     same child and message answers 200 with the same body and posts nothing; the
+     same child with another message answers 409. Forking needs only read access to the parent, so a
+     fork of a chat the viewer cannot post in (an archived one) gets a findings link
+     that the worker pauses (`access`) at its first delivery.
+   - `GET /api/flows/forks?parentChannelId=X` answers `{forks:[{childChannelId,
+     parentEventId, title}]}` for a chat the viewer can read (404 otherwise); a fork
+     the viewer cannot read is titled `a private chat`.
 
    For `PATCH`, `DELETE` and Send now, someone who neither created the link nor can
    read either chat gets 404, as if it did not exist. Creating, changing and removing
@@ -1539,8 +1570,35 @@ the canvas UI for links (lines, labels and the Hand-off popover).
      project's owner may review its task, so another member's digest says what waits
      with no buttons. A refusal (already decided, the link paused, not the person's
      to decide) is a toast with the API's text, and the items are read again.
-10. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
-   `handoff.test.ts`, `access.test.ts` and the fork case in `canvas-board.test.ts`
+10. Forks (`chat/ChatThread.tsx`, `canvas/fork.ts`, `CanvasView.tsx`, `Card.tsx`,
+   `App.tsx`). The thread gets its `flows` prop only with the canvas flag on and flows
+   set up; without it there is no `Fork from here` and no fork chip, and the chat is
+   as before.
+   - `Fork from here` (the mock's `.fork-btn`, absolute 6 px from the message's top
+     right, or top left on the person's own messages, whose time is on the right) shows
+     on hover and on keyboard focus within the message. It is offered on any message,
+     the person's own included, but never on a Switchyard line or a message from the
+     service agent.
+   - Forking `POST`s `/api/projects` (a team chat named `Fork: ` and the message's
+     first sentence, up to 38 characters, with the author agent as a member when an
+     agent wrote it; the id is stored per message in `sessionStorage` until the fork is
+     made, so a retry finishes the same chat), then `POST /api/flows/forks` with the
+     browser's time zone. If the author agent cannot be added, the fork starts without
+     it.
+   - On the canvas, when the parent's card is on this canvas and the person may edit
+     it, the fork's card goes 40 px right and 360 px below the parent's (its area, if
+     any, grows to hold it); the open chat closes and the new card is framed, flashed
+     and focused (on a phone it is placed the same way and its chat opens). Otherwise
+     (the parent on another canvas or loose, or a view-role member) the fork opens as a
+     loose chat. The toast reads `Forked. The new
+     conversation sees "{parent}" up to that message.`. Outside the canvas the fork
+     opens as its project's chat.
+   - A forked message shows a `.forked` chip with the fork's title under it, which
+     opens the fork (as a card's chat on the canvas, else as a loose chat). A fork's
+     card shows `fork of {parent}` under its title (the mock's `c-fork`), hidden at
+     compact zoom. The fork line and its label toggle are as in item 7.
+11. Checks. `apps/api/src/flows/links.test.ts`, `switchyard.test.ts`,
+   `handoff.test.ts`, `access.test.ts`, `forks.test.ts` and the fork case in `canvas-board.test.ts`
    run against the real engine and Nest handlers with temporary databases.
    `handoff.test.ts` covers a lost post response followed by a restart (exactly one
    hand-off), an engine outage, the cap, lost access and the engine watch.
@@ -1550,7 +1608,10 @@ the canvas UI for links (lines, labels and the Hand-off popover).
    connecting by dragging the port onto a card and onto empty canvas (a new step),
    the chat picker, the Setup line and its links row, loose chats and a phone, and
    an approval link through Needs you, Approve, Request changes with a reply, and a
-   project review approved from the open chat. `needs.test.ts` and
+   project review approved from the open chat. `tests/browser/canvas/forks.ts` forks
+   Pip's message from the open chat (placement, the fork line and label, the seed,
+   the chip, findings flowing back and pausing them) and a view-role member's fork
+   opening as a loose chat. `needs.test.ts` and
    `ChatDigest.test.tsx` cover the merge and the digest, missed runs included.
 
 ## Private Community catalog

@@ -35,4 +35,9 @@ describe('Card',()=>{
     expect(html).toContain('canvas-card-need');
     expect(html).toContain('Secret question');
   });
+  it('says which chat a fork came from, under the title (the mock\'s c-fork)',()=>{
+    const open={...base,access:'open',title:'Fork: Agreed on more data',canManage:true,archived:false,projectId:null,participants:[]};
+    expect(render({...open,forkOf:{channelId:'c0',title:'Pricing'}} as BoardCard)).toMatch(/<p class="c-fork"><svg[^>]*>.*<\/svg>fork of Pricing<\/p>/);
+    expect(render({...open,forkOf:null} as BoardCard)).not.toContain('c-fork');
+  });
 });

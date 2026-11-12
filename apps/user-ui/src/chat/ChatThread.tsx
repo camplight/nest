@@ -26,6 +26,7 @@ import {ChatPortalProvider} from './ui/portal';
 import {activeTurns,type WorkingTurn} from './working';
 import {WorkingRow} from './WorkingRow';
 import {useServiceAgent} from '../canvas/useFlows';
+import {ForkIcon} from '../canvas/Links';
 import './chat.css';
 
 export type ChatThreadProps={
@@ -37,7 +38,12 @@ export type ChatThreadProps={
  channelLabel:string;wrappedAgents?:string[];onFocusMessage(eventId:string):void;handle?:Ref<ChatThreadHandle>;
  /** Phase 2 (canvas flag): the Apps here bar, the wrapped-agent line, app-call titles and redaction, and file tiles in messages. */
  appActivity?:boolean;
+ /** Phase 3 (canvas flag and flows set up only, R20): Fork from here on messages, and a chip under each forked message. */
+ flows?:ChatFlows;
 };
+/** Forks in the thread: the service agent (its messages never fork), each forked message's fork by event id, and the actions. */
+export type ChatFlows={serviceAgent:string;forks:ReadonlyMap<string,{channelId:string;title:string}>;onFork(item:ChatMessageItem):void;onOpenChat(channelId:string):void};
+export type ChatMessageItem=Extract<TimelineItem,{kind:'message'}>;
 // What the page may ask of the thread: after a send it follows the new message down (the viewport is the thread's own).
 export type ChatThreadHandle={scrollToBottom():void};
 type MessageItem=Extract<TimelineItem,{kind:'message'}>;
@@ -103,6 +109,9 @@ const COLUMN='relative min-w-0 flex-1 pb-0 outline-none';
 // The current user's own messages sit on the right like a chat app's: no avatar or name, the bubble and its actions
 // right-aligned (the operator's call, superseding spec 4.5's left-aligned layout).
 const MINE_COLUMN='flex flex-col items-end';
+// The mock's `.fork-btn` (absolute, 6 px in, shown on hover and keyboard focus within) and `.msg .forked` chip.
+const FORK_BUTTON='fork-btn absolute top-1.5 z-20 flex items-center gap-[5px] rounded-lg border border-border bg-card px-2 py-[3px] text-[11.5px] leading-4 font-normal text-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [&_svg]:size-3';
+const FORKED='forked mt-1.5 inline-flex max-w-full cursor-pointer items-center gap-[5px] rounded-lg border border-[color-mix(in_srgb,var(--nest-accent)_30%,var(--nest-border))] px-2 py-[3px] text-xs leading-4 text-(--nest-accent) hover:bg-muted [&_svg]:size-3 [&_svg]:shrink-0';
 
 function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;previous?:TimelineItem;view:ThreadView;spacing:string;activity?:ActivityItem}){
  const {meta}=item,{props}=view;
@@ -127,6 +136,10 @@ function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;pr
   const frame=window.requestAnimationFrame(reveal);
   return()=>window.cancelAnimationFrame(frame);
  },[highlighted]);
+ // Forks (Phase 3): never from the service agent's own messages; a forked message shows a chip that opens its fork.
+ const flows=props.flows;
+ const fork=Boolean(flows)&&!(meta.authorKind==='agent'&&meta.authorName===flows!.serviceAgent);
+ const forked=flows?.forks.get(meta.eventId);
  // A Switchyard line (the mock's `.msg.src`): `↳` in the avatar gutter and its first line in muted italics, then the
  // rest as an ordinary body with its files. No author line, portrait or `To @…` line: it is a note of what moved, not a voice.
  if(item.switchyard!==undefined)return <article ref={ref} id={`message-${item.id}`} data-message-id={item.id} tabIndex={highlighted?-1:undefined}
@@ -143,18 +156,21 @@ function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;pr
   className={cn('message',`message-${meta.authorKind}`,SHELL,spacing,highlighted&&'message-highlight bg-accent/40 ring-2 ring-ring')}>
   {!mine&&<div className="w-8 shrink-0 pt-0.5">{author?authorAvatar(meta):time}</div>}
   <div data-slot="message-focus" tabIndex={0} role="group" aria-label={`${meta.authorName}, ${formatTime(meta.displayAt)}`} className={cn(COLUMN,mine&&MINE_COLUMN)}>
-   {mine?(author?<div className="flex items-center justify-end gap-2">{actions('')}{time}</div>:actions('absolute top-0 start-0 z-10')):author?<div className="flex min-w-0 items-center gap-2">
+   {mine?(author?<div className="flex items-center justify-end gap-2">{actions('')}{time}</div>:actions(cn('absolute top-0 z-10',fork?'start-34':'start-0'))):author?<div className="flex min-w-0 items-center gap-2">
     <strong className="message-author min-w-0 text-sm font-semibold leading-5 text-foreground [overflow-wrap:anywhere]">{meta.authorName}</strong>
     {time}
     {actions('')}
-   </div>:actions('absolute top-0 end-0 z-10')}
+   </div>:actions(cn('absolute top-0 z-10',fork?'end-34':'end-0'))}
    {meta.targetAgents.length>0&&<span className="message-target mt-0.5 mb-0 block text-xs text-muted-foreground">To {meta.targetAgents.map(name=>'@'+name).join(', ')}</span>}
    <MessageBody item={item} channelId={props.snapshot.channelId??''} core={props.core} onPreviewDemo={props.onPreviewDemo}
     onFocusMessage={props.onFocusMessage} onQuote={quote} fileTiles={props.appActivity}
     activity={activity&&<div data-aui-quote-selectable="false" className={ACTIVITY_IN_MESSAGE}>
      <AgentActivity events={activity.events} tone={activity.tone} formatTime={formatTime} apps={view.apps}/>
     </div>}/>
+   {forked&&<button type="button" className={FORKED} title={`Open the fork ${forked.title}`} onClick={()=>flows!.onOpenChat(forked.channelId)}><ForkIcon/>{forked.title}</button>}
   </div>
+  {/* The mock's fork-btn: top right on hover or keyboard focus within (top left on your own messages, whose time is on the right). */}
+  {fork&&<button type="button" className={cn(FORK_BUTTON,mine?'start-1.5':'end-1.5')} onClick={()=>flows!.onFork(item)}><ForkIcon/>Fork from here</button>}
  </article>;
 }
 

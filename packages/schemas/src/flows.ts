@@ -64,3 +64,30 @@ export type FlowNeed = {
   short: string; reason: string; detail: string;
   gate: { kind: 'approval'; deliveryId: string; linkId: string } | { kind: 'paused'; linkId: string } | { kind: 'missed'; scheduleId: string; runId: string };
 };
+
+/** The findings link a fork gets, stored child → parent and drawn parent → child. */
+export const FORK_LINK_LABEL = 'fork · findings flow back';
+/** How much of the forked message the seed quotes. */
+export const FORK_QUOTE_CHARS = 2_000;
+/** How many messages, ending at the forked one, the seed summarises. */
+export const FORK_SUMMARY_MESSAGES = 40;
+
+/**
+ * Forks a chat from one message into a chat the viewer started. `timeZone` (IANA) is the viewer's, for the seed's
+ * `{HH:MM}`; without it the time is UTC.
+ */
+export const NewForkSchema = z.object({
+  childChannelId: channelId,
+  parentChannelId: channelId,
+  parentEventId: z.string().min(1).max(200),
+  timeZone: z.string().min(1).max(64).optional(),
+}).strict().refine(v => v.childChannelId !== v.parentChannelId, { message: 'A chat cannot be a fork of itself', path: ['childChannelId'] });
+export type NewFork = z.infer<typeof NewForkSchema>;
+/** A fork of a chat as GET /api/flows/forks lists it; `title` is 'a private chat' when the viewer cannot read the fork. */
+export type ForkView = { childChannelId: string; parentEventId: string; title: string };
+
+/** The mock's fork title: `Fork: ` and the message's first sentence, up to 38 characters. */
+export function forkTitle(text: string): string {
+  const first = (text.split(/[.:?!]/)[0] ?? '').replace(/\s+/g, ' ').trim().slice(0, 38).trimEnd();
+  return first ? `Fork: ${first}` : 'Fork';
+}

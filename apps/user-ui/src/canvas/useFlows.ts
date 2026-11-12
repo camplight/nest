@@ -33,6 +33,11 @@ export function useServiceAgent(load = false): string | null {
   useEffect(() => { if (load) void loadAvailability(); }, [load]);
   return useSyncExternalStore(subscribe, () => availability?.serviceAgent ?? null, () => null);
 }
+/** Whether flows (hand-offs, forks) are set up here; false before the read and with the flag off. */
+export function useFlowsEnabled(load = false): boolean {
+  useEffect(() => { if (load) void loadAvailability(); }, [load]);
+  return useSyncExternalStore(subscribe, () => availability?.enabled === true, () => false);
+}
 /** Whether this engine name is the service agent: never a card row, tray or picker face, mention or quiet agent. */
 export const isServiceAgent = (name: string, service: string | null) => service !== null && name === service;
 
