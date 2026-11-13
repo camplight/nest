@@ -191,7 +191,9 @@ Nest never reads engine SQLite. Remote runners also need
 `NEST_API_URL`. These values locate the product API, not the engine API.
 
 The launcher seeds `skills/nest-connections` into writable engine runtime skills
-on first use without overwriting existing installations. An external engine needs
+on first use and replaces that runtime copy whenever the bundled `skill.json`
+version changes, so helper fixes reach running installs; local edits to the
+runtime copy are not preserved across a version change. An external engine needs
 the same skill installed in its configured skill root. The source includes a
 `skill.json` manifest, so it can be packaged with
 `node scripts/community.mjs pack skills/nest-connections --out /tmp/nest-connections.json`

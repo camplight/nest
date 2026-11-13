@@ -89,3 +89,66 @@ test("the agent sees why a call failed, except when the request may have run", a
     "Nest connection request failed. Check configuration and grants. Execution may have completed; do not automatically retry.",
   );
 });
+test("--all follows the provider's cursor and saves the whole list to a file", async () => {
+  const written = {};
+  const files = { cwd: "/workspace", write: (path, text) => { written[path] = JSON.parse(text); } };
+  const pages = {
+    "": { cursor: "c2", data: [{ id: 1 }, { id: 2 }], total: 5 },
+    c2: { cursor: "c3", data: [{ id: 3 }, { id: 4 }], total: 5 },
+    c3: { data: [{ id: 5 }], total: 5 },
+  };
+  const sent = [];
+  const result = await run(
+    ["execute", "conn", "MIRO_GET_BOARD_ITEMS", "--all", "--out", "items.json"],
+    env,
+    async (url, init) => {
+      const request = JSON.parse(init.body);
+      if (String(url).endsWith("/schema"))
+        return Response.json({ inputParameters: { properties: { board_id: {}, limit: {}, cursor: {} } } });
+      sent.push(request.arguments);
+      return Response.json({ data: pages[request.arguments.cursor ?? ""], successful: true, error: null });
+    },
+    () => '{"board_id":"b","limit":2}',
+    files,
+  );
+  expect(sent).toEqual([
+    { board_id: "b", limit: 2 },
+    { board_id: "b", limit: 2, cursor: "c2" },
+    { board_id: "b", limit: 2, cursor: "c3" },
+  ]);
+  // Only a short summary reaches the agent; the items go to the file.
+  expect(result).toEqual({ saved: "/workspace/items.json", pages: 3, items: 5, complete: true });
+  expect(written["/workspace/items.json"]).toEqual({
+    tool: "MIRO_GET_BOARD_ITEMS", pages: 3, complete: true,
+    items: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }, { id: 5 }], last: { total: 5 },
+  });
+});
+test("--all never repeats an action that takes no cursor, and a failed page keeps what was saved", async () => {
+  const written = {};
+  const files = { cwd: "/workspace", write: (path, text) => { written[path] = JSON.parse(text); } };
+  let executed = 0;
+  await expect(run(["execute", "conn", "MIRO_CREATE_STICKY", "--all", "--out", "x.json"], env, async (url) => {
+    if (String(url).endsWith("/schema")) return Response.json({ inputParameters: { properties: { board_id: {}, content: {} } } });
+    executed++;
+    return Response.json({});
+  }, () => "{}", files)).rejects.toThrow("takes no page cursor");
+  expect(executed).toBe(0);
+  const { failureMessage } = await import("../skills/nest-connections/scripts/connections.mjs");
+  const error = await run(["execute", "conn", "LIST", "--all", "--out", "x.json"], env, async (url, init) => {
+    if (String(url).endsWith("/schema")) return Response.json({ inputParameters: { properties: { cursor: {} } } });
+    if (JSON.parse(init.body).arguments.cursor) throw Error("timeout");
+    return Response.json({ data: { items: [1, 2], next_cursor: "n" }, successful: true });
+  }, () => "{}", files).catch((e) => e);
+  expect(failureMessage(error)).toContain("Saved 2 items from 1 pages to /workspace/x.json; the list is incomplete.");
+  expect(written["/workspace/x.json"]).toMatchObject({ complete: false, items: [1, 2] });
+});
+test("--out writes one result to a file and stays out of the skill directory", async () => {
+  const written = {};
+  const files = { cwd: "/workspace", write: (path, text) => { written[path] = text; } };
+  const transport = async () => Response.json({ data: { big: "x".repeat(100) }, successful: true });
+  expect(await run(["execute", "c", "T", "--out", "r.json"], env, transport, () => "{}", files)).toEqual({ saved: "/workspace/r.json", bytes: 137, successful: true });
+  const skillDir = new URL("../skills/nest-connections/", import.meta.url).pathname;
+  await expect(run(["execute", "c", "T", "--out", "r.json"], env, transport, () => "{}", { ...files, cwd: skillDir })).rejects.toThrow("not in the skill directory");
+  await expect(run(["execute", "c", "T", "--all"], env, transport, () => "{}", files)).rejects.toThrow("--all needs --out");
+  await expect(run(["list", "--all"], env, transport, () => "{}", files)).rejects.toThrow("Use list");
+});

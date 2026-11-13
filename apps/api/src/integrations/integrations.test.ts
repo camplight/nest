@@ -28,7 +28,7 @@ let executionCount = 0,
   foreign = false,
   disabled = false,
   failExecute = false;
-let catalogTools: {slug:string;toolkit:{slug:string}}[] = [];
+let catalogTools: {slug:string;toolkit:{slug:string};input_parameters?:unknown}[] = [];
 let linkStatus = 200;
 let extraAccounts: Record<string, unknown>[] = [];
 let catalogMode: "normal" | "failure" | "repeated" | "endless" = "normal";
@@ -304,6 +304,32 @@ it("keeps user sessions, provider account IDs and agent credentials separate", a
     .get() as any;
   expect(row.token_hash).toHaveLength(64);
   expect(JSON.stringify(row)).not.toContain(h.authorization.slice(7));
+});
+it("lists granted actions with their argument names and still lists them without the catalog", async () => {
+  const h = await enable();
+  catalogTools = [
+    {slug:"TRELLO_OTHER", toolkit:{slug:"trello"}, input_parameters:{properties:{secret_flag:{}}}},
+    ...Array.from({length:50}, (_, i) => ({slug:`TRELLO_FILLER_${i}`, toolkit:{slug:"trello"}})),
+    {slug:"TRELLO_GET_BOARDS", toolkit:{slug:"trello"}, input_parameters:{type:"object", properties:{board_id:{type:"string"}, limit:{type:"integer"}}, required:["board_id"]}},
+  ];
+  const before = requests.filter(request => request.path === "/tools").length;
+  const listed = await (await call("/api/integrations/skill/tools", "GET", undefined, h)).json() as any;
+  expect(listed.connections).toEqual([{connectionId: localId, app: "trello", tools: ["TRELLO_GET_BOARDS"], arguments: {TRELLO_GET_BOARDS: "board_id*, limit"}}]);
+  expect(listed.help).toContain("* marks a required");
+  // Catalog pages are followed until every granted action is found, then cached.
+  expect(requests.filter(request => request.path === "/tools").length - before).toBe(2);
+  await call("/api/integrations/skill/tools", "GET", undefined, h);
+  expect(requests.filter(request => request.path === "/tools").length - before).toBe(2);
+  // Ungranted actions in the catalog are never listed.
+  expect(JSON.stringify(listed)).not.toContain("secret_flag");
+});
+it("still lists granted actions when the provider catalog fails", async () => {
+  const h = await enable();
+  catalogMode = "failure";
+  catalogTools = Array.from({length:60}, (_, i) => ({slug:`TRELLO_FILLER_${i}`, toolkit:{slug:"trello"}}));
+  const listed = await call("/api/integrations/skill/tools", "GET", undefined, h);
+  expect(listed.status).toBe(200);
+  expect((await listed.json() as any).connections[0]).toMatchObject({tools: ["TRELLO_GET_BOARDS"], arguments: {}});
 });
 it("validates exact grants, cross-toolkit tools, provider ownership and revocation", async () => {
   expect(
@@ -629,7 +655,7 @@ it("renewal preserves other skills and preloads the helper through the real engi
   vi.mocked(generate).mockImplementation(async (_model,messages,options) => {
     const prompt=JSON.stringify(messages);
     expect(prompt).toContain("Always pre-loaded skills (full SKILL.md contents)");
-    expect(prompt).toContain("node scripts/connections.mjs list");
+    expect(prompt).toContain("node SKILL_DIR/scripts/connections.mjs list");
     expect(prompt).toContain("Never try another account");
     expect(prompt).not.toContain(options?.env?.NEST_CONNECTION_TOKEN);
     expect(options?.env?.NEST_CONNECTION_TOKEN).toMatch(/^nest_connection_/);

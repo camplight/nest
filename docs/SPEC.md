@@ -832,6 +832,24 @@ permission change is performed. Owners renew legacy credentials to opt into this
 preload; no existing agent/token is silently upgraded. Settings refresh status
 after saving tool grants or refreshing/disconnecting accounts.
 
+The skill's `GET /api/integrations/skill/tools` lists each granted connection with
+its `app`, its granted `tools` and, under `arguments`, each tool's argument names
+(`*` marks a required one) so an agent can usually call an action without a
+schema request. Nest reads them from the same provider catalog pages a full grant
+verifies, stops once every granted tool is found and caches them per app for ten
+minutes. Ungranted tools are never listed. If the catalog is unavailable the list
+still answers, with empty `arguments`.
+
+The `nest-connections` helper (version 1.1.0) adds `execute ... --out FILE`, which
+saves a result to a file and prints a short summary, and `--all --out FILE`, which
+first reads the tool's schema and pages only tools that accept a cursor argument
+(`cursor`, `start_cursor`, `page_token`, `pageToken` or `after`). It follows the
+provider's next cursor (at most 50 pages, stopping on a repeated cursor), saves the
+merged `items` and reports `complete: false` with what it saved when a later page
+fails. Output files cannot be written into the skill directory. These keep large
+provider lists out of the model context and cut the steps a personal agent (12
+model steps per attempt) spends on plumbing.
+
 Human settings require current private-agent ownership. Skill execution validates
 that ownership, exact grants and provider account status. Without a core turn
 attestation API, access requires one or more unshared owner-only private channels plus

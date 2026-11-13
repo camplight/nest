@@ -530,21 +530,75 @@ export function registerIntegrationRoutes(
     if (conn.revoked_at) fail(403, "Connection revoked");
     return conn;
   }
+  // Argument names per action, so an agent can usually call a granted action
+  // without a separate schema request. Action definitions are not per user.
+  const argumentCache = new Map<string, { at: number; args: Map<string, string> }>();
+  function argumentSummary(parameters: unknown) {
+    const schema = (parameters ?? {}) as { properties?: unknown; required?: unknown };
+    const names =
+      schema.properties && typeof schema.properties === "object"
+        ? Object.keys(schema.properties)
+        : [];
+    const required = new Set(Array.isArray(schema.required) ? schema.required : []);
+    const text = names.map((name) => (required.has(name) ? `${name}*` : name)).join(", ");
+    return text.length > 240 ? `${text.slice(0, 239)}…` : text;
+  }
+  async function toolkitArguments(toolkit: string, granted: string[]) {
+    const hit = argumentCache.get(toolkit);
+    if (hit && Date.now() - hit.at < 10 * 60_000 && granted.every((slug) => hit.args.has(slug)))
+      return hit.args;
+    const args = new Map<string, string>();
+    const remaining = new Set(granted);
+    const visited = new Set<string>();
+    let cursor: string | undefined;
+    for (let pages = 0; pages < MAX_CONNECTION_CATALOG_PAGES && remaining.size; pages++) {
+      const page = await service().tools(toolkit, "", cursor);
+      for (const tool of page.items)
+        if (tool.toolkit === toolkit) {
+          args.set(tool.slug, argumentSummary(tool.inputParameters));
+          remaining.delete(tool.slug);
+        }
+      if (!page.nextCursor || visited.has(page.nextCursor)) break;
+      visited.add(page.nextCursor);
+      cursor = page.nextCursor;
+    }
+    if (argumentCache.size >= 50 && !argumentCache.has(toolkit))
+      argumentCache.delete(argumentCache.keys().next().value!);
+    argumentCache.set(toolkit, { at: Date.now(), args });
+    return args;
+  }
   routes.get("/skill/tools", async (c) => {
     const t = await skill(c);
     const rows = db
       .prepare(
-        "SELECT connection_id,tools_json FROM product_connection_grants WHERE agent_id=? AND owner_id=?",
+        "SELECT g.connection_id,g.tools_json,c.toolkit FROM product_connection_grants g LEFT JOIN product_connections c ON c.id=g.connection_id WHERE g.agent_id=? AND g.owner_id=?",
       )
       .all(t.agent_id, t.owner_id) as {
       connection_id: string;
       tools_json: string;
+      toolkit: string | null;
     }[];
+    const connections = await Promise.all(
+      rows.map(async (r) => {
+        const tools = JSON.parse(r.tools_json) as string[];
+        // Arguments are a shortcut; the list still works when the catalog is unavailable.
+        const known = r.toolkit
+          ? await toolkitArguments(r.toolkit, tools).catch(() => undefined)
+          : undefined;
+        const args = Object.fromEntries(
+          tools.flatMap((slug) => (known?.has(slug) ? [[slug, known.get(slug)!]] : [])),
+        );
+        return {
+          connectionId: r.connection_id,
+          ...(r.toolkit ? { app: r.toolkit } : {}),
+          tools,
+          arguments: args,
+        };
+      }),
+    );
     return c.json({
-      connections: rows.map((r) => ({
-        connectionId: r.connection_id,
-        tools: JSON.parse(r.tools_json),
-      })),
+      connections,
+      help: "arguments lists each action's argument names; * marks a required one. Run schema CONNECTION TOOL for types and descriptions.",
     });
   });
   for (const action of ["schema", "execute"] as const)
