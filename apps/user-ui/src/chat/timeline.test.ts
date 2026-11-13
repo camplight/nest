@@ -102,6 +102,20 @@ describe('buildTimeline',()=>{
  it('inReplyTo copied',()=>{
   expect(buildTimeline([msg('e2','agent:Pip',{text:'Yes',inReplyTo:'e1'})],opts)).toMatchObject([{meta:{inReplyTo:'e1'}}]);
  });
+ it('an agent reply links its question only when other messages came in between',()=>{
+  const question=msg('q1','human:alek',{text:'Progress?'},1000);
+  const later=msg('q2','human:alek',{text:'Who are you?'},2000);
+  const answer=msg('a1','agent:Pip',{text:'Done'},3000,{parentEventId:'q1'});
+  const direct=msg('a2','agent:Pip',{text:'I am Pip'},4000,{parentEventId:'q2'});
+  const items=buildTimeline([question,tr('t1','tool.started',1500),later,answer,direct],opts);
+  expect(items.find(item=>item.id==='a1')!.meta.inReplyTo).toBe('q1');
+  // Directly after its question (activity in between does not count) there is no link.
+  expect(buildTimeline([question,tr('t2','tool.started',1500),msg('a3','agent:Pip',{text:'Done'},3000,{parentEventId:'q1'})],opts)
+   .find(item=>item.id==='a3')!.meta.inReplyTo).toBeUndefined();
+  // A human message's parent is not a reply target; an explicit quote reply wins.
+  expect(buildTimeline([question,later,msg('h1','human:alek',{text:'x'},3000,{parentEventId:'q1'})],opts).at(-1)!.meta.inReplyTo).toBeUndefined();
+  expect(buildTimeline([question,later,msg('a4','agent:Pip',{text:'x',inReplyTo:'q2'},3000,{parentEventId:'q1'})],opts).at(-1)!.meta.inReplyTo).toBe('q2');
+ });
  it('detachedIds sets meta.detached',()=>{
   const items=buildTimeline([e1,e2],{currentUsername:'alek',detachedIds:new Set(['e1'])});
   expect(items).toMatchObject([{id:'e1',meta:{detached:true}},{id:'e2'}]);

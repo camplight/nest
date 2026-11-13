@@ -205,3 +205,27 @@ await runChatTest('quote-reply: a reply into another channel shows no link',asyn
   await page.waitForTimeout(500);
   assert.equal(await replyShell.getByRole('button',{name:/^Replying to/}).count(),0,'a reply into another channel shows no reply link');
 });
+
+await runChatTest('quote-reply: an agent reply after a newer message names the question it answers',async h=>{
+  const {page}=h;
+  const question=await h.emit('message.created',{text:'Synthetic test data: what is the progress?'},{source:'human:demo-owner'});
+  const later=await h.emit('message.created',{text:'Synthetic test data: who are you?'},{source:'human:demo-owner'});
+  const answer=await h.emit('message.created',{text:'Synthetic progress answer'},{parentEventId:question.id});
+  const direct=await h.emit('message.created',{text:'Synthetic introduction'},{parentEventId:later.id});
+  const third=await h.emit('message.created',{text:'Synthetic test data: thanks'},{source:'human:demo-owner'});
+  const adjacent=await h.emit('message.created',{text:'Synthetic welcome'},{parentEventId:third.id});
+  await page.goto(chatUrl(h));
+  await settled(page);
+  const answerShell=page.locator(`#message-${answer.id}`);
+  const link=answerShell.getByRole('button',{name:'Replying to demo-owner: Synthetic test data: what is the progress?',exact:true});
+  await link.waitFor({timeout:5000});
+  // Both answers came after both questions, so the second one names its question too.
+  await page.locator(`#message-${direct.id}`).getByRole('button',{name:'Replying to demo-owner: Synthetic test data: who are you?',exact:true}).waitFor({timeout:5000});
+  // A reply directly after its question needs no link.
+  await page.locator(`#message-${adjacent.id}`).waitFor();
+  assert.equal(await page.locator(`#message-${adjacent.id}`).getByRole('button',{name:/^Replying to/}).count(),0);
+  await answerShell.scrollIntoViewIfNeeded();
+  await page.screenshot({path:'/tmp/claude-1000/-home-slamnation-www-nest/42b3b92b-2e2b-48ea-9763-cec6f7fd0b07/scratchpad/reply-link.png'});
+  await link.click();
+  await page.waitForFunction(id=>new URL(location.href).searchParams.get('message')===id,question.id,{timeout:5000});
+});

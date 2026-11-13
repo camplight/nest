@@ -98,7 +98,7 @@ export function upsertEvents(current:EventRow[],incoming:EventRow[]):EventRow[]{
  });
 }
 
-function messageItem(event:EventRow,opts:BuildOptions):TimelineItem{
+function messageItem(event:EventRow,opts:BuildOptions,previousMessageId?:string):TimelineItem{
  const kind=authorKind(event.source);
  const authorName=sourceLabel(event.source);
  const payload=record(event.payload);
@@ -106,6 +106,9 @@ function messageItem(event:EventRow,opts:BuildOptions):TimelineItem{
  const meta:ChatMeta={eventId:event.id,authorKind:kind,authorName,isMine:kind==='human'&&authorName===opts.currentUsername,
   displayAt:displayTime(event),targetAgents:targetAgents(payload)};
  if(typeof payload?.inReplyTo==='string')meta.inReplyTo=payload.inReplyTo;
+ // An agent's reply names the message that started its turn. When other messages came in between, the reply
+ // shows which one it answers; directly after its question it needs no link.
+ else if(kind==='agent'&&event.parentEventId&&event.parentEventId!==previousMessageId)meta.inReplyTo=event.parentEventId;
  if(opts.detachedIds?.has(event.id))meta.detached=true;
  return {kind:'message',id:event.id,meta,text,markdown:shouldRenderMarkdown(text),attachments:parseMessageAttachments(payload),event};
 }
@@ -161,6 +164,7 @@ export function buildTimeline(events:EventRow[],opts:BuildOptions,previous?:read
   items.push(prev&&unchanged(prev,item)?prev:item);
  };
  let trace:EventRow[]=[];
+ let previousMessageId:string|undefined;
  const flush=()=>{
   if(trace.length===0)return;
   reuse(activityItem(trace,groupId(trace,previousActivity,taken),opts));
@@ -169,7 +173,8 @@ export function buildTimeline(events:EventRow[],opts:BuildOptions,previous?:read
  for(const event of events){
   if(event.type==='message.created'){
    flush();
-   reuse(messageItem(event,opts));
+   reuse(messageItem(event,opts,previousMessageId));
+   previousMessageId=event.id;
   }else if(isTraceEvent(event))trace.push(event);
  }
  flush();
