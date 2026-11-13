@@ -16,6 +16,18 @@ const PAGE_ARGUMENTS = ["cursor", "start_cursor", "page_token", "pageToken", "af
 const NEXT_FIELDS = ["cursor", "next_cursor", "nextCursor", "next_page_token", "nextPageToken"];
 const LIST_FIELDS = ["data", "items", "results", "values", "records", "elements", "messages", "files", "members"];
 const MAX_PAGES = 50;
+// Paging asks for the largest page the tool allows: the schema maximum, a maximum named in
+// its description, or 50. Providers' defaults are often 10, which makes long lists slow.
+const SIZE_ARGUMENTS = ["limit", "page_size", "pageSize", "per_page", "perPage", "max_results", "maxResults"];
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 200;
+function largestPageSize(property) {
+  const maximum = Number(property?.maximum);
+  if (Number.isFinite(maximum) && maximum > 0) return Math.min(Math.floor(maximum), MAX_PAGE_SIZE);
+  const named = String(property?.description ?? "").match(/\bmax(?:imum)?\b[^0-9]{0,30}(\d{2,4})/i);
+  if (named) return Math.min(Number(named[1]), MAX_PAGE_SIZE);
+  return DEFAULT_PAGE_SIZE;
+}
 const skillDir = fileURLToPath(new URL("..", import.meta.url));
 
 function options(argv) {
@@ -133,10 +145,25 @@ export async function run(
   // Paging repeats the same read with the provider's next cursor, so only an
   // action that accepts a cursor argument may use --all.
   const schema = await request("schema");
-  const accepted = Object.keys(schema?.inputParameters?.properties ?? {});
+  const properties = schema?.inputParameters?.properties ?? {};
+  const accepted = Object.keys(properties);
   const pageArgument = PAGE_ARGUMENTS.find((name) => accepted.includes(name));
   if (!pageArgument)
     throw new ConnectionError(`${tool} takes no page cursor, so --all cannot page it. Run it without --all.`);
+  const sizeArgument = SIZE_ARGUMENTS.find((name) => accepted.includes(name) && args[name] === undefined);
+  const pageSize = sizeArgument ? largestPageSize(properties[sizeArgument]) : undefined;
+  let pageArgs = sizeArgument ? { ...args, [sizeArgument]: pageSize } : args;
+  const retryMs = Number(env.NEST_CONNECTIONS_RETRY_MS ?? 1500);
+  // Reading a page twice is harmless, so a page that fails is asked for once more.
+  const readPage = async (cursor) => {
+    const call = () => request("execute", { arguments: cursor ? { ...pageArgs, [pageArgument]: cursor } : pageArgs });
+    try {
+      return await call();
+    } catch {
+      await new Promise((done) => setTimeout(done, retryMs));
+      return call();
+    }
+  };
   const items = [];
   const seen = new Set();
   let cursor = args[pageArgument] ?? null;
@@ -144,21 +171,28 @@ export async function run(
   let complete = false;
   let last;
   const save = () => {
-    files.write(target, JSON.stringify({ tool, pages, complete, items, last }));
+    files.write(target, JSON.stringify({ tool, pages, complete, ...(pageArgs !== args ? { pageSize } : {}), items, last }));
     return { saved: target, pages, items: items.length, complete };
   };
   while (pages < MAX_PAGES) {
     let result;
     try {
-      result = await request("execute", { arguments: cursor ? { ...args, [pageArgument]: cursor } : args });
+      result = await readPage(cursor);
     } catch (error) {
       if (!pages) throw error;
       save();
       throw new ConnectionError(`Page ${pages + 1} failed (${failureMessage(error)}). Saved ${items.length} items from ${pages} pages to ${target}; the list is incomplete.`);
     }
+    let page = body(result);
+    let list = listOf(page);
+    // A tool that rejects the larger page size gets its own default instead.
+    if (!pages && pageArgs !== args && (result?.successful === false || !list)) {
+      pageArgs = args;
+      result = await readPage(cursor);
+      page = body(result);
+      list = listOf(page);
+    }
     pages++;
-    const page = body(result);
-    const list = listOf(page);
     if (result?.successful === false || !list) {
       if (pages === 1) {
         files.write(target, JSON.stringify(result));

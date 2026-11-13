@@ -134,13 +134,50 @@ test("--all never repeats an action that takes no cursor, and a failed page keep
   }, () => "{}", files)).rejects.toThrow("takes no page cursor");
   expect(executed).toBe(0);
   const { failureMessage } = await import("../skills/nest-connections/scripts/connections.mjs");
-  const error = await run(["execute", "conn", "LIST", "--all", "--out", "x.json"], env, async (url, init) => {
+  let attempts = 0;
+  const error = await run(["execute", "conn", "LIST", "--all", "--out", "x.json"], { ...env, NEST_CONNECTIONS_RETRY_MS: "0" }, async (url, init) => {
     if (String(url).endsWith("/schema")) return Response.json({ inputParameters: { properties: { cursor: {} } } });
-    if (JSON.parse(init.body).arguments.cursor) throw Error("timeout");
+    if (JSON.parse(init.body).arguments.cursor) { attempts++; throw Error("timeout"); }
     return Response.json({ data: { items: [1, 2], next_cursor: "n" }, successful: true });
   }, () => "{}", files).catch((e) => e);
   expect(failureMessage(error)).toContain("Saved 2 items from 1 pages to /workspace/x.json; the list is incomplete.");
   expect(written["/workspace/x.json"]).toMatchObject({ complete: false, items: [1, 2] });
+  expect(attempts).toBe(2);
+});
+test("--all asks for the largest page the tool allows and retries a failed page once", async () => {
+  const files = { cwd: "/workspace", write: () => {} };
+  const fast = { ...env, NEST_CONNECTIONS_RETRY_MS: "0" };
+  const sizes = async (limit) => {
+    const sent = [];
+    await run(["execute", "conn", "LIST", "--all", "--out", "x.json"], fast, async (url, init) => {
+      if (String(url).endsWith("/schema"))
+        return Response.json({ inputParameters: { properties: { cursor: {}, ...(limit ? { limit } : {}) } } });
+      sent.push(JSON.parse(init.body).arguments);
+      return Response.json({ data: { data: [1] }, successful: true });
+    }, () => "{}", files);
+    return sent;
+  };
+  expect(await sizes({ type: "integer", maximum: 100 })).toEqual([{ limit: 100 }]);
+  expect(await sizes({ type: "integer", maximum: 5000 })).toEqual([{ limit: 200 }]);
+  expect(await sizes({ type: "integer", description: "Number of items per page. Minimum 10, maximum 50." })).toEqual([{ limit: 50 }]);
+  expect(await sizes({ type: "integer" })).toEqual([{ limit: 50 }]);
+  expect(await sizes(undefined)).toEqual([{}]);
+
+  // A tool that rejects the larger page falls back to its own default; a thrown page is asked for again.
+  const sent = [];
+  let failedOnce = false;
+  const written = {};
+  const result = await run(["execute", "conn", "LIST", "--all", "--out", "x.json"], fast, async (url, init) => {
+    if (String(url).endsWith("/schema")) return Response.json({ inputParameters: { properties: { cursor: {}, limit: {} } } });
+    const args = JSON.parse(init.body).arguments;
+    sent.push(args);
+    if (args.limit) return Response.json({ data: null, successful: false, error: "limit too large" });
+    if (args.cursor && !failedOnce) { failedOnce = true; throw Error("502"); }
+    return Response.json({ data: { data: [args.cursor ?? "first"], ...(args.cursor ? {} : { cursor: "next" }) }, successful: true });
+  }, () => "{}", { cwd: "/workspace", write: (path, text) => { written[path] = JSON.parse(text); } });
+  expect(sent).toEqual([{ limit: 50 }, {}, { cursor: "next" }, { cursor: "next" }]);
+  expect(result).toEqual({ saved: "/workspace/x.json", pages: 2, items: 2, complete: true });
+  expect(written["/workspace/x.json"]).not.toHaveProperty("pageSize");
 });
 test("--out writes one result to a file and stays out of the skill directory", async () => {
   const written = {};

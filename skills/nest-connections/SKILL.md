@@ -15,8 +15,11 @@ directory. Do not `cd` into the skill directory; saved files belong in your work
   is the tool arguments object; keep credentials out of arguments.
 - Add `--out FILE` to save a large result to a file instead of printing it.
 - Add `--all --out FILE` to read every page of a list action (boards, items,
-  messages, files). The helper follows the provider's cursor, saves the merged
-  `items` to FILE and prints only a summary. It refuses actions without a cursor.
+  messages, files). The helper asks for the largest page size the action allows,
+  follows the provider's cursor, retries a failed page once, saves the merged
+  `items` to FILE and prints only a summary. Leave out `limit`/page-size
+  arguments so it can choose. It refuses actions without a cursor. Run it
+  directly with `shell_run`; do not write your own pager.
 
 Work in few steps. Write and run a script in one `shell_run`, for example
 `cat > report.mjs <<'EOF' ... EOF` followed by `&& node report.mjs`. Read saved
