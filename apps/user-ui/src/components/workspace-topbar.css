@@ -1,5 +1,6 @@
 .dashboard-topbar.workspace-topbar {
-  grid-template-columns: minmax(0, 1fr) 240px minmax(191px, 1.3fr);
+  /* Search grows from 240 px up to 440 px when the bar has room. */
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 440px) minmax(191px, 1.3fr);
   position: relative;
   z-index: 2;
 }

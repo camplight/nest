@@ -777,9 +777,28 @@ button {
 }
 
 .trace-detail-meta span {
+  margin-left: auto;
   color: var(--nest-muted);
   font-size: 11px;
 }
+
+.trace-detail-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: -4px -4px -4px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--nest-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.trace-detail-close:hover { background: var(--nest-muted-surface); color: var(--nest-text); }
+.trace-detail-close:focus-visible { outline: 2px solid var(--nest-focus, #8b55bb); outline-offset: 1px; }
 
 .trace-detail-card summary { width:fit-content; margin-top:6px; cursor:pointer; color:var(--nest-muted); font-size:12px; }
 

@@ -1,4 +1,4 @@
-import {useId,useState,type MouseEvent,type FocusEvent} from 'react';
+import {useId,useRef,useState,type MouseEvent,type FocusEvent} from 'react';
 import {createPortal} from 'react-dom';
 import type {EventRow} from '../types';
 import {activity,activityDetails,type ActivityIcon} from '../activity';
@@ -21,6 +21,9 @@ export function AgentActivity({events,tone,formatTime}:{events:EventRow[];tone:'
   const [selected,setSelected]=useState<string|null>(null);
   const [tooltip,setTooltip]=useState<{event:EventRow;x:number;y:number;below:boolean}|null>(null);
   const current=events.find(event=>event.id===selected);
+  const chips=useRef(new Map<string,HTMLButtonElement>());
+  // Closing returns focus to the chip that opened the card.
+  function close(){if(!selected)return;const chip=chips.current.get(selected);setSelected(null);chip?.focus();}
   function showLabel(event:MouseEvent<HTMLButtonElement>|FocusEvent<HTMLButtonElement>,row:EventRow){
     const bounds=event.currentTarget.getBoundingClientRect(),below=bounds.top<70;
     setTooltip({event:row,x:Math.max(8,Math.min(bounds.left,window.innerWidth-248)),y:below?bounds.bottom+6:bounds.top-6,below});
@@ -28,15 +31,15 @@ export function AgentActivity({events,tone,formatTime}:{events:EventRow[];tone:'
   return <article className={`trace-group trace-group-${tone}`} aria-label="Agent activity">
     <div className="trace-chips" role="group" aria-label="Agent activity events">{events.map(event=>{
       const info=activity(event),active=selected===event.id;
-      return <button type="button" key={event.id} className={`trace-chip trace-chip-${info.tone}${active?' trace-chip-active':''}`}
+      return <button type="button" key={event.id} ref={node=>{if(node)chips.current.set(event.id,node);else chips.current.delete(event.id);}} className={`trace-chip trace-chip-${info.tone}${active?' trace-chip-active':''}`}
         aria-label={info.title} aria-expanded={active} aria-controls={active?`${id}-detail`:undefined} aria-describedby={tooltip?.event.id===event.id?`${id}-label`:undefined}
         onMouseEnter={e=>showLabel(e,event)} onMouseLeave={()=>setTooltip(null)} onFocus={e=>showLabel(e,event)} onBlur={()=>setTooltip(null)}
         onClick={()=>{setTooltip(null);setSelected(active?null:event.id);}}>
         <ActivityIconView name={info.icon}/>
       </button>;
     })}</div>
-    {current&&<div className="trace-detail-card" id={`${id}-detail`} key={current.id}>
-      <div className="trace-detail-meta"><strong>{activity(current).title}</strong><span>{formatTime(current.createdAt)}</span></div>
+    {current&&<div className="trace-detail-card" id={`${id}-detail`} key={current.id} onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();close();}}}>
+      <div className="trace-detail-meta"><strong>{activity(current).title}</strong><span>{formatTime(current.createdAt)}</span><button type="button" className="trace-detail-close" aria-label="Close details" onClick={close}>×</button></div>
       <details><summary>Details</summary><pre>{activityDetails(current)}</pre></details>
     </div>}
     {tooltip&&createPortal(<div id={`${id}-label`} role="tooltip" className={`trace-tooltip${tooltip.below?' trace-tooltip-below':''}`} style={{left:tooltip.x,top:tooltip.y}}>{activity(tooltip.event).title}<span>{formatTime(tooltip.event.createdAt)}</span></div>,document.body)}
