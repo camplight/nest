@@ -401,3 +401,5 @@
 .connection-project-access p { color: var(--nest-muted); line-height: 1.6; overflow-wrap: anywhere; }
 .connection-project-access section { display: grid; gap: 10px; padding-top: 16px; border-top: 1px solid var(--nest-border); min-width: 0; }
 .connection-project-access button { justify-self: start; max-width: 100%; white-space: normal; }
+/* "Your connections" belongs to the accounts below it: more room above, less below. */
+.onboarding-connections > .dashboard-section-title { margin: 24px 0 -10px; }
