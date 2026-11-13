@@ -14,5 +14,8 @@ export * from './agent-management';
 export type DashboardActivity={runs:{id:string;agent:string;channelId:string;channelName:string;startedAt:number;state:'working'|'unconfirmed'}[];limited:boolean;checkedAt:number};
 export type OpenRouterModel = {id:string;canonicalSlug?:string;name:string;description:string;context:number|null;inputPrice:number|null;outputPrice:number|null;tools:boolean;vision:boolean;reasoning:boolean};
 export type OpenRouterCatalog = {models:OpenRouterModel[];fetchedAt:number;stale:boolean};
+/** A model from an OpenAI-compatible provider's `/models` list (Fireworks reports tools, image input and context). `null` = not reported. */
+export type CompatibleModel = {id:string;name:string;description:string;context:number|null;tools:boolean|null;vision:boolean|null;created:number|null;route:boolean};
+export type CompatibleCatalog = {provider:string;models:CompatibleModel[];fetchedAt:number;stale:boolean};
 
 export type ModelBenchmarks={models:{id:string;intelligence:number}[];fetchedAt:number;asOf:string|null;stale:boolean};

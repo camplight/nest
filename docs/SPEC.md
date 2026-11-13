@@ -1477,10 +1477,24 @@ are all configured for that agent: `openrouter` (`OpenRouter`) and
 `openai-compatible` (labelled `Fireworks` or `OpenAI-compatible` from the base URL
 host). Keys and the base URL never leave the server. The picker offers only these
 providers, with an OpenRouter/Fireworks switch when both are configured. Under an
-OpenAI-compatible provider it shows no OpenRouter catalog, scores or links: just
-"Exact Fireworks model ID" (sent as `openai-compatible:<model>`) and, for Fireworks,
-a link to its model list. When the list is unknown the saved model's provider is
-used; an empty list says no provider key is configured.
+OpenAI-compatible provider it shows no OpenRouter catalog, scores or links. It
+shows four suggested model cards (the saved model, then the newest models), then
+"Browse all N models" with search and an image-input filter, and the "Exact
+Fireworks model ID" field (sent as `openai-compatible:<model>`). When the list is
+unknown the saved model's provider is used; an empty list says no provider key is
+configured.
+
+`GET /api/agents/:name/compatible-models` (same checks) reads the agent's
+provider list from `<OPENAI_COMPATIBLE_BASE_URL>/models` with its own key and
+returns `{provider,models,fetchedAt,stale}`. Models are tool-capable chat models
+only (embeddings and `supports_tools: false` are dropped), with tools, image input
+and context as the provider reports them (`null` when it does not), models newest
+first and routes (Fireworks `routers/…`) last. For Fireworks, display names and
+descriptions come from its serverless model API, and a route takes its model's name
+plus its variant (`GLM-5.3 (fast)`). Without those names, the ID reads as words.
+Prices are not shown; the provider does not report them. Lists are cached 15
+minutes per hashed key and base URL, with a stale fallback for 24 hours. Neither
+the key nor the base URL is returned.
 
 ## Agent conversation navigation
 

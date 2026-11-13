@@ -6,13 +6,12 @@ import { generate } from '@orgops/llm';
 import { providerEnvKeys, type OrgOpsClient } from '@nest/orgops-client';
 import { modelProviderLabel } from '@nest/schemas';
 import { createOpenRouterCatalog, modelSlug } from './openrouter-catalog';
-
-// OpenAI-compatible model names may nest paths (Fireworks: accounts/fireworks/models/glm-5p3) but never contain ':'.
-const compatibleModelName = /^[a-zA-Z0-9][a-zA-Z0-9._-]*(?:\/[a-zA-Z0-9][a-zA-Z0-9._-]*)*$/;
+import { compatibleModelName, createCompatibleCatalog } from './compatible-catalog';
 const COMPATIBLE = 'openai-compatible:';
 
-export function registerModelPickerRoutes(app:Hono, orgops:OrgOpsClient, options:{benchmarks?:ReturnType<typeof createModelBenchmarks>;engineToken?:string;catalog?:ReturnType<typeof createOpenRouterCatalog>;probe?:typeof generate} = {}) {
+export function registerModelPickerRoutes(app:Hono, orgops:OrgOpsClient, options:{benchmarks?:ReturnType<typeof createModelBenchmarks>;engineToken?:string;catalog?:ReturnType<typeof createOpenRouterCatalog>;compatibleCatalog?:ReturnType<typeof createCompatibleCatalog>;probe?:typeof generate} = {}) {
   const catalog = options.catalog ?? createOpenRouterCatalog();
+  const compatibleCatalog = options.compatibleCatalog ?? createCompatibleCatalog();
   const probe = options.probe ?? generate;
   const benchmarks=options.benchmarks??createModelBenchmarks();
   const checks = new Map<string,number>();
@@ -58,6 +57,23 @@ export function registerModelPickerRoutes(app:Hono, orgops:OrgOpsClient, options
       ];
       return c.json({providers});
     }catch{return c.json({error:'Model providers are unavailable.'},503);}
+  });
+  // The agent's OpenAI-compatible provider models (Fireworks), read with that agent's key and base URL.
+  app.get('/api/agents/:name/compatible-models',async c=>{
+    c.header('Cache-Control','no-store');
+    const human=await orgops.currentHuman(c.req.raw.headers);
+    if(!human||human.mustChangePassword)return c.json({error:'Sign in to choose a model'},401);
+    const name=c.req.param('name');
+    const response=await orgops.humanRequest(`/api/agents/${encodeURIComponent(name)}`,c.req.raw.headers);
+    if(!response.ok)return c.json({error:'Agent unavailable'},404);
+    const agent=await response.json() as {visibility:string;ownerHumanId:string|null;mode:string};
+    if(agent.visibility!=='PUBLIC'&&agent.ownerHumanId!==human.id)return c.json({error:'Only the owner can use this agent’s connection'},403);
+    if(agent.mode==='WRAPPED')return c.json({error:'Model managed by external runtime'},400);
+    try{
+      const env=await orgops.agentModelEnv(name,options.engineToken??'',COMPATIBLE);
+      if(!env.OPENAI_COMPATIBLE_API_KEY||!env.OPENAI_COMPATIBLE_BASE_URL)return c.json({error:'No OpenAI-compatible key and base URL are configured for this agent.'},422);
+      return c.json(await compatibleCatalog({apiKey:env.OPENAI_COMPATIBLE_API_KEY,baseUrl:env.OPENAI_COMPATIBLE_BASE_URL}));
+    }catch{return c.json({error:'The provider’s model list is unavailable. You can still enter an exact model ID.'},503);}
   });
   app.post('/api/agents/:name/model-check', bodyLimit({maxSize:2048}), async c => {
     c.header('Cache-Control','no-store');

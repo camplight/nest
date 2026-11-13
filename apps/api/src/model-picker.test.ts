@@ -12,6 +12,7 @@ let engine:ReturnType<typeof createEngine>, dir:string, cookie:string, app:Hono;
 const probe=vi.fn<typeof generate>();
 let secretReads=0;
 let secretEnv:Record<string,string>={};
+let compatibleReads:{apiKey:string;baseUrl:string}[]=[];
 beforeEach(async()=>{
  dir=mkdtempSync(join(tmpdir(),'model-picker-'));
  engine=createEngine({projectRoot:dir,dataDir:dir,dbPath:join(dir,'engine.sqlite'),adminUser:'owner',adminPass:'password',runnerToken:'test-runner'});
@@ -27,10 +28,10 @@ beforeEach(async()=>{
  const login=await client.request('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'owner',password:'password'})});
  cookie=login.headers.getSetCookie()[0].split(';')[0];
  await client.request('/api/agents',{method:'POST',headers:{cookie,'content-type':'application/json'},body:JSON.stringify({name:'Private',visibility:'PRIVATE',modelId:'openrouter:old/model',workspacePath:join(dir,'workspace')})});
- probe.mockReset();secretReads=0;secretEnv={OPENROUTER_API_KEY:'synthetic-key',UNRELATED_SECRET:'never-forward'};
+ probe.mockReset();secretReads=0;compatibleReads=[];secretEnv={OPENROUTER_API_KEY:'synthetic-key',UNRELATED_SECRET:'never-forward'};
  probe.mockImplementation(async(_model,_messages,opts)=>{await opts?.tools?.nest_connection_check.execute?.({value:'ok'});return {text:'',toolCalls:[],toolResults:[]};});
  app=new Hono();
- registerModelPickerRoutes(app,client,{engineToken:'test-runner',probe,benchmarks:async key=>{expect(key).toBe('synthetic-key');return {models:[{id:'vendor/model',intelligence:42}],fetchedAt:1,asOf:null,stale:false};},catalog:async()=>({models:[],fetchedAt:1,stale:false})});
+ registerModelPickerRoutes(app,client,{engineToken:'test-runner',probe,benchmarks:async key=>{expect(key).toBe('synthetic-key');return {models:[{id:'vendor/model',intelligence:42}],fetchedAt:1,asOf:null,stale:false};},catalog:async()=>({models:[],fetchedAt:1,stale:false}),compatibleCatalog:async env=>{compatibleReads.push(env);return {provider:'Fireworks',models:[{id:'accounts/fireworks/models/glm-5p3',name:'GLM-5.3',description:'',context:1048576,tools:true,vision:false,created:1,route:false}],fetchedAt:1,stale:false};}});
 });
 afterEach(()=>{engine.db.close();rmSync(dir,{recursive:true,force:true});});
 const check=(model='vendor/model',headers:Record<string,string>={cookie})=>app.request('/api/agents/Private/model-check',{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify({model})});
@@ -116,4 +117,24 @@ it('guards the provider list before reading credentials',async()=>{
  const login=await engine.app.request('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'other',password:'password'})});
  expect([403,404]).toContain((await providers({cookie:login.headers.getSetCookie()[0].split(';')[0]})).status);
  expect(secretReads).toBe(0);
+});
+const compatibleModels=(headers:Record<string,string>={cookie})=>app.request('/api/agents/Private/compatible-models',{headers});
+it('lists the agent’s OpenAI-compatible models with its own key, returning neither the key nor the base URL',async()=>{
+ secretEnv={OPENAI_COMPATIBLE_API_KEY:'synthetic-compatible-key',OPENAI_COMPATIBLE_BASE_URL:'https://api.fireworks.ai/inference/v1',OPENROUTER_API_KEY:'synthetic-key'};
+ const response=await compatibleModels();expect(response.status).toBe(200);
+ const body=await response.text();
+ expect(JSON.parse(body)).toMatchObject({provider:'Fireworks',models:[{id:'accounts/fireworks/models/glm-5p3',name:'GLM-5.3'}]});
+ expect(body).not.toContain('synthetic');expect(body).not.toContain('api.fireworks.ai');
+ expect(compatibleReads).toEqual([{apiKey:'synthetic-compatible-key',baseUrl:'https://api.fireworks.ai/inference/v1'}]);
+ secretEnv={OPENAI_COMPATIBLE_API_KEY:'synthetic-compatible-key'};
+ expect((await compatibleModels()).status).toBe(422);
+});
+it('guards the compatible model list before reading credentials',async()=>{
+ expect((await compatibleModels({})).status).toBe(401);
+ expect((await compatibleModels({'x-nest-runner-token':'test-runner'})).status).toBe(401);
+ const owner=engine.db.prepare('SELECT * FROM humans LIMIT 1').get() as any;
+ engine.db.prepare('INSERT INTO humans (id,username,password_hash,must_change_password,created_at,updated_at) VALUES (?,?,?,0,?,?)').run('other','other',owner.password_hash,owner.created_at+1,owner.created_at+1);
+ const login=await engine.app.request('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'other',password:'password'})});
+ expect([403,404]).toContain((await compatibleModels({cookie:login.headers.getSetCookie()[0].split(';')[0]})).status);
+ expect(secretReads).toBe(0);expect(compatibleReads).toEqual([]);
 });
