@@ -12,7 +12,8 @@ function ActivityIconView({name}:{name:ActivityIcon}){
     output:<><path d="M8 3h8l4 4v14H4V3h4m8 0v5h4M8 12h8m-8 4h6"/></>,
     tool:<><path d="m14 6 4 4-8 8-4-4 8-8ZM14 6V3h4l3 3v4h-3M6 14l-3 3v4h4l3-3"/></>,
     context:<><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 9h6v6H9zM9 2v3m6-3v3M9 19v3m6-3v3M2 9h3m-3 6h3m14-6h3m-3 6h3"/></>,
-    progress:<><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>
+    progress:<><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
+    stop:<><circle cx="12" cy="12" r="9"/><rect x="9" y="9" width="6" height="6" rx="1"/></>
   };
   return <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }

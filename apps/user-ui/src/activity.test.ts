@@ -8,6 +8,12 @@ describe('activity status meaning',()=>{
   expect(activity(event('process.exited',{exitCode:1}))).toMatchObject({tone:'danger',icon:'error'});
   expect(activity(event('process.exited',{})).tone).toBe('muted');
  });
+ it('names stopped turns and summarized history',()=>{
+  expect(activity(event('agent.turn.completed',{triggerEventId:'turn',cancelled:true,noReply:true}))).toMatchObject({title:'Stopped',tone:'muted',icon:'stop'});
+  expect(activity(event('agent.turn.completed',{triggerEventId:'turn'})).title).toBe('Response completed');
+  expect(activity(event('agent.turn.cancel_requested',{targetAgentName:'Demo',triggerEventId:'turn'})).title).toBe('Stop requested');
+  expect(activity(event('agent.context.compacted',{summary:'Earlier chat.'}))).toMatchObject({title:'Summarized earlier messages',icon:'context'});
+ });
  it('does not equate diagnostic output with a failed response',()=>{
   expect(activity(event('process.output',{stream:'STDERR',text:'warning'})).tone).toBe('muted');
  });

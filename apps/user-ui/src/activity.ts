@@ -1,13 +1,15 @@
 import type {EventRow} from './types';
 export type ActivityTone='neutral'|'success'|'danger'|'muted';
-export type ActivityIcon='thinking'|'check'|'error'|'terminal'|'output'|'tool'|'context'|'progress';
+export type ActivityIcon='thinking'|'check'|'error'|'terminal'|'output'|'tool'|'context'|'progress'|'stop';
 /** Status describes this event, never the outcome of the whole conversation. */
 export function activity(event:EventRow):{title:string;tone:ActivityTone;icon:ActivityIcon}{
   const p=event.payload&&typeof event.payload==='object'?event.payload as Record<string,unknown>:{};
   const tool=typeof p.tool==='string'?p.tool:'Tool';
   switch(event.type){
     case 'agent.turn.started':case 'wrapper.turn.started':return {title:'Agent is thinking',tone:'neutral',icon:'thinking'};
-    case 'agent.turn.completed':case 'wrapper.turn.completed':return {title:'Response completed',tone:'success',icon:'check'};
+    case 'agent.turn.completed':case 'wrapper.turn.completed':return p.cancelled===true?{title:'Stopped',tone:'muted',icon:'stop'}:{title:'Response completed',tone:'success',icon:'check'};
+    case 'agent.turn.cancel_requested':return {title:'Stop requested',tone:'muted',icon:'stop'};
+    case 'agent.context.compacted':return {title:'Summarized earlier messages',tone:'muted',icon:'context'};
     case 'agent.turn.failed':case 'wrapper.turn.failed':return {title:'Agent could not finish',tone:'danger',icon:'error'};
     case 'process.started':return {title:'Agent process started',tone:'neutral',icon:'terminal'};
     case 'process.exited':{

@@ -21,6 +21,7 @@ const TRACE_TYPES=new Set([
  'process.started','process.output','process.exited',
  'tool.started','tool.executed','tool.failed',
  'telemetry.context.window.updated',
+ 'agent.turn.cancel_requested','agent.context.compacted',
 ]);
 const CONTINUATION_MS=5*60_000;
 

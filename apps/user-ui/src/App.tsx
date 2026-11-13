@@ -114,7 +114,9 @@ function isTraceEvent(event: EventRow) {
     event.type === "tool.started" ||
     event.type === "tool.executed" ||
     event.type === "tool.failed" ||
-    event.type === "telemetry.context.window.updated"
+    event.type === "telemetry.context.window.updated" ||
+    event.type === "agent.turn.cancel_requested" ||
+    event.type === "agent.context.compacted"
   );
 }
 
@@ -672,6 +674,21 @@ export default function App() {
       const url = new URL(window.location.href);
       url.searchParams.set("message", eventId);
       window.history.replaceState(null, "", url);
+    });
+  }
+
+  // Asks the engine to stop the agent's running turn here. A turn that just finished answers 409; nothing to report.
+  function stopTurn(agent: string) {
+    const channelId = activeChannelId;
+    if (!channelId) return;
+    void apiFetch(`/api/agents/${encodeURIComponent(agent)}/turns/cancel`, {
+      method: "POST",
+      headers: getApiHeaders(),
+      body: JSON.stringify({ channelId }),
+    }).catch((reason: unknown) => {
+      if (!String(reason instanceof Error ? reason.message : reason).includes("no running turn")) {
+        setError(`Could not stop ${agent}. Try again.`);
+      }
     });
   }
 
@@ -1666,6 +1683,7 @@ export default function App() {
             onPreviewDemo={path => setDemoPreview({channel: activeChannelId!, path})}
             onQuote={(target, quotedText) => {composerRef.current?.setReplyTarget(target, quotedText);composerRef.current?.focus();}}
             onFocusMessage={focusMessage}
+            onStopTurn={activeChannelCanPost ? stopTurn : undefined}
             handle={chatThreadRef}
             footer={view==='projects'&&selectedProject&&activeChannel&&<ProjectConnections key={activeChannel.id} ownerId={userId??''} projectId={selectedProject} text={events.filter(e=>e.channelId===activeChannel.id&&e.type==='message.created').slice(-4).map(e=>String((e.payload as {text?:unknown})?.text??'').slice(0,4000)).join('\n')}/>}
           />
