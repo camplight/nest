@@ -13,7 +13,15 @@ import { DesignIcon } from "./Dashboard";
 import type { Agent } from "./types";
 import "./agents.css";
 
-type AgentSettings = Agent & { mode?: string; modelId?: string; workspacePath?: string; assignedRunnerId?: string; systemInstructions?: string; enabledSkills?: string[] };
+type MemoryMode = "PER_CHANNEL_CROSS_CHANNEL" | "FULL_CHANNEL_EVENTS" | "OFF";
+type AgentSettings = Agent & { mode?: string; modelId?: string; workspacePath?: string; assignedRunnerId?: string; systemInstructions?: string; enabledSkills?: string[]; memoryContextMode?: MemoryMode };
+// The engine's memory modes, in the words a person deciding between them needs.
+const MEMORY_MODES: { id: MemoryMode; label: string; detail: string }[] = [
+  { id: "FULL_CHANNEL_EVENTS", label: "Full chat history", detail: "Reads each chat as it is, so follow-up questions are quick. In a very long chat the oldest messages drop off." },
+  { id: "PER_CHANNEL_CROSS_CHANNEL", label: "Summarized memory", detail: "Condenses chats into notes in the background and remembers across chats. Adds model calls after every reply and can miss details of its recent answers." },
+  { id: "OFF", label: "No memory", detail: "Sees only the message it is answering." },
+];
+const memoryOf = (agent: AgentSettings) => agent.memoryContextMode ?? "PER_CHANNEL_CROSS_CHANNEL";
 type Props = { tab:AgentTab; onTab:(tab:AgentTab)=>void; onOpenChat:(name:string)=>void; requestLocation:AgentRequestLocation; setup: OnboardingSummary | null; creating:boolean; onCreate:()=>void; onCreated:(name:string)=>void; onChat:(id:string)=>void; agents: Agent[]; name: string | null; userId: string | null; loading: boolean; error: string | null; onSelect: (name: string | null) => void; onMenu: () => void; onRetry: () => void; onSaved: (agent: Agent) => void };
 
 function errorMessage(reason: unknown) {
@@ -51,6 +59,7 @@ function AgentDetails({ tab,name, userId, onSaved, setup, onChat, onResume }: { 
   const [model, setModel] = useState("");
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
+  const [memory, setMemory] = useState<MemoryMode>("PER_CHANNEL_CROSS_CHANNEL");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -59,13 +68,13 @@ function AgentDetails({ tab,name, userId, onSaved, setup, onChat, onResume }: { 
     const controller = new AbortController();
     setError(null);
     void apiJson<AgentSettings>(`/api/agents/${encodeURIComponent(name)}`, { signal: controller.signal }).then(value => {
-      setAgent(value); setModel(value.modelId ?? ""); setDescription(value.description ?? ""); setInstructions(value.systemInstructions ?? "");
+      setAgent(value); setModel(value.modelId ?? ""); setDescription(value.description ?? ""); setInstructions(value.systemInstructions ?? ""); setMemory(memoryOf(value));
     }).catch(reason => { if (!controller.signal.aborted) setError(errorMessage(reason)); });
     return () => controller.abort();
   }, [name, attempt]);
   const editable = Boolean(agent && (agent.visibility !== "PRIVATE" || Boolean(userId && agent.ownerHumanId === userId)));
   const wrapped = agent?.mode === "WRAPPED";
-  const dirty = Boolean(agent && (description !== (agent.description ?? "") || (!wrapped && (instructions !== (agent.systemInstructions ?? "") || model !== (agent.modelId ?? "")))));
+  const dirty = Boolean(agent && (description !== (agent.description ?? "") || (!wrapped && (instructions !== (agent.systemInstructions ?? "") || model !== (agent.modelId ?? "") || memory !== memoryOf(agent)))));
   useEffect(() => {
     if (!dirty) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
@@ -77,7 +86,7 @@ function AgentDetails({ tab,name, userId, onSaved, setup, onChat, onResume }: { 
     if (!agent || !editable || busy) return;
     setBusy(true); setSaved(false); setError(null);
     try {
-      const changes = { description, ...(!wrapped ? { systemInstructions: instructions, ...(model !== (agent.modelId ?? "") ? {modelId:model} : {}) } : {}) };
+      const changes = { description, ...(!wrapped ? { systemInstructions: instructions, ...(model !== (agent.modelId ?? "") ? {modelId:model} : {}), ...(memory !== memoryOf(agent) ? {memoryContextMode:memory} : {}) } : {}) };
       await apiJson(`/api/agents/${encodeURIComponent(name)}`, { method: "PATCH", headers: getApiHeaders(), body: JSON.stringify(changes) });
       const next = { ...agent, ...changes }; setAgent(next); onSaved(next); setSaved(true);
     } catch (reason) { setError(errorMessage(reason)); }
@@ -102,9 +111,16 @@ function AgentDetails({ tab,name, userId, onSaved, setup, onChat, onResume }: { 
         <div className="agent-field"><span>Name</span><strong className="agent-immutable-name">{name}</strong></div>
         <div className="agent-field"><label htmlFor="agent-description">About this agent</label><textarea id="agent-description" rows={3} value={description} disabled={!editable || busy} onChange={e => { setDescription(e.target.value); setSaved(false); }} /><small>A short description shown in your team.</small></div>
         <details className="agent-advanced">
-          <summary>Advanced <span>Model, instructions and runtime</span></summary>
+          <summary>Advanced <span>Model, memory, instructions and runtime</span></summary>
           <div className="agent-advanced-content">
         {!wrapped && <ModelPicker agentName={name} value={model} disabled={!editable || busy} onChange={value=>{setModel(value);setSaved(false);}}/>}
+        {!wrapped && <fieldset className="agent-memory" disabled={!editable || busy}>
+          <legend>Conversation memory</legend>
+          {MEMORY_MODES.filter(option => option.id !== "OFF" || memoryOf(agent) === "OFF").map(option => <label key={option.id} className="agent-memory-option">
+            <input type="radio" name="agent-memory" value={option.id} checked={memory === option.id} onChange={() => { setMemory(option.id); setSaved(false); }} />
+            <span><strong>{option.label}</strong><small>{option.detail}</small></span>
+          </label>)}
+        </fieldset>}
 
         <section><h2>Runtime details</h2><dl className="agent-resources">
           <dt>Runtime</dt><dd>{agent.mode ?? "CLASSIC"} · {agent.runtimeState ?? "Unknown"}</dd>

@@ -141,6 +141,7 @@ describe("personal onboarding through the untouched engine", () => {
       assignedRunnerId: "test-runner",
       allowOutsideWorkspace: false,
       allowOwnerHumanSecrets: false,
+      memoryContextMode: "FULL_CHANNEL_EVENTS",
     });
     const channels = await (await call("/api/channels")).json();
     expect(channels).toHaveLength(1);

@@ -130,6 +130,21 @@ await page.getByRole('button',{name:'Save settings'}).click();await page.getByTe
 assert.deepEqual(writes.at(-1),{description:'Updated research description',systemInstructions:'Deliver sources and evidence.',modelId:'openrouter:google/gemini-2.5-flash'});
 await page.reload();assert.equal(await page.getByLabel('About this agent',{exact:true}).inputValue(),'Updated research description');
 assert((await page.locator('.model-picker-toggle').textContent()).includes('openrouter:google/gemini-2.5-flash'));
+// Conversation memory: the engine default reads as summarized; only the existing modes are offered.
+await page.locator('.agent-advanced > summary').click();
+const memory=page.getByRole('group',{name:'Conversation memory',exact:true});
+assert(await memory.getByRole('radio',{name:/Summarized memory/}).isChecked());
+assert.equal(await memory.getByRole('radio',{name:/No memory/}).count(),0,'No memory is offered only to agents already using it');
+await memory.getByRole('radio',{name:/Full chat history/}).check();
+await page.getByText('Unsaved changes',{exact:true}).waitFor();
+await memory.scrollIntoViewIfNeeded();await page.screenshot({path:join(screenshotDir,'nest-agent-memory-desktop.png')});
+await page.setViewportSize({width:390,height:844});await memory.scrollIntoViewIfNeeded();await page.screenshot({path:join(screenshotDir,'nest-agent-memory-mobile.png')});
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+await page.setViewportSize({width:1440,height:1100});
+await page.getByRole('button',{name:'Save settings'}).click();await page.getByText('Settings saved.',{exact:true}).waitFor();
+assert.deepEqual(writes.at(-1),{description:'Updated research description',systemInstructions:'Deliver sources and evidence.',memoryContextMode:'FULL_CHANNEL_EVENTS'});
+await page.reload();await page.locator('.agent-advanced > summary').click();
+assert(await page.getByRole('group',{name:'Conversation memory',exact:true}).getByRole('radio',{name:/Full chat history/}).isChecked());
 failSave=true;await page.getByLabel('About this agent',{exact:true}).fill('Retain on error');await page.getByRole('button',{name:'Save settings'}).click();await page.getByRole('alert').filter({hasText:'Forbidden'}).waitFor();assert.equal(await page.getByLabel('About this agent',{exact:true}).inputValue(),'Retain on error');
 await page.getByLabel('About this agent',{exact:true}).fill('Updated research description');failSave=false;
 await page.reload();await page.locator('.agent-advanced > summary').click();await page.locator('.model-picker-toggle').waitFor();
