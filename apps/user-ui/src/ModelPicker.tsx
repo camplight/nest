@@ -1,10 +1,12 @@
 import {ModelValueChart} from './ModelValueChart';
 import {useEffect,useState,useRef} from 'react';
-import type {ModelBenchmarks,OpenRouterCatalog,OpenRouterModel} from '@nest/schemas';
+import {describeModelReference,type ModelBenchmarks,type OpenRouterCatalog,type OpenRouterModel} from '@nest/schemas';
 import {apiJson,getApiHeaders} from './api';
 import './model-picker.css';
 
 const logos:Record<string,string>={openai:'openai',anthropic:'anthropic',google:'google',moonshotai:'moonshot',qwen:'qwen',deepseek:'deepseek',minimax:'minimax','z-ai':'zai',tencent:'tencent'};
+// Non-OpenRouter references (e.g. openai-compatible on Fireworks) read as "model · provider".
+const otherProvider=(value:string)=>{if(!value.includes(':')||value.startsWith('openrouter:'))return '';const d=describeModelReference(value);return `${d.name} · ${d.provider}`;};
 const money=(value:number|null)=>value === null ? 'Unknown' : `$${value.toLocaleString(undefined,{maximumFractionDigits:3})}`;
 function message(error:unknown) {
   const raw=error instanceof Error?error.message:'Request failed';
@@ -48,10 +50,10 @@ export function ModelPicker({agentName,value,disabled,onChange}:{agentName:strin
     if(busy||disabled)return;
     setBusy(true);setResult('');
     try {
-      const checked=await apiJson<{reference:string;latencyMs:number}>(`/api/agents/${encodeURIComponent(agentName)}/model-check`,{method:'POST',headers:getApiHeaders(),body:JSON.stringify({model:selected})});
+      const checked=await apiJson<{reference:string;latencyMs:number;provider?:string}>(`/api/agents/${encodeURIComponent(agentName)}/model-check`,{method:'POST',headers:getApiHeaders(),body:JSON.stringify({model:selected})});
       checkedReference.current=checked.reference;
       onChange(checked.reference);
-      setResult(`Tool-call check passed in ${(checked.latencyMs/1000).toFixed(1)}s. Save settings to use this model on the next turn.`);
+      setResult(`Tool-call check passed${checked.provider&&checked.provider!=='OpenRouter'?` on ${checked.provider}`:''} in ${(checked.latencyMs/1000).toFixed(1)}s. Save settings to use this model on the next turn.`);
     }catch(e){setResult(message(e));}finally{setBusy(false);}
   }
   function card(model:OpenRouterModel){
@@ -64,7 +66,7 @@ export function ModelPicker({agentName,value,disabled,onChange}:{agentName:strin
     </button>;
   }
   return <details className="model-picker" open={open} onToggle={e=>setOpen(e.currentTarget.open)}>
-    <summary className="model-picker-toggle"><span><strong>Explore OpenRouter models</strong><small>{current?.name || value || 'Choose a model'}</small></span><span className="model-picker-chevron" aria-hidden="true">⌄</span></summary>
+    <summary className="model-picker-toggle"><span><strong>Explore OpenRouter models</strong><small>{current?.name || otherProvider(value) || value || 'Choose a model'}</small></span><span className="model-picker-chevron" aria-hidden="true">⌄</span></summary>
     <div className="model-picker-content" aria-label="OpenRouter model picker">
     <div className="model-filters"><input aria-label="Search OpenRouter models" placeholder="Search models or providers…" value={query} onChange={e=>setQuery(e.target.value)}/><label><input type="checkbox" checked={vision} onChange={e=>setVision(e.target.checked)}/> Image input</label></div>
     {!catalog&&!error&&<p role="status">Loading live OpenRouter catalog…</p>}
@@ -78,7 +80,7 @@ export function ModelPicker({agentName,value,disabled,onChange}:{agentName:strin
       <p className="model-source">{catalog.stale?'Showing cached models. ':''}<a href="https://openrouter.ai/models" target="_blank" rel="noreferrer">Compare on OpenRouter ↗</a></p>
     </>}
     {selectedModel&&<details className="model-summary"><summary>About {selectedModel.name}</summary><p>{selectedModel.description}</p><p><b>Useful for:</b> {selectedModel.tools?'tool-based agents':'text conversations (tools not advertised)'}{selectedModel.vision?', image analysis':''}{selectedModel.reasoning?', reasoning tasks':''}. <b>Trade-offs:</b> {selectedModel.vision?'Image capability is advertised, not tested here.':'Cannot read images according to the catalog.'} Prices vary by route and context.</p></details>}
-    <div className="model-connect"><label htmlFor="custom-model-id">Exact OpenRouter model ID</label><div><input id="custom-model-id" placeholder="provider/model-name" value={selected} disabled={disabled||busy} onChange={e=>choose(e.target.value)}/><button className="dashboard-action" type="button" disabled={disabled||busy||!selected.trim()} onClick={()=>void connect()}>{busy?'Testing…':'Connect'}</button></div><small>Tests a tool call using this agent’s key (small usage charge). Save settings to apply.</small></div>
+    <div className="model-connect"><label htmlFor="custom-model-id">Exact OpenRouter model ID</label><div><input id="custom-model-id" placeholder="provider/model-name" value={selected} disabled={disabled||busy} onChange={e=>choose(e.target.value)}/><button className="dashboard-action" type="button" disabled={disabled||busy||!selected.trim()} onClick={()=>void connect()}>{busy?'Testing…':'Connect'}</button></div><small>Tests a tool call using this agent’s {selected.startsWith('openai-compatible:')?'OpenAI-compatible key and base URL':'key'} (small usage charge). Save settings to apply.</small></div>
     {result&&<p role="status" className="model-result">{result}</p>}
     </div>
   </details>;

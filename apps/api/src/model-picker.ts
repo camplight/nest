@@ -3,8 +3,13 @@ import type { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import { generate } from '@orgops/llm';
-import type { OrgOpsClient } from '@nest/orgops-client';
+import { providerEnvKeys, type OrgOpsClient } from '@nest/orgops-client';
+import { modelProviderLabel } from '@nest/schemas';
 import { createOpenRouterCatalog, modelSlug } from './openrouter-catalog';
+
+// OpenAI-compatible model names may nest paths (Fireworks: accounts/fireworks/models/glm-5p3) but never contain ':'.
+const compatibleModelName = /^[a-zA-Z0-9][a-zA-Z0-9._-]*(?:\/[a-zA-Z0-9][a-zA-Z0-9._-]*)*$/;
+const COMPATIBLE = 'openai-compatible:';
 
 export function registerModelPickerRoutes(app:Hono, orgops:OrgOpsClient, options:{benchmarks?:ReturnType<typeof createModelBenchmarks>;engineToken?:string;catalog?:ReturnType<typeof createOpenRouterCatalog>;probe?:typeof generate} = {}) {
   const catalog = options.catalog ?? createOpenRouterCatalog();
@@ -43,25 +48,34 @@ export function registerModelPickerRoutes(app:Hono, orgops:OrgOpsClient, options
     if (agent.visibility !== 'PUBLIC' && agent.ownerHumanId !== human.id) return c.json({error:'Only the agent owner can test its credentials'},403);
     if (agent.mode === 'WRAPPED') return c.json({error:'This agent’s model is managed by its external runtime'},400);
     const body = await c.req.json().catch(() => null);
-    const model = typeof body?.model === 'string' ? body.model.trim().replace(/^openrouter:/,'') : '';
-    if (model.length > 180 || !modelSlug.test(model)) return c.json({error:'Enter an OpenRouter ID such as google/gemini-2.5-flash. Variant suffixes are not supported by this runtime.'},400);
+    const raw = typeof body?.model === 'string' ? body.model.trim() : '';
+    // OpenRouter IDs stay the default; an openai-compatible reference is tested with that provider's keys.
+    const compatible = raw.startsWith(COMPATIBLE);
+    const model = compatible ? raw.slice(COMPATIBLE.length) : raw.replace(/^openrouter:/,'');
+    if (compatible && (model.length > 180 || !compatibleModelName.test(model))) return c.json({error:'Enter an OpenAI-compatible model such as openai-compatible:accounts/fireworks/models/glm-5p3.'},400);
+    if (!compatible && (model.length > 180 || !modelSlug.test(model))) return c.json({error:'Enter an OpenRouter ID such as google/gemini-2.5-flash. Variant suffixes are not supported by this runtime.'},400);
+    const reference = compatible ? `${COMPATIBLE}${model}` : `openrouter:${model}`;
     const now = Date.now();
     for (const [key,time] of checks) if (now-time > 60_000) checks.delete(key);
     if (checks.has(human.id) && now-checks.get(human.id)! < 30_000) return c.json({error:'Wait 30 seconds between connection tests'},429);
     checks.set(human.id,now);
     try {
-      const env = await orgops.agentModelEnv(name,options.engineToken ?? '');
-      if (!env.OPENROUTER_API_KEY) return c.json({error:'No OpenRouter key is configured for this agent. Add it in administration first.'},422);
+      const env = await orgops.agentModelEnv(name,options.engineToken ?? '',reference);
+      if (providerEnvKeys(reference).required.some(key => !env[key])) return c.json({error:compatible
+        ? 'No OpenAI-compatible API key and base URL are configured for this agent. Add OPENAI_COMPATIBLE_API_KEY and OPENAI_COMPATIBLE_BASE_URL in administration first.'
+        : 'No OpenRouter key is configured for this agent. Add it in administration first.'},422);
+      // A label derived from the base URL host; the URL itself stays server-side.
+      const provider = modelProviderLabel(compatible ? 'openai-compatible' : 'openrouter', model, env.OPENAI_COMPATIBLE_BASE_URL);
       // Never send this agent's instructions, conversations or real tools.
       let toolCalled = false;
-      const result = await probe(`openrouter:${model}`,[{role:'user',content:'Call nest_connection_check with value "ok" once to verify tool calling. Do nothing else.'}],{
+      const result = await probe(reference,[{role:'user',content:'Call nest_connection_check with value "ok" once to verify tool calling. Do nothing else.'}],{
         env,maxTokens:256,maxSteps:1,abortSignal:AbortSignal.timeout(20_000),
         tools:{nest_connection_check:{description:'Harmless connection check; no external effects.',inputSchema:z.object({value:z.literal('ok')}),execute:() => {toolCalled=true;return 'ok';}}},
       });
       if (!toolCalled) return c.json({error:result.text ? 'The model responded, but did not complete the tool-call check. Try another model or retry.' : 'No usable tool response received. Try another model or retry.'},422);
-      return c.json({reference:`openrouter:${model}`,latencyMs:Date.now()-now,tools:true});
+      return c.json({reference,provider,latencyMs:Date.now()-now,tools:true});
     } catch {
-      return c.json({error:'Connection check failed or timed out. Check the model ID, agent’s OpenRouter key, credits and provider availability. Your saved model is unchanged.'},502);
+      return c.json({error:`Connection check failed or timed out. Check the model ID, agent’s ${compatible ? 'OpenAI-compatible key and base URL' : 'OpenRouter key'}, credits and provider availability. Your saved model is unchanged.`},502);
     }
   });
 }

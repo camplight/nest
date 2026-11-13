@@ -11,6 +11,7 @@ import type {generate} from '@orgops/llm';
 let engine:ReturnType<typeof createEngine>, dir:string, cookie:string, app:Hono;
 const probe=vi.fn<typeof generate>();
 let secretReads=0;
+let secretEnv:Record<string,string>={};
 beforeEach(async()=>{
  dir=mkdtempSync(join(tmpdir(),'model-picker-'));
  engine=createEngine({projectRoot:dir,dataDir:dir,dbPath:join(dir,'engine.sqlite'),adminUser:'owner',adminPass:'password',runnerToken:'test-runner'});
@@ -19,14 +20,14 @@ beforeEach(async()=>{
    secretReads++;
    expect(new Headers(init?.headers).get('x-orgops-agent-name')).toBe('Private');
    expect(new Headers(init?.headers).get('x-orgops-runner-token')).toBe('test-runner');
-   return Response.json({OPENROUTER_API_KEY:'synthetic-key',UNRELATED_SECRET:'never-forward'});
+   return Response.json(secretEnv);
   }
   return engine.app.fetch(new Request(url,init));
  });
  const login=await client.request('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'owner',password:'password'})});
  cookie=login.headers.getSetCookie()[0].split(';')[0];
  await client.request('/api/agents',{method:'POST',headers:{cookie,'content-type':'application/json'},body:JSON.stringify({name:'Private',visibility:'PRIVATE',modelId:'openrouter:old/model',workspacePath:join(dir,'workspace')})});
- probe.mockReset();secretReads=0;
+ probe.mockReset();secretReads=0;secretEnv={OPENROUTER_API_KEY:'synthetic-key',UNRELATED_SECRET:'never-forward'};
  probe.mockImplementation(async(_model,_messages,opts)=>{await opts?.tools?.nest_connection_check.execute?.({value:'ok'});return {text:'',toolCalls:[],toolResults:[]};});
  app=new Hono();
  registerModelPickerRoutes(app,client,{engineToken:'test-runner',probe,benchmarks:async key=>{expect(key).toBe('synthetic-key');return {models:[{id:'vendor/model',intelligence:42}],fetchedAt:1,asOf:null,stale:false};},catalog:async()=>({models:[],fetchedAt:1,stale:false})});
@@ -39,6 +40,21 @@ it('tests with only provider credentials and a synthetic tool, without changing 
  const agent=await engine.app.request('/api/agents/Private',{headers:{cookie}});expect(await agent.json()).toMatchObject({modelId:'openrouter:old/model'});
  expect((await check()).status).toBe(429);expect(secretReads).toBe(1);
 });
+it('tests an openai-compatible model with only its key and base URL',async()=>{
+ secretEnv={OPENAI_COMPATIBLE_API_KEY:'synthetic-compatible-key',OPENAI_COMPATIBLE_BASE_URL:'https://api.fireworks.ai/inference/v1',OPENROUTER_API_KEY:'synthetic-key',UNRELATED_SECRET:'never-forward'};
+ const reference='openai-compatible:accounts/fireworks/models/glm-5p3';
+ const response=await check(reference);expect(response.status).toBe(200);
+ const body=await response.text();expect(JSON.parse(body)).toMatchObject({reference,provider:'Fireworks',tools:true});
+ expect(body).not.toContain('api.fireworks.ai');expect(body).not.toContain('synthetic');
+ expect(probe).toHaveBeenCalledWith(reference,expect.any(Array),expect.objectContaining({env:{OPENAI_COMPATIBLE_API_KEY:'synthetic-compatible-key',OPENAI_COMPATIBLE_BASE_URL:'https://api.fireworks.ai/inference/v1'}}));
+});
+it('names the missing openai-compatible keys instead of asking for an OpenRouter key',async()=>{
+ secretEnv={OPENAI_COMPATIBLE_API_KEY:'synthetic-compatible-key'};
+ const response=await check('openai-compatible:accounts/fireworks/models/glm-5p3');
+ expect(response.status).toBe(422);const {error}=await response.json();
+ expect(error).toContain('OPENAI_COMPATIBLE_BASE_URL');expect(error).not.toContain('OpenRouter');expect(probe).not.toHaveBeenCalled();
+});
+it.each(['openai-compatible:','openai-compatible:a:b','openai-compatible:/abs','openai-compatible:https://x.test/m'])('rejects unsupported openai-compatible model %s',async model=>{expect((await check(model)).status).toBe(400);expect(secretReads).toBe(0);});
 it('rejects unauthenticated and runner callers before reading secrets',async()=>{
  expect((await check('vendor/model',{})).status).toBe(401);
  expect((await check('vendor/model',{'x-nest-runner-token':'test-runner'})).status).toBe(401);

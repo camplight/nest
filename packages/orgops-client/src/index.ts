@@ -5,6 +5,24 @@ export function defaultModelReference(id:string|undefined,models:{id:string;refe
 import {agentInstructionBody, agentInstructionResponse, isAgentSettingsPath} from './agent-instructions';
 import {voiceJoinBody} from './voice-request';
 
+/** Engine providers Nest offers as native agent models (the upstream LLM library supports each). */
+export const NATIVE_MODEL_PROVIDERS = ['openai','anthropic','openrouter','or','openai-compatible'] as const;
+const openRouterKeys = ['OPENROUTER_API_KEY','OPENROUTER_BASE_URL','OPENROUTER_HTTP_REFERER','OPENROUTER_APP_TITLE'];
+/**
+ * Engine secret names a provider's model calls read. `required` must all be set
+ * for a call to work; the rest are optional overrides.
+ */
+export function providerEnvKeys(providerOrReference: string): {required:string[]; keys:string[]} {
+  const provider = providerOrReference.split(':')[0];
+  if (provider === 'anthropic') return {required:['ANTHROPIC_API_KEY'], keys:['ANTHROPIC_API_KEY']};
+  if (provider === 'openrouter' || provider === 'or') return {required:['OPENROUTER_API_KEY'], keys:openRouterKeys};
+  if (provider === 'openai-compatible') {
+    const keys = ['OPENAI_COMPATIBLE_API_KEY','OPENAI_COMPATIBLE_BASE_URL'];
+    return {required:keys, keys};
+  }
+  return {required:['OPENAI_API_KEY'], keys:['OPENAI_API_KEY']};
+}
+
 export type Human = { id: string; username: string; mustChangePassword: boolean; createdAt?: number };
 const hopHeaders = ['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length'];
 
@@ -92,19 +110,20 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     return request(path, {headers, method, ...(body !== undefined ? {body:JSON.stringify(body)} : {})});
   }
   function nativeModels(rows: {id:string; provider:string; modelName:string; enabled:boolean}[]) {
-    return rows.filter(m => m.enabled && ['openai','anthropic','openrouter','or'].includes(m.provider) && m.modelName && !m.modelName.includes(':'))
+    return rows.filter(m => m.enabled && (NATIVE_MODEL_PROVIDERS as readonly string[]).includes(m.provider) && m.modelName && !m.modelName.includes(':'))
       .map(m => ({id:m.id, provider:m.provider, name:m.modelName, reference:`${m.provider}:${m.modelName}`}));
   }
   async function nativeModelReference(id: string, headers: HeadersInit) {
     const models = await humanJson<{id:string; provider:string; modelName:string; enabled:boolean}[]>('/api/models', headers);
     return defaultModelReference(id,nativeModels(models));
   }
-  async function agentModelEnv(agentName: string, serviceToken: string) {
+  /** Provider keys only, for the provider of `model` (default OpenRouter); never other agent secrets. */
+  async function agentModelEnv(agentName: string, serviceToken: string, model = 'openrouter') {
     if (!serviceToken) throw Error('Model checks are not configured');
     const response = await request('/api/secrets/env', {headers:{'x-orgops-runner-token':serviceToken,'x-orgops-agent-name':agentName}});
     if (!response.ok) throw Error('Agent provider credentials are unavailable');
     const env = await response.json() as Record<string,string>;
-    return Object.fromEntries(['OPENROUTER_API_KEY','OPENROUTER_BASE_URL','OPENROUTER_HTTP_REFERER','OPENROUTER_APP_TITLE'].map(key => [key,env[key]]));
+    return Object.fromEntries(providerEnvKeys(model).keys.map(key => [key,env[key]])) as Record<string,string|undefined>;
   }
   async function connectionContext(agentName:string, serviceToken:string) {
     if(!serviceToken)throw Error('Integration engine metadata access is not configured');
@@ -132,10 +151,9 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     return {agents,humans};
   }
   async function projectNamingEnv({token,agentName,agentId,model}:{token?:string;agentName?:string;agentId?:string;model:string}) {
-    const provider=model.split(':')[0];
-    const secret=provider==='anthropic'?'ANTHROPIC_API_KEY':['openrouter','or'].includes(provider)?'OPENROUTER_API_KEY':'OPENAI_API_KEY';
-    const keys=[secret,...(secret==='OPENROUTER_API_KEY'?['OPENROUTER_BASE_URL','OPENROUTER_HTTP_REFERER','OPENROUTER_APP_TITLE']:[])];
-    if(process.env[secret])return Object.fromEntries(keys.map(key=>[key,process.env[key]]));
+    const {required,keys}=providerEnvKeys(model);
+    // The process-env shortcut applies only when every required key is present there.
+    if(required.every(key=>process.env[key]))return Object.fromEntries(keys.map(key=>[key,process.env[key]]));
     if(!token||!agentName)throw Error('Project naming provider is unavailable');
     const headers={'x-orgops-runner-token':token};
     const agentResponse=await request(`/api/agents/${encodeURIComponent(agentName)}`,{headers});

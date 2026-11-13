@@ -862,7 +862,12 @@ Nest exposes authenticated `GET /api/agent-models`, a sanitized enabled native
 model catalog from OrgOps plus the resolved instance default. No engine database
 or provider credentials are read. `NEST_DEFAULT_AGENT_MODEL_ID` (legacy fallback:
 `NEST_PERSONAL_AGENT_MODEL_ID`) resolves a registry ID to the runner's provider:model
-reference. Nest supplies it on native `POST /api/agents` only if modelId is absent
+reference. Native providers are `openrouter`/`or`, `openai`, `anthropic` and
+`openai-compatible` (for example Fireworks, model name
+`accounts/fireworks/models/glm-5p3`, reference
+`openai-compatible:accounts/fireworks/models/glm-5p3`); the engine reads
+`OPENAI_COMPATIBLE_API_KEY` and `OPENAI_COMPATIBLE_BASE_URL` for the latter.
+Model names may contain `/` but not `:`. Nest supplies it on native `POST /api/agents` only if modelId is absent
 or empty. Explicit references and WRAPPED creation retain engine semantics.
 Missing/disabled defaults return 503, rather than creating a broken native agent.
 
@@ -1092,7 +1097,9 @@ tools, a 20-second timeout and bounded output. Generated metadata is schema-chec
 Provider credentials stay server-side. The selected provider's API environment key
 is reused when present. Otherwise the OrgOps client resolves the configured system
 agent's provider environment through `/api/secrets/env`, without a channel/team
-context, and returns only the required provider key/options. The source agent must
+context, and returns only the required provider key/options (both
+`OPENAI_COMPATIBLE_API_KEY` and `OPENAI_COMPATIBLE_BASE_URL` for
+`openai-compatible`; the process-env shortcut needs every required key). The source agent must
 have owner-human secret delegation explicitly disabled and match the manager's
 pinned ID when using its default source. It does not resolve a user's personal
 agent/accounts, read the engine database, or return secrets/model diagnostics.
@@ -1430,13 +1437,20 @@ The shortlist uses popularity, not benchmark scores. Model descriptions are
 collapsed behind About; the UI omits the ranking explanation. Catalog data is
 cached 15 minutes, with explicitly stale fallback for at most 24 hours.
 
-`POST /api/agents/:name/model-check` accepts `{model: "provider/model"}`. A live
+`POST /api/agents/:name/model-check` accepts `{model: "provider/model"}`, or an
+`openai-compatible:<model>` reference. A live
 human must be allowed to edit that agent (public agent or private owner). The
 adapter resolves that agent's provider env using the configured engine token,
-returns only OpenRouter keys server-side, and uses the same OrgOps LLM library
+returns only the tested provider's keys server-side (OpenRouter keys, or the
+OpenAI-compatible key and base URL), and uses the same OrgOps LLM library
 for a bounded synthetic tool check. No chat, instructions or real tools are sent.
 Checks have a 20s deadline, 256-token output limit, one step and 30s per-human
 cooldown per API process. Provider errors and credentials are not returned.
+A missing key names that provider's secrets (an OpenAI-compatible agent is not
+told to add an OpenRouter key). A passing OpenAI-compatible check returns only a
+provider label derived from the base URL host (`Fireworks` or
+`OpenAI-compatible`), never the URL. The summary shows such a model as
+`glm-5p3 · Fireworks`; intelligence scores still need an OpenRouter key.
 Passing selects the model in the form; the existing engine-authorized settings
 PATCH saves it. Tests never mutate the model or enable a global registry entry.
 Wrapped agents retain external model management. Colon variants are rejected

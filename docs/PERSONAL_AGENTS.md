@@ -37,8 +37,11 @@ settings can edit the description and instructions afterward.
 
 ## Operator configuration
 
-Create an enabled native engine model (provider `openrouter` is supported), and
-register a runner. Configure these values in the private server environment:
+Create an enabled native engine model, and register a runner. Supported
+providers are `openrouter`, `openai`, `anthropic` and `openai-compatible`. An
+OpenAI-compatible provider such as Fireworks uses provider `openai-compatible`
+with the provider's model name, e.g. `accounts/fireworks/models/glm-5p3`
+(reference `openai-compatible:accounts/fireworks/models/glm-5p3`). Configure these values in the private server environment:
 
 ```dotenv
 NEST_DEFAULT_AGENT_MODEL_ID=<existing-engine-model-id>
@@ -46,9 +49,12 @@ NEST_PERSONAL_AGENT_RUNNER_ID=<registered-runner-id>
 NEST_PERSONAL_AGENT_WORKSPACE_ROOT=/app/.nest-data/workspaces/personal
 ```
 
-Store `OPENROUTER_API_KEY` in the engine's encrypted secret store with `public`
-scope for the shared model, using the operator's authenticated secrets API/admin
-flow. Merely setting a process environment key is insufficient: the native
+Store the model provider's keys in the engine's encrypted secret store with
+`public` scope for the shared model, using the operator's authenticated secrets
+API/admin flow: `OPENROUTER_API_KEY` for OpenRouter, or **both**
+`OPENAI_COMPATIBLE_API_KEY` and `OPENAI_COMPATIBLE_BASE_URL` for
+`openai-compatible` (Fireworks: `https://api.fireworks.ai/inference/v1`). Without
+the base URL the engine refuses the model call. Merely setting a process environment key is insufficient: the native
 runner resolves provider credentials through its engine secret context. Never
 put the value in source, browser onboarding forms, or screenshots.
 

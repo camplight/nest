@@ -386,6 +386,11 @@ describe('project workflow against the unchanged engine',()=>{
     const env=await client.projectNamingEnv({token:'runner-secret',agentName:'Builder',agentId:agent.id,model:'openrouter:fixture'});
     expect(env.OPENROUTER_API_KEY).toBe('fixture-provider-key');expect(env).not.toHaveProperty('UNRELATED_SECRET');
     await expect(client.projectNamingEnv({token:'runner-secret',agentName:'Builder',agentId:'wrong',model:'openrouter:fixture'})).rejects.toThrow('unavailable');
+    vi.stubEnv('OPENAI_COMPATIBLE_API_KEY','');vi.stubEnv('OPENAI_COMPATIBLE_BASE_URL','');
+    await request('/api/secrets',{name:'OPENAI_COMPATIBLE_API_KEY',value:'fixture-compatible-key',scopeType:'public'});
+    await request('/api/secrets',{name:'OPENAI_COMPATIBLE_BASE_URL',value:'https://api.fireworks.ai/inference/v1',scopeType:'public'});
+    expect(await client.projectNamingEnv({token:'runner-secret',agentName:'Builder',agentId:agent.id,model:'openai-compatible:accounts/fireworks/models/glm-5p3'}))
+      .toEqual({OPENAI_COMPATIBLE_API_KEY:'fixture-compatible-key',OPENAI_COMPATIBLE_BASE_URL:'https://api.fireworks.ai/inference/v1'});
     await product.app.request('/api/agents/Builder',{method:'PATCH',headers,body:JSON.stringify({visibility:'PRIVATE',ownerHumanId:(await (await request('/api/auth/me')).json()).id,allowOwnerHumanSecrets:true})});
     await expect(client.projectNamingEnv({token:'runner-secret',agentName:'Builder',model:'openrouter:fixture'})).rejects.toThrow('unavailable');
   });
