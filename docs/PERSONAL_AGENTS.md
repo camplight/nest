@@ -61,7 +61,7 @@ put the value in source, browser onboarding forms, or screenshots.
 Nest resolves the model registry ID to the runner's `provider:model` reference
 and snapshots that reference for recovery. Nest checks the configured model is enabled and the runner is online before
 initial provisioning. It creates a PRIVATE CLASSIC agent with a unique workspace,
-12 model steps maximum, no enabled skills, `allowOutsideWorkspace=false` and
+25 model steps maximum, no enabled skills, `allowOutsideWorkspace=false` and
 no owner-secret delegation. Personal agents start with OrgOps's `FULL_CHANNEL_EVENTS`
 memory mode: each turn sees that chat's own messages, so a follow-up such as
 "put that in a table" works from the agent's previous reply. The engine default,

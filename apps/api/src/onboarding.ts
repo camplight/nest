@@ -343,7 +343,8 @@ export function registerOnboardingRoutes(
           allowOutsideWorkspace: false,
           allowOwnerHumanSecrets: false,
           enabledSkills: [],
-          classicMaxModelSteps: 12,
+          // Room to recover from a failed tool call (for example a rejected post) in the same turn.
+          classicMaxModelSteps: 25,
           // A personal assistant answers follow-ups from the chat itself; summarized
           // memory hides its own recent replies and adds model calls after every turn.
           memoryContextMode: "FULL_CHANNEL_EVENTS",
