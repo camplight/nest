@@ -25,6 +25,41 @@ const noSecret=async(page:Page)=>{
   }
 };
 
+await runChatTest('composer stop: Stop takes Send\'s place while an agent works and cancels its turn',async h=>{
+  const {page}=h;
+  const m1=await human(h,'@Pip synthetic long request');
+  await page.locator(`#message-${m1.id}`).waitFor();
+  const send=page.locator('form.composer .composer-send');
+  const stop=page.locator('form.composer .composer-stop');
+  assert.equal(await stop.count(),0,'no Stop while nothing runs');
+  await h.emit('agent.turn.started',{triggerEventId:m1.id});
+  await rowAfter(page,m1.id).filter({hasText:agentName}).waitFor();
+  await page.getByRole('button',{name:`Stop ${agentName}`,exact:true}).waitFor();
+  assert.equal(await send.count(),0,'Stop takes Send\'s place while the composer is empty');
+  assert.equal(await rows(page).getByRole('button').count(),0,'the working row has no Stop of its own');
+
+  const box=page.getByRole('textbox',{name:'Message',exact:true});
+  await box.fill('Synthetic follow-up draft');
+  assert.equal(await send.isEnabled(),true,'typing brings Send back');
+  assert.equal(await stop.innerText(),'','Stop stays beside Send as an icon');
+  console.log('screenshot',await h.screenshot('composer-stop-typing'));
+  await box.fill('');
+  console.log('screenshot',await h.screenshot('composer-stop'));
+
+  const cancel=page.waitForRequest(request=>request.method()==='POST'&&new URL(request.url()).pathname===`/api/agents/${agentName}/turns/cancel`);
+  await stop.click();
+  assert.deepEqual(JSON.parse((await cancel).postData()??'{}'),{channelId:h.project.channelId},'Stop names the open chat');
+  await rowAfter(page,m1.id).filter({hasText:'Stopping…'}).waitFor({timeout:5000});
+  assert.equal(await stop.isDisabled(),true,'Stop waits while the turn stops');
+  assert.equal(await stop.innerText(),'Stopping…');
+
+  await h.emit('agent.turn.completed',{triggerEventId:m1.id,eventCount:1,cancelled:true,noReply:true});
+  await rows(page).waitFor({state:'detached',timeout:5000});
+  await send.waitFor();
+  assert.equal(await stop.count(),0,'Stop leaves with the turn');
+  await page.getByRole('button',{name:'Stopped',exact:true}).waitFor({timeout:5000});
+});
+
 await runChatTest('working row: start, progress, move and completion',async h=>{
   const {page}=h;
   const m1=await human(h,'@Pip synthetic first request');

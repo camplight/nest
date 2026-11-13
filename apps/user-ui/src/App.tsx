@@ -10,6 +10,7 @@ import {fetchAgentStarts} from './chat/lifecycles';
 import {useChannelEvents} from './chat/useChannelEvents';
 import {adaptiveMessageBatchSize} from './chat/history';
 import {ChatThread, type ChatThreadHandle} from './chat/ChatThread';
+import {activeTurns as workingTurns} from './chat/working';
 import {ChatComposer,useComposerSession,type ChatComposerHandle} from './chat/ChatComposer';
 import {Share2} from 'lucide-react';
 import {HuddleButton} from './huddle/HuddleButton';
@@ -531,6 +532,10 @@ export default function App() {
   const isSearchingChannels = Boolean(channelQuery.trim());
   const activeChannelManageable = canManageUserChannel(activeChannel, userId);
   const activeChannelCanPost = activeChannel ? activeChannel.canPost !== false : false;
+  // Native agent turns running in the open chat; the composer's Stop asks the engine to end them.
+  const stoppableTurns = useMemo(() => activeChannelCanPost
+    ? workingTurns(threadSnapshot.events, agents, threadSnapshot.agentStarts).filter(turn => !turn.wrapped && !turn.interrupted)
+    : [], [activeChannelCanPost, threadSnapshot.events, threadSnapshot.agentStarts, agents]);
   const activeConversationName = activeChannel ? projectIndex.find(project => project.channelId === activeChannel.id)?.name ?? channelLabel(activeChannel, username) : "";
   const mentionProject=projectIndex.find(project=>project.channelId===activeChannelId);
   const canInviteMention=activeChannelManageable&&(!mentionProject||mentionProject.ownerId===userId);
@@ -677,19 +682,21 @@ export default function App() {
     });
   }
 
-  // Asks the engine to stop the agent's running turn here. A turn that just finished answers 409; nothing to report.
-  function stopTurn(agent: string) {
+  // Asks the engine to stop each agent still working here. A turn that just finished answers 409; nothing to report.
+  function stopTurns() {
     const channelId = activeChannelId;
     if (!channelId) return;
-    void apiFetch(`/api/agents/${encodeURIComponent(agent)}/turns/cancel`, {
-      method: "POST",
-      headers: getApiHeaders(),
-      body: JSON.stringify({ channelId }),
-    }).catch((reason: unknown) => {
-      if (!String(reason instanceof Error ? reason.message : reason).includes("no running turn")) {
-        setError(`Could not stop ${agent}. Try again.`);
-      }
-    });
+    for (const agent of new Set(stoppableTurns.filter(turn => !turn.stopping).map(turn => turn.agent))) {
+      void apiFetch(`/api/agents/${encodeURIComponent(agent)}/turns/cancel`, {
+        method: "POST",
+        headers: getApiHeaders(),
+        body: JSON.stringify({ channelId }),
+      }).catch((reason: unknown) => {
+        if (!String(reason instanceof Error ? reason.message : reason).includes("no running turn")) {
+          setError(`Could not stop ${agent}. Try again.`);
+        }
+      });
+    }
   }
 
   async function loadSession() {
@@ -1683,12 +1690,16 @@ export default function App() {
             onPreviewDemo={path => setDemoPreview({channel: activeChannelId!, path})}
             onQuote={(target, quotedText) => {composerRef.current?.setReplyTarget(target, quotedText);composerRef.current?.focus();}}
             onFocusMessage={focusMessage}
-            onStopTurn={activeChannelCanPost ? stopTurn : undefined}
             handle={chatThreadRef}
             footer={view==='projects'&&selectedProject&&activeChannel&&<ProjectConnections key={activeChannel.id} ownerId={userId??''} projectId={selectedProject} text={events.filter(e=>e.channelId===activeChannel.id&&e.type==='message.created').slice(-4).map(e=>String((e.payload as {text?:unknown})?.text??'').slice(0,4000)).join('\n')}/>}
           />
           <ChatComposer
             ref={composerRef}
+            stop={stoppableTurns.length ? {
+              agents: [...new Set(stoppableTurns.map(turn => turn.agent))],
+              stopping: stoppableTurns.every(turn => turn.stopping),
+              onStop: stopTurns,
+            } : undefined}
             session={composerSession}
             conversationName={activeConversationName}
             isConversationEmpty={isConversationEmpty}

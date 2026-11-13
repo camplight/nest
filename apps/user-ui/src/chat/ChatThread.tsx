@@ -27,7 +27,6 @@ export type ChatThreadProps={
  focusedMessageId:string|null;isConversationEmpty:boolean;
  onPreviewDemo(path:string):void;onQuote(target:ReplyTarget,quotedText:string):void;footer?:ReactNode;headerActions?:ReactNode;
  channelLabel:string;onFocusMessage(eventId:string):void;handle?:Ref<ChatThreadHandle>;
- onStopTurn?(agent:string):void;
 };
 // What the page may ask of the thread: after a send it follows the new message down (the viewport is the thread's own).
 export type ChatThreadHandle={scrollToBottom():void};
@@ -161,8 +160,7 @@ function ThreadItem(){
    </div>}
   {view.turns.filter(turn=>turn.triggerEventId===item.id||(!next&&!view.byId.has(turn.triggerEventId))).map(turn=>
    <WorkingRow key={turn.agent} turn={turn} activityUnavailable={view.props.snapshot.activityUnavailable}
-    onReview={()=>view.props.onFocusMessage(turn.triggerEventId)}
-    onStop={view.props.onStopTurn?()=>view.props.onStopTurn!(turn.agent):undefined}/>)}
+    onReview={()=>view.props.onFocusMessage(turn.triggerEventId)}/>)}
   {item.meta.detached&&next&&!next.meta.detached&&<div data-slot="detached-marker" className="my-3 self-center rounded-full bg-muted/70 px-3 py-1 text-xs text-muted-foreground">Earlier messages not loaded</div>}
  </>;
 }
