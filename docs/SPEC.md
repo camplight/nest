@@ -1471,6 +1471,17 @@ PATCH saves it. Tests never mutate the model or enable a global registry entry.
 Wrapped agents retain external model management. Colon variants are rejected
 because the pinned LLM parser does not preserve those suffixes.
 
+`GET /api/agents/:name/model-providers` uses the same human and ownership checks,
+then answers `{providers:[{id,label}]}` with only the providers whose required keys
+are all configured for that agent: `openrouter` (`OpenRouter`) and
+`openai-compatible` (labelled `Fireworks` or `OpenAI-compatible` from the base URL
+host). Keys and the base URL never leave the server. The picker offers only these
+providers, with an OpenRouter/Fireworks switch when both are configured. Under an
+OpenAI-compatible provider it shows no OpenRouter catalog, scores or links: just
+"Exact Fireworks model ID" (sent as `openai-compatible:<model>`) and, for Fireworks,
+a link to its model list. When the list is unknown the saved model's provider is
+used; an empty list says no provider key is configured.
+
 ## Agent conversation navigation
 
 The user sidebar groups private, unshared one-human/one-agent conversations under
@@ -1485,7 +1496,9 @@ No ownership or tool-grant rules change.
 ## Model value picker and GLM default
 
 Agent names are plain text in user settings. The redundant configured-model
-dropdown is removed; the OpenRouter picker is the single native-model control.
+dropdown is removed; the model picker is the single native-model control. It
+shows the OpenRouter catalog for OpenRouter and an exact-ID field for an
+OpenAI-compatible provider such as Fireworks.
 Connect still runs a synthetic tool call before Save settings applies a choice.
 
 `GET /api/agents/:name/model-benchmarks` is human-authenticated and checks agent

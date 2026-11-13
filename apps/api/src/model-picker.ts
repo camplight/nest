@@ -37,6 +37,28 @@ export function registerModelPickerRoutes(app:Hono, orgops:OrgOpsClient, options
       return c.json(await benchmarks(env.OPENROUTER_API_KEY??''));
     }catch{return c.json({error:'Intelligence scores are unavailable. You can still browse prices and choose a model below.'},503);}
   });
+  // Which model providers this agent can call, so the picker offers only those. Labels only:
+  // keys and the OpenAI-compatible base URL stay server-side.
+  app.get('/api/agents/:name/model-providers',async c=>{
+    c.header('Cache-Control','no-store');
+    const human=await orgops.currentHuman(c.req.raw.headers);
+    if(!human||human.mustChangePassword)return c.json({error:'Sign in to choose a model'},401);
+    const name=c.req.param('name');
+    const response=await orgops.humanRequest(`/api/agents/${encodeURIComponent(name)}`,c.req.raw.headers);
+    if(!response.ok)return c.json({error:'Agent unavailable'},404);
+    const agent=await response.json() as {visibility:string;ownerHumanId:string|null;mode:string};
+    if(agent.visibility!=='PUBLIC'&&agent.ownerHumanId!==human.id)return c.json({error:'Only the owner can use this agent’s connection'},403);
+    if(agent.mode==='WRAPPED')return c.json({error:'Model managed by external runtime'},400);
+    try{
+      const [openrouter,compatible]=await Promise.all(['openrouter',COMPATIBLE].map(p=>orgops.agentModelEnv(name,options.engineToken??'',p)));
+      const ready=(env:Record<string,string|undefined>,p:string)=>providerEnvKeys(p).required.every(key=>env[key]);
+      const providers=[
+        ...(ready(openrouter,'openrouter')?[{id:'openrouter',label:'OpenRouter'}]:[]),
+        ...(ready(compatible,COMPATIBLE)?[{id:'openai-compatible',label:modelProviderLabel('openai-compatible','',compatible.OPENAI_COMPATIBLE_BASE_URL)}]:[]),
+      ];
+      return c.json({providers});
+    }catch{return c.json({error:'Model providers are unavailable.'},503);}
+  });
   app.post('/api/agents/:name/model-check', bodyLimit({maxSize:2048}), async c => {
     c.header('Cache-Control','no-store');
     const human = await orgops.currentHuman(c.req.raw.headers);

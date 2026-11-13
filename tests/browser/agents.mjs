@@ -39,6 +39,7 @@ const chartFixtures=[
  {id:'deepseek/value-fixture',name:'DeepSeek fixture',score:40,input:0.2,output:0.4},
 ];
 let malformedDirectory=false;
+let modelProviders=[{id:'openrouter',label:'OpenRouter'}];let lastCheckedModel='';
 let malformedCatalog=false;let failModels=false;let failBenchmarks=false;let failSave=false;const writes=[];
 await page.route('**/api/**',async route=>{
  const path=new URL(route.request().url()).pathname; let data=[];
@@ -51,7 +52,10 @@ await page.route('**/api/**',async route=>{
  else if(path==='/api/openrouter-models'&&malformedCatalog)data=[];
  else if(path==='/api/openrouter-models')data={models:[{id:'moonshotai/kimi-k3',name:'Kimi fixture',description:'Synthetic test catalog. Text tools.',tools:true,vision:false,reasoning:true,context:128000,inputPrice:1,outputPrice:2},{id:'google/gemini-2.5-flash',name:'Gemini fixture',description:'Synthetic test catalog. Images and tools.',tools:true,vision:true,reasoning:true,context:1000000,inputPrice:0.3,outputPrice:2.5},...chartFixtures.map(m=>({id:m.id,name:m.name,description:'Synthetic benchmark fixture',tools:true,vision:false,reasoning:true,context:128000,inputPrice:m.input,outputPrice:m.output}))],fetchedAt:1793200000000,stale:false};
  else if(path.endsWith('/model-benchmarks')){return route.fulfill(failBenchmarks?{status:503,json:{error:'Unavailable'}}:{json:{models:[{id:'moonshotai/kimi-k3',intelligence:35},{id:'google/gemini-2.5-flash',intelligence:45},...chartFixtures.map(m=>({id:m.id,intelligence:m.score}))],fetchedAt:1793300000000,asOf:'2026-10-29T00:00:00Z',stale:false}});}
- else if(path.endsWith('/model-check')){const model=route.request().postDataJSON().model;return route.fulfill(model==='google/gemini-2.5-flash'?{json:{reference:'openrouter:'+model,latencyMs:250,tools:true}}:{status:422,json:{error:'Synthetic check failed; saved model unchanged'}});}
+ else if(path.endsWith('/model-providers'))data={providers:modelProviders};
+ else if(path.endsWith('/model-check')){const model=route.request().postDataJSON().model;lastCheckedModel=model;
+  if(model==='openai-compatible:accounts/fireworks/models/glm-5p3')return route.fulfill({json:{reference:model,provider:'Fireworks',latencyMs:250,tools:true}});
+  return route.fulfill(model==='google/gemini-2.5-flash'?{json:{reference:'openrouter:'+model,latencyMs:250,tools:true}}:{status:422,json:{error:'Synthetic check failed; saved model unchanged'}});}
  else if(path==='/api/events'){await notificationGate;data=[];}
  else if(path==='/api/mentions')data={items:[]};
  else if(path==='/api/projects/dashboard')data={projects:[],tasks:{total:0,finished:0,needsReview:0,changesRequested:0},reviews:[],changes:[]};
@@ -162,6 +166,30 @@ failBenchmarks=true;await page.reload();await page.locator('.agent-advanced > su
 await page.getByRole('button',{name:'Retry scores',exact:true}).waitFor();
 assert(await page.getByLabel('Exact OpenRouter model ID').isEnabled());
 failBenchmarks=false;await page.getByRole('button',{name:'Retry scores',exact:true}).click();await page.locator('.model-value-chart').waitFor();
+// With an OpenRouter and a Fireworks key the picker offers both; Fireworks has no OpenRouter catalog or wording.
+modelProviders=[{id:'openrouter',label:'OpenRouter'},{id:'openai-compatible',label:'Fireworks'}];
+await page.reload();await page.locator('.agent-advanced > summary').click();await page.locator('.model-picker-toggle').click();
+await page.getByRole('group',{name:'Model provider'}).getByRole('button',{name:'Fireworks',exact:true}).click();
+assert.equal(await page.getByLabel('Search OpenRouter models').count(),0);
+assert.equal(await page.getByRole('link',{name:/Compare on OpenRouter/}).count(),0);
+assert.equal(await page.getByLabel('Exact Fireworks model ID').inputValue(),'','An OpenRouter model is not shown as a Fireworks ID');
+await page.getByLabel('Exact Fireworks model ID').fill('accounts/fireworks/models/glm-5p3');
+await page.getByRole('button',{name:'Connect',exact:true}).click();
+await page.getByRole('status').filter({hasText:'Tool-call check passed on Fireworks'}).waitFor();
+assert.equal(lastCheckedModel,'openai-compatible:accounts/fireworks/models/glm-5p3');
+assert((await page.locator('.model-picker-toggle').textContent()).includes('Choose a Fireworks model'));
+await page.getByRole('group',{name:'Model provider'}).getByRole('button',{name:'OpenRouter',exact:true}).click();
+await page.getByLabel('Search OpenRouter models').waitFor();
+// A Fireworks-only agent sees no provider switch and no OpenRouter catalog, scores or links.
+modelProviders=[{id:'openai-compatible',label:'Fireworks'}];
+await page.reload();await page.locator('.agent-advanced > summary').click();await page.locator('.model-picker-toggle').click();
+await page.getByLabel('Exact Fireworks model ID').waitFor();
+assert.equal(await page.getByRole('group',{name:'Model provider'}).count(),0);
+assert(!(await page.locator('.model-picker-content').textContent()).includes('OpenRouter'));
+assert.equal(await page.locator('.model-options, .model-value-chart').count(),0);
+await page.getByRole('link',{name:/Browse Fireworks models/}).waitFor();
+await page.screenshot({path:join(screenshotDir,'nest-agent-model-fireworks.png'),fullPage:true});
+modelProviders=[{id:'openrouter',label:'OpenRouter'}];
 await page.locator('.agents-page').getByRole('button',{name:'All agents'}).click();await page.getByRole('button',{name:'Manage NestSystem'}).click();
 await page.locator('.agent-advanced > summary').click();await page.getByText('This wrapped agent manages',{exact:false}).waitFor();assert.equal(await page.getByLabel('Additional instructions').count(),0);
 await page.getByLabel('About this agent',{exact:true}).fill('Wrapped description');

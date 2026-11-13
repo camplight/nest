@@ -93,3 +93,27 @@ it('guards benchmarks before reading credentials and returns only normalized sco
  const response=await app.request(path,{headers:{cookie}});
  expect(response.status).toBe(200);expect(await response.text()).not.toContain('synthetic-key');expect(secretReads).toBe(1);
 });
+const providers=(headers:Record<string,string>={cookie})=>app.request('/api/agents/Private/model-providers',{headers});
+it('lists only the providers whose keys are all configured for the agent, without secrets or the base URL',async()=>{
+ secretEnv={OPENROUTER_API_KEY:'synthetic-key',OPENAI_COMPATIBLE_API_KEY:'synthetic-compatible-key',OPENAI_COMPATIBLE_BASE_URL:'https://api.fireworks.ai/inference/v1',UNRELATED_SECRET:'never-forward'};
+ const both=await providers();expect(both.status).toBe(200);
+ const body=await both.text();
+ expect(JSON.parse(body)).toEqual({providers:[{id:'openrouter',label:'OpenRouter'},{id:'openai-compatible',label:'Fireworks'}]});
+ expect(body).not.toContain('synthetic');expect(body).not.toContain('api.fireworks.ai');
+ secretEnv={OPENAI_COMPATIBLE_API_KEY:'synthetic-compatible-key',OPENAI_COMPATIBLE_BASE_URL:'https://api.fireworks.ai/inference/v1'};
+ expect(await (await providers()).json()).toEqual({providers:[{id:'openai-compatible',label:'Fireworks'}]});
+ // The engine refuses an openai-compatible call without its base URL, so it is not offered.
+ secretEnv={OPENAI_COMPATIBLE_API_KEY:'synthetic-compatible-key'};
+ expect(await (await providers()).json()).toEqual({providers:[]});
+ secretEnv={OPENAI_COMPATIBLE_API_KEY:'k',OPENAI_COMPATIBLE_BASE_URL:'https://llm.example.test/v1'};
+ expect(await (await providers()).json()).toEqual({providers:[{id:'openai-compatible',label:'OpenAI-compatible'}]});
+});
+it('guards the provider list before reading credentials',async()=>{
+ expect((await providers({})).status).toBe(401);
+ expect((await providers({'x-nest-runner-token':'test-runner'})).status).toBe(401);
+ const owner=engine.db.prepare('SELECT * FROM humans LIMIT 1').get() as any;
+ engine.db.prepare('INSERT INTO humans (id,username,password_hash,must_change_password,created_at,updated_at) VALUES (?,?,?,0,?,?)').run('other','other',owner.password_hash,owner.created_at+1,owner.created_at+1);
+ const login=await engine.app.request('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'other',password:'password'})});
+ expect([403,404]).toContain((await providers({cookie:login.headers.getSetCookie()[0].split(';')[0]})).status);
+ expect(secretReads).toBe(0);
+});

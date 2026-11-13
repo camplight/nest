@@ -244,7 +244,9 @@ onboarding and `POST /api/agents` when no model is specified. The legacy
 onboarding attempts retain their stored model reference. Wrapped agents choose
 models in their external runtime.
 
-User agent settings use the OpenRouter explorer as the single model picker;
+User agent settings use one model picker that offers only the providers whose keys
+the agent has: the OpenRouter explorer, an exact Fireworks (OpenAI-compatible)
+model ID, or a switch between them when both are configured;
 admin creation retains its preset catalog. The built-in default is now
 `openrouter:z-ai/glm-5.3`. This direct reference needs no registry preset. Set
 `NEST_DEFAULT_AGENT_MODEL_ID=openrouter:z-ai/glm-5.3` on deployments with an older
