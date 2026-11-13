@@ -13,11 +13,12 @@ import { DesignIcon } from "./Dashboard";
 import type { Agent } from "./types";
 import "./agents.css";
 
-type MemoryMode = "PER_CHANNEL_CROSS_CHANNEL" | "FULL_CHANNEL_EVENTS" | "OFF";
+type MemoryMode = "PER_CHANNEL_CROSS_CHANNEL" | "FULL_CHANNEL_EVENTS" | "FULL_CHANNEL_EVENTS_AUTO_COMPACT" | "OFF";
 type AgentSettings = Agent & { mode?: string; modelId?: string; workspacePath?: string; assignedRunnerId?: string; systemInstructions?: string; enabledSkills?: string[]; memoryContextMode?: MemoryMode };
 // The engine's memory modes, in the words a person deciding between them needs.
 const MEMORY_MODES: { id: MemoryMode; label: string; detail: string }[] = [
-  { id: "FULL_CHANNEL_EVENTS", label: "Full chat history", detail: "Reads each chat as it is, so follow-up questions are quick. When a chat gets very long, its older part is summarized once and recent messages stay word for word." },
+  { id: "FULL_CHANNEL_EVENTS_AUTO_COMPACT", label: "Full history, summarized when long", detail: "Reads each chat as it is. When a chat gets very long, its older part is summarized once and recent messages stay word for word; that reply takes a little longer." },
+  { id: "FULL_CHANNEL_EVENTS", label: "Full chat history", detail: "Reads each chat as it is, so follow-up questions are quick. In a very long chat the oldest messages drop off." },
   { id: "PER_CHANNEL_CROSS_CHANNEL", label: "Summarized memory", detail: "Condenses chats into notes in the background and remembers across chats. Adds model calls after every reply and can miss details of its recent answers." },
   { id: "OFF", label: "No memory", detail: "Sees only the message it is answering." },
 ];

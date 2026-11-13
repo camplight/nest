@@ -135,6 +135,7 @@ await page.locator('.agent-advanced > summary').click();
 const memory=page.getByRole('group',{name:'Conversation memory',exact:true});
 assert(await memory.getByRole('radio',{name:/Summarized memory/}).isChecked());
 assert.equal(await memory.getByRole('radio',{name:/No memory/}).count(),0,'No memory is offered only to agents already using it');
+assert.equal(await memory.getByRole('radio',{name:/Full history, summarized when long/}).count(),1,'Auto-summarized full history is offered');
 await memory.getByRole('radio',{name:/Full chat history/}).check();
 await page.getByText('Unsaved changes',{exact:true}).waitFor();
 await memory.scrollIntoViewIfNeeded();await page.screenshot({path:join(screenshotDir,'nest-agent-memory-desktop.png')});

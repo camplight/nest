@@ -66,8 +66,11 @@ no owner-secret delegation. Personal agents start with OrgOps's `FULL_CHANNEL_EV
 memory mode: each turn sees that chat's own messages, so a follow-up such as
 "put that in a table" works from the agent's previous reply. The engine default,
 `PER_CHANNEL_CROSS_CHANNEL`, replaces summarized messages with model-written notes
-and runs four summary jobs on the agent's model after its turns. Owners can switch
-between these two under Settings → Advanced → Conversation memory (an agent
+and runs four summary jobs on the agent's model after its turns. With an engine that
+supports it, `FULL_CHANNEL_EVENTS_AUTO_COMPACT` works like full history but, once a
+chat no longer fits, summarizes its older part once into a context boundary instead
+of dropping the oldest messages. Owners can switch
+between these modes under Settings → Advanced → Conversation memory (an agent
 already set to `OFF` also shows "No memory"); Nest sends `memoryContextMode`
 through the existing engine agent PATCH. Existing agents keep their mode. The workspace flag controls file-tool paths; it is
 not an OS sandbox for shell commands. The shared model key is available to native agents through the engine secret
