@@ -403,3 +403,7 @@
 .connection-project-access button { justify-self: start; max-width: 100%; white-space: normal; }
 /* "Your connections" belongs to the accounts below it: more room above, less below. */
 .onboarding-connections > .dashboard-section-title { margin: 24px 0 -10px; }
+/* Actions are allowed but app access is off: the card and a hint under the accounts point to the last step. */
+.connection-access-control.is-pending { border-color: var(--instance-primary); box-shadow: inset 3px 0 var(--instance-primary); }
+.connection-access-control.is-pending .connection-access-overview p { color: var(--nest-text); }
+.connection-access-hint { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 0; padding: 12px 16px; border-radius: 10px; background: color-mix(in srgb, var(--instance-primary) 8%, var(--nest-surface)); border: 1px solid color-mix(in srgb, var(--instance-primary) 30%, transparent); font-size: 13px; line-height: 1.5; }

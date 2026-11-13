@@ -13,6 +13,9 @@ export function AgentConnections({ name }: { name: string }) {
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [permissionsRevision, setPermissionsRevision] = useState(0);
+  const skill = useConnectionSkill(name, permissionsRevision);
+  // Actions are allowed but the agent cannot use them yet: say so where the owner is looking.
+  const pending = Boolean(skillAvailable && skill.state && !skill.state.enabled && skill.state.grantedToolCount > 0);
   useEffect(() => {
     const controller = new AbortController();
     setAvailable(null);
@@ -55,9 +58,13 @@ export function AgentConnections({ name }: { name: string }) {
         <p role="status">Loading connection settings…</p>
       ) : available ? (
         <>
-          <ConnectionSkill key={name} name={name} available={skillAvailable} revision={permissionsRevision} />
+          <ConnectionSkill name={name} available={skillAvailable} pending={pending} {...skill} />
 
-          <Connections agentName={name} onPermissionsChanged={() => setPermissionsRevision(value => value + 1)} />
+          <Connections agentName={name} onPermissionsChanged={() => setPermissionsRevision(value => value + 1)}
+            accessHint={pending ? <p className="connection-access-hint" role="status">
+              <span>Saved. One more step: turn on app access so {name} can use these actions.</span>
+              <button type="button" className="connection-save" disabled={skill.busy} onClick={() => void skill.change(true)}>{skill.busy ? "Updating…" : "Enable app access"}</button>
+            </p> : null} />
         </>
       ) : (
         <div className="dashboard-card onboarding-notice">
@@ -72,15 +79,7 @@ export function AgentConnections({ name }: { name: string }) {
   );
 }
 
-function ConnectionSkill({
-  name,
-  available,
-  revision,
-}: {
-  name: string;
-  available: boolean;
-  revision: number;
-}) {
+function useConnectionSkill(name: string, revision: number) {
   const [state, setState] = useState<ConnectionSkillStatus | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -123,15 +122,33 @@ function ConnectionSkill({
       setBusy(false);
     }
   }
+  return { state, error, busy, change };
+}
+
+function ConnectionSkill({
+  name,
+  available,
+  pending,
+  state,
+  error,
+  busy,
+  change,
+}: ReturnType<typeof useConnectionSkill> & {
+  name: string;
+  available: boolean;
+  pending: boolean;
+}) {
   return (
-    <article className="dashboard-card connection-access-control">
+    <article className={`dashboard-card connection-access-control${pending ? " is-pending" : ""}`}>
       <div className="connection-access-overview">
       <h3>App access</h3>
-      <p>Allow apps below, then enable them for {name}.</p>
+      <p>{pending && state
+        ? `${state.grantedToolCount} ${state.grantedToolCount === 1 ? "action is" : "actions are"} allowed, but ${name} can't use them until you enable app access.`
+        : `Allow apps below, then enable them for ${name}.`}</p>
       </div>
       <div className="connection-skill-actions">
         <button
-          className="dashboard-action"
+          className={pending ? "connection-save" : "dashboard-action"}
           disabled={busy || !state || !available || state.grantedToolCount === 0}
           onClick={() => void change(true)}
         >

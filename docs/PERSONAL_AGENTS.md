@@ -141,6 +141,9 @@ not a grant until Save access succeeds. Enable/Renew rejects zero saved
 permissions with 409, and the UI refreshes the count after saves/disconnects.
 The count excludes locally revoked accounts and reflects saved choices, not live
 provider availability or current private-context eligibility.
+While actions are saved but app access is off, the App access card is highlighted
+and a hint above "Find an app" offers its own Enable app access button, so the
+second step is visible right after the first grant. Both disappear once access is on.
 
 Enabling installs a random 30-day token in the existing engine private-agent
 secret store and enables `nest-connections`. It also adds the skill to OrgOps's existing

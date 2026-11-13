@@ -372,6 +372,11 @@ try {
       await access.getByRole("button",{name:"Give all access",exact:true}).click();
       await access.getByRole("status").filter({hasText:"4 actions allowed"}).waitFor();
       assert(await access.getByRole("button",{name:"All access given",exact:true}).isDisabled());
+      // The first saved grant points to the remaining step: app access is still off.
+      const accessHint=page.locator(".connection-access-hint");
+      await accessHint.getByText("Saved. One more step: turn on app access so PuffVitaliy can use these actions.",{exact:true}).waitFor();
+      assert(await accessHint.getByRole("button",{name:"Enable app access",exact:true}).isEnabled());
+      await page.locator(".connection-access-control.is-pending").getByText("4 actions are allowed, but PuffVitaliy can't use them until you enable app access.",{exact:true}).waitFor();
       const directGrants=await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any;
       assert.deepEqual(directGrants[0].tools.sort(),actionFixtures.map(action=>action.slug).sort(),"Give all saves all pages in one explicit action");
       assert.equal(await access.getByRole("checkbox").count(),0);
@@ -556,8 +561,11 @@ try {
         body: JSON.stringify({ subscriberType: "AGENT", subscriberId: "PuffVitaliy" }),
       })).ok);
       await page.waitForFunction(()=>!([...document.querySelectorAll('button')].find(button=>button.textContent==='Enable app access') as HTMLButtonElement)?.disabled);
-      await page.getByRole("button",{name:"Enable app access",exact:true}).click();
+      // Saved actions without app access show the hint; its button enables access in place.
+      await page.locator(".connection-access-hint").getByRole("button",{name:"Enable app access",exact:true}).click();
       await page.getByRole("button",{name:"Renew app access",exact:true}).waitFor();
+      await page.locator(".connection-access-hint").waitFor({state:"detached"});
+      assert.equal(await page.locator(".connection-access-control.is-pending").count(),0);
       await page.getByText("Ready for your next message.",{exact:true}).waitFor();
       const enabledAgent=await (await product.app.request("/api/agents/PuffVitaliy",{headers})).json();
       assert(enabledAgent.alwaysPreloadedSkills.includes("nest-connections"));

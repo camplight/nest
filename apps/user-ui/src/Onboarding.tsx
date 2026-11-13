@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type {
   AgentCharacter,
   OnboardingState,
@@ -185,7 +185,7 @@ export function AgentSetupForm({onCreated}:{onCreated:(name:string)=>void}) {
             </div>)}
   </section>;
 }
-export function Connections({ agentName, onPermissionsChanged }: { agentName: string; onPermissionsChanged?: () => void }) {
+export function Connections({ agentName, onPermissionsChanged, accessHint }: { agentName: string; onPermissionsChanged?: () => void; accessHint?: ReactNode }) {
   const [connections, setConnections] = useState<Connection[]>([]),
     [kits, setKits] = useState<
       {
@@ -330,6 +330,7 @@ export function Connections({ agentName, onPermissionsChanged }: { agentName: st
           </article>
         ))
       )}
+      {accessHint}
       <label className="onboarding-search">
         Find an app
         <input
