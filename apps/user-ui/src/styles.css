@@ -1328,6 +1328,32 @@ button {
   font-weight: 600;
 }
 
+.channel-manage-delete-confirm {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, #a63016 35%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, #a63016 7%, var(--nest-surface));
+  color: var(--nest-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.channel-manage-delete-confirm p {
+  margin: 0 0 10px;
+}
+
+.channel-manage-delete-confirm > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.channel-manage-delete-confirm .channel-manage-delete-button {
+  margin-top: 0;
+}
+
 .channel-manage-delete-button:disabled {
   opacity: 0.55;
   cursor: not-allowed;

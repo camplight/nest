@@ -69,6 +69,27 @@ try{
   await page.getByRole('heading',{name:'Manage channel',exact:true}).waitFor({state:'hidden'});
   if(process.env.CI)console.log('SHARING_DESKTOP_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
 
+  // Deleting asks inside the dialog, never with a native browser confirm.
+  const nativeDialogs:string[]=[];page.on('dialog',dialog=>{nativeDialogs.push(dialog.message());void dialog.dismiss();});
+  const doomed=await(await post('/api/channels',{name:'Channel to delete',visibility:'PRIVATE'},headers)).json();
+  await page.goto(base+'/?channel='+doomed.id);
+  await page.getByRole('button',{name:'Sharing',exact:true}).click();
+  await page.getByRole('heading',{name:'Manage channel',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Delete channel',exact:true}).click();
+  const confirmDelete=page.getByRole('group',{name:'Confirm channel deletion'});
+  await confirmDelete.getByText('Permanently delete',{exact:false}).first().waitFor();
+  await page.screenshot({path:join(screenshots,'delete-confirm-desktop.png')});
+  await confirmDelete.getByRole('button',{name:'Cancel',exact:true}).click();
+  await confirmDelete.waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'Delete channel',exact:true}).click();
+  await confirmDelete.getByRole('button',{name:'Delete permanently',exact:true}).click();
+  await page.getByRole('heading',{name:'Manage channel',exact:true}).waitFor({state:'hidden'});
+  const afterDelete=await(await product.app.request('/api/channels?includeArchived=1',{headers})).json() as {id:string}[];
+  assert(!afterDelete.some(channel=>channel.id===doomed.id),'the confirmed channel is deleted');
+  assert.deepEqual(nativeDialogs,[],'no native confirm dialog appears');
+  await page.goto(chatUrl);
+  await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+
   await page.screenshot({path:join(screenshots,'interrupted-before-desktop.png'),fullPage:true});
   await page.screenshot({path:join(screenshots,'retained-message-desktop.png'),fullPage:true});
   await page.setViewportSize({width:390,height:844});

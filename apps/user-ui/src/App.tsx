@@ -360,6 +360,10 @@ export default function App() {
   const [showConversationDialog, setShowConversationDialog] = useState(false);
   const [showParticipantsDialog, setShowParticipantsDialog] = useState(false);
   const [showChannelManageDialog, setShowChannelManageDialog] = useState(false);
+  const [confirmingChannelDelete, setConfirmingChannelDelete] = useState(false);
+  useEffect(() => {
+    if (!showChannelManageDialog) setConfirmingChannelDelete(false);
+  }, [showChannelManageDialog, activeChannelId]);
   const [focusedMessage,setFocusedMessage]=useState<string|null>(()=>new URL(window.location.href).searchParams.get('message'));
   const [username, setUsername] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
@@ -1374,11 +1378,11 @@ export default function App() {
   }
 
   async function handleDeleteChannel(channel: Channel) {
-    if (!window.confirm(`Permanently delete ${channelLabel(channel, username)}?`)) return;
     setError(null);
     setLoading(true);
     try {
       await apiFetch(`/api/channels/${encodeURIComponent(channel.id)}`, { method: "DELETE" });
+      setShowChannelManageDialog(false);
       await refreshChannels(activeChannelId === channel.id ? null : undefined);
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Unable to delete channel");
@@ -2226,14 +2230,42 @@ export default function App() {
               {updatingChannelVisibility ? "Saving..." : "Save"}
             </button>
 
-            <button
-              className="channel-manage-delete-button"
-              type="button"
-              onClick={() => void handleDeleteChannel(activeChannel)}
-              disabled={updatingChannelVisibility}
-            >
-              Delete channel
-            </button>
+            {confirmingChannelDelete ? (
+              <div className="channel-manage-delete-confirm" role="group" aria-label="Confirm channel deletion">
+                <p>
+                  <strong>Permanently delete {channelLabel(activeChannel, username)}?</strong> Its messages are
+                  removed for everyone and can’t be restored. To hide it instead, archive it.
+                </p>
+                <div>
+                  <button
+                    autoFocus
+                    className="channel-manage-secondary-button"
+                    type="button"
+                    onClick={() => setConfirmingChannelDelete(false)}
+                    disabled={loading}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="channel-manage-delete-button"
+                    type="button"
+                    onClick={() => void handleDeleteChannel(activeChannel)}
+                    disabled={loading}
+                  >
+                    {loading ? "Deleting…" : "Delete permanently"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                className="channel-manage-delete-button"
+                type="button"
+                onClick={() => setConfirmingChannelDelete(true)}
+                disabled={updatingChannelVisibility}
+              >
+                Delete channel
+              </button>
+            )}
           </section>
         </div>
       ) : null}
