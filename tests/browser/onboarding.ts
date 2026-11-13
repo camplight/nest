@@ -62,6 +62,8 @@ const composio = {
           connectionActive = false;
           return Response.json({ ok: true });
         }
+        if (path === "/toolkits/trello")
+          return Response.json({ slug: "trello", name: "Trello", meta: { description: "Organize your projects and boards." } });
         if (path === "/toolkits")
           return Response.json({
             items: [
@@ -346,7 +348,13 @@ try {
       }
       await captureConnection("connections-compact-desktop.png");
       for (const image of await page.locator(".onboarding-connections img").all()) assert(await image.evaluate(node=>(node as HTMLImageElement).naturalWidth>0),"App logos load locally");
+      // The default list holds configured apps only; a search reaches the unknown fixture app.
+      const findApp=page.getByLabel("Find an app",{exact:true});
+      await findApp.fill("custom");
+      await page.getByRole("heading",{name:"Custom workspace",exact:true}).waitFor();
       assert.equal(await page.locator(".connection-app-logo.is-generic").count(),1);
+      await findApp.fill("");
+      await page.getByRole("heading",{name:"Custom workspace",exact:true}).waitFor({state:"detached"});
       await page.setViewportSize({width:390,height:844});
       await captureConnection("connections-compact-mobile.png");
       assert((await card.boundingBox())!.height<360,"Default connected account stays compact on mobile");

@@ -29,6 +29,8 @@ let executionCount = 0,
   disabled = false,
   failExecute = false;
 let catalogTools: {slug:string;toolkit:{slug:string}}[] = [];
+let linkStatus = 200;
+let extraAccounts: Record<string, unknown>[] = [];
 let catalogMode: "normal" | "failure" | "repeated" | "endless" = "normal";
 let duringTool: (()=>Promise<void>) | undefined;
 let duringCatalog: (()=>Promise<void>) | undefined;
@@ -59,7 +61,7 @@ beforeEach(async () => {
   disabled = false;
   failExecute = false;
   requests.length = 0;
-  catalogTools = []; catalogMode = "normal"; duringCatalog = undefined; duringTool = undefined;
+  catalogTools = []; catalogMode = "normal"; linkStatus = 200; extraAccounts = []; duringCatalog = undefined; duringTool = undefined;
   engine = createEngine({
     projectRoot: dir,
     dataDir: dir,
@@ -88,14 +90,31 @@ beforeEach(async () => {
           items: [
             account(),
             { ...account(), id: "foreign-account", user_id: "foreign" },
+            ...extraAccounts,
           ],
         });
       if (path === "/connected_accounts/provider-account")
         return Response.json(account());
       if (path === "/connected_accounts/link")
+        return linkStatus === 200
+          ? Response.json({ redirect_url: "https://connect.composio.dev/fixture" })
+          : Response.json(
+              { error: { slug: "APIKey_InsufficientPermissions", message: "secret-provider-detail" } },
+              { status: linkStatus },
+            );
+      if (path === "/toolkits") {
+        // The provider rejects an empty search parameter.
+        if (u.searchParams.get("search") === "") return Response.json({}, { status: 400 });
         return Response.json({
-          redirect_url: "https://connect.composio.dev/fixture",
+          items: [
+            { slug: "trello", name: "Trello", meta: { description: "Boards" } },
+            { slug: "asana", name: "Asana", meta: { description: "Tasks" } },
+          ],
+          next_cursor: "next-page",
         });
+      }
+      if (path === "/toolkits/trello")
+        return Response.json({ slug: "trello", name: "Trello", meta: { description: "Boards" } });
       if (path.endsWith("/revoke")) return Response.json({ ok: true });
       if (path === "/tools") {
         const cursor = Number(u.searchParams.get("cursor") ?? 0);
@@ -695,4 +714,58 @@ it('trusts ordinary group chats but still enforces tool revocation',async()=>{
   expect((await execute(h)).status).toBe(200);
   await call('/api/integrations/agents/PuffOwner/grants/'+localId,'DELETE');
   expect((await execute(h)).status).toBe(403);expect(executionCount).toBe(1);
+});
+
+it("lists the configured apps before any search and searches the full catalog on request", async () => {
+  const configured = await call("/api/integrations/toolkits?search=");
+  expect(configured.status).toBe(200);
+  expect(await configured.json()).toEqual({
+    items: [{ slug: "trello", name: "Trello", description: "Boards", connectable: true }],
+    nextCursor: null,
+  });
+  expect(requests.some((r) => r.path === "/toolkits")).toBe(false);
+  const searched = await call("/api/integrations/toolkits?search=a");
+  expect(searched.status).toBe(200);
+  expect(await searched.json()).toEqual({
+    items: [
+      { slug: "trello", name: "Trello", description: "Boards", connectable: true },
+      { slug: "asana", name: "Asana", description: "Tasks", connectable: false },
+    ],
+    nextCursor: "next-page",
+  });
+});
+it("reports a provider key without link permission as a setup problem and logs it without secrets", async () => {
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  linkStatus = 403;
+  const linked = await call("/api/integrations/connections/link", "POST", { toolkit: "trello" });
+  expect(linked.status).toBe(503);
+  expect(await linked.json()).toEqual({
+    error: "The connection service key is missing a permission. Ask an administrator to check it.",
+  });
+  const logged = JSON.stringify(log.mock.calls);
+  expect(logged).toContain("403");
+  expect(logged).toContain("APIKey_InsufficientPermissions");
+  expect(logged).not.toContain("secret-service-key");
+  expect(logged).not.toContain("secret-provider-detail");
+  log.mockRestore();
+});
+it("answers an app without an administrator configuration as a client error", async () => {
+  const linked = await call("/api/integrations/connections/link", "POST", { toolkit: "asana" });
+  expect(linked.status).toBe(409);
+  expect(await linked.json()).toEqual({ error: "This app needs administrator setup before you can connect it." });
+});
+
+it("lists neither disconnected accounts nor unfinished tries for an app that is connected", async () => {
+  extraAccounts = [
+    { ...account(), id: "abandoned-try", status: "INITIATED" },
+    { ...account(), id: "slack-try", toolkit: { slug: "slack" }, status: "INITIATED" },
+  ];
+  const listed = async () =>
+    ((await (await call("/api/integrations/connections")).json()).items as { toolkit: string; status: string }[])
+      .map(({ toolkit, status }) => `${toolkit}:${status}`);
+  // An unfinished try still shows while it is the only account for its app.
+  expect(await listed()).toEqual(["trello:ACTIVE", "slack:INITIATED"]);
+  expect((await call("/api/integrations/connections/" + localId + "/revoke", "POST", {})).status).toBe(200);
+  // The provider keeps returning the disconnected account; Nest no longer lists it.
+  expect(await listed()).toEqual(["trello:INITIATED", "slack:INITIATED"]);
 });

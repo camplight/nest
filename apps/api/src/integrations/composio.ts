@@ -1,7 +1,10 @@
-import type {
-  ConnectionProvider,
-  ConnectedAccount,
-  IntegrationTool,
+import {
+  AppSetupRequiredError,
+  ProviderRequestError,
+  type AppIntegration,
+  type ConnectionProvider,
+  type ConnectedAccount,
+  type IntegrationTool,
 } from "./provider";
 // Extracted from the locally deployed skills/composio REST helpers. Service
 // credentials stay in the API; callers cannot override the origin or auth headers.
@@ -75,8 +78,17 @@ export function createComposioClient(config: ComposioConfig) {
         ? {}
         : { body: JSON.stringify(options.body) }),
     });
-    if (!response.ok)
-      throw Error(`Composio request failed (${response.status})`);
+    if (!response.ok) {
+      // Keep only the provider's short error slug; its message can echo request details.
+      const slug = await response
+        .json()
+        .then((b: any) => b?.error?.slug)
+        .catch(() => undefined);
+      throw new ProviderRequestError(
+        response.status,
+        typeof slug === "string" && /^[A-Za-z0-9_]{1,80}$/.test(slug) ? slug : undefined,
+      );
+    }
     return (await response.json()) as any;
   }
   return {
@@ -123,20 +135,35 @@ export function createComposioProvider(
     limit: "50",
     ...(cursor ? { cursor } : {}),
   });
+  const app = (v: any): AppIntegration => ({
+    slug: v.slug,
+    name: v.name,
+    description: v.meta?.description ?? v.description ?? "",
+    connectable: Boolean(config.authConfigs[v.slug]),
+  });
   return {
     id: "composio",
     subject: client.userId,
     async apps(search, cursor) {
+      if (!search && !cursor) {
+        // Start with what people can connect, not the provider's whole catalog.
+        const items = await Promise.all(
+          Object.keys(config.authConfigs).map((slug) =>
+            client
+              .request(`/toolkits/${encodeURIComponent(slug)}`)
+              .then((v) => app({ ...v, slug }))
+              .catch(() => app({ slug, name: slug })),
+          ),
+        );
+        items.sort((a, b) => a.name.localeCompare(b.name));
+        return { items, nextCursor: null };
+      }
+      // The provider rejects an empty search parameter.
       const r = await client.request("/toolkits", {
-        query: { search, ...pageQuery(cursor) },
+        query: { ...(search ? { search } : {}), ...pageQuery(cursor) },
       });
       return {
-        items: (r.items ?? []).map((v: any) => ({
-          slug: v.slug,
-          name: v.name,
-          description: v.meta?.description ?? v.description ?? "",
-          connectable: Boolean(config.authConfigs[v.slug]),
-        })),
+        items: (r.items ?? []).map(app),
         nextCursor: r.next_cursor ?? null,
       };
     },
@@ -160,7 +187,7 @@ export function createComposioProvider(
     },
     async link(owner, toolkit) {
       const authConfig = config.authConfigs[toolkit];
-      if (!authConfig) throw Error("App requires administrator configuration");
+      if (!authConfig) throw new AppSetupRequiredError();
       const r = await client.request("/connected_accounts/link", {
         method: "POST",
         body: {

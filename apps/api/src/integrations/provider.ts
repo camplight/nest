@@ -1,3 +1,17 @@
+/** A provider answered with an error status; `code` is its short error slug, never its message. */
+export class ProviderRequestError extends Error {
+  constructor(readonly status: number, readonly code?: string) {
+    super(`Connection provider request failed (${status}${code ? ` ${code}` : ""})`);
+    this.name = "ProviderRequestError";
+  }
+}
+/** The app has no administrator configuration, so people cannot connect it yet. */
+export class AppSetupRequiredError extends Error {
+  constructor() {
+    super("App requires administrator configuration");
+    this.name = "AppSetupRequiredError";
+  }
+}
 export type Page<T> = { items: T[]; nextCursor: string | null };
 export type AppIntegration = {
   slug: string;
@@ -24,6 +38,7 @@ export type IntegrationTool = {
 export interface ConnectionProvider {
   id: string;
   subject(ownerId: string): string;
+  /** Without a search or cursor, only the apps an administrator configured. */
   apps(search: string, cursor?: string): Promise<Page<AppIntegration>>;
   accounts(ownerId: string, cursor?: string): Promise<Page<ConnectedAccount>>;
   account(id: string): Promise<ConnectedAccount>;

@@ -14,7 +14,11 @@ import {
 } from "@nest/schemas";
 import type { ProductDb } from "@nest/db";
 import type { OrgOpsClient, Human } from "@nest/orgops-client";
-import type { ConnectionProvider } from "./provider";
+import {
+  AppSetupRequiredError,
+  ProviderRequestError,
+  type ConnectionProvider,
+} from "./provider";
 const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 type Connection = {
@@ -67,11 +71,36 @@ export function registerIntegrationRoutes(
         "INSERT INTO product_audit(type,actor_id,payload_json,created_at) VALUES(?,?,?,?)",
       )
       .run(type, owner, JSON.stringify(payload), Date.now());
-  routes.onError((error, c) =>
-    error instanceof HTTPException
-      ? c.json({ error: error.message }, error.status)
-      : c.json({ error: "Connection service unavailable. Retry later." }, 502),
-  );
+  routes.onError((error, c) => {
+    if (error instanceof HTTPException)
+      return c.json({ error: error.message }, error.status);
+    if (error instanceof AppSetupRequiredError)
+      return c.json(
+        { error: "This app needs administrator setup before you can connect it." },
+        409,
+      );
+    // Status and slug only: provider messages and request details can carry private data.
+    console.error(
+      "Connection provider request failed:",
+      error instanceof ProviderRequestError
+        ? `${error.status}${error.code ? ` ${error.code}` : ""}`
+        : error.name,
+      c.req.method,
+      c.req.routePath,
+    );
+    if (
+      error instanceof ProviderRequestError &&
+      (error.status === 401 || error.status === 403)
+    )
+      return c.json(
+        {
+          error:
+            "The connection service key is missing a permission. Ask an administrator to check it.",
+        },
+        503,
+      );
+    return c.json({ error: "Connection service unavailable. Retry later." }, 502);
+  });
   routes.use(
     "*",
     (c, next) => bodyLimit({
@@ -221,7 +250,7 @@ export function registerIntegrationRoutes(
     const owner = human(c).id,
       p = service();
     const page = await p.accounts(owner, c.req.query("cursor")?.slice(0, 500));
-    const items = [];
+    const listed = [];
     for (const a of page.items) {
       if (a.subject !== p.subject(owner) || a.shared) continue;
       db.prepare(
@@ -232,13 +261,17 @@ export function registerIntegrationRoutes(
           "SELECT * FROM product_connections WHERE provider=? AND account_id=? AND owner_id=?",
         )
         .get(p.id, a.id, owner) as Connection | undefined;
-      if (r && r.subject === a.subject && r.toolkit === a.toolkit)
-        items.push({
-          id: r.id,
-          toolkit: r.toolkit,
-          status: r.revoked_at ? "REVOKED" : a.status,
-        });
+      // A disconnected account stays at the provider but is gone for the person.
+      if (r && !r.revoked_at && r.subject === a.subject && r.toolkit === a.toolkit)
+        listed.push({ id: r.id, toolkit: r.toolkit, status: a.status });
     }
+    // Unfinished sign-ins linger at the provider; once the app is connected they are noise.
+    const connected = new Set(
+      listed.filter((i) => i.status === "ACTIVE").map((i) => i.toolkit),
+    );
+    const items = listed.filter(
+      (i) => i.status === "ACTIVE" || !connected.has(i.toolkit),
+    );
     return c.json({ items, nextCursor: page.nextCursor });
   });
   routes.post("/connections/link", async (c) => {

@@ -806,6 +806,21 @@ existing private secret API supplies the token to its agent. Provider credential
 stay in Nest; engine processes have Composio configuration removed at launch.
 OAuth return fields are not trusted; status comes from the provider adapter.
 
+`GET /api/integrations/toolkits` without a search or cursor lists only the apps
+with an administrator auth configuration (`NEST_COMPOSIO_AUTH_CONFIGS`), sorted by
+name, so people can pick one without searching. A search covers the provider's
+whole catalog, and apps without a configuration come back with
+`connectable: false`. Linking such an app answers 409. When the provider rejects
+Nest's service key (401/403), the routes answer 503 asking for an administrator;
+other provider failures answer 502. Both are logged with the provider status and
+error slug only, never its message or the request.
+
+`GET /api/integrations/connections` leaves out accounts the person disconnected in
+Nest (the provider can keep listing them, for example an unfinished sign-in) and,
+for an app with an active account on the page, that app's unfinished or failed
+tries. The agent's app list shows a connected app as "Connected" instead of
+offering it again, as project suggestions already do.
+
 `GET /api/integrations/agents/:name/skill` reports the existing token status plus
 `grantedToolCount` (saved permissions for this agent on locally nonrevoked accounts
 of the current provider) and `preloadConfigured` (the enabled connection skill is
