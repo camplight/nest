@@ -90,6 +90,26 @@ try{
   await page.goto(chatUrl);
   await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
 
+  // The sidebar width can be dragged or set with the keyboard, is remembered per browser and resets on double-click.
+  const sidebarWidth=async()=>Math.round((await page.locator('aside.sidebar').boundingBox())!.width);
+  const resizer=page.getByRole('separator',{name:'Resize sidebar'});
+  assert.equal(await sidebarWidth(),248);
+  const handle=(await resizer.boundingBox())!;
+  await page.mouse.move(handle.x+handle.width/2,handle.y+300);await page.mouse.down();
+  await page.mouse.move(handle.x+handle.width/2+80,handle.y+300,{steps:4});await page.mouse.up();
+  assert.equal(await sidebarWidth(),328,'dragging widens the sidebar');
+  await resizer.focus();await page.keyboard.press('ArrowLeft');
+  assert.equal(await sidebarWidth(),312,'arrow keys resize');
+  await page.reload();await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+  assert.equal(await sidebarWidth(),312,'the width survives a reload');
+  await page.screenshot({path:join(screenshots,'sidebar-resized-desktop.png')});
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await resizer.dblclick();
+  assert.equal(await sidebarWidth(),248,'double-click resets');
+  await page.setViewportSize({width:390,height:844});
+  assert.equal(await resizer.isVisible(),false,'phones keep the drawer without a resize handle');
+  await page.setViewportSize({width:1440,height:1000});
+
   await page.screenshot({path:join(screenshots,'interrupted-before-desktop.png'),fullPage:true});
   await page.screenshot({path:join(screenshots,'retained-message-desktop.png'),fullPage:true});
   await page.setViewportSize({width:390,height:844});

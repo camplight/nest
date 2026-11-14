@@ -1,6 +1,7 @@
 import {AgentNavigation, AgentWorkspaceTabs, type AgentTab} from './components/AgentNavigation';
 import {conversationAgent, recentAgentChat, rememberAgentChat} from './agent-conversations';
 import {QuickTour, tourSeen, rememberTour} from './components/QuickTour';
+import {SidebarResizer, readSidebarWidth, sidebarWidthStyle} from './components/SidebarResizer';
 import {demoReturnTo, pendingDemoReturnTo, rememberDemoReturnTo, clearDemoReturnTo} from './demo-return';
 
 import {DemoArtifact} from './components/DemoArtifact';
@@ -393,6 +394,7 @@ export default function App() {
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState<number | null>(readSidebarWidth);
   const [tourOpen,setTourOpen]=useState(false);
   const tourSidebarWasOpen=useRef(false);
   function startTour(){tourSidebarWasOpen.current=mobileSidebarOpen;setMobileSidebarOpen(true);setTourOpen(true);}
@@ -1774,7 +1776,7 @@ export default function App() {
       </aside>;
 
   return (
-    <AgentAvatarChoices value={Object.fromEntries(agents.map(agent=>[agent.name, agent.icon]))}><WorkspaceHeaderProvider onTour={startTour} tourNew={!tourSeen(userId??username)} channelLabel={(id,fallback)=>projectIndex.find(project=>project.channelId===id)?.name ?? fallback} username={username} onAgents={()=>selectAgent(null)} onSignOut={()=>void handleLogout()} onMention={(channelId,eventId)=>{selectChannel(channelId);setFocusedMessage(eventId);const url=new URL(window.location.href);url.searchParams.set('message',eventId);window.history.replaceState(null,'',url);}}><main className={`app-shell product-shell ${view !== "workspace" ? "dashboard-shell" : ""}`}>
+    <AgentAvatarChoices value={Object.fromEntries(agents.map(agent=>[agent.name, agent.icon]))}><WorkspaceHeaderProvider onTour={startTour} tourNew={!tourSeen(userId??username)} channelLabel={(id,fallback)=>projectIndex.find(project=>project.channelId===id)?.name ?? fallback} username={username} onAgents={()=>selectAgent(null)} onSignOut={()=>void handleLogout()} onMention={(channelId,eventId)=>{selectChannel(channelId);setFocusedMessage(eventId);const url=new URL(window.location.href);url.searchParams.set('message',eventId);window.history.replaceState(null,'',url);}}><main className={`app-shell product-shell ${view !== "workspace" ? "dashboard-shell" : ""}`} style={sidebarWidthStyle(sidebarWidth)}>
       <aside className={`sidebar ${mobileSidebarOpen ? "sidebar-mobile-open" : ""} ${tourOpen ? "tour-navigation" : ""}`}>
         <button
           type="button"
@@ -1871,6 +1873,7 @@ export default function App() {
 
         <div className="instance-sidebar-footer dashboard-attribution"><span>Powered by</span><DesignIcon name="nest-mark" /><img src={`${import.meta.env.BASE_URL}design/nest-wordmark.svg`} alt="Nest" /></div>
       </aside>
+      <SidebarResizer width={sidebarWidth} onChange={setSidebarWidth} />
       {mobileSidebarOpen ? (
         <button
           type="button"

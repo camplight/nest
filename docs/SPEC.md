@@ -295,6 +295,10 @@ Explicit Dashboard navigation writes `?view=dashboard`, so reload and refresh
 preserve home even when agent onboarding is unfinished. A first visit to `/`
 can still offer personal-agent setup.
 
+On desktop the left sidebar can be resized between 200 and 440px by dragging its right
+edge or with the arrow keys on the focused handle; double-click or Enter restores 248px. The
+width is a per-browser preference in `localStorage`; phones keep the navigation drawer.
+
 Dashboard, Projects, Agents, Community and standalone chats share `WorkspaceTopbar`: each view's
 search plus the original Figma theme/bell/settings/account icons. Browser theme
 preferences synchronize between mounted controls and across tabs using storage
