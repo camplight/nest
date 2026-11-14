@@ -201,7 +201,8 @@
 .project-about .project-sections button[aria-current="page"] { background:var(--nest-surface); color:var(--nest-text); font-weight:600; box-shadow:0 1px 2px color-mix(in srgb,var(--nest-text) 10%,transparent); }
 .project-about .project-sections button:focus-visible { outline:2px solid var(--nest-lime); outline-offset:2px; }
 /* The chat page: no title or tab row, so the content starts right under the topbar. */
-.project-chat-page .dashboard-content { gap:12px; padding-top:12px; }
+/* Like an agent chat, the project chat fills the window instead of the dashboard's 1440px reading width. */
+.project-chat-page .dashboard-content { gap:12px; padding-top:12px; max-width:none; }
 @media(max-width:760px) {
   /* One compact row on phones: Project details on the left, the Chat/Files switch on the right; the opened details
      overlay the page below the row, as on the chat page at tablet width. */
