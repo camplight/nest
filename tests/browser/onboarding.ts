@@ -212,6 +212,7 @@ try {
     let loseCreation = true;
     let rejectAccessSave = false;
     let rejectBulkPage = false;
+    let holdActionCount: Promise<void> | undefined;
     await page.route("**/api/**", async (route) => {
       const request = route.request(),
         url = new URL(request.url());
@@ -220,6 +221,7 @@ try {
         await route.fulfill({status:503,json:{error:"Test: Saving access is temporarily unavailable."}});
         return;
       }
+      if (holdActionCount && url.pathname.endsWith("/tools") && !url.searchParams.has("cursor")) await holdActionCount;
       if (rejectBulkPage && url.pathname.endsWith("/tools") && url.searchParams.has("cursor")) {
         rejectBulkPage=false;
         await route.fulfill({status:503,json:{error:"Test: next action page unavailable."}});
@@ -455,7 +457,15 @@ try {
       await captureConnection("connections-large-all-mobile.png");
       assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
       await page.setViewportSize({width:1440,height:1100});
+      // Until the action count arrives, neither button shows, so Give all access never flashes.
+      let releaseCount=()=>{};
+      holdActionCount=new Promise<void>(resolve=>{releaseCount=resolve;});
       await page.reload();
+      await access.getByRole("status").filter({hasText:"Checking access…"}).waitFor();
+      await page.waitForTimeout(300);
+      assert.equal(await access.getByRole("button",{name:"Give all access",exact:true}).count(),0,"No give-all flash while counting");
+      assert.equal(await access.getByRole("button",{name:"Remove access",exact:true}).count(),0);
+      holdActionCount=undefined;releaseCount();
       await access.getByRole("status").filter({hasText:"All 179 actions allowed"}).waitFor();
       assert(await access.getByRole("button",{name:"Remove access",exact:true}).isEnabled(),"A full grant still shows as complete after a reload");
       assert.equal(await access.getByRole("button",{name:"Give all access",exact:true}).count(),0);

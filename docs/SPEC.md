@@ -887,7 +887,9 @@ through the existing grant endpoint in one explicit click. It ignores advanced
 search filters, reports success only after saving and does not grant future tools
 automatically. Once an account has saved actions it also offers Remove access,
 which saves an empty grant for that account. Give all access stays until the
-saved actions reach the provider's count; if the count is unavailable, both stay. Advanced choices require Save access, and bulk Select all results
+saved actions reach the provider's count; if the count is unavailable, both stay.
+On first load the buttons wait for that count (Checking access…), falling back to
+both after a failure or six seconds; later saves recount without hiding them. Advanced choices require Save access, and bulk Select all results
 keeps existing selections across search and pagination. Page failures or sets
 exceeding the 2,000-action request bound never partially select or grant tools.
 UI and API share a 2,000-action bound per account. Grant PUT requests accept up to
