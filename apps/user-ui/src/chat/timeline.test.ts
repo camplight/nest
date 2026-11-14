@@ -9,6 +9,8 @@ const e1=msg('e1','human:alek',{text:'Hi'},1000);
 const t1=tr('t1','agent.turn.started',1100);
 const t2=tr('t2','tool.started',1200);
 const e2=msg('e2','agent:Pip',{text:'Done'},1300);
+// A tool event outside any turn: groups before the agent's first reply, then joins its latest reply.
+const u1=tr('u1','tool.started',1100);
 
 describe('buildTimeline',()=>{
  it('explains omitted engine message payloads while retaining their identity',()=>{
@@ -37,28 +39,29 @@ describe('buildTimeline',()=>{
   expect(buildTimeline([msg('a2','agent:alek')],opts)).toMatchObject([{meta:{authorKind:'agent',isMine:false}}]);
  });
  it('trace events form one activity item',()=>{
+  // A turn's events follow the agent's reply in that turn.
   const items=buildTimeline([e1,t1,t2,e2],opts);
-  expect(items.map(item=>item.id)).toEqual(['e1','t1','e2']);
-  expect(items[1]).toMatchObject({kind:'activity',id:'t1',tone:'agent',meta:{eventId:'t1',authorKind:'activity',isMine:false,displayAt:1100,targetAgents:[]}});
-  expect(items[1]!.kind==='activity'&&items[1]!.events).toEqual([t1,t2]);
-  expect(items[1]!.kind==='activity'&&items[1]!.events[0]).toBe(t1);
-  expect(buildTimeline([e1,t1,t2,tr('t3','tool.failed',1250),e2],opts)).toMatchObject([{id:'e1'},{id:'t1',kind:'activity',tone:'system'},{id:'e2'}]);
-  expect(buildTimeline([t1,msg('e3','agent:Pip'),t2],opts).map(item=>item.id)).toEqual(['t1','e3','t2']);
+  expect(items.map(item=>item.id)).toEqual(['e1','e2','t1']);
+  expect(items[2]).toMatchObject({kind:'activity',id:'t1',tone:'agent',meta:{eventId:'t1',authorKind:'activity',isMine:false,displayAt:1100,targetAgents:[]}});
+  expect(items[2]!.kind==='activity'&&items[2]!.events).toEqual([t1,t2]);
+  expect(items[2]!.kind==='activity'&&items[2]!.events[0]).toBe(t1);
+  expect(buildTimeline([e1,t1,t2,tr('t3','tool.failed',1250),e2],opts)).toMatchObject([{id:'e1'},{id:'e2'},{id:'t1',kind:'activity',tone:'system'}]);
+  expect(buildTimeline([t1,msg('e3','agent:Pip'),t2],opts).map(item=>item.id)).toEqual(['e3','t1']);
   expect(buildTimeline([e1,{id:'x1',type:'channel.updated',source:'system',payload:{},createdAt:1050},t1,t2],opts).map(item=>item.id)).toEqual(['e1','t1']);
   expect(buildTimeline([tr('t0','telemetry.context.window.updated',1),tr('t9','process.output',2)],opts)).toMatchObject([{id:'t0',kind:'activity',tone:'agent'}]);
  });
  it('activity id stays when the group grows',()=>{
-  const previous=buildTimeline([e1,t1,t2,e2],opts);
+  const previous=buildTimeline([e1,u1,t2,e2],opts);
   const t3=tr('t3','tool.executed',1250);
-  expect(buildTimeline([e1,t1,t2,t3,e2],opts,previous).map(item=>item.id)).toEqual(['e1','t1','e2']);
+  expect(buildTimeline([e1,u1,t2,t3,e2],opts,previous).map(item=>item.id)).toEqual(['e1','u1','e2']);
   const t0=tr('t0','agent.turn.phase',1050);
-  expect(buildTimeline([e1,t0,t1,t2,e2],opts).map(item=>item.id)).toEqual(['e1','t0','e2']);
-  const grown=buildTimeline([e1,t0,t1,t2,e2],opts,previous);
-  expect(grown.map(item=>item.id)).toEqual(['e1','t1','e2']);
-  expect(grown[1]!.kind==='activity'&&grown[1]!.events).toEqual([t0,t1,t2]);
+  expect(buildTimeline([e1,t0,u1,t2,e2],opts).map(item=>item.id)).toEqual(['e1','t0','e2']);
+  const grown=buildTimeline([e1,t0,u1,t2,e2],opts,previous);
+  expect(grown.map(item=>item.id)).toEqual(['e1','u1','e2']);
+  expect(grown[1]!.kind==='activity'&&grown[1]!.events).toEqual([t0,u1,t2]);
   expect(grown[1]!.meta).toMatchObject({displayAt:1050});
-  const split=buildTimeline([t1,e2,tr('t5','tool.started',1400)],opts);
-  expect(buildTimeline([t1,tr('t5','tool.started',1400)],opts,split).map(item=>item.id)).toEqual(['t1']);
+  const split=buildTimeline([u1,e2,tr('t5','tool.started',1400)],opts);
+  expect(buildTimeline([u1,tr('t5','tool.started',1400)],opts,split).map(item=>item.id)).toEqual(['u1']);
  });
  it('unchanged items keep object identity',()=>{
   const events=[e1,t1,t2,e2];
@@ -78,8 +81,8 @@ describe('buildTimeline',()=>{
   expect(republished[0]!.kind==='message'&&republished[0]!.event).toBe(delivered);
   expect(republished[2]).toBe(previous[2]);
   const grown=buildTimeline([e1,t1,t2,tr('t3','tool.failed',1250),e2],opts,previous);
-  expect(grown[1]).not.toBe(previous[1]);
-  expect(grown[1]).toMatchObject({id:'t1',tone:'system'});
+  expect(grown[2]).not.toBe(previous[2]);
+  expect(grown[2]).toMatchObject({id:'t1',tone:'system'});
   const detached=buildTimeline(events,{currentUsername:'alek',detachedIds:new Set(['e1'])},previous);
   expect(detached[0]).not.toBe(previous[0]);
   expect(detached[0]!.meta.detached).toBe(true);
@@ -215,17 +218,17 @@ describe('additions',()=>{
   expect(next).toHaveLength(3);
   expect(next[0]).not.toBe(previous[0]);
   expect(next[0]).toMatchObject({text:'Edited'});
-  expect(next[1]).not.toBe(previous[1]);
-  expect(next[2]).toBe(previous[2]);
+  expect(next[2]).not.toBe(previous[2]);
+  expect(next[1]).toBe(previous[1]);
  });
  it('a group split by a new message keeps unique ids',()=>{
-  const previous=buildTimeline([e1,t1,t2],opts);
-  expect(buildTimeline([e1,t1,msg('m','agent:Pip',{text:'x'},1150),t2],opts,previous).map(item=>item.id)).toEqual(['e1','t1','m','t2']);
+  const previous=buildTimeline([e1,u1,t2],opts);
+  expect(buildTimeline([e1,u1,msg('m','agent:Pip',{text:'x'},1150),t2],opts,previous).map(item=>item.id)).toEqual(['e1','u1','m','t2']);
  });
  it('thread message carries the item id, the exact meta and the raw text',()=>{
   const previous=buildTimeline([e1,t1,t2,e2],opts);
-  const grown=buildTimeline([e1,tr('t0','agent.turn.phase',1050),t1,t2,e2],opts,previous);
-  expect(grown.map(item=>toThreadMessage(item).id)).toEqual(['e1','t1','e2']);
+  const grown=buildTimeline([e1,t1,tr('t0','agent.turn.phase',1150),t2,e2],opts,previous);
+  expect(grown.map(item=>toThreadMessage(item).id)).toEqual(['e1','e2','t1']);
   expect(grown.map(item=>toThreadMessage(item).metadata?.custom)).toEqual(grown.map(item=>item.meta));
   expect(toThreadMessage(grown[0]!).metadata?.custom).toMatchObject({isMine:true,authorKind:'human'});
   const [spaced]=buildTimeline([msg('s','agent:Pip',{text:'  spaced  '})],opts);
@@ -234,13 +237,13 @@ describe('additions',()=>{
  });
  it('a grown group split by a message keeps unique ids',()=>{
   const t0=tr('t0','agent.turn.phase',1050);
-  const first=buildTimeline([e1,t1,t2],opts);
-  const grown=buildTimeline([e1,t0,t1,t2],opts,first);
-  expect(grown.map(item=>item.id)).toEqual(['e1','t1']);
-  const split=buildTimeline([e1,t0,msg('m','agent:Pip',{text:'x'},1075),t1,t2],opts,grown);
-  expect(split.map(item=>item.id)).toEqual(['e1','t1','m','t2']);
-  const single=buildTimeline([e1,t0,t1],opts,buildTimeline([e1,t1],opts));
-  expect(buildTimeline([e1,t0,msg('m','agent:Pip',{text:'x'},1075),t1],opts,single).map(item=>item.id)).toEqual(['e1','t1','m','t1~1']);
+  const first=buildTimeline([e1,u1,t2],opts);
+  const grown=buildTimeline([e1,t0,u1,t2],opts,first);
+  expect(grown.map(item=>item.id)).toEqual(['e1','u1']);
+  const split=buildTimeline([e1,t0,msg('m','agent:Pip',{text:'x'},1075),u1,t2],opts,grown);
+  expect(split.map(item=>item.id)).toEqual(['e1','u1','m','t2']);
+  const single=buildTimeline([e1,t0,u1],opts,buildTimeline([e1,u1],opts));
+  expect(buildTimeline([e1,t0,msg('m','agent:Pip',{text:'x'},1075),u1],opts,single).map(item=>item.id)).toEqual(['e1','u1','m','u1~1']);
  });
  it('a group needing a second suffix skips the taken one',()=>{
   const x=tr('x','tool.started',300),p=tr('p','tool.started',100),r=tr('r','tool.started',250);
@@ -263,5 +266,51 @@ describe('additions',()=>{
   const named=buildTimeline([q,z],opts,buildTimeline([z],opts));
   expect(named.map(item=>item.id)).toEqual(['z']);
   expect(buildTimeline([p,m1,r,m2,q,m3,x,z],opts,[...chain,...named]).map(item=>item.id)).toEqual(['x','m1','x~1','m2','z','m3','x~2']);
+ });
+});
+
+describe('turn activity follows the agent reply',()=>{
+ const ev=(id:string,type:string,source:string,createdAt:number,payload:Record<string,unknown>={}):EventRow=>({id,type,source,payload,createdAt});
+ const action=(id:string,agentName:string,createdAt:number)=>ev(id,'telemetry.nest.connection.action','system:nest-connections',createdAt,{agentName,app:'miro',tool:'MIRO_CREATE',title:'Create',change:'create',outcome:'ok',connectionId:'c',requestId:id});
+ const ids=(items:ReturnType<typeof buildTimeline>)=>items.map(item=>item.kind==='activity'?`[${item.events.map(event=>event.id).join(',')}]`:item.id);
+ it("puts a turn's activity after the agent's reply, not after the question",()=>{
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'Add a note'},1),ev('s','agent.turn.started','agent:Pip',2,{triggerEventId:'q'}),
+   ev('ts','tool.started','agent:Pip',3),ev('ps','process.started','system:process-runner',4),action('a','Pip',5),
+   msg('r','agent:Pip',{text:'Done'},6),ev('c','agent.turn.completed','agent:Pip',7,{triggerEventId:'q'}),
+  ],opts);
+  expect(ids(items)).toEqual(['q','r','[s,ts,ps,a,c]']);
+ });
+ it("keeps overlapping agents' activity with their own replies",()=>{
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'Both of you'},1),
+   ev('sa','agent.turn.started','agent:Ann',2,{triggerEventId:'q'}),ev('sb','agent.turn.started','agent:Bob',3,{triggerEventId:'q'}),
+   action('aa','Ann',4),action('ab','Bob',5),ev('tb','tool.started','agent:Bob',6),
+   msg('rb','agent:Bob',{text:'Bob done'},7),ev('cb','agent.turn.completed','agent:Bob',8,{triggerEventId:'q'}),
+   msg('ra','agent:Ann',{text:'Ann done'},9),ev('ca','agent.turn.completed','agent:Ann',10,{triggerEventId:'q'}),
+  ],opts);
+  expect(ids(items)).toEqual(['q','rb','[sb,ab,tb,cb]','ra','[sa,aa,ca]']);
+ });
+ it('a turn without a reply stays where it ended',()=>{
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'Try'},1),ev('s','agent.turn.started','agent:Pip',2,{triggerEventId:'q'}),
+   action('a','Pip',3),ev('f','agent.turn.failed','agent:Pip',4,{triggerEventId:'q'}),msg('q2','human:alek',{text:'Again?'},5),
+  ],opts);
+  expect(ids(items)).toEqual(['q','[s,a,f]','q2']);
+ });
+ it("late events join the agent's previous reply",()=>{
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'Go'},1),ev('s','agent.turn.started','agent:Pip',2,{triggerEventId:'q'}),
+   msg('r','agent:Pip',{text:'Started'},3),ev('c','agent.turn.completed','agent:Pip',4,{triggerEventId:'q'}),
+   msg('q2','human:alek',{text:'Thanks'},5),action('late','Pip',6),
+  ],opts);
+  expect(ids(items)).toEqual(['q','r','[s,c,late]','q2']);
+ });
+ it('late events with no earlier reply in the window stand alone',()=>{
+  const items=buildTimeline([msg('q','human:alek',{text:'Hi'},1),action('late','Pip',2),msg('q2','human:alek',{text:'Hm'},3)],opts);
+  expect(ids(items)).toEqual(['q','[late]','q2']);
+ });
+ it('includes connection action events in activity',()=>{
+  expect(isTraceEvent(action('a','Pip',1))).toBe(true);
  });
 });
