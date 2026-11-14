@@ -104,8 +104,15 @@ try{
   assert.equal(await sidebarWidth(),312,'the width survives a reload');
   await page.screenshot({path:join(screenshots,'sidebar-resized-desktop.png')});
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  // The agent/standalone chat layout uses a different shell grid; it must follow the same width.
+  await page.goto(base+'/?channel='+other.id);
+  await page.getByPlaceholder(/Message to # Other demo chat/).waitFor();
+  assert.equal(await sidebarWidth(),312,'the chat layout uses the chosen width');
+  await resizer.focus();await page.keyboard.press('ArrowRight');
+  assert.equal(await sidebarWidth(),328,'resizing works in the chat layout');
   await resizer.dblclick();
   assert.equal(await sidebarWidth(),248,'double-click resets');
+  await page.goto(chatUrl);await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
   await page.setViewportSize({width:390,height:844});
   assert.equal(await resizer.isVisible(),false,'phones keep the drawer without a resize handle');
   await page.setViewportSize({width:1440,height:1000});
