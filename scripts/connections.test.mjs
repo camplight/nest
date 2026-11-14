@@ -189,3 +189,39 @@ test("--out writes one result to a file and stays out of the skill directory", a
   await expect(run(["execute", "c", "T", "--all"], env, transport, () => "{}", files)).rejects.toThrow("--all needs --out");
   await expect(run(["list", "--all"], env, transport, () => "{}", files)).rejects.toThrow("Use list");
 });
+test("execute forwards the agent's chat as x-nest-channel-id", async () => {
+  const headers = [];
+  await run(
+    ["execute", "connection-id", "TRELLO_GET_BOARDS"],
+    { ...env, ORGOPS_CHANNEL_ID: "channel-1" },
+    async (_url, init) => { headers.push(init.headers); return Response.json({ data: "ok" }); },
+    () => "{}",
+  );
+  expect(headers[0]["x-nest-channel-id"]).toBe("channel-1");
+});
+test("execute without a chat, schema and list send no channel header", async () => {
+  const headers = [];
+  const transport = async (_url, init) => { headers.push(init.headers); return Response.json({ connections: [], slug: "T" }); };
+  await run(["execute", "connection-id", "TRELLO_GET_BOARDS"], env, transport, () => "{}");
+  await run(["schema", "connection-id", "TRELLO_GET_BOARDS"], { ...env, ORGOPS_CHANNEL_ID: "channel-1" }, transport);
+  await run(["list"], { ...env, ORGOPS_CHANNEL_ID: "channel-1" }, transport);
+  expect(headers.map(h => h["x-nest-channel-id"])).toEqual([undefined, undefined, undefined]);
+});
+test("connection action shape accepts only Nest as the source", async () => {
+  const { eventShapes } = await import("../skills/nest-connections/event-shapes.ts");
+  const { validateEventAgainstShapes } = await import("@orgops/schemas");
+  const draft = {
+    type: "telemetry.nest.connection.action",
+    source: "system:nest-connections",
+    channelId: "channel-1",
+    payload: {
+      agentName: "NikiPA", connectionId: "connection-1", app: "miro",
+      tool: "MIRO_CREATE_IMAGE_ITEM_FROM_URL", title: "Create image item from URL",
+      change: "create", outcome: "ok", requestId: "request-1",
+    },
+  };
+  expect(validateEventAgainstShapes(draft, eventShapes).ok).toBe(true);
+  expect(validateEventAgainstShapes({ ...draft, source: "agent:NikiPA" }, eventShapes).ok).toBe(false);
+  expect(validateEventAgainstShapes({ ...draft, payload: { ...draft.payload, arguments: { board: "x" } } }, eventShapes).ok).toBe(false);
+  expect(validateEventAgainstShapes({ ...draft, payload: { ...draft.payload, outcome: "maybe" } }, eventShapes).ok).toBe(false);
+});

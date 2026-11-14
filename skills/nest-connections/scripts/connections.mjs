@@ -120,6 +120,10 @@ export async function run(
         headers: {
           authorization: `Bearer ${token}`,
           "content-type": "application/json",
+          // The chat this turn runs in, so Nest can show account changes there.
+          ...(kind === "execute" && env.ORGOPS_CHANNEL_ID
+            ? { "x-nest-channel-id": env.ORGOPS_CHANNEL_ID }
+            : {}),
         },
         redirect: "error",
         signal: AbortSignal.timeout(30_000),
