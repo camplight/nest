@@ -125,6 +125,9 @@ function tool(value: any): IntegrationTool {
     description: value.description ?? "",
     toolkit: value.toolkit?.slug,
     inputParameters: value.input_parameters,
+    tags: Array.isArray(value.tags)
+      ? value.tags.filter((tag: unknown): tag is string => typeof tag === "string")
+      : [],
   };
 }
 export function createComposioProvider(

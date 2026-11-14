@@ -215,8 +215,25 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
       create: (body:Record<string,unknown>) => request('/api/agents',{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(body)}),
     };
   }
-  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, agentModelEnv, connectionContext, assistantDirectory, agentManagement, projectNamingEnv, projectNamingContext, baseUrl: base.origin };
+  /** Service access for recording connected-app activity in an agent's chat. */
+  function connectionActivity(serviceToken: string) {
+    if (!serviceToken) throw Error('Connection activity is not configured');
+    const headers = {'x-orgops-runner-token':serviceToken};
+    return {
+      async channel(id:string,signal?:AbortSignal):Promise<ActivityChannel|null> {
+        const response = await request('/api/channels?includeArchived=1',{headers,signal});
+        if (!response.ok) throw Error('Engine channels unavailable');
+        return ((await response.json()) as ActivityChannel[]).find(channel=>channel.id===id)??null;
+      },
+      async post(event:{type:string;source:string;channelId:string;status:'DELIVERED';idempotencyKey:string;payload:Record<string,unknown>},signal?:AbortSignal) {
+        const response = await request('/api/events',{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(event),signal});
+        if (!response.ok) throw Error(`Engine rejected the activity event (${response.status})`);
+      },
+    };
+  }
+  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, agentModelEnv, connectionContext, assistantDirectory, agentManagement, connectionActivity, projectNamingEnv, projectNamingContext, baseUrl: base.origin };
 }
 export type OrgOpsClient = ReturnType<typeof createOrgOpsClient>;
+export type ActivityChannel = {id:string;archivedAt?:number|null;participants:{subscriberType:string;subscriberId:string}[]};
 
 export type ManagedEngineAgent = {id:string;name:string;mode:string;ownerHumanId:string|null;visibility:string;assignedRunnerId:string|null;workspacePath:string;modelId:string;description:string;systemInstructions:string;allowOutsideWorkspace:boolean;allowOwnerHumanSecrets:boolean};

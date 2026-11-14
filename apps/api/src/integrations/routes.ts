@@ -19,6 +19,7 @@ import {
   ProviderRequestError,
   type ConnectionProvider,
 } from "./provider";
+import { createActionLines, type ActionOutcome } from "./action-lines";
 const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 type Connection = {
@@ -71,6 +72,7 @@ export function registerIntegrationRoutes(
         "INSERT INTO product_audit(type,actor_id,payload_json,created_at) VALUES(?,?,?,?)",
       )
       .run(type, owner, JSON.stringify(payload), Date.now());
+  const lines = createActionLines({ orgops, engineToken, audit });
   routes.onError((error, c) => {
     if (error instanceof HTTPException)
       return c.json({ error: error.message }, error.status);
@@ -630,6 +632,18 @@ export function registerIntegrationRoutes(
         connectionId: conn.id,
         tool: input.tool,
       });
+      // Recorded before answering the helper, so the line lands inside the agent's turn.
+      const line = (outcome: ActionOutcome) =>
+        lines.record({
+          channelId: c.req.header("x-nest-channel-id")?.slice(0, 200) || undefined,
+          ownerId: t.owner_id,
+          agentId: t.agent_id,
+          agentName: t.agent_name,
+          connectionId: conn.id,
+          tool,
+          outcome,
+          requestId,
+        });
       try {
         const result = await service().execute(
           a,
@@ -639,6 +653,9 @@ export function registerIntegrationRoutes(
             : {},
         );
         audit("audit.connection.tool.completed", t.owner_id, { requestId });
+        await line(
+          (result as { successful?: unknown } | null)?.successful === false ? "failed" : "ok",
+        );
         return new Response(JSON.stringify(result), {
           headers: {
             "content-type": "application/json",
@@ -647,6 +664,7 @@ export function registerIntegrationRoutes(
         });
       } catch (error) {
         audit("audit.connection.tool.failed", t.owner_id, { requestId });
+        await line(error instanceof ProviderRequestError ? "failed" : "unknown");
         throw new HTTPException(502, {
           message:
             "Tool execution failed or its response was lost. It may have completed; verify before retrying.",

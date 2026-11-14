@@ -6,6 +6,7 @@ import { createApp as createEngine } from "../../../../vendor/orgops/apps/api/sr
 import { createOrgOpsClient } from "@nest/orgops-client";
 import { createApp } from "../app";
 import { createComposioProvider } from "./composio";
+import { actionChange } from "./action-lines";
 import { MAX_CONNECTION_ACTIONS, MAX_CONNECTION_GRANT_BYTES, MAX_CONNECTION_CATALOG_PAGES } from "@nest/schemas";
 import { generate } from "@orgops/llm";
 import { createTurnExecutor } from "../../../../vendor/orgops/apps/agent-runner/src/turn-executor";
@@ -28,6 +29,10 @@ let executionCount = 0,
   foreign = false,
   disabled = false,
   failExecute = false;
+let toolTags: string[] = ["readOnlyHint"],
+  providerSaysNo = false,
+  providerThrows = false,
+  engineDown = false;
 let catalogTools: {slug:string;toolkit:{slug:string};input_parameters?:unknown}[] = [];
 let linkStatus = 200;
 let extraAccounts: Record<string, unknown>[] = [];
@@ -60,6 +65,9 @@ beforeEach(async () => {
   foreign = false;
   disabled = false;
   failExecute = false;
+  toolTags = ["readOnlyHint"]; providerSaysNo = false; providerThrows = false; engineDown = false;
+  // The skill's event shapes import zod, so the engine reads them where the repo's packages resolve.
+  vi.stubEnv("ORGOPS_SKILL_ROOTS", join(process.cwd(), "skills"));
   requests.length = 0;
   catalogTools = []; catalogMode = "normal"; linkStatus = 200; extraAccounts = []; duringCatalog = undefined; duringTool = undefined;
   engine = createEngine({
@@ -128,7 +136,9 @@ beforeEach(async () => {
         if (duringTool) {const action=duringTool; duringTool=undefined; await action();}
         return Response.json({
           slug: "TRELLO_GET_BOARDS",
+          name: "Get boards",
           toolkit: { slug: "trello" },
+          tags: toolTags,
           input_parameters: { type: "object" },
         });
       }
@@ -139,6 +149,9 @@ beforeEach(async () => {
         });
       if (path === "/tools/execute/TRELLO_GET_BOARDS") {
         executionCount++;
+        if (providerThrows) throw new TypeError("fetch failed");
+        if (providerSaysNo)
+          return Response.json({ data: {}, successful: false, error: "secret-provider-detail" });
         return Response.json(
           failExecute
             ? { error: "secret-provider-detail" }
@@ -153,6 +166,8 @@ beforeEach(async () => {
     expect(new URL(String(url)).pathname.startsWith("/api/composio")).toBe(
       false,
     );
+    if (engineDown && init?.method === "POST" && new URL(String(url)).pathname === "/api/events")
+      throw new TypeError("engine unreachable");
     return engine.app.fetch(new Request(url, init));
   });
   product = createApp({
@@ -803,4 +818,85 @@ it("lists neither disconnected accounts nor unfinished tries for an app that is 
   expect((await call("/api/integrations/connections/" + localId + "/revoke", "POST", {})).status).toBe(200);
   // The provider keeps returning the disconnected account; Nest no longer lists it.
   expect(await listed()).toEqual(["trello:INITIATED", "slack:INITIATED"]);
+});
+const actionLines = async (channelId: string) =>
+  ((await (await call("/api/events?channelId=" + encodeURIComponent(channelId) + "&limit=200")).json()) as any[])
+    .filter((event) => event.type === "telemetry.nest.connection.action");
+const executeIn = (h: Record<string, string>, channelId?: string) =>
+  call(
+    "/api/integrations/skill/execute",
+    "POST",
+    { connectionId: localId, tool: "TRELLO_GET_BOARDS", arguments: { board: "private-argument" } },
+    channelId ? { ...h, "x-nest-channel-id": channelId } : h,
+  );
+it("posts one line for a change in the agent's chat", async () => {
+  const h = await enable();
+  toolTags = ["createHint", "openWorldHint"];
+  const response = await executeIn(h, channel);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ data: { boards: ["private-result"] } });
+  const lines = await actionLines(channel);
+  expect(lines).toHaveLength(1);
+  expect(lines[0]).toMatchObject({ source: "system:nest-connections", status: "DELIVERED", channelId: channel });
+  expect(lines[0].payload).toEqual({
+    agentName: "PuffOwner", connectionId: localId, app: "trello", tool: "TRELLO_GET_BOARDS",
+    title: "Get boards", change: "create", outcome: "ok", requestId: expect.any(String),
+  });
+  expect(JSON.stringify(lines[0])).not.toMatch(/private-argument|private-result/);
+});
+it("classifies delete over update over create", () => {
+  expect(actionChange(["createHint", "updateHint", "destructiveHint"])).toBe("delete");
+  expect(actionChange(["createHint", "updateHint"])).toBe("update");
+  expect(actionChange(["createHint"])).toBe("create");
+  expect(actionChange(["readOnlyHint", "createHint"])).toBeNull();
+  expect(actionChange(["readOnlyHint"])).toBeNull();
+  expect(actionChange([])).toBeNull();
+});
+it("posts no line for a read, an untagged tool or a call without a chat", async () => {
+  const h = await enable();
+  expect((await executeIn(h, channel)).status).toBe(200);
+  toolTags = [];
+  expect((await executeIn(h, channel)).status).toBe(200);
+  toolTags = ["createHint"];
+  const unattributed = await executeIn(h);
+  expect(unattributed.status).toBe(200);
+  expect(await unattributed.json()).toEqual({ data: { boards: ["private-result"] } });
+  expect(await actionLines(channel)).toHaveLength(0);
+});
+it("posts no line into a chat the agent is not in, an archived chat or an unknown chat", async () => {
+  const h = await enable();
+  toolTags = ["createHint"];
+  const other = (await (await call("/api/channels", "POST", { name: "other", visibility: "PRIVATE" })).json()).id;
+  const archived = (await (await call("/api/channels", "POST", { name: "archived", visibility: "PRIVATE" })).json()).id;
+  expect((await call("/api/channels/" + archived + "/subscribe", "POST", { subscriberType: "AGENT", subscriberId: "PuffOwner" })).ok).toBe(true);
+  expect((await call("/api/channels/" + archived + "/archive", "POST", {})).ok).toBe(true);
+  for (const target of [other, archived, "no-such-channel"]) expect((await executeIn(h, target)).status).toBe(200);
+  expect(executionCount).toBe(3);
+  for (const target of [channel, other, archived]) expect(await actionLines(target)).toHaveLength(0);
+  const rejected = (product.store.db.prepare("SELECT payload_json FROM product_audit WHERE type='audit.connection.tool.line_rejected'").all() as { payload_json: string }[])
+    .map((row) => JSON.parse(row.payload_json).reason);
+  expect(rejected).toEqual(["not_participant", "archived", "missing"]);
+});
+it("marks provider refusals as failed and lost responses as unknown", async () => {
+  const h = await enable();
+  toolTags = ["updateHint"];
+  failExecute = true;
+  expect((await executeIn(h, channel)).status).toBe(502);
+  failExecute = false; providerSaysNo = true;
+  const refused = await executeIn(h, channel);
+  expect(refused.status).toBe(200);
+  expect((await refused.json()).successful).toBe(false);
+  providerSaysNo = false; providerThrows = true;
+  expect((await executeIn(h, channel)).status).toBe(502);
+  expect((await actionLines(channel)).map((line) => line.payload.outcome)).toEqual(["failed", "failed", "unknown"]);
+});
+it("returns the tool result even when the line cannot be posted", async () => {
+  const h = await enable();
+  toolTags = ["destructiveHint"];
+  engineDown = true;
+  const response = await executeIn(h, channel);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ data: { boards: ["private-result"] } });
+  engineDown = false;
+  expect(await actionLines(channel)).toHaveLength(0);
 });

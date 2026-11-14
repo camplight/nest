@@ -35,6 +35,8 @@ export type IntegrationTool = {
   description: string;
   toolkit: string;
   inputParameters: unknown;
+  /** Provider hints such as readOnlyHint, createHint, updateHint and destructiveHint. */
+  tags: string[];
 };
 /** Only provider-specific transport, payloads and identity namespacing live here. */
 export interface ConnectionProvider {

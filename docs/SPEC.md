@@ -873,6 +873,22 @@ engine metadata token and trusted shared runtime are prerequisites, not inferred
 security guarantees. See [PERSONAL_AGENTS.md](PERSONAL_AGENTS.md) for installation,
 configuration, expiry/renewal, limitations and live release checks.
 
+Account changes appear in the chat. Agent shells receive `ORGOPS_CHANNEL_ID`
+from the engine, and the `nest-connections` helper forwards it on execute as
+`x-nest-channel-id`. When the executed tool's provider tags mark a change
+(`destructiveHint` → delete, else `updateHint` → update, else `createHint` →
+create; `readOnlyHint` or none → no line), Nest posts a DELIVERED
+`telemetry.nest.connection.action` event (source `system:nest-connections`,
+declared by the skill's `event-shapes.ts`) into that chat before answering the
+helper. Its payload holds the agent, connection, app, tool slug and friendly
+title, change and outcome (`ok`, `failed` for provider refusals including
+`successful: false`, `unknown` when the response was lost) and the audit
+request ID; never arguments or results. Nest first checks with the engine
+service token that the chat exists, is not archived and lists the agent;
+otherwise it records `audit.connection.tool.line_rejected`. Recording is best
+effort with a 2-second bound and never changes the tool response. The
+`telemetry.` prefix keeps these lines out of agents' conversation history.
+
 Connected-app permissions default to a compact Give all access action, with
 locally served brand logos for the initial supported apps and a generic app icon
 for unknown providers. Choose specific actions expands the advanced search,

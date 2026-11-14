@@ -1,4 +1,4 @@
-import { MAX_CONNECTION_ACTIONS, MAX_CONNECTION_CATALOG_PAGES } from "@nest/schemas";
+import { MAX_CONNECTION_ACTIONS, MAX_CONNECTION_CATALOG_PAGES, friendlyActionName } from "@nest/schemas";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { apiJson, getApiHeaders } from "../api";
@@ -14,18 +14,8 @@ const appNames: Record<string, string> = {
 export function connectionAppName(slug: string) {
   return appNames[slug] ?? slug.replaceAll("_", " ").replace(/^./, char => char.toUpperCase());
 }
-function actionName(action: Action, toolkit: string) {
-  const name = action.name?.trim() || action.slug;
-  // Provider identifiers are presentation only. Grants always use the exact slug.
-  const prefix = toolkit.replace(/[^a-z0-9]/gi, "");
-  const words = name.replaceAll("_", " ").trim();
-  const first = words.split(" ")[0];
-  const title = first.replace(/[^a-z0-9]/gi, "").toLowerCase() === prefix.toLowerCase()
-    ? words.slice(first.length).trim() : words;
-  const friendly = title || words;
-  return friendly === friendly.toUpperCase()
-    ? friendly.toLowerCase().replace(/^./, char => char.toUpperCase()) : friendly;
-}
+// Provider identifiers are presentation only. Grants always use the exact slug.
+const actionName = (action: Action, toolkit: string) => friendlyActionName(action.name, action.slug, toolkit);
 function errorMessage(reason: unknown) {
   if (reason instanceof Error) {
     try { const value = JSON.parse(reason.message); if (typeof value.error === "string") return value.error; } catch { /* Use a friendly network fallback. */ }
