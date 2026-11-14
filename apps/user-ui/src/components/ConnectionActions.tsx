@@ -53,9 +53,8 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [moreBusy, setMoreBusy] = useState(false);
-  const [bulkMode, setBulkMode] = useState<"select" | "grant" | null>(null);
+  const [bulkMode, setBulkMode] = useState<"select" | "grant" | "remove" | null>(null);
   const allBusy = bulkMode !== null;
-  const [allChoices, setAllChoices] = useState<string[] | null>(null);
   const [bulkError, setBulkError] = useState("");
   const bulkAbort = useRef<AbortController | null>(null);
   const [error, setError] = useState("");
@@ -68,12 +67,11 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
   const path = `/api/integrations/agents/${encodeURIComponent(agentName)}/grants`;
   const catalogPath = `/api/integrations/connections/${encodeURIComponent(connection.id)}/tools`;
   const dirty = !sameChoices(selected, savedChoices);
-  const allGiven = !!allChoices?.length && sameChoices(allChoices, savedChoices);
   function remember(items: Action[]) {
     setKnown(previous => ({ ...previous, ...Object.fromEntries(items.map(item => [item.slug, item])) }));
   }
   useEffect(() => {
-    setBulkMode(null); setAllChoices(null); setBulkError("");
+    setBulkMode(null); setBulkError("");
     return () => { bulkAbort.current?.abort(); };
   }, [catalogPath, path]);
   useEffect(() => {
@@ -167,13 +165,23 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
       } else { setSelected([...combined]); setSaved(false); }
       remember(items);
       if (search === query) { setTools(items); setCursor(null); }
-      if (!search) setAllChoices(items.map(action => action.slug));
     } catch (reason) {
       if (!abort.signal.aborted) setBulkError(saving ? errorMessage(reason) : "We couldn’t load all actions. Please try again. Your choices were kept.");
     } finally {
       if (!abort.signal.aborted) setBulkMode(null);
     }
   }
+  async function removeAll() {
+    setBulkMode("remove"); setBulkError(""); setError("");
+    try {
+      await persist([]);
+    } catch (reason) { setBulkError(errorMessage(reason)); }
+    finally { setBulkMode(null); }
+  }
+  // Whether the saved set is still the whole catalog is unknown without loading every
+  // provider page, so any saved access offers removal; Select all covers topping up.
+  const hasAccess = savedChoices.length > 0;
+  const appName = connectionAppName(connection.toolkit);
   const selectedSet = new Set(selected);
   const choices = filter === "selected"
     ? selected.map(slug => known[slug] ?? {slug, name: slug, description: "A saved or selected action. Search for its name to load the full description."})
@@ -182,8 +190,10 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
   return <div className="connection-permissions">
     <div className="connection-quick-access">
       <div><strong>Agent access</strong><span className="connection-access-status" role="status">{!ready ? "Checking access…" : savedChoices.length ? `${savedChoices.length} ${savedChoices.length === 1 ? "action" : "actions"} allowed` : "Not allowed yet"}</span>
-        <p id={`give-all-scope-${connection.id}`}>Allow {agentName} to use every available {connectionAppName(connection.toolkit)} action.</p></div>
-      <button type="button" className="connection-save" aria-describedby={`give-all-scope-${connection.id}`} disabled={!ready || busy || moreBusy || allBusy || allGiven} onClick={() => void selectAll(true)}>{bulkMode === "grant" ? "Giving access…" : allGiven ? "All access given" : "Give all access"}</button>
+        <p id={`give-all-scope-${connection.id}`}>{hasAccess ? `${agentName} can use the allowed ${appName} actions. Remove access to stop it.` : `Allow ${agentName} to use every available ${appName} action.`}</p></div>
+      {hasAccess
+        ? <button type="button" className="connection-discard" aria-describedby={`give-all-scope-${connection.id}`} disabled={!ready || busy || moreBusy || allBusy} onClick={() => void removeAll()}>{bulkMode === "remove" ? "Removing access…" : "Remove access"}</button>
+        : <button type="button" className="connection-save" aria-describedby={`give-all-scope-${connection.id}`} disabled={!ready || busy || moreBusy || allBusy} onClick={() => void selectAll(true)}>{bulkMode === "grant" ? "Giving access…" : "Give all access"}</button>}
     </div>
     {error && <p className="connection-picker-error connection-access-error" role="alert">{error}{!ready && <button type="button" onClick={() => setAttempt(value => value + 1)}>Try again</button>}</p>}
     {bulkError && <p className="connection-picker-error connection-access-error" role="alert">{bulkError}</p>}

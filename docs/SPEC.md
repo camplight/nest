@@ -883,7 +883,9 @@ The collapsed default does not fetch the catalog.
 Give all access loads every provider page and saves the exact current catalog
 through the existing grant endpoint in one explicit click. It ignores advanced
 search filters, reports success only after saving and does not grant future tools
-automatically. Advanced choices require Save access, and bulk Select all results
+automatically. Once an account has any saved actions, the button becomes Remove
+access, which saves an empty grant for that account; the advanced Select all and
+Save access tops up a partial grant. Advanced choices require Save access, and bulk Select all results
 keeps existing selections across search and pagination. Page failures or sets
 exceeding the 2,000-action request bound never partially select or grant tools.
 UI and API share a 2,000-action bound per account. Grant PUT requests accept up to

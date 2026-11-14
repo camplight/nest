@@ -139,6 +139,8 @@ by default and does not fetch the action catalog until opened. Give all access
 fetches every provider page and saves the exact current catalog in one explicit
 click, regardless of an advanced search. It reports success only after saving.
 This is a snapshot of available tools, not permission for future additions.
+Once an account has saved actions, the button becomes Remove access, which clears
+that account's grant in one click; use Choose specific actions to add more.
 
 Advanced options use compact rows with full descriptions and exact references
 under About this action. Search, pagination and Selected view retain off-page

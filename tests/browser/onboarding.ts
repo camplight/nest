@@ -368,10 +368,12 @@ try {
       await access.getByRole("button",{name:"Give all access",exact:true}).click();
       await access.getByRole("alert").filter({hasText:"Saving access is temporarily unavailable"}).waitFor();
       assert.equal((await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json()).length,0,"Give all only reports success after saving");
-      assert.equal(await access.getByRole("button",{name:"All access given",exact:true}).count(),0);
+      assert.equal(await access.getByRole("button",{name:"Remove access",exact:true}).count(),0,"No access to remove after a failed save");
       await access.getByRole("button",{name:"Give all access",exact:true}).click();
       await access.getByRole("status").filter({hasText:"4 actions allowed"}).waitFor();
-      assert(await access.getByRole("button",{name:"All access given",exact:true}).isDisabled());
+      // Saved access offers removal instead of a give-all button that looks still pending.
+      assert(await access.getByRole("button",{name:"Remove access",exact:true}).isEnabled());
+      assert.equal(await access.getByRole("button",{name:"Give all access",exact:true}).count(),0);
       // The first saved grant points to the remaining step: app access is still off.
       const accessHint=page.locator(".connection-access-hint");
       await accessHint.getByText("Saved. One more step: turn on app access so PuffVitaliy can use these actions.",{exact:true}).waitFor();
@@ -431,9 +433,12 @@ try {
       const largeSaved=await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any;
       assert.equal(largeSaved[0].tools.length,176,"Advanced selection can save over 100 exact actions");
       await query.fill("card");
+      await access.getByRole("button",{name:"Remove access",exact:true}).click();
+      await access.getByRole("status").filter({hasText:"Not allowed yet"}).waitFor();
+      assert.equal((await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any)[0].tools.length,0,"Remove access saves an empty grant");
       await access.getByRole("button",{name:"Give all access",exact:true}).click();
       await access.getByRole("status").filter({hasText:"179 actions allowed"}).waitFor();
-      assert(await access.getByRole("button",{name:"All access given",exact:true}).isDisabled());
+      assert(await access.getByRole("button",{name:"Remove access",exact:true}).isEnabled());
       const largeAll=await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any;
       assert.deepEqual(largeAll[0].tools.sort(),[...actionFixtures,...bulkFixtures].map(action=>action.slug).sort(),"Give all ignores search and saves every page of a large catalog");
       assert.equal(await access.getByRole("checkbox").count(),0);
@@ -444,6 +449,8 @@ try {
       await page.setViewportSize({width:1440,height:1100});
       await page.reload();
       await access.getByRole("status").filter({hasText:"179 actions allowed"}).waitFor();
+      assert(await access.getByRole("button",{name:"Remove access",exact:true}).isEnabled(),"Saved access still offers removal after a reload");
+      assert.equal(await access.getByRole("button",{name:"Give all access",exact:true}).count(),0);
       await access.getByText("Choose specific actions",{exact:true}).click();
       await picker.getByRole("button",{name:"Clear all choices",exact:true}).click();
       await picker.getByRole("button",{name:"Save access",exact:true}).click();
@@ -520,6 +527,8 @@ try {
       assert(await picker.getByRole("button",{name:"Save access",exact:true}).isDisabled());
       await query.fill("card");
       await picker.getByRole("checkbox",{name:"Create card",exact:true}).waitFor();
+      await access.getByRole("button",{name:"Remove access",exact:true}).click();
+      await access.getByRole("status").filter({hasText:"Not allowed yet"}).waitFor();
       await access.getByRole("button",{name:"Give all access",exact:true}).click();
       await access.getByRole("status").filter({hasText:"4 actions allowed"}).waitFor();
       assert.equal(await access.getByRole("textbox").count(),0,"Give all collapses advanced choices after success");
