@@ -224,6 +224,10 @@ export function createComposioProvider(
           .map(tool)
           .filter((t: IntegrationTool) => t.toolkit === toolkit),
         nextCursor: r.next_cursor ?? null,
+        // The toolkit's own tools_count can lag behind; the listing's total matches the pages.
+        ...(!search && Number.isSafeInteger(r.total_items) && r.total_items >= 0
+          ? { total: r.total_items as number }
+          : {}),
       };
     },
     async tool(slug) {

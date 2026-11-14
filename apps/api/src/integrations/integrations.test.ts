@@ -121,6 +121,7 @@ beforeEach(async () => {
         if (duringCatalog) { const action = duringCatalog; duringCatalog = undefined; await action(); }
         if (catalogMode === "failure" && cursor >= 50) return Response.json({}, {status:503});
         return Response.json({items:catalogMode === "endless" ? [] : catalogTools.slice(cursor,cursor+50),
+          ...(catalogMode === "endless" ? {} : {total_items: catalogTools.length}),
           next_cursor: catalogMode === "endless" ? String(cursor+50) : catalogMode === "repeated" ? "50" : catalogTools.length>cursor+50 ? String(cursor+50) : null});
       }
       if (path === "/tools/TRELLO_GET_BOARDS") {
@@ -382,6 +383,14 @@ it("saves a 2,000-action catalog over 64 KB using pages rather than individual l
   expect((await (await call("/api/integrations/agents/PuffOwner/grants")).json())[0].tools).toEqual(tools);
   // Future additions and forged IDs are never implicitly granted.
   expect((await call("/api/integrations/skill/execute","POST",{connectionId:localId,tool:"TRELLO_FUTURE_ACTION",arguments:{}}, capabilityHeaders)).status).toBe(403);
+});
+it("reports the provider's action count only for the unsearched catalog", async () => {
+  catalogTools = largeTools(60);
+  const path = "/api/integrations/connections/"+localId+"/tools";
+  const first = await (await call(path+"?search=")).json() as any;
+  expect(first.items).toHaveLength(50);
+  expect(first.total).toBe(60);
+  expect((await (await call(path+"?search=board")).json() as any).total).toBeUndefined();
 });
 it("rejects unknown and foreign tools in large lists without changing saved grants", async () => {
   const path = "/api/integrations/agents/PuffOwner/grants/"+localId;

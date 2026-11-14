@@ -13,6 +13,8 @@ export class AppSetupRequiredError extends Error {
   }
 }
 export type Page<T> = { items: T[]; nextCursor: string | null };
+/** `total` is the provider-reported catalog size for an unsearched listing, when known. */
+export type ToolPage = Page<IntegrationTool> & { total?: number };
 export type AppIntegration = {
   slug: string;
   name: string;
@@ -48,7 +50,7 @@ export interface ConnectionProvider {
     toolkit: string,
     search: string,
     cursor?: string,
-  ): Promise<Page<IntegrationTool>>;
+  ): Promise<ToolPage>;
   tool(slug: string): Promise<IntegrationTool>;
   execute(
     account: ConnectedAccount,

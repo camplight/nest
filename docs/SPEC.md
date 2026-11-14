@@ -878,14 +878,16 @@ locally served brand logos for the initial supported apps and a generic app icon
 for unknown providers. Choose specific actions expands the advanced search,
 Selected view and compact permission rows. Full provider descriptions and exact
 references remain under About this action; action titles are presentation only.
-The collapsed default does not fetch the catalog.
+The collapsed default does not fetch the catalog; an account with saved actions
+loads one unsearched page to read the provider's action count (Composio
+`total_items`, returned as `total` by the catalog route).
 
 Give all access loads every provider page and saves the exact current catalog
 through the existing grant endpoint in one explicit click. It ignores advanced
 search filters, reports success only after saving and does not grant future tools
-automatically. Once an account has any saved actions, the button becomes Remove
-access, which saves an empty grant for that account; the advanced Select all and
-Save access tops up a partial grant. Advanced choices require Save access, and bulk Select all results
+automatically. Once an account has saved actions it also offers Remove access,
+which saves an empty grant for that account. Give all access stays until the
+saved actions reach the provider's count; if the count is unavailable, both stay. Advanced choices require Save access, and bulk Select all results
 keeps existing selections across search and pagination. Page failures or sets
 exceeding the 2,000-action request bound never partially select or grant tools.
 UI and API share a 2,000-action bound per account. Grant PUT requests accept up to

@@ -92,7 +92,7 @@ const composio = {
           const matching = overflow ? Array.from({length:2001}, (_,index)=>({slug:`TRELLO_OVERFLOW_${index}`,name:`Overflow action ${index}`,description:"Synthetic request bound fixture.",toolkit:{slug:"trello"}})) : many ? bulkFixtures : [...actionFixtures,...(fullCatalog ? bulkFixtures : [])].filter(action => `${action.name} ${action.description} ${action.slug}`.toLowerCase().includes(query));
           const size = many || overflow || fullCatalog ? 50 : 3;
           const start = Number(url.searchParams.get("cursor") ?? 0);
-          return Response.json({items:matching.slice(start,start+size),next_cursor:matching.length>start+size ? String(start+size) : null});
+          return Response.json({items:matching.slice(start,start+size),next_cursor:matching.length>start+size ? String(start+size) : null,total_items:matching.length});
         }
         if (path.startsWith("/tools/")) {
           const action=actionFixtures.find(action=>path==="/tools/"+action.slug);
@@ -371,7 +371,8 @@ try {
       assert.equal(await access.getByRole("button",{name:"Remove access",exact:true}).count(),0,"No access to remove after a failed save");
       await access.getByRole("button",{name:"Give all access",exact:true}).click();
       await access.getByRole("status").filter({hasText:"4 actions allowed"}).waitFor();
-      // Saved access offers removal instead of a give-all button that looks still pending.
+      // Everything is allowed, so removal is the only quick action left.
+      await access.getByRole("status").filter({hasText:"All 4 actions allowed"}).waitFor();
       assert(await access.getByRole("button",{name:"Remove access",exact:true}).isEnabled());
       assert.equal(await access.getByRole("button",{name:"Give all access",exact:true}).count(),0);
       // The first saved grant points to the remaining step: app access is still off.
@@ -429,16 +430,23 @@ try {
       await picker.getByRole("button",{name:"Select all results",exact:true}).click();
       await picker.getByRole("status").filter({hasText:"176 actions selected"}).waitFor();
       await picker.getByRole("button",{name:"Save access",exact:true}).click();
-      await access.getByRole("status").filter({hasText:"176 actions allowed"}).waitFor();
+      await access.getByRole("status").filter({hasText:/176( of 179)? actions allowed/}).waitFor();
       const largeSaved=await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any;
       assert.equal(largeSaved[0].tools.length,176,"Advanced selection can save over 100 exact actions");
-      await query.fill("card");
-      await access.getByRole("button",{name:"Remove access",exact:true}).click();
-      await access.getByRole("status").filter({hasText:"Not allowed yet"}).waitFor();
-      assert.equal((await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any)[0].tools.length,0,"Remove access saves an empty grant");
-      await access.getByRole("button",{name:"Give all access",exact:true}).click();
-      await access.getByRole("status").filter({hasText:"179 actions allowed"}).waitFor();
+      // A partial grant keeps Give all access next to Remove access.
+      await access.getByRole("status").filter({hasText:"176 of 179 actions allowed"}).waitFor();
+      await access.getByText("PuffVitaliy can use 176 of 179 Trello actions.",{exact:true}).waitFor();
       assert(await access.getByRole("button",{name:"Remove access",exact:true}).isEnabled());
+      await captureConnection("connections-partial-desktop.png");
+      await page.setViewportSize({width:390,height:844});
+      await captureConnection("connections-partial-mobile.png");
+      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      await page.setViewportSize({width:1440,height:1100});
+      await query.fill("card");
+      await access.getByRole("button",{name:"Give all access",exact:true}).click();
+      await access.getByRole("status").filter({hasText:"All 179 actions allowed"}).waitFor();
+      assert(await access.getByRole("button",{name:"Remove access",exact:true}).isEnabled());
+      assert.equal(await access.getByRole("button",{name:"Give all access",exact:true}).count(),0);
       const largeAll=await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any;
       assert.deepEqual(largeAll[0].tools.sort(),[...actionFixtures,...bulkFixtures].map(action=>action.slug).sort(),"Give all ignores search and saves every page of a large catalog");
       assert.equal(await access.getByRole("checkbox").count(),0);
@@ -448,13 +456,13 @@ try {
       assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
       await page.setViewportSize({width:1440,height:1100});
       await page.reload();
-      await access.getByRole("status").filter({hasText:"179 actions allowed"}).waitFor();
-      assert(await access.getByRole("button",{name:"Remove access",exact:true}).isEnabled(),"Saved access still offers removal after a reload");
+      await access.getByRole("status").filter({hasText:"All 179 actions allowed"}).waitFor();
+      assert(await access.getByRole("button",{name:"Remove access",exact:true}).isEnabled(),"A full grant still shows as complete after a reload");
       assert.equal(await access.getByRole("button",{name:"Give all access",exact:true}).count(),0);
       await access.getByText("Choose specific actions",{exact:true}).click();
-      await picker.getByRole("button",{name:"Clear all choices",exact:true}).click();
-      await picker.getByRole("button",{name:"Save access",exact:true}).click();
+      await access.getByRole("button",{name:"Remove access",exact:true}).click();
       await access.getByRole("status").filter({hasText:"Not allowed yet"}).waitFor();
+      assert.equal((await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any)[0].tools.length,0,"Remove access saves an empty grant");
       fullCatalog=false;
       await picker.getByRole("checkbox",{name:"List my boards",exact:true}).check();
       await query.fill("too many actions");
@@ -527,10 +535,9 @@ try {
       assert(await picker.getByRole("button",{name:"Save access",exact:true}).isDisabled());
       await query.fill("card");
       await picker.getByRole("checkbox",{name:"Create card",exact:true}).waitFor();
-      await access.getByRole("button",{name:"Remove access",exact:true}).click();
-      await access.getByRole("status").filter({hasText:"Not allowed yet"}).waitFor();
+      await access.getByRole("status").filter({hasText:"1 of 4 actions allowed"}).waitFor();
       await access.getByRole("button",{name:"Give all access",exact:true}).click();
-      await access.getByRole("status").filter({hasText:"4 actions allowed"}).waitFor();
+      await access.getByRole("status").filter({hasText:"All 4 actions allowed"}).waitFor();
       assert.equal(await access.getByRole("textbox").count(),0,"Give all collapses advanced choices after success");
       const bulkGrants = await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any;
       assert.deepEqual(bulkGrants[0].tools.sort(),actionFixtures.map(action=>action.slug).sort(),"Give all ignores the advanced search and grants the full catalog");

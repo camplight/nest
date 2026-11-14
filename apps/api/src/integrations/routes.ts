@@ -299,9 +299,10 @@ export function registerIntegrationRoutes(
   routes.get("/connections/:id/tools", async (c) => {
     const r = connection(c.req.param("id"), human(c).id);
     await account(r);
+    const search = (c.req.query("search") ?? "").slice(0, 120);
     const page = await service().tools(
       r.toolkit,
-      (c.req.query("search") ?? "").slice(0, 120),
+      search,
       c.req.query("cursor")?.slice(0, 500),
     );
     return c.json({
@@ -311,6 +312,7 @@ export function registerIntegrationRoutes(
         description,
       })),
       nextCursor: page.nextCursor,
+      ...(!search && page.total !== undefined ? { total: page.total } : {}),
     });
   });
   routes.put("/agents/:name/grants/:id", async (c) => {

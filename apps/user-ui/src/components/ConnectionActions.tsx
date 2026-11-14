@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 import { apiJson, getApiHeaders } from "../api";
 
 type Action = { slug: string; name: string; description: string };
-type ActionPage = { items: Action[]; nextCursor: string | null };
+type ActionPage = { items: Action[]; nextCursor: string | null; total?: number };
 const appNames: Record<string, string> = {
   gmail: "Gmail", trello: "Trello", slack: "Slack", miro: "Miro",
   googledrive: "Google Drive", googlecalendar: "Google Calendar",
@@ -47,6 +47,8 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
   const [known, setKnown] = useState<Record<string, Action>>({});
   const [selected, setSelected] = useState<string[]>([]);
   const [savedChoices, setSavedChoices] = useState<string[]>([]);
+  // How many actions the app offers; only loaded once something is allowed.
+  const [total, setTotal] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -71,7 +73,7 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
     setKnown(previous => ({ ...previous, ...Object.fromEntries(items.map(item => [item.slug, item])) }));
   }
   useEffect(() => {
-    setBulkMode(null); setBulkError("");
+    setBulkMode(null); setBulkError(""); setTotal(null);
     return () => { bulkAbort.current?.abort(); };
   }, [catalogPath, path]);
   useEffect(() => {
@@ -86,6 +88,16 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
       .catch(reason => { if (!abort.signal.aborted) setError(errorMessage(reason)); });
     return () => abort.abort();
   }, [path, connection.id, attempt]);
+  const hasAccess = savedChoices.length > 0;
+  useEffect(() => {
+    if (!ready || !hasAccess || total !== null) return;
+    const abort = new AbortController();
+    // Unknown on failure: both Give all access and Remove access stay offered.
+    void apiJson<ActionPage>(`${catalogPath}?search=`, { signal: abort.signal })
+      .then(page => { if (!abort.signal.aborted && typeof page.total === "number") setTotal(page.total); })
+      .catch(() => {});
+    return () => abort.abort();
+  }, [catalogPath, ready, hasAccess, total]);
   useEffect(() => {
     if (!expanded || filter !== "all") return;
     const abort = new AbortController();
@@ -96,6 +108,7 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
         .then(page => {
           if (abort.signal.aborted) return;
           setTools(page.items); remember(page.items); setCursor(page.nextCursor);
+          if (!query && typeof page.total === "number") setTotal(page.total);
         })
         .catch(reason => { if (!abort.signal.aborted) setCatalogError(errorMessage(reason)); })
         .finally(() => { if (!abort.signal.aborted) setLoading(false); });
@@ -111,7 +124,8 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
       method: "PUT", headers: getApiHeaders(), body: JSON.stringify({ tools: choices }), signal,
     });
     if (signal?.aborted) return;
-    setSelected(choices); setSavedChoices(choices); setSaved(true); onSaved?.();
+    // Recount after each save; Give all access sets it from the pages it just loaded.
+    setSelected(choices); setSavedChoices(choices); setSaved(true); setTotal(null); onSaved?.();
   }
   async function save() {
     setBusy(true); setError(""); setSaved(false);
@@ -165,6 +179,7 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
       } else { setSelected([...combined]); setSaved(false); }
       remember(items);
       if (search === query) { setTools(items); setCursor(null); }
+      if (!search) setTotal(items.length);
     } catch (reason) {
       if (!abort.signal.aborted) setBulkError(saving ? errorMessage(reason) : "We couldn’t load all actions. Please try again. Your choices were kept.");
     } finally {
@@ -178,10 +193,17 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
     } catch (reason) { setBulkError(errorMessage(reason)); }
     finally { setBulkMode(null); }
   }
-  // Whether the saved set is still the whole catalog is unknown without loading every
-  // provider page, so any saved access offers removal; Select all covers topping up.
-  const hasAccess = savedChoices.length > 0;
+  // Saved grants are validated against the catalog, so reaching its size means everything.
+  const allGiven = hasAccess && total !== null && savedChoices.length >= total;
   const appName = connectionAppName(connection.toolkit);
+  const accessSummary = !hasAccess ? `Allow ${agentName} to use every available ${appName} action.`
+    : allGiven ? `${agentName} can use every available ${appName} action.`
+    : total !== null ? `${agentName} can use ${savedChoices.length} of ${total} ${appName} actions.`
+    : `${agentName} can use the allowed ${appName} actions.`;
+  const allowedLabel = !ready ? "Checking access…" : !hasAccess ? "Not allowed yet"
+    : allGiven ? `All ${savedChoices.length} ${savedChoices.length === 1 ? "action" : "actions"} allowed`
+    : total !== null ? `${savedChoices.length} of ${total} actions allowed`
+    : `${savedChoices.length} ${savedChoices.length === 1 ? "action" : "actions"} allowed`;
   const selectedSet = new Set(selected);
   const choices = filter === "selected"
     ? selected.map(slug => known[slug] ?? {slug, name: slug, description: "A saved or selected action. Search for its name to load the full description."})
@@ -189,11 +211,12 @@ export function ConnectionActions({ agentName, connection, onSaved }: {
     : tools;
   return <div className="connection-permissions">
     <div className="connection-quick-access">
-      <div><strong>Agent access</strong><span className="connection-access-status" role="status">{!ready ? "Checking access…" : savedChoices.length ? `${savedChoices.length} ${savedChoices.length === 1 ? "action" : "actions"} allowed` : "Not allowed yet"}</span>
-        <p id={`give-all-scope-${connection.id}`}>{hasAccess ? `${agentName} can use the allowed ${appName} actions. Remove access to stop it.` : `Allow ${agentName} to use every available ${appName} action.`}</p></div>
-      {hasAccess
-        ? <button type="button" className="connection-discard" aria-describedby={`give-all-scope-${connection.id}`} disabled={!ready || busy || moreBusy || allBusy} onClick={() => void removeAll()}>{bulkMode === "remove" ? "Removing access…" : "Remove access"}</button>
-        : <button type="button" className="connection-save" aria-describedby={`give-all-scope-${connection.id}`} disabled={!ready || busy || moreBusy || allBusy} onClick={() => void selectAll(true)}>{bulkMode === "grant" ? "Giving access…" : "Give all access"}</button>}
+      <div><strong>Agent access</strong><span className="connection-access-status" role="status">{allowedLabel}</span>
+        <p id={`give-all-scope-${connection.id}`}>{accessSummary}</p></div>
+      <div className="connection-quick-buttons">
+        {hasAccess && <button type="button" className="connection-discard" aria-describedby={`give-all-scope-${connection.id}`} disabled={!ready || busy || moreBusy || allBusy} onClick={() => void removeAll()}>{bulkMode === "remove" ? "Removing access…" : "Remove access"}</button>}
+        {!allGiven && <button type="button" className="connection-save" aria-describedby={`give-all-scope-${connection.id}`} disabled={!ready || busy || moreBusy || allBusy} onClick={() => void selectAll(true)}>{bulkMode === "grant" ? "Giving access…" : "Give all access"}</button>}
+      </div>
     </div>
     {error && <p className="connection-picker-error connection-access-error" role="alert">{error}{!ready && <button type="button" onClick={() => setAttempt(value => value + 1)}>Try again</button>}</p>}
     {bulkError && <p className="connection-picker-error connection-access-error" role="alert">{bulkError}</p>}

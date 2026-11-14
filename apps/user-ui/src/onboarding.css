@@ -316,6 +316,7 @@
   padding: 16px 20px;
 }
 .connection-quick-access > div { flex: 1; min-width: min(240px, 100%); }
+.connection-quick-access > .connection-quick-buttons { flex: 0 0 auto; min-width: 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .connection-quick-access strong { font-size: 13px; }
 .connection-access-status { margin-left: 10px; color: var(--nest-muted); font-size: 12px; }
 .connection-quick-access p { margin: 6px 0 0; color: var(--nest-muted); font-size: 13px; line-height: 1.6; }
@@ -381,7 +382,8 @@
   .onboarding-connection > header { padding: 18px; gap: 12px; }
   .onboarding-connection > header h3 { font-size: 15px; }
   .connection-quick-access { padding: 14px 18px; }
-  .connection-quick-access > button { width: 100%; }
+  .connection-quick-access > .connection-quick-buttons { width: 100%; }
+  .connection-quick-buttons > button { flex: 1; }
   .onboarding-connection .connection-advanced > summary { padding: 12px 18px; }
   .connection-picker { padding: 0 18px 18px; }
   .connection-action-search { max-width: none; width: 100%; }
