@@ -319,6 +319,15 @@ try{
   assert.equal((await post('/api/events',{type:'message.created',source:'agent:PuffDemo',channelId:other.id,payload:{text:'Standalone chat avatar preview'}},{'content-type':'application/json','x-nest-runner-token':'test-runner'})).status,201);
   await page.goto(base+'/?channel='+other.id);await page.locator('.message-agent .agent-portrait img').waitFor();
   assert((await page.locator('.message-agent .agent-portrait img').getAttribute('src'))?.endsWith('/design/avatars/pom.png'));
+  // A turn that fails without replying stands on its own under the agent's name, never inside the question.
+  const question=await post('/api/events',{type:'message.created',source:'human:demo-owner',channelId:project.channelId,payload:{text:'Synthetic question before a failed turn'}},headers);
+  assert.equal(question.status,201);const questionId=((await question.json()) as {id:string}).id;
+  await emit('agent.turn.started',{triggerEventId:questionId});
+  await emit('agent.turn.failed',{triggerEventId:questionId,error:'Error: Invalid image input for this synthetic model. More detail.'});
+  await page.goto(chatUrl);
+  const failedTurn=page.getByText("Demo couldn't finish: this model can't read images.",{exact:true});await failedTurn.waitFor();
+  assert.equal(await page.locator('.message-human .turn-activity').count(),0,"A failed turn never sits inside the person's question");
+  assert.equal(await page.locator('.turn-activity',{has:failedTurn}).locator('.turn-activity-details > summary').innerText(),'Demo · Details');
   await page.goto(chatUrl);
   // Archive guard: no upload request is made and a reason is visible.
   assert.equal((await post('/api/channels/'+project.channelId+'/archive',{},headers)).status,200);

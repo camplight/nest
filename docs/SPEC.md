@@ -881,8 +881,9 @@ create; `readOnlyHint` or none → no line), Nest posts a DELIVERED
 `telemetry.nest.connection.action` event (source `system:nest-connections`,
 declared by the skill's `event-shapes.ts`) into that chat before answering the
 helper. Its payload holds the agent, connection, app, tool slug and friendly
-title, change and outcome (`ok`, `failed` for provider refusals including
-`successful: false`, `unknown` when the response was lost) and the audit
+title, change and outcome (`ok`; `failed` for provider refusals: a 4xx other
+than 408, or `successful: false`; `unknown` for a provider 5xx, 408 or a lost
+response, since the change may have run) and the audit
 request ID; never arguments or results. Nest first checks with the engine
 service token that the chat exists, is not archived and lists the agent;
 otherwise it records `audit.connection.tool.line_rejected`. Recording is best

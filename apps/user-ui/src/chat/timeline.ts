@@ -5,7 +5,9 @@ import type {ThreadMessageLike} from './aui';
 export type AuthorKind='human'|'agent'|'system'|'activity';
 export type MessageAttachment={fileId:string;name:string;mime?:string;size?:number};
 export type ChatMeta={eventId:string;authorKind:AuthorKind;authorName:string;isMine:boolean;
- displayAt:number;targetAgents:string[];inReplyTo?:string;detached?:boolean};
+ displayAt:number;targetAgents:string[];inReplyTo?:string;detached?:boolean;
+ /** Activity only: the reply this group belongs to, shown inside that reply. */
+ belongsTo?:string};
 export type TimelineItem=
  |{kind:'message';id:string;meta:ChatMeta;text:string;markdown:boolean;attachments:MessageAttachment[];event:EventRow}
  |{kind:'activity';id:string;meta:ChatMeta;tone:'agent'|'system';events:EventRow[]};
@@ -24,7 +26,9 @@ const TRACE_TYPES=new Set([
  'agent.turn.cancel_requested','agent.context.compacted',
  'telemetry.nest.connection.action',
 ]);
-const TURN_ENDS=new Set(['agent.turn.completed','agent.turn.failed']);
+const TURN_STARTS=new Set(['agent.turn.started','wrapper.turn.started']);
+const TURN_ENDS=new Set(['agent.turn.completed','agent.turn.failed','wrapper.turn.completed','wrapper.turn.failed']);
+const isTurnEvent=(event:EventRow)=>event.type.startsWith('agent.turn.')||event.type.startsWith('wrapper.turn.');
 const CONTINUATION_MS=5*60_000;
 
 const record=(payload:unknown):Record<string,unknown>|undefined=>
@@ -116,11 +120,12 @@ function messageItem(event:EventRow,opts:BuildOptions,previousMessageId?:string)
  return {kind:'message',id:event.id,meta,text,markdown:shouldRenderMarkdown(text),attachments:parseMessageAttachments(payload),event};
 }
 
-function activityItem(events:EventRow[],id:string,opts:BuildOptions):TimelineItem{
+function activityItem(events:EventRow[],id:string,opts:BuildOptions,belongsTo?:string):TimelineItem{
  const first=events[0]!;
  const tone=events.some(event=>event.type==='agent.turn.failed'||event.type==='tool.failed')?'system':'agent';
  const meta:ChatMeta={eventId:first.id,authorKind:'activity',authorName:sourceLabel(first.source),isMine:false,
   displayAt:displayTime(first),targetAgents:[]};
+ if(belongsTo)meta.belongsTo=belongsTo;
  if(events.some(event=>opts.detachedIds?.has(event.id)))meta.detached=true;
  return {kind:'activity',id,meta,tone,events};
 }
@@ -143,7 +148,7 @@ const sameEvent=(left:EventRow,right:EventRow)=>left===right&&left.id===right.id
 
 function sameMeta(left:ChatMeta,right:ChatMeta){
  return left.eventId===right.eventId&&left.authorKind===right.authorKind&&left.authorName===right.authorName&&
-  left.isMine===right.isMine&&left.displayAt===right.displayAt&&left.inReplyTo===right.inReplyTo&&
+  left.isMine===right.isMine&&left.displayAt===right.displayAt&&left.inReplyTo===right.inReplyTo&&left.belongsTo===right.belongsTo&&
   Boolean(left.detached)===Boolean(right.detached)&&left.targetAgents.length===right.targetAgents.length&&
   left.targetAgents.every((name,index)=>name===right.targetAgents[index]);
 }
@@ -167,33 +172,43 @@ export function buildTimeline(events:EventRow[],opts:BuildOptions,previous?:read
   items.push(prev&&unchanged(prev,item)?prev:item);
  };
  // A turn's events go with the agent's reply in that turn (spec: agent activity lines). Slots keep the
- // display order; a group sits directly after the reply it belongs to so ChatThread shows it inside that reply.
+ // display order; a group sits directly after the reply it belongs to and records it, so ChatThread shows it inside.
  type Group={events:EventRow[]};
- type Slot={message:EventRow}|{group:Group};
+ type Slot={message:EventRow}|{group:Group;reply?:string};
+ type Turn={group:Group;reply?:EventRow;slotted?:boolean};
  const slots:Slot[]=[];
- const open=new Map<string,{group:Group;reply?:EventRow}>();
+ const open=new Map<string,Turn>();
  const replyGroups=new Map<string,Group>(); // reply event id → its group
  const lastReply=new Map<string,EventRow>(); // agent → most recent reply
- let loose:Group|undefined; // consecutive events with no turn and no earlier reply
+ let loose:Group|undefined; // consecutive events with no known agent and no earlier reply
+ // History loads each event type in its own pages, so older tool and action events can arrive without their
+ // turn's boundaries. Before the oldest loaded turn event, an agent's events are taken as a turn whose start
+ // is not loaded: they go with that agent's next reply, or stay where they are when it has none.
+ const turnsFrom=Math.min(...events.filter(isTurnEvent).map(event=>event.createdAt??0));
  const placeAfter=(reply:EventRow,group:Group)=>{
   const index=slots.findIndex(slot=>'message' in slot&&slot.message===reply);
-  slots.splice(index+1,0,{group});
+  slots.splice(index+1,0,{group,reply:reply.id});
   replyGroups.set(reply.id,group);
  };
  const finish=(agent:string)=>{
   const turn=open.get(agent);
   if(!turn)return;
   open.delete(agent);
+  if(turn.slotted&&turn.reply)slots.splice(slots.findIndex(slot=>'group' in slot&&slot.group===turn.group),1);
   const existing=turn.reply&&replyGroups.get(turn.reply.id);
   if(existing)existing.events.push(...turn.group.events);
   else if(turn.reply)placeAfter(turn.reply,turn.group);
-  else slots.push({group:turn.group});
+  else if(!turn.slotted)slots.push({group:turn.group});
  };
  const agentOf=(event:EventRow):string|undefined=>{
-  const named=record(event.payload)?.agentName;
-  if(typeof named==='string'&&named)return named;
+  const payload=record(event.payload);
+  // Actions name the agent; process, Stop and wrapped-turn events name it as owner or target.
+  for(const key of ['agentName','ownerAgentName','targetAgentName']){
+   const named=payload?.[key];
+   if(typeof named==='string'&&named)return named;
+  }
   if(event.source.startsWith('agent:'))return event.source.slice(6);
-  // Process and runner events carry no agent: they belong to the most recently started open turn.
+  // Runner events that name no agent belong to the most recently started open turn.
   return [...open.keys()].at(-1);
  };
  for(const event of events){
@@ -206,7 +221,7 @@ export function buildTimeline(events:EventRow[],opts:BuildOptions,previous?:read
   }
   if(!isTraceEvent(event))continue;
   const agent=agentOf(event);
-  if(event.type==='agent.turn.started'&&agent){
+  if(TURN_STARTS.has(event.type)&&agent){
    finish(agent);
    loose=undefined;
    open.set(agent,{group:{events:[event]}});
@@ -216,6 +231,12 @@ export function buildTimeline(events:EventRow[],opts:BuildOptions,previous?:read
   if(turn){
    turn.group.events.push(event);
    if(TURN_ENDS.has(event.type))finish(agent!);
+   continue;
+  }
+  if(agent&&(event.createdAt??0)<turnsFrom){
+   const group={events:[event]};
+   slots.push({group});
+   open.set(agent,{group,slotted:true});
    continue;
   }
   const reply=agent?lastReply.get(agent):undefined;
@@ -231,9 +252,15 @@ export function buildTimeline(events:EventRow[],opts:BuildOptions,previous?:read
  let previousMessageId:string|undefined;
  for(const slot of slots){
   if('message' in slot){reuse(messageItem(slot.message,opts,previousMessageId));previousMessageId=slot.message.id;}
-  else if(slot.group.events.length)reuse(activityItem(slot.group.events,groupId(slot.group.events,previousActivity,taken),opts));
+  else if(slot.group.events.length)reuse(activityItem(slot.group.events,groupId(slot.group.events,previousActivity,taken),opts,slot.reply));
  }
  return items;
+}
+
+/** A group is shown inside the message it belongs to when it follows it directly, both loaded, same day. */
+export function attachesTo(previous:TimelineItem|undefined,item:TimelineItem|undefined):boolean{
+ return item?.kind==='activity'&&previous?.kind==='message'&&item.meta.belongsTo===previous.id&&
+  !previous.meta.detached&&!item.meta.detached&&dayKey(previous.meta.displayAt)===dayKey(item.meta.displayAt);
 }
 
 export function dayKey(ts:number):string{

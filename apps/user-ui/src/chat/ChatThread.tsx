@@ -13,7 +13,7 @@ import {MessageActions} from './MessageActions';
 import {MessageBody} from './MessageBody';
 import type {ReplyTarget} from './quote-types';
 import {SelectionQuote} from './SelectionQuote';
-import {buildTimeline,dayKey,isContinuation,isTraceEvent,toThreadMessage,type ChatMeta,type TimelineItem} from './timeline';
+import {attachesTo,buildTimeline,dayKey,isContinuation,isTraceEvent,toThreadMessage,type ChatMeta,type TimelineItem} from './timeline';
 import {Button} from './ui/button';
 import {DaySeparator} from './ui/day-separator';
 import {cn} from './ui/lib/utils';
@@ -74,11 +74,6 @@ const ThreadContext=createContext<ThreadView|null>(null);
 // Messages carry no bottom padding, so these margins are the whole gap: a small one between authors, tight within a run.
 const spaceAfter=(item:TimelineItem,next:TimelineItem|undefined)=>
  !next?'mb-0':item.kind!=='message'||next.kind!=='message'?'mb-3':isContinuation(item,next)?'mb-0.5':'mb-3';
-// An activity group directly after a message (same day, both in the loaded window) is shown inside that message,
-// under its text; any other group stands on its own in the avatar-gutter column.
-const attachesTo=(previous:TimelineItem|undefined,item:TimelineItem|undefined):boolean=>
- item?.kind==='activity'&&previous?.kind==='message'&&!previous.meta.detached&&!item.meta.detached&&
- dayKey(previous.meta.displayAt)===dayKey(item.meta.displayAt);
 // The classic rgba backgrounds of .trace-group-agent and -system read as a grey bar in dark mode; token-themed here.
 // Chips line up with the message text: no box or inset around the group (the classic .trace-group padding is reset).
 const ACTIVITY_RESET='[&>article]:bg-transparent [&>article]:p-0 [&>article]:rounded-none [&>article]:max-w-none';

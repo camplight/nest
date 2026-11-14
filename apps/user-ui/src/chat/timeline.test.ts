@@ -1,9 +1,11 @@
 import {describe,expect,it} from 'vitest';
-import {buildTimeline,dayKey,isContinuation,isTraceEvent,toThreadMessage,upsertEvents} from './timeline';
+import {attachesTo,buildTimeline,dayKey,isContinuation,isTraceEvent,toThreadMessage,upsertEvents} from './timeline';
 import type {EventRow} from '../types';
 const opts={currentUsername:'alek'};
 const msg=(id:string,source:string,payload:Record<string,unknown>={text:'Hi'},createdAt=1000,extra:Partial<EventRow>={}):EventRow=>({id,type:'message.created',source,payload,createdAt,...extra});
-const tr=(id:string,type:string,createdAt:number):EventRow=>({id,type,source:'agent:Pip',payload:{},createdAt});
+// Turn events come from the agent; other trace events here name no agent, so outside a turn they form loose groups
+// (what the id-stability tests below split and regrow).
+const tr=(id:string,type:string,createdAt:number):EventRow=>({id,type,source:type.startsWith('agent.turn.')?'agent:Pip':'system:runner',payload:{},createdAt});
 const at=(d:number,h:number,min:number)=>new Date(2026,0,d,h,min).getTime();
 const e1=msg('e1','human:alek',{text:'Hi'},1000);
 const t1=tr('t1','agent.turn.started',1100);
@@ -312,5 +314,53 @@ describe('turn activity follows the agent reply',()=>{
  });
  it('includes connection action events in activity',()=>{
   expect(isTraceEvent(action('a','Pip',1))).toBe(true);
+ });
+ it('process and Stop events follow the agent the engine names, not the latest turn',()=>{
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'Both of you'},1),
+   ev('sa','agent.turn.started','agent:Ann',2,{triggerEventId:'q'}),ev('sb','agent.turn.started','agent:Bob',3,{triggerEventId:'q'}),
+   ev('po','process.output','system:process-runner',4,{ownerAgentName:'Ann',targetAgentName:'Ann'}),
+   ev('x','agent.turn.cancel_requested','human:alek',5,{targetAgentName:'Ann',triggerEventId:'q'}),
+   msg('rb','agent:Bob',{text:'Bob done'},6),ev('cb','agent.turn.completed','agent:Bob',7,{triggerEventId:'q'}),
+   msg('ra','agent:Ann',{text:'Ann done'},8),ev('ca','agent.turn.completed','agent:Ann',9,{triggerEventId:'q'}),
+  ],opts);
+  expect(ids(items)).toEqual(['q','rb','[sb,cb]','ra','[sa,po,x,ca]']);
+ });
+ it("a background process exit joins its agent's last reply",()=>{
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'Go'},1),ev('s','agent.turn.started','agent:Pip',2,{triggerEventId:'q'}),
+   msg('r','agent:Pip',{text:'Running it'},3),ev('c','agent.turn.completed','agent:Pip',4,{triggerEventId:'q'}),
+   msg('q2','human:alek',{text:'Ok'},5),ev('pe','process.exited','system:process-runner',6,{ownerAgentName:'Pip',exitCode:0}),
+  ],opts);
+  expect(ids(items)).toEqual(['q','r','[s,c,pe]','q2']);
+ });
+ it("a wrapped agent's turn goes with its reply",()=>{
+  const wrap=(id:string,type:string,createdAt:number)=>ev(id,type,'system:runner:wrapper',createdAt,{targetAgentName:'Wren'});
+  const items=buildTimeline([
+   msg('r0','agent:Wren',{text:'Earlier'},1),msg('q','human:alek',{text:'Next'},2),
+   wrap('ws','wrapper.turn.started',3),msg('r','agent:Wren',{text:'Done'},4),wrap('wc','wrapper.turn.completed',5),
+  ],opts);
+  expect(ids(items)).toEqual(['r0','q','r','[ws,wc]']);
+ });
+ it("an action older than every loaded turn event goes with the agent's next reply",()=>{
+  // Per-type history pages: the turn's start is beyond the loaded window, its line and reply are not.
+  const items=buildTimeline([
+   msg('r0','agent:Pip',{text:'Earlier'},1),msg('q','human:alek',{text:'Add a card'},2),
+   action('a','Pip',3),msg('r','agent:Pip',{text:'Added'},4),ev('c','agent.turn.completed','agent:Pip',5,{triggerEventId:'q'}),
+  ],opts);
+  expect(ids(items)).toEqual(['r0','q','r','[a,c]']);
+ });
+ it('only shows a group inside the reply it belongs to',()=>{
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'Try'},1),ev('s','agent.turn.started','agent:Pip',2,{triggerEventId:'q'}),
+   ev('f','agent.turn.failed','agent:Pip',3,{triggerEventId:'q'}),
+   msg('q2','human:alek',{text:'Again'},4),ev('s2','agent.turn.started','agent:Pip',5,{triggerEventId:'q2'}),
+   msg('r','agent:Pip',{text:'Done'},6),ev('c2','agent.turn.completed','agent:Pip',7,{triggerEventId:'q2'}),
+   ev('sb','agent.turn.started','agent:Bob',8,{triggerEventId:'q2'}),ev('fb','agent.turn.failed','agent:Bob',9,{triggerEventId:'q2'}),
+  ],opts);
+  expect(ids(items)).toEqual(['q','[s,f]','q2','r','[s2,c2]','[sb,fb]']);
+  expect(attachesTo(items[0],items[1])).toBe(false); // a failed turn never sits inside the person's question
+  expect(attachesTo(items[3],items[4])).toBe(true);
+  expect(attachesTo(items[3],items[5])).toBe(false); // Bob's reply-less turn is not Pip's
  });
 });

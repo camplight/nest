@@ -16,7 +16,7 @@ const items=buildTimeline(events,{currentUsername:'synthetic-owner'});
 
 describe('chatToMarkdown',()=>{
  it('exports messages, one activity count line and attachment links',()=>{
-  expect(items.map(item=>item.kind)).toEqual(['message','activity','message']);
+  expect(items.map(item=>item.kind)).toEqual(['message','message','activity']);
   const markdown=chatToMarkdown(items,{channelLabel:'Synthetic channel',timeZone:'UTC'});
   expect(markdown.split('\n')[0]).toBe('# Synthetic channel');
   expect(markdown).toContain('**synthetic-owner** · 2026-01-02 03:04\nSynthetic **hello**');
@@ -26,8 +26,8 @@ describe('chatToMarkdown',()=>{
   expect(markdown).toBe([
    '# Synthetic channel','',
    '**synthetic-owner** · 2026-01-02 03:04','Synthetic **hello**','',
-   '_Agent activity: 3 events_','',
    '**Pip** · 2026-01-02 03:06','Synthetic reply','[report.txt](/api/files/f1)','',
+   '_Agent activity: 3 events_','',
   ].join('\n'));
  });
  it('never serialises activity payloads (spec 5.6)',()=>{

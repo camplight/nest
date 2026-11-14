@@ -664,7 +664,12 @@ export function registerIntegrationRoutes(
         });
       } catch (error) {
         audit("audit.connection.tool.failed", t.owner_id, { requestId });
-        await line(error instanceof ProviderRequestError ? "failed" : "unknown");
+        // The provider refused (4xx) → failed. Its own 5xx or a timeout may have run the change → unknown.
+        await line(
+          error instanceof ProviderRequestError && error.status < 500 && error.status !== 408
+            ? "failed"
+            : "unknown",
+        );
         throw new HTTPException(502, {
           message:
             "Tool execution failed or its response was lost. It may have completed; verify before retrying.",

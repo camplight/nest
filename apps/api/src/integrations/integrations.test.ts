@@ -32,6 +32,7 @@ let executionCount = 0,
 let toolTags: string[] = ["readOnlyHint"],
   providerSaysNo = false,
   providerThrows = false,
+  failStatus = 500,
   engineDown = false;
 let catalogTools: {slug:string;toolkit:{slug:string};input_parameters?:unknown}[] = [];
 let linkStatus = 200;
@@ -65,7 +66,7 @@ beforeEach(async () => {
   foreign = false;
   disabled = false;
   failExecute = false;
-  toolTags = ["readOnlyHint"]; providerSaysNo = false; providerThrows = false; engineDown = false;
+  toolTags = ["readOnlyHint"]; providerSaysNo = false; providerThrows = false; failStatus = 500; engineDown = false;
   // The skill's event shapes import zod, so the engine reads them where the repo's packages resolve.
   vi.stubEnv("ORGOPS_SKILL_ROOTS", join(process.cwd(), "skills"));
   requests.length = 0;
@@ -156,7 +157,7 @@ beforeEach(async () => {
           failExecute
             ? { error: "secret-provider-detail" }
             : { data: { boards: ["private-result"] } },
-          { status: failExecute ? 500 : 200 },
+          { status: failExecute ? failStatus : 200 },
         );
       }
       throw Error("Unexpected provider request " + path);
@@ -880,7 +881,10 @@ it("posts no line into a chat the agent is not in, an archived chat or an unknow
 it("marks provider refusals as failed and lost responses as unknown", async () => {
   const h = await enable();
   toolTags = ["updateHint"];
-  failExecute = true;
+  failExecute = true; failStatus = 422;
+  expect((await executeIn(h, channel)).status).toBe(502);
+  // A provider-side 5xx or timeout may have run the change: never shown as a plain failure.
+  failStatus = 504;
   expect((await executeIn(h, channel)).status).toBe(502);
   failExecute = false; providerSaysNo = true;
   const refused = await executeIn(h, channel);
@@ -888,7 +892,7 @@ it("marks provider refusals as failed and lost responses as unknown", async () =
   expect((await refused.json()).successful).toBe(false);
   providerSaysNo = false; providerThrows = true;
   expect((await executeIn(h, channel)).status).toBe(502);
-  expect((await actionLines(channel)).map((line) => line.payload.outcome)).toEqual(["failed", "failed", "unknown"]);
+  expect((await actionLines(channel)).map((line) => line.payload.outcome)).toEqual(["failed", "unknown", "failed", "unknown"]);
 });
 it("returns the tool result even when the line cannot be posted", async () => {
   const h = await enable();
