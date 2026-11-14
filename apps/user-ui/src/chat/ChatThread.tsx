@@ -218,6 +218,8 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  const snapshotRef=useRef(snapshot);snapshotRef.current=snapshot;
  const nearBottomRef=useRef(true);
  const [farFromBottom,setFarFromBottom]=useState(false);
+ // Messages scrolled under the header actions: show where the toolbar ends.
+ const [scrolled,setScrolled]=useState(false);
  const [hasNew,setHasNew]=useState(false);
  const [focusPending,setFocusPending]=useState(focusedMessageId!==null);
  const focusPendingRef=useRef(focusPending);focusPendingRef.current=focusPending;
@@ -246,6 +248,7 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
   nearBottomRef.current=distance<NEAR_BOTTOM_PX;
   if(nearBottomRef.current)setHasNew(false);
   setFarFromBottom(distance>=FAR_FROM_BOTTOM_PX);
+  setScrolled(panel.scrollTop>2);
   if(panel.scrollTop<AUTO_LOAD_PX&&!focusPendingRef.current)loadOlder();
  },[loadOlder]);
 
@@ -281,7 +284,7 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  // No channel selected yet (the shell is still loading): no conversation, so no empty state either.
  const empty=snapshot.channelId!==null&&!snapshot.loading&&items.length===0;
  return <AssistantRuntimeProvider runtime={runtime}><ChatPortalProvider><ThreadContext.Provider value={view}>
-  <div className="nest-chat relative flex min-h-0 flex-1 flex-col">
+  <div className={cn('nest-chat relative flex min-h-0 flex-1 flex-col',scrolled&&'is-scrolled')}>
    {/* Keep Sharing and Huddle reachable on mobile. Export stays hidden at the existing mobile breakpoint. */}
    <div className="chat-header-actions flex shrink-0 flex-wrap items-center justify-end gap-3 px-3 pb-2 empty:hidden">{props.headerActions}<span className="max-[761px]:hidden"><ExportButton items={items} channelLabel={props.channelLabel}/></span></div>
    <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">

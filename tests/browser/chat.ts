@@ -116,6 +116,18 @@ try{
   await page.setViewportSize({width:390,height:844});
   assert.equal(await resizer.isVisible(),false,'phones keep the drawer without a resize handle');
   await page.setViewportSize({width:1440,height:1000});
+  // A short window makes the thread scroll; the header row gets a divider only while messages pass under it.
+  await page.setViewportSize({width:1440,height:560});
+  const panel=page.locator('.messages-panel');
+  assert(await panel.evaluate(node=>node.scrollHeight>node.clientHeight+10),'the thread scrolls in a short window');
+  await panel.evaluate(node=>{node.scrollTop=node.scrollHeight;});
+  await page.locator('.nest-chat.is-scrolled').waitFor();
+  assert.notEqual(await page.locator('.chat-header-actions').evaluate(node=>getComputedStyle(node).borderBottomColor),'rgba(0, 0, 0, 0)','scrolled messages show where the header row ends');
+  await page.waitForTimeout(200);
+  await page.screenshot({path:join(screenshots,'header-divider-scrolled-desktop.png')});
+  await panel.evaluate(node=>{node.scrollTop=0;});
+  await page.waitForFunction(()=>!document.querySelector('.nest-chat.is-scrolled'));
+  await page.setViewportSize({width:1440,height:1000});
 
   await page.screenshot({path:join(screenshots,'interrupted-before-desktop.png'),fullPage:true});
   await page.screenshot({path:join(screenshots,'retained-message-desktop.png'),fullPage:true});

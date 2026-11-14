@@ -701,6 +701,9 @@ button {
   opacity: 0.45;
 }
 
+/* Once messages scroll under the Sharing/Huddle/Export row, mark where the row ends. */
+.nest-chat .chat-header-actions { position: relative; z-index: 2; border-bottom: 1px solid transparent; transition: border-color .15s ease, box-shadow .15s ease; }
+.nest-chat.is-scrolled .chat-header-actions { border-bottom-color: var(--nest-border); box-shadow: 0 8px 12px -10px rgb(0 0 0 / .35); }
 .messages-panel {
   display: flex;
   flex-direction: column;
