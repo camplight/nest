@@ -118,7 +118,8 @@ function isTraceEvent(event: EventRow) {
     event.type === "tool.failed" ||
     event.type === "telemetry.context.window.updated" ||
     event.type === "agent.turn.cancel_requested" ||
-    event.type === "agent.context.compacted"
+    event.type === "agent.context.compacted" ||
+    event.type === "telemetry.nest.connection.action"
   );
 }
 

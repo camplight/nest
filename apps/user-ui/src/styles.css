@@ -747,6 +747,21 @@ button {
   background: rgba(255, 251, 235, 0.7);
 }
 
+/* Agent activity under a reply: app changes as lines, a plain failure, raw events under Details. */
+.turn-activity { display:grid; gap:4px; min-width:0; max-width:760px; }
+.turn-activity-lines { display:grid; gap:2px; margin:0; padding:0; list-style:none; }
+.turn-activity-line { display:flex; align-items:center; gap:8px; min-width:0; color:var(--nest-text); font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.turn-activity-line .connection-app-logo { flex:0 0 auto; width:18px; height:18px; border-radius:4px; }
+.turn-activity-line .connection-app-logo img { width:16px; height:16px; }
+.turn-activity-line .connection-app-logo svg { width:14px; height:14px; }
+.turn-activity-line.is-danger { color:#b42332; }
+.turn-activity-line.is-muted { color:var(--nest-muted); }
+.turn-activity-failure { margin:0; color:#b42332; font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.turn-activity-details > summary { width:max-content; color:var(--nest-muted); font-size:12px; cursor:pointer; }
+.turn-activity-details > summary:focus-visible { outline:2px solid var(--nest-forest); outline-offset:2px; border-radius:4px; }
+.turn-activity-details[open] > summary { margin-bottom:4px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .turn-activity-line.is-danger, :root:not([data-theme="light"]) .turn-activity-failure { color:#fda4af; } }
+:root[data-theme="dark"] .turn-activity-line.is-danger, :root[data-theme="dark"] .turn-activity-failure { color:#fda4af; }
 .trace-chips { display:flex; flex-wrap:wrap; gap:4px; }
 .trace-progress { margin:2px 0; color:var(--nest-muted); font-size:12px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
 .trace-chip { display:inline-grid; place-items:center; flex-shrink:0; width:22px; height:22px; padding:0; border:1px solid var(--nest-border); border-radius:6px; background:var(--nest-muted-surface); color:var(--nest-muted); cursor:pointer; }

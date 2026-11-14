@@ -1,4 +1,5 @@
 import type {EventRow} from './types';
+import {connectionAppName} from './components/ConnectionActions';
 export type ActivityTone='neutral'|'success'|'danger'|'muted';
 export type ActivityIcon='thinking'|'check'|'error'|'terminal'|'output'|'tool'|'context'|'progress'|'stop';
 /** Status describes this event, never the outcome of the whole conversation. */
@@ -21,6 +22,10 @@ export function activity(event:EventRow):{title:string;tone:ActivityTone;icon:Ac
     case 'tool.executed':return {title:`${tool} completed`,tone:'success',icon:'check'};
     case 'tool.failed':return {title:`${tool} failed`,tone:'danger',icon:'error'};
     case 'telemetry.context.window.updated':return {title:'Conversation context updated',tone:'muted',icon:'context'};
+    case 'telemetry.nest.connection.action':{
+      const line=connectionActionLine(event);
+      return line?{title:line.text,tone:line.tone==='danger'?'danger':line.tone==='muted'?'muted':'success',icon:line.tone==='danger'?'error':'tool'}:{title:'App action',tone:'neutral',icon:'tool'};
+    }
     default:return {title:'Agent progress',tone:'neutral',icon:'progress'};
   }
 }
@@ -47,4 +52,36 @@ export function activeAgentProgress(events:EventRow[]):Set<string>{
     }
   }
   return new Set([...active.values()].map(event=>event.id));
+}
+
+/** A connected-app change as one short line: "Miro · Create image item from URL". */
+export function connectionActionLine(event:EventRow):{app:string;text:string;tone:'neutral'|'danger'|'muted'}|null{
+  if(event.type!=='telemetry.nest.connection.action')return null;
+  const p=event.payload&&typeof event.payload==='object'?event.payload as Record<string,unknown>:{};
+  const {app,title,outcome}=p;
+  if(typeof app!=='string'||!app||typeof title!=='string'||!title.trim())return null;
+  const name=connectionAppName(app),base=`${name} · ${title.trim()}`;
+  if(outcome==='ok')return {app,text:base,tone:'neutral'};
+  if(outcome==='failed')return {app,text:`${base} failed`,tone:'danger'};
+  if(outcome==='unknown')return {app,text:`${base} may not have finished. Check ${name} before trying again`,tone:'muted'};
+  return null;
+}
+
+const KNOWN_FAILURES:[RegExp,string][]=[
+  [/\b(image|video)\b.*\b(invalid|unsupported|not support)|\b(invalid|unsupported)\b.*\b(image|video)\b/i,"this model can't read images."],
+  [/suspended|spending limit|insufficient (funds|credit|balance)|out of credit|payment required|\b402\b/i,'the model provider account is suspended or out of credit.'],
+  [/did not complete|timed out|timeout/i,"the model request didn't complete."],
+  [/no reply text/i,'the model returned no reply.'],
+];
+/** A failed turn in one plain sentence, naming the agent. */
+export function turnFailureText(event:EventRow,agentName:string):string{
+  const p=event.payload&&typeof event.payload==='object'?event.payload as Record<string,unknown>:{};
+  const error=typeof p.error==='string'?p.error.trim():'';
+  if(!error)return `${agentName} couldn't finish this turn.`;
+  const known=KNOWN_FAILURES.find(([pattern])=>pattern.test(error));
+  if(known)return `${agentName} couldn't finish: ${known[1]}`;
+  // Drop "AI_APICallError:" / "TypeError:" style prefixes, keep the first sentence, cap the length.
+  const plain=error.replace(/^(\w*Error:\s*)+/,'').split(/(?<=[.!?])\s/)[0]!.trim();
+  const sentence=plain.length>140?`${plain.slice(0,139).trimEnd()}…`:plain;
+  return `${agentName} couldn't finish: ${sentence}`;
 }

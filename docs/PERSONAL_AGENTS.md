@@ -119,6 +119,19 @@ Changed ownership or visibility fails closed. Ambiguous requests can be retried;
 a manually deleted/renamed resource requires operator inspection. This is not a
 cross-database transaction, and partial resources are retained for recovery.
 
+## What owners see when agents change their accounts
+
+When an agent changes something through a connected app (creates, updates or
+deletes, judged from the provider's tool hints), a short line appears under the
+agent's reply in the chat the agent was working in, for example "Miro · Create
+image item from URL". Reads never produce a line. A refused change says
+"failed"; a lost or timed-out request says the change may not have finished and
+asks the owner to check the app before trying again. Lines carry no arguments,
+results or account details. The engine tells each agent shell its chat
+(`ORGOPS_CHANNEL_ID`), the `nest-connections` helper forwards it, and Nest posts
+the line only when the agent is a participant of that unarchived chat. Recording
+a line is best effort and never changes the result the agent receives.
+
 ## Connection adapter and skill boundary
 
 `apps/api/src/integrations/provider.ts` defines a small provider interface. The

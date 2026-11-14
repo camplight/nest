@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {activity,activityDetails,activeAgentProgress} from './activity';
+import {activity,activityDetails,activeAgentProgress,connectionActionLine,turnFailureText} from './activity';
 import type {EventRow} from './types';
 const event=(type:string,payload:unknown)=>({id:'fixture',type,payload,source:'agent:Demo',createdAt:1,channelId:'demo'} as EventRow);
 describe('activity status meaning',()=>{
@@ -40,5 +40,38 @@ describe('compact wrapped progress',()=>{
  });
  it('shows progress when the engine retries a previously failed trigger',()=>{
   expect([...activeAgentProgress([event('agent.turn.failed',{triggerEventId:'turn'}),event('agent.turn.started',{triggerEventId:'turn'}),progress('retry')])]).toEqual(['retry']);
+ });
+});
+
+describe('connection action lines',()=>{
+ const action=(outcome:string,extra:Record<string,unknown>={})=>({id:'a',type:'telemetry.nest.connection.action',source:'system:nest-connections',createdAt:1,channelId:'demo',
+  payload:{agentName:'NikiPA',connectionId:'c',app:'miro',tool:'MIRO_CREATE_IMAGE_ITEM_FROM_URL',title:'Create image item from URL',change:'create',outcome,requestId:'r',...extra}} as EventRow);
+ it('names the app and action for each outcome',()=>{
+  expect(connectionActionLine(action('ok'))).toEqual({app:'miro',text:'Miro · Create image item from URL',tone:'neutral'});
+  expect(connectionActionLine(action('failed'))).toEqual({app:'miro',text:'Miro · Create image item from URL failed',tone:'danger'});
+  expect(connectionActionLine(action('unknown'))).toEqual({app:'miro',text:'Miro · Create image item from URL may not have finished. Check Miro before trying again',tone:'muted'});
+ });
+ it('ignores malformed and unrelated events',()=>{
+  expect(connectionActionLine(action('ok',{title:''}))).toBeNull();
+  expect(connectionActionLine(action('maybe'))).toBeNull();
+  expect(connectionActionLine(event('tool.executed',{tool:'Search'}))).toBeNull();
+ });
+ it('titles the event inside Details',()=>{
+  expect(activity(action('ok')).title).toBe('Miro · Create image item from URL');
+ });
+});
+describe('turn failures in plain words',()=>{
+ const failed=(error:unknown)=>event('agent.turn.failed',{triggerEventId:'t',error});
+ it('explains known failures',()=>{
+  expect(turnFailureText(failed('AI_APICallError: Invalid image or video input'),'NikiPA')).toBe("NikiPA couldn't finish: this model can't read images.");
+  expect(turnFailureText(failed('AI_APICallError: Account x is suspended, possibly due to reaching the monthly spending limit. Please go to https://fireworks.ai/account/billing for more information.'),'NikiPA'))
+   .toBe("NikiPA couldn't finish: the model provider account is suspended or out of credit.");
+  expect(turnFailureText(failed('Error: Wrapped runtime failed for Fen: Fireworks request did not complete.\n'),'Fen')).toBe("Fen couldn't finish: the model request didn't complete.");
+  expect(turnFailureText(failed('Error: Wrapped runtime failed for Fen: Fireworks returned no reply text.\n'),'Fen')).toBe("Fen couldn't finish: the model returned no reply.");
+ });
+ it('falls back to the first sentence of an unknown error',()=>{
+  expect(turnFailureText(failed('TypeError: Something odd happened. More detail here.'),'Pip')).toBe("Pip couldn't finish: Something odd happened.");
+  expect(turnFailureText(failed({code:'x'}),'Pip')).toBe("Pip couldn't finish this turn.");
+  expect(turnFailureText(failed('x'.repeat(400)),'Pip').length).toBeLessThanOrEqual(180);
  });
 });

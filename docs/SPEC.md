@@ -1088,7 +1088,7 @@ JSONL, reasoning, tool arguments/results and stderr are never forwarded as progr
 runner credential, channel and parent event. Stable per-item identities reconcile
 lost responses; bounded best-effort delivery cannot prevent a final reply.
 
-The chat keeps its compact activity icons and shows only the latest progress text
+The chat keeps its compact activity (raw events under Details) and shows only the latest progress text
 for each active turn, including across intervening human messages. Completion or
 failure clears that text; earlier updates remain available in activity details.
 These bookkeeping events cannot wake other agents or create message notifications.
@@ -1226,16 +1226,31 @@ must be removed before sending, with the draft preserved. Archived, read-only an
 sending states block new attachments. Folder drops explain how to use a ZIP or
 individual files; ordinary text/link drags retain browser behaviour.
 
-Activity keeps the original tiny 22px event boxes, replacing letter abbreviations
-with SVG icons. Green and red distinguish successful and failed events; hover or
-keyboard focus shows a short event label and timestamp. Clicking/tapping a box
-opens a compact label card with an optional Details toggle for the recorded
-event payload; clicking/tapping the box again closes the card. Mobile needs no
-hover. No summary prose or step list is shown by default. Diagnostic output and missing process exit codes
-do not imply failure. Event colours describe individual events, never project
-acceptance. No execution, retry or engine event semantics change.
+Each agent turn's activity (from `agent.turn.started` to `agent.turn.completed`
+or `agent.turn.failed`, keyed by agent) sits under that turn's reply, never under
+the person's question. A turn with no reply stands on its own, labelled with the
+agent's name. Events outside any turn (a background process, a compaction) join
+the agent's most recent earlier reply in that chat, or stand alone when there is
+none. By default the group shows only:
 
-Live progress text no longer appears inside the activity group: it moves to the working row of the active turn (see "Chat on assistant-ui"). Uploads go through `XMLHttpRequest` to the same authenticated file API, so each pending file shows a real progress bar, and image files show a thumbnail before sending. The activity chips themselves are unchanged.
+- one line per `telemetry.nest.connection.action` (see "Personal-agent onboarding"): "Miro ·
+  Create sticky note item"; a failed change adds "failed" in the danger tone; an
+  `unknown` outcome reads "… may not have finished. Check Miro before trying
+  again" in a muted tone, so nobody repeats a change that went through;
+- a failed turn as one plain sentence ("NikiPA couldn't finish: …"), mapped from
+  known engine errors with the error's first sentence as the fallback;
+- a small "Details" control. Opening it renders the original tiny 22px event boxes
+  (SVG icons, green/red per event, hover/focus label and timestamp, click for a
+  label card with an optional payload toggle). They are rendered only while open.
+
+Chat history loads `telemetry.nest.connection.action` as its own per-type query
+beside messages, turns, tools, context telemetry, wrapped turns and processes;
+live events of that type join the same groups. Diagnostic output and missing
+process exit codes do not imply failure. Event colours describe individual
+events, never project acceptance. No execution, retry or engine event semantics
+change.
+
+Live progress text no longer appears inside the activity group: it moves to the working row of the active turn (see "Chat on assistant-ui"). Uploads go through `XMLHttpRequest` to the same authenticated file API, so each pending file shows a real progress bar, and image files show a thumbnail before sending.
 
 ## Project connection approval
 

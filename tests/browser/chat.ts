@@ -9,6 +9,8 @@ import {createEngine} from './engine';
 import {createOrgOpsClient} from '../../packages/orgops-client/src/index';
 import {createApp} from '../../apps/api/src/app';
 const dir=mkdtempSync(join(tmpdir(),'nest-chat-test-')),screenshots=mkdtempSync(join(tmpdir(),'nest-chat-screenshots-'));
+// The connections skill declares the app-change event; its shapes import zod, so read them from the repo.
+process.env.ORGOPS_SKILL_ROOTS=join(process.cwd(),'skills');
 const engine=createEngine({dbPath:join(dir,'engine.sqlite'),projectRoot:dir,dataDir:dir,adminUser:'demo-owner',adminPass:'password',runnerToken:'test-runner'});
 const product=createApp({orgops:createOrgOpsClient('http://engine',async(url,init)=>engine.app.fetch(new Request(url,init))),dbPath:join(dir,'product.sqlite'),connections:null});
 const req=createRequire(join(process.cwd(),'apps/user-ui/package.json'));
@@ -28,6 +30,8 @@ try{
  const original=await post('/api/events',{type:'message.created',source:'human:demo-owner',channelId:project.channelId,payload:{text:'Prepare a launch draft for review.'}},headers);
  const originalId=(await original.json()).id;assert(originalId);
  await emit('agent.turn.started',{triggerEventId:originalId});await emit('telemetry.context.window.updated',{agentName:'Demo',modelId:'fixture',estimatedUsedTokens:1200,contextWindowTokens:32000,estimatedAvailableTokens:30800,utilizationPct:3.75,messageCount:1,systemChars:0,systemContextChars:0,historyChars:120});await emit('tool.started',{tool:'Search',args:{query:'Demo launch ideas'}});await emit('tool.executed',{tool:'Search',output:'Found three demo references'});await emit('process.output',{stream:'STDERR',text:'Synthetic diagnostic output'});await emit('process.exited',{exitCode:1});
+ const appChange=async(title:string,outcome:string,requestId:string)=>{const response=await post('/api/events',{type:'telemetry.nest.connection.action',source:'system:nest-connections',channelId:project.channelId,status:'DELIVERED',payload:{agentName:'Demo',connectionId:'synthetic-connection',app:'miro',tool:'MIRO_SYNTHETIC',title,change:'create',outcome,requestId}},{'content-type':'application/json','x-nest-runner-token':'test-runner'});assert.equal(response.status,201,await response.text());};
+ await appChange('Create sticky note item','ok','synthetic-1');await appChange('Delete card','unknown','synthetic-2');
  await emit('message.created',{text:'Synthetic retained history. '.repeat(3000)});
  let uploads=0,sends=0,failNext=false,holdNext=false,releaseUpload:(()=>void)|undefined,uploadStarted:(()=>void)|undefined;
  const browser=await chromium.launch();
@@ -230,12 +234,24 @@ try{
   await page.getByRole('button',{name:'Send',exact:true}).click();
   await page.locator('.message-attachments a').filter({hasText:'launch-notes.txt'}).waitFor();
   assert.equal(sends,2);
-  // Tiny event boxes retain the original footprint; names are opt-in.
+  // App changes read as lines under the reply; the raw event boxes wait behind Details.
   await page.goto(chatUrl);
+  const turn=page.locator('.turn-activity').filter({hasText:'Miro · Create sticky note item'});
+  await turn.getByText('Miro · Create sticky note item',{exact:true}).waitFor();
+  await turn.getByText('Miro · Delete card may not have finished. Check Miro before trying again',{exact:true}).waitFor();
+  assert.equal(await turn.locator('.trace-chip').count(),0,'Raw events stay hidden until Details is opened');
+  assert.equal(await page.locator('.message-human .turn-activity').count(),0,"Activity never sits under the person's question");
+  // A turn that never replied stands on its own, so its control names the agent (spec: under the agent's name).
+  await page.locator('.turn-activity-details > summary',{hasText:'Demo · Details'}).first().waitFor();
+  assert.equal(await turn.locator('.turn-activity-details > summary').innerText(),'Details','Inside a reply, the control stays short');
+  await turn.scrollIntoViewIfNeeded();
+  await page.screenshot({path:join(screenshots,'activity-lines-desktop.png'),fullPage:true});
+  await turn.locator('.turn-activity-details > summary').click();
+  // Tiny event boxes retain the original footprint; names are opt-in.
   const activity=page.getByRole('article',{name:'Agent activity'}).filter({has:page.getByRole('button',{name:'Agent process stopped with an error',exact:true})});
   await activity.getByRole('button',{name:'Agent process stopped with an error',exact:true}).waitFor();
   await activity.scrollIntoViewIfNeeded();
-  assert.equal(await activity.locator('.trace-chip').count(),6);
+  assert.equal(await activity.locator('.trace-chip').count(),8);
   assert.equal(await activity.locator('pre').count(),0);
   assert.equal((await activity.innerText()).trim(),'','No always-visible activity prose');
   const failure=activity.getByRole('button',{name:'Agent process stopped with an error',exact:true});
@@ -255,6 +271,11 @@ try{
   await mobileContext.addCookies([{name:'nest_session',value:cookie.slice('nest_session='.length),url:base,httpOnly:true}]);
   await mobileContext.route('**/api/**',relay);await mobileContext.routeWebSocket('**/ws',socket=>socket.close());
   const mobile=await mobileContext.newPage();mobile.on('pageerror',e=>errors.push(e.message));await mobile.goto(chatUrl);
+  const mobileTurn=mobile.locator('.turn-activity').filter({hasText:'Miro · Create sticky note item'});
+  await mobileTurn.getByText('Miro · Delete card may not have finished. Check Miro before trying again',{exact:true}).waitFor();
+  await mobileTurn.scrollIntoViewIfNeeded();
+  await mobile.screenshot({path:join(screenshots,'activity-lines-mobile.png'),fullPage:true});
+  await mobileTurn.locator('.turn-activity-details > summary').tap();
   const mobileActivity=mobile.getByRole('article',{name:'Agent activity'}).filter({has:mobile.getByRole('button',{name:'Agent process stopped with an error',exact:true})}),mobileFailure=mobileActivity.getByRole('button',{name:'Agent process stopped with an error',exact:true});
   await mobileFailure.waitFor();assert.equal(await mobile.getByRole('tooltip').count(),0);
   assert(await mobile.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
