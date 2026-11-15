@@ -2,7 +2,7 @@ import { friendlyActionName } from "@nest/schemas";
 import type { OrgOpsClient } from "@nest/orgops-client";
 import type { IntegrationTool } from "./provider";
 
-export type ActionChange = "create" | "update" | "delete";
+export type ActionChange = "create" | "update" | "delete" | "read" | "other";
 export type ActionOutcome = "ok" | "failed" | "unknown";
 export type ActionLineInput = {
   channelId?: string;
@@ -18,16 +18,16 @@ export type ActionLineInput = {
 export const ACTION_LINE_TYPE = "telemetry.nest.connection.action";
 export const ACTION_LINE_SOURCE = "system:nest-connections";
 
-/** What a provider action changes, from its hint tags; null for reads and untagged tools. */
-export function actionChange(tags: readonly string[]): ActionChange | null {
-  if (tags.includes("readOnlyHint")) return null;
+/** What a provider action does, from its hint tags. Only create/update/delete become lines under replies. */
+export function actionChange(tags: readonly string[]): ActionChange {
+  if (tags.includes("readOnlyHint")) return "read";
   if (tags.includes("destructiveHint")) return "delete";
   if (tags.includes("updateHint")) return "update";
   if (tags.includes("createHint")) return "create";
-  return null;
+  return "other";
 }
 
-/** Records account changes as lines in the chat the agent ran them from. Never throws. */
+/** Records every connected-app call in the chat the agent ran it from (lines and the working ring). Never throws. */
 export function createActionLines(deps: {
   orgops: OrgOpsClient;
   engineToken?: string;
@@ -37,9 +37,9 @@ export function createActionLines(deps: {
   const timeoutMs = deps.timeoutMs ?? 2000;
   return {
     async record(input: ActionLineInput): Promise<void> {
-      const change = actionChange(input.tool.tags);
-      if (!input.channelId || !change || !deps.engineToken) return;
+      if (!input.channelId || !deps.engineToken) return;
       try {
+        const change = actionChange(input.tool.tags ?? []);
         const engine = deps.orgops.connectionActivity(deps.engineToken);
         const signal = AbortSignal.timeout(timeoutMs);
         const channel = await engine.channel(input.channelId, signal);

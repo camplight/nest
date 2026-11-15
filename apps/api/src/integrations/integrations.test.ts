@@ -849,15 +849,22 @@ it("classifies delete over update over create", () => {
   expect(actionChange(["createHint", "updateHint", "destructiveHint"])).toBe("delete");
   expect(actionChange(["createHint", "updateHint"])).toBe("update");
   expect(actionChange(["createHint"])).toBe("create");
-  expect(actionChange(["readOnlyHint", "createHint"])).toBeNull();
-  expect(actionChange(["readOnlyHint"])).toBeNull();
-  expect(actionChange([])).toBeNull();
+  expect(actionChange(["readOnlyHint", "createHint"])).toBe("read");
+  expect(actionChange(["readOnlyHint"])).toBe("read");
+  expect(actionChange([])).toBe("other");
 });
-it("posts no line for a read, an untagged tool or a call without a chat", async () => {
+it("records reads and untagged tools for the working ring", async () => {
   const h = await enable();
   expect((await executeIn(h, channel)).status).toBe(200);
   toolTags = [];
   expect((await executeIn(h, channel)).status).toBe(200);
+  const recorded = await actionLines(channel);
+  expect(recorded.map((line) => line.payload.change)).toEqual(["read", "other"]);
+  expect(Object.keys(recorded[0].payload).sort()).toEqual(["agentName", "app", "change", "connectionId", "outcome", "requestId", "title", "tool"]);
+  expect(JSON.stringify(recorded)).not.toMatch(/private-argument|private-result/);
+});
+it("records nothing for a call without a chat", async () => {
+  const h = await enable();
   toolTags = ["createHint"];
   const unattributed = await executeIn(h);
   expect(unattributed.status).toBe(200);
@@ -866,7 +873,7 @@ it("posts no line for a read, an untagged tool or a call without a chat", async 
 });
 it("posts no line into a chat the agent is not in, an archived chat or an unknown chat", async () => {
   const h = await enable();
-  toolTags = ["createHint"];
+  toolTags = ["readOnlyHint"]; // reads follow the same chat checks as changes
   const other = (await (await call("/api/channels", "POST", { name: "other", visibility: "PRIVATE" })).json()).id;
   const archived = (await (await call("/api/channels", "POST", { name: "archived", visibility: "PRIVATE" })).json()).id;
   expect((await call("/api/channels/" + archived + "/subscribe", "POST", { subscriberType: "AGENT", subscriberId: "PuffOwner" })).ok).toBe(true);

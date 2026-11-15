@@ -56,6 +56,12 @@ describe('connection action lines',()=>{
   expect(connectionActionLine(action('maybe'))).toBeNull();
   expect(connectionActionLine(event('tool.executed',{tool:'Search'}))).toBeNull();
  });
+ it('never turns a read or an untagged tool into a line',()=>{
+  expect(connectionActionLine(action('ok',{change:'read'}))).toBeNull();
+  expect(connectionActionLine(action('ok',{change:'other'}))).toBeNull();
+  expect(connectionActionLine(action('ok',{change:'create'}))).not.toBeNull();
+  expect(activity(action('ok',{change:'read',title:'Get board'})).title).toBe('Miro · Get board');
+ });
  it('titles the event inside Details',()=>{
   expect(activity(action('ok')).title).toBe('Miro · Create image item from URL');
  });

@@ -24,7 +24,9 @@ export function activity(event:EventRow):{title:string;tone:ActivityTone;icon:Ac
     case 'telemetry.context.window.updated':return {title:'Conversation context updated',tone:'muted',icon:'context'};
     case 'telemetry.nest.connection.action':{
       const line=connectionActionLine(event);
-      return line?{title:line.text,tone:line.tone==='danger'?'danger':line.tone==='muted'?'muted':'success',icon:line.tone==='danger'?'error':'tool'}:{title:'App action',tone:'neutral',icon:'tool'};
+      if(line)return {title:line.text,tone:line.tone==='danger'?'danger':line.tone==='muted'?'muted':'success',icon:line.tone==='danger'?'error':'tool'};
+      const named=typeof p.app==='string'&&p.app&&typeof p.title==='string'&&p.title.trim()?`${connectionAppName(p.app)} · ${p.title.trim()}`:'App action';
+      return {title:named,tone:p.outcome==='failed'?'danger':'neutral',icon:p.outcome==='failed'?'error':'tool'};
     }
     default:return {title:'Agent progress',tone:'neutral',icon:'progress'};
   }
@@ -58,8 +60,10 @@ export function activeAgentProgress(events:EventRow[]):Set<string>{
 export function connectionActionLine(event:EventRow):{app:string;text:string;tone:'neutral'|'danger'|'muted'}|null{
   if(event.type!=='telemetry.nest.connection.action')return null;
   const p=event.payload&&typeof event.payload==='object'?event.payload as Record<string,unknown>:{};
-  const {app,title,outcome}=p;
+  const {app,title,outcome,change}=p;
   if(typeof app!=='string'||!app||typeof title!=='string'||!title.trim())return null;
+  // Reads and untagged tools are recorded for the working ring only, never as lines.
+  if(change==='read'||change==='other')return null;
   const name=connectionAppName(app),base=`${name} · ${title.trim()}`;
   if(outcome==='ok')return {app,text:base,tone:'neutral'};
   if(outcome==='failed')return {app,text:`${base} failed`,tone:'danger'};

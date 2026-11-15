@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { EventShapeDefinition } from "@orgops/schemas";
 
-/** One connected-app call that changed something, posted by Nest into the agent's chat.
+/** One connected-app call (a change, a read or an untagged tool), posted by Nest into the agent's chat.
  * The telemetry prefix keeps it out of every agent's conversation history. */
 export const eventShapes: EventShapeDefinition[] = [
   {
@@ -19,7 +19,7 @@ export const eventShapes: EventShapeDefinition[] = [
           app: z.string().min(1),
           tool: z.string().min(1),
           title: z.string().min(1),
-          change: z.enum(["create", "update", "delete"]),
+          change: z.enum(["create", "update", "delete", "read", "other"]),
           outcome: z.enum(["ok", "failed", "unknown"]),
           requestId: z.string().min(1),
         })

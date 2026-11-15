@@ -878,16 +878,17 @@ configuration, expiry/renewal, limitations and live release checks.
 
 Account changes appear in the chat. Agent shells receive `ORGOPS_CHANNEL_ID`
 from the engine, and the `nest-connections` helper forwards it on execute as
-`x-nest-channel-id`. When the executed tool's provider tags mark a change
-(`destructiveHint` → delete, else `updateHint` → update, else `createHint` →
-create; `readOnlyHint` or none → no line), Nest posts a DELIVERED
+`x-nest-channel-id`. Nest classifies the executed tool from its provider tags
+(`readOnlyHint` → read, else `destructiveHint` → delete, `updateHint` → update,
+`createHint` → create, none → other) and posts a DELIVERED
 `telemetry.nest.connection.action` event (source `system:nest-connections`,
 declared by the skill's `event-shapes.ts`) into that chat before answering the
 helper. Its payload holds the agent, connection, app, tool slug and friendly
 title, change and outcome (`ok`; `failed` for provider refusals: a 4xx other
 than 408, or `successful: false`; `unknown` for a provider 5xx, 408 or a lost
 response, since the change may have run) and the audit
-request ID; never arguments or results. Nest first checks with the engine
+request ID; never arguments or results. Only create, update and delete become
+lines under replies; reads and `other` feed the working ring and Details. Nest first checks with the engine
 service token that the chat exists, is not archived and lists the agent;
 otherwise it records `audit.connection.tool.line_rejected`. Recording is best
 effort with a 2-second bound and never changes the tool response. The

@@ -224,4 +224,6 @@ test("connection action shape accepts only Nest as the source", async () => {
   expect(validateEventAgainstShapes({ ...draft, source: "agent:NikiPA" }, eventShapes).ok).toBe(false);
   expect(validateEventAgainstShapes({ ...draft, payload: { ...draft.payload, arguments: { board: "x" } } }, eventShapes).ok).toBe(false);
   expect(validateEventAgainstShapes({ ...draft, payload: { ...draft.payload, outcome: "maybe" } }, eventShapes).ok).toBe(false);
+  for (const change of ["read", "other"]) expect(validateEventAgainstShapes({ ...draft, payload: { ...draft.payload, change } }, eventShapes).ok).toBe(true);
+  expect(validateEventAgainstShapes({ ...draft, payload: { ...draft.payload, change: "rename" } }, eventShapes).ok).toBe(false);
 });
