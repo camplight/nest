@@ -116,14 +116,19 @@ export type FinishedTurn={since:number;until:number;outcome:'done'|'stopped'|'fa
 const STARTS=new Set(['agent.turn.started','wrapper.turn.started']);
 const ENDS=new Set(['agent.turn.completed','agent.turn.failed','wrapper.turn.completed','wrapper.turn.failed']);
 
-/** Reads the agent's turn from a reply's activity events; without the start or end event it uses the first or last event. */
+/**
+ * Reads the agent's turn from a reply's activity events; without the start or end event it uses the first or last event.
+ * A turn without a single action has nothing for the ring to show, so it reads as null like a turn with no events.
+ */
 export function finishedTurn(events:readonly EventRow[],agent:string):FinishedTurn|null{
  const own=events.filter(event=>agentOf(event)===agent);
  if(!own.length)return null;
  const at=(event:EventRow|undefined)=>event?.createdAt??0;
  const start=own.find(event=>STARTS.has(event.type)),end=[...own].reverse().find(event=>ENDS.has(event.type));
+ const since=at(start??own[0]);
+ if(ringState(events,agent,since).actions===0)return null;
  const outcome=end?.type.endsWith('.failed')?'failed':end&&record(end.payload).cancelled===true?'stopped':'done';
- return {since:at(start??own[0]),until:at(end??own.at(-1)),outcome};
+ return {since,until:at(end??own.at(-1)),outcome};
 }
 
 export const finishedText=(agent:string,turn:FinishedTurn)=>{

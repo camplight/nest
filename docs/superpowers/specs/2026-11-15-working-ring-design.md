@@ -113,3 +113,6 @@ finished reply that has Details opens the same card for that turn, still: "worke
 for 4m 12s" / "stopped after" / "failed after", stations, counts and the last five
 actions, without timer, ages or motion. Call made: the avatar is hover-only (not a
 tab stop on every reply); Details stays the keyboard path.
+
+Later (owner feedback): a finished reply whose turn used no tools or apps opens no
+card at all; an empty still card on an old message said nothing useful.

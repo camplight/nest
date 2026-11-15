@@ -71,7 +71,7 @@ export function WorkingRing({agent,since,events,finished}:{agent:string;since:nu
   </div>
   {/* Room for all five entries from the start, so the card never grows (or flips) while it is open. */}
   <ul className="working-ring-feed m-0 mt-1 min-h-[126px] list-none border-t border-border p-0 pt-2 text-[12.5px]">
-   {empty&&<li className="working-ring-empty py-0.5 text-muted-foreground">{finished?`No tools or apps used. ${agent} answered directly.`:`No actions yet. Tools and apps ${agent} uses will appear here.`}</li>}
+   {empty&&<li className="working-ring-empty py-0.5 text-muted-foreground">{`No actions yet. Tools and apps ${agent} uses will appear here.`}</li>}
    {state.feed.map(entry=><li key={entry.id} className={cn('flex items-center gap-2 py-0.5',entry.failed&&'is-failed')}>
     {entry.failed?<XIcon aria-label="failed" className="size-3.5 shrink-0"/>:<CheckIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground"/>}
     <span className="min-w-0 truncate">{entry.text}</span>

@@ -131,11 +131,18 @@ describe('finishedTurn',()=>{
   expect(finishedTurn(events,'Pip')).toEqual({since:1000,until:253_000,outcome:'done'});
  });
  it('reads a stopped and a failed turn',()=>{
-  expect(finishedTurn([ev('agent.turn.started',{},0),ev('agent.turn.completed',{cancelled:true},5000)],'Pip')?.outcome).toBe('stopped');
-  expect(finishedTurn([ev('wrapper.turn.started',{},0),ev('wrapper.turn.failed',{error:'x'},5000)],'Pip')?.outcome).toBe('failed');
+  const read=()=>ev('tool.started',{tool:'fs_read'},1);
+  expect(finishedTurn([ev('agent.turn.started',{},0),read(),ev('agent.turn.completed',{cancelled:true},5000)],'Pip')?.outcome).toBe('stopped');
+  expect(finishedTurn([ev('wrapper.turn.started',{},0),read(),ev('wrapper.turn.failed',{error:'x'},5000)],'Pip')?.outcome).toBe('failed');
  });
  it("falls back to the agent's first and last events when the turn start is not loaded",()=>{
   expect(finishedTurn([ev('tool.started',{tool:'fs_read'},4000),ev('tool.executed',{tool:'fs_read'},9000)],'Pip')).toEqual({since:4000,until:9000,outcome:'done'});
+ });
+ it('has nothing to show for a reply written without any action',()=>{
+  expect(finishedTurn([ev('agent.turn.started',{},0),ev('agent.turn.completed',{},17_000)],'Pip')).toBeNull();
+ });
+ it('counts an app call as an action',()=>{
+  expect(finishedTurn([ev('agent.turn.started',{},0),action('miro','Get board','read','ok',1),ev('agent.turn.completed',{},2)],'Pip')).not.toBeNull();
  });
  it("ignores other agents' events and has nothing for an agent with none",()=>{
   expect(finishedTurn([ev('agent.turn.started',{},0,'agent:Ann')],'Pip')).toBeNull();
