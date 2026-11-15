@@ -29,6 +29,16 @@ const TRACE_TYPES=new Set([
 const TURN_STARTS=new Set(['agent.turn.started','wrapper.turn.started']);
 const TURN_ENDS=new Set(['agent.turn.completed','agent.turn.failed','wrapper.turn.completed','wrapper.turn.failed']);
 const isTurnEvent=(event:EventRow)=>event.type.startsWith('agent.turn.')||event.type.startsWith('wrapper.turn.');
+// Events that say only that an agent woke up and went back to sleep. Every message in a chat wakes each agent in
+// it; a turn made of nothing else, with no reply, has nothing to show (spec: agent activity lines).
+const QUIET_TYPES=new Set(['agent.turn.started','agent.turn.phase','agent.turn.completed','wrapper.turn.started','wrapper.turn.completed',
+ 'telemetry.context.window.updated','agent.context.compacted']);
+const quiet=(event:EventRow)=>{
+ if(QUIET_TYPES.has(event.type))return event.type!=='agent.turn.completed'||record(event.payload)?.cancelled!==true;
+ if(event.type!=='process.exited')return false;
+ const payload=record(event.payload);
+ return payload?.exitCode===0&&payload.timedOut!==true;
+};
 const CONTINUATION_MS=5*60_000;
 
 const record=(payload:unknown):Record<string,unknown>|undefined=>
@@ -175,7 +185,9 @@ export function buildTimeline(events:EventRow[],opts:BuildOptions,previous?:read
  // display order; a group sits directly after the reply it belongs to and records it, so ChatThread shows it inside.
  type Group={events:EventRow[]};
  type Slot={message:EventRow}|{group:Group;reply?:string};
- type Turn={group:Group;reply?:EventRow;slotted?:boolean};
+ // A wrapped agent's turn is reported twice, by the engine (agent.turn.*) and by its wrapper (wrapper.turn.*), for
+ // the same trigger. Both layers make one turn; it ends when every layer that started has ended.
+ type Turn={group:Group;reply?:EventRow;slotted?:boolean;trigger?:unknown;layers:Set<string>};
  const slots:Slot[]=[];
  const open=new Map<string,Turn>();
  const replyGroups=new Map<string,Group>(); // reply event id → its group
@@ -221,22 +233,33 @@ export function buildTimeline(events:EventRow[],opts:BuildOptions,previous?:read
   }
   if(!isTraceEvent(event))continue;
   const agent=agentOf(event);
+  const layer=event.type.split('.')[0]!;
   if(TURN_STARTS.has(event.type)&&agent){
+   const trigger=record(event.payload)?.triggerEventId;
+   const current=open.get(agent);
+   if(current&&trigger!==undefined&&current.trigger===trigger&&!current.layers.has(layer)){
+    current.layers.add(layer);
+    current.group.events.push(event);
+    continue;
+   }
    finish(agent);
    loose=undefined;
-   open.set(agent,{group:{events:[event]}});
+   open.set(agent,{group:{events:[event]},trigger,layers:new Set([layer])});
    continue;
   }
   const turn=agent?open.get(agent):undefined;
   if(turn){
    turn.group.events.push(event);
-   if(TURN_ENDS.has(event.type))finish(agent!);
+   if(TURN_ENDS.has(event.type)){
+    turn.layers.delete(layer);
+    if(turn.layers.size===0)finish(agent!);
+   }
    continue;
   }
   if(agent&&(event.createdAt??0)<turnsFrom){
    const group={events:[event]};
    slots.push({group});
-   open.set(agent,{group,slotted:true});
+   open.set(agent,{group,slotted:true,layers:new Set()});
    continue;
   }
   const reply=agent?lastReply.get(agent):undefined;
@@ -252,7 +275,7 @@ export function buildTimeline(events:EventRow[],opts:BuildOptions,previous?:read
  let previousMessageId:string|undefined;
  for(const slot of slots){
   if('message' in slot){reuse(messageItem(slot.message,opts,previousMessageId));previousMessageId=slot.message.id;}
-  else if(slot.group.events.length)reuse(activityItem(slot.group.events,groupId(slot.group.events,previousActivity,taken),opts,slot.reply));
+  else if(slot.group.events.length&&(slot.reply||!slot.group.events.every(quiet)))reuse(activityItem(slot.group.events,groupId(slot.group.events,previousActivity,taken),opts,slot.reply));
  }
  return items;
 }

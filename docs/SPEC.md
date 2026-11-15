@@ -1257,8 +1257,13 @@ individual files; ordinary text/link drags retain browser behaviour.
 
 Each agent turn's activity (from `agent.turn.started` to `agent.turn.completed`
 or `agent.turn.failed`, keyed by agent) sits under that turn's reply, never under
-the person's question. A turn with no reply stands on its own, labelled with the
-agent's name. Events outside any turn (a background process, a compaction) join
+the person's question. A wrapped agent reports each turn twice, as `agent.turn.*`
+from the engine and `wrapper.turn.*` from its wrapper, with the same
+`triggerEventId`; both make one turn, which ends when both have ended. A turn with
+no reply stands on its own, labelled with the agent's name, unless it did nothing:
+every message wakes each agent in the chat, so a reply-less turn made only of its
+start and end, context telemetry and a clean wrapper exit is not shown. A tool
+call, app action, failure, non-zero exit or Stop keeps it. Events outside any turn (a background process, a compaction) join
 the agent's most recent earlier reply in that chat, or stand alone when there is
 none. By default the group shows only:
 

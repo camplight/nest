@@ -56,7 +56,7 @@ describe('buildTimeline',()=>{
   const previous=buildTimeline([e1,u1,t2,e2],opts);
   const t3=tr('t3','tool.executed',1250);
   expect(buildTimeline([e1,u1,t2,t3,e2],opts,previous).map(item=>item.id)).toEqual(['e1','u1','e2']);
-  const t0=tr('t0','agent.turn.phase',1050);
+  const t0=tr('t0','tool.executed',1050);
   expect(buildTimeline([e1,t0,u1,t2,e2],opts).map(item=>item.id)).toEqual(['e1','t0','e2']);
   const grown=buildTimeline([e1,t0,u1,t2,e2],opts,previous);
   expect(grown.map(item=>item.id)).toEqual(['e1','u1','e2']);
@@ -98,7 +98,7 @@ describe('buildTimeline',()=>{
  });
  it('deliverAt wins for display time',()=>{
   expect(buildTimeline([msg('e1','human:alek',{text:'Hi'},1000,{deliverAt:5000})],opts)).toMatchObject([{meta:{displayAt:5000}}]);
-  expect(buildTimeline([{...t1,deliverAt:7000}],opts)).toMatchObject([{meta:{displayAt:7000}}]);
+  expect(buildTimeline([{...t2,deliverAt:7000}],opts)).toMatchObject([{meta:{displayAt:7000}}]);
  });
  it('targets',()=>{
   expect(buildTimeline([msg('e1','human:alek',{text:'Hi',targetAgentName:'Pip'})],opts)).toMatchObject([{meta:{targetAgents:['Pip']}}]);
@@ -238,7 +238,7 @@ describe('additions',()=>{
   expect(toThreadMessage(spaced!).content).toEqual([{type:'text',text:'  spaced  '}]);
  });
  it('a grown group split by a message keeps unique ids',()=>{
-  const t0=tr('t0','agent.turn.phase',1050);
+  const t0=tr('t0','tool.executed',1050);
   const first=buildTimeline([e1,u1,t2],opts);
   const grown=buildTimeline([e1,t0,u1,t2],opts,first);
   expect(grown.map(item=>item.id)).toEqual(['e1','u1']);
@@ -341,6 +341,38 @@ describe('turn activity follows the agent reply',()=>{
    wrap('ws','wrapper.turn.started',3),msg('r','agent:Wren',{text:'Done'},4),wrap('wc','wrapper.turn.completed',5),
   ],opts);
   expect(ids(items)).toEqual(['r0','q','r','[ws,wc]']);
+ });
+ it("a wrapped agent's engine and wrapper turn are one turn",()=>{
+  const wrap=(id:string,type:string,createdAt:number)=>ev(id,type,'system:runner:wrapper',createdAt,{targetAgentName:'Sable',triggerEventId:'q'});
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'@Sable hi'},1),
+   // Same millisecond: the wrapper start can sort before the engine start.
+   wrap('ws','wrapper.turn.started',2),ev('s','agent.turn.started','agent:Sable',2,{triggerEventId:'q'}),
+   ev('po','process.output','system:process-runner',3,{ownerAgentName:'Sable',stream:'STDOUT',text:'x'}),
+   msg('r','agent:Sable',{text:'Hello'},4),wrap('wc','wrapper.turn.completed',5),ev('c','agent.turn.completed','agent:Sable',5,{triggerEventId:'q'}),
+  ],opts);
+  expect(ids(items)).toEqual(['q','r','[ws,s,po,wc,c]']);
+ });
+ it('leaves out a turn that ended without a reply and without doing anything',()=>{
+  const wrap=(id:string,type:string,createdAt:number,payload:Record<string,unknown>={})=>ev(id,type,'system:runner:wrapper',createdAt,{targetAgentName:'Wren',triggerEventId:'r',...payload});
+  const items=buildTimeline([
+   msg('r','agent:Sable',{text:'Hello'},1),
+   ev('s','agent.turn.started','agent:Wren',2,{triggerEventId:'r'}),wrap('ws','wrapper.turn.started',3),
+   ev('pe','process.exited','system:process-runner',4,{ownerAgentName:'Wren',exitCode:0}),
+   wrap('wc','wrapper.turn.completed',5,{emittedMessage:false}),ev('c','agent.turn.completed','agent:Wren',6,{triggerEventId:'r'}),
+   ev('ctx','telemetry.context.window.updated','system:runner:context',7,{agentName:'Ann'}),
+  ],opts);
+  expect(ids(items)).toEqual(['r']);
+ });
+ it('keeps a reply-less turn that used a tool, failed or was stopped',()=>{
+  const turn=(agent:string,at:number,middle:EventRow[])=>[ev(`s${agent}`,'agent.turn.started',`agent:${agent}`,at,{triggerEventId:'q'}),...middle,ev(`c${agent}`,'agent.turn.completed',`agent:${agent}`,at+5,{triggerEventId:'q'})];
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'All of you'},1),
+   ...turn('Ann',10,[ev('t','tool.started','agent:Ann',11,{tool:'fs_read'})]),
+   ...turn('Bob',20,[ev('pe','process.exited','system:process-runner',21,{ownerAgentName:'Bob',exitCode:2})]),
+   ...turn('Cy',30,[ev('x','agent.turn.cancel_requested','human:alek',31,{targetAgentName:'Cy'})]),
+  ],opts);
+  expect(ids(items)).toEqual(['q','[sAnn,t,cAnn]','[sBob,pe,cBob]','[sCy,x,cCy]']);
  });
  it("an action older than every loaded turn event goes with the agent's next reply",()=>{
   // Per-type history pages: the turn's start is beyond the loaded window, its line and reply are not.
