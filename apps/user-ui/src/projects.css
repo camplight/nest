@@ -232,3 +232,13 @@
 }
 .project-assignee-avatar-link { display:inline-flex; flex-shrink:0; border-radius:999px; }
 .project-assignee-avatar-link:hover { opacity:.85; }
+/* The owner's remove control sits at the end of each member row; a confirmation replaces the row until answered. */
+.project-member-remove { margin-left:auto; display:grid; place-items:center; flex-shrink:0; width:32px; height:32px; padding:0; border:0; border-radius:8px; background:transparent; color:var(--nest-muted); cursor:pointer; opacity:.55; }
+.project-assignee:hover .project-member-remove,.project-member-remove:focus-visible { opacity:1; }
+.project-member-remove:hover { background:var(--nest-muted-surface); color:var(--nest-text); }
+.project-member-remove:focus-visible { outline:2px solid var(--nest-lime); outline-offset:1px; }
+@media (hover:none) { .project-member-remove { opacity:1; width:44px; height:44px; } }
+.project-member-remove-confirm { display:block; padding:10px 12px; border:1px solid var(--nest-border); border-radius:10px; }
+.project-member-remove-confirm p { margin:0; font-size:13px; }
+.project-member-remove-confirm .project-actions { margin-top:10px; gap:8px; }
+.project-member-remove-confirm .project-danger { background:#b42332; border-color:#b42332; color:#fff; }

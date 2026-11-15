@@ -418,6 +418,13 @@ In a project's People & agents list, an agent that appears in the viewer's agent
 roster is a link to its settings (`?view=agents&agent=<name>&tab=settings`);
 its avatar opens the same page for the mouse (hidden from keyboards and screen
 readers, so the name stays the one link). Other agents and people stay plain text.
+The project owner can remove any person or agent except themselves: a remove
+control at the end of the row asks for confirmation inside the row ("<name> loses
+access to this chat and its files."), then calls `DELETE
+/api/projects/:projectId/members` with the member. The route checks ownership,
+unsubscribes through the engine, rereads the roster before reporting a result,
+records `audit.project.member.removed`, and succeeds without change for someone
+already gone. Other viewers see no remove control.
 The engine posts no event when someone joins or leaves a chat, so the user UI
 reloads member lists (`GET /api/channels`) when a live or polled event shows a
 change (`rosterChange` in `chat/members.ts`): a successful

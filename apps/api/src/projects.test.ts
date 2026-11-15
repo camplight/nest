@@ -81,6 +81,22 @@ describe('project workflow against the unchanged engine',()=>{
     expect((await request(`/api/projects/${projectId}/members`,{subscriberType:'AGENT',subscriberId:'Builder',channelId:'override'})).status).toBe(400);
     expect((await request(`/api/projects/${randomUUID()}/members`,{subscriberType:'AGENT',subscriberId:'Builder'})).status).toBe(404);
   });
+  it('lets the project owner remove a member, idempotently and never themselves',async()=>{
+    const remove=(member:unknown,h=headers)=>product.app.request(`/api/projects/${projectId}/members`,{method:'DELETE',headers:h,body:JSON.stringify(member)});
+    const builders=async()=>(await (await request('/api/channels')).json()).find((c:any)=>c.id===channelId).participants.filter((m:any)=>m.subscriberId==='Builder');
+    expect((await request(`/api/projects/${projectId}/members`,{subscriberType:'AGENT',subscriberId:'Builder'})).status).toBe(200);
+    expect(await builders()).toHaveLength(1);
+    const removed=await remove({subscriberType:'AGENT',subscriberId:'Builder'});
+    expect(removed.status).toBe(200);expect(await removed.json()).toEqual({status:'removed'});
+    expect(await builders()).toHaveLength(0);
+    expect(product.store.db.prepare("SELECT payload_json FROM product_audit WHERE type='audit.project.member.removed'").all()).toHaveLength(1);
+    expect((await remove({subscriberType:'AGENT',subscriberId:'Builder'})).status).toBe(200);
+    expect(product.store.db.prepare("SELECT payload_json FROM product_audit WHERE type='audit.project.member.removed'").all()).toHaveLength(1);
+    expect((await remove({subscriberType:'HUMAN',subscriberId:'owner'})).status).toBe(400);
+    expect((await remove({subscriberType:'AGENT',subscriberId:'Builder',channelId:'override'})).status).toBe(400);
+    expect((await product.app.request(`/api/projects/${randomUUID()}/members`,{method:'DELETE',headers,body:JSON.stringify({subscriberType:'AGENT',subscriberId:'Builder'})})).status).toBe(404);
+    expect((await remove({subscriberType:'AGENT',subscriberId:'Builder'},{'content-type':'application/json'})).status).toBe(401);
+  });
   it('creates a private project chat once, including concurrent retries',async()=>{
     const body={id:randomUUID(),name:'Automatic project',description:'One workspace'};
     const results=await Promise.all([request('/api/projects',body),request('/api/projects',body)]);

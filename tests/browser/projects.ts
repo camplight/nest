@@ -160,6 +160,19 @@ try {
     await page.goBack();await page.locator('.project-about').getByText(aiBrief,{exact:true}).waitFor();
     assert.equal(await page.locator('.project-assignee',{hasText:'Moss'}).getByRole('link').count(),1,'The avatar adds no second link');
     assert.equal(await page.locator('.project-assignee').getByRole('link',{name:'owner',exact:true}).count(),0,'People are not links');
+    // The owner removes an agent after confirming; the owner's own row has no remove control.
+    assert.equal(await page.getByRole('button',{name:'Remove owner from this project',exact:true}).count(),0,'The owner cannot remove themselves');
+    await page.getByRole('button',{name:'Remove Moss from this project',exact:true}).click();
+    const confirmRemove=page.getByRole('group',{name:'Remove Moss?',exact:true});
+    await confirmRemove.getByText('Moss loses access to this chat and its files.',{exact:true}).waitFor();
+    await confirmRemove.getByRole('button',{name:'Cancel',exact:true}).click();
+    await page.locator('.project-assignee',{hasText:'Moss'}).getByRole('link',{name:'Moss',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Remove Moss from this project',exact:true}).click();
+    await page.screenshot({path:join(screenshots,'project-member-remove-desktop.png'),fullPage:true});
+    await confirmRemove.getByRole('button',{name:'Remove',exact:true}).click();
+    await page.locator('.project-assignee',{hasText:'Moss'}).waitFor({state:'detached'});
+    const afterRemoval=(await (await product.app.request('/api/channels',{headers})).json()).find((channel:any)=>channel.id===channelId);
+    assert(!afterRemoval.participants.some((member:any)=>member.subscriberType==='AGENT'&&member.subscriberId==='Moss'),'Moss left the project chat');
     console.log('AI brief visible; testing teammate access');
     // A teammate uses their own engine session to discover and open the project.
     engine.db.prepare('UPDATE humans SET must_change_password=0 WHERE username=?').run('sarah@example.com');
@@ -177,6 +190,7 @@ try {
       await teammatePage.getByRole('textbox',{name:'Message',exact:true}).waitFor();
       assert.equal(await teammatePage.getByRole('navigation',{name:'Project sections'}).getByRole('button',{name:'Members',exact:true}).count(),0);
       await teammatePage.locator('.project-about').getByText('sarah@example.com',{exact:true}).waitFor();
+      assert.equal(await teammatePage.locator('.project-about').getByRole('button',{name:/^Remove /}).count(),0,'Only the owner removes members');
       assert.equal(await teammatePage.getByRole('button',{name:'Sharing',exact:true}).count(),0);
       assert.equal(await teammatePage.getByRole('button',{name:'Edit project details',exact:true}).count(),0);
       console.log('Testing legacy project URL');
