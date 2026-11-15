@@ -167,6 +167,28 @@ try{
   // A new turn after the restart stays active until its own terminal event.
   await emit('agent.turn.started',{triggerEventId:'fresh-trigger'});await page.reload();
   await page.locator('.working-row[data-agent=Demo][data-turn-state=working]').waitFor();
+  // Hovering or focusing the working row opens the live ring: action names only, never arguments or output.
+  await emit('tool.started',{tool:'shell_run',args:{cmd:'echo synthetic-secret-arg'}});
+  await emit('tool.executed',{tool:'shell_run',args:{cmd:'echo synthetic-secret-arg'},output:'synthetic-secret-output'});
+  await appChange('Create card','ok','synthetic-ring-1');
+  await page.reload();
+  const workingRow=page.locator('.working-row[data-agent=Demo][data-turn-state=working]');
+  await workingRow.hover();
+  const ring=page.locator('.working-ring');await ring.waitFor();
+  assert.equal(await ring.locator('.ring-pulse').count(),0,'Actions from before the card opened never pulse');
+  for(const text of ['Shell · ran a command','Miro · Create card','2 actions'])await ring.getByText(text,{exact:true}).waitFor();
+  assert.equal(await ring.locator('.working-ring-station',{hasText:'Shell'}).count(),1);
+  assert.equal(await ring.locator('.working-ring-station',{hasText:'Miro'}).count(),1);
+  const ringText=await ring.innerText();
+  assert(!ringText.includes('synthetic-secret-arg')&&!ringText.includes('synthetic-secret-output'),'The ring never shows arguments or output');
+  await page.waitForTimeout(400);await page.screenshot({path:join(screenshots,'working-ring-desktop.png'),fullPage:true});
+  await page.keyboard.press('Escape');await ring.waitFor({state:'hidden'});
+  await page.mouse.move(5,5);
+  await workingRow.focus();await ring.waitFor();
+  await page.evaluate(()=>localStorage.setItem('nest-theme','dark'));await page.reload();
+  await workingRow.hover();await ring.waitFor();await ring.getByText('Shell · ran a command',{exact:true}).waitFor();
+  await page.waitForTimeout(400);await page.screenshot({path:join(screenshots,'working-ring-dark.png'),fullPage:true});
+  await page.evaluate(()=>localStorage.removeItem('nest-theme'));await page.mouse.move(5,5);
   await emit('agent.turn.completed',{triggerEventId:'fresh-trigger'});await page.reload();
   await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
   await page.getByText('[Message too large to display. The original content is retained.]',{exact:true}).waitFor();

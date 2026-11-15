@@ -154,7 +154,7 @@ function ThreadItem(){
     <TurnActivity events={item.events} tone={item.tone} formatTime={formatTime} standalone/>
    </div>}
   {view.turns.filter(turn=>turn.triggerEventId===item.id||(!next&&!view.byId.has(turn.triggerEventId))).map(turn=>
-   <WorkingRow key={turn.agent} turn={turn} activityUnavailable={view.props.snapshot.activityUnavailable}
+   <WorkingRow key={turn.agent} turn={turn} activityUnavailable={view.props.snapshot.activityUnavailable} events={view.props.snapshot.events}
     onReview={()=>view.props.onFocusMessage(turn.triggerEventId)}/>)}
   {item.meta.detached&&next&&!next.meta.detached&&<div data-slot="detached-marker" className="my-3 self-center rounded-full bg-muted/70 px-3 py-1 text-xs text-muted-foreground">Earlier messages not loaded</div>}
  </>;
