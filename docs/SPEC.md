@@ -995,12 +995,16 @@ in-app mention notifications. Unselected @ text retains ordinary channel deliver
 and may still be interpreted by an agent's coordination instructions.
 
 The picker keeps human and agent identities distinct, supports names with spaces
-and email handles. Eligible nonmembers offer Add to chat and mention when the
-human can manage invitations (the owner for product projects). Selection explicitly
-shares chat history/files, calls the existing project-members or engine-subscribe
-HTTP API, and confirms membership before inserting routing metadata. An uncertain
-response is reconciled by reading the current roster. Failure preserves the draft;
-changing chats during the request never inserts into another conversation.
+and email handles. Eligible nonmembers offer "Joins when you send" when the
+human can manage invitations (the owner for product projects). Selecting one only
+marks them in the draft (the recipient chip reads "Ask @name · joins on send");
+nobody joins until the message is sent, so editing or deleting the draft adds no
+one. On send the composer adds each marked nonmember still in the draft
+(`joiningOnSend`) through the existing project-members or engine-subscribe HTTP
+API and confirms membership before posting the message. An uncertain response is
+reconciled by reading the current roster. If anyone cannot be added, nothing is
+sent and the draft is kept ("Couldn’t add <name>. Your message wasn’t sent. Try
+again."). Changing chats during the send never clears another conversation's draft.
 Nonmanagers see an explanation. Another owner's private agent is never invited
 through this picker; published personal assistants keep their owner-approval path.
 Editing a selected name removes its routing metadata. Surrounding edits preserve

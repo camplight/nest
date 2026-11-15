@@ -16,7 +16,7 @@ import {useAttachments,restoreAttachments,type UploadedAttachment} from '../atta
 import {ChatAttachments} from '../components/ChatAttachments';
 import {useMentionPicker} from "../components/useMentionPicker";
 import {loadChatDraft,saveChatDraft,clearSentDraft,type ChatDraft} from '../drafts';
-import {reconcileMentions,type MentionCandidate} from "../mentions";
+import {joiningOnSend,reconcileMentions,type MentionCandidate} from "../mentions";
 import {CornerUpLeftIcon,XIcon} from 'lucide-react';
 import {apiFetch,getApiHeaders} from "../api";
 import type {Channel} from "../types";
@@ -109,7 +109,7 @@ export function useComposerSession(options:ComposerSessionOptions){
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeChannelId || activeChannel?.archivedAt || !activeChannelCanPost) return;
-    if (uploadingAttachmentCount > 0 || hasAttachmentErrors || mentions.inviting || sending) return;
+    if (uploadingAttachmentCount > 0 || hasAttachmentErrors || sending) return;
     const trimmedText = draft.trim();
     if (!trimmedText && readyAttachments.length === 0) return;
 
@@ -126,6 +126,11 @@ export function useComposerSession(options:ComposerSessionOptions){
       const request=sendRequestRef.current;
       const saved:ChatDraft={...draftState,attachments:message.attachments,request,...(replyTo?{replyTo}:{})};
       if(userId)setDraftStored(saveChatDraft(userId,activeChannelId,saved));
+      // People picked from outside the chat join now, just before the message; if one can't be added, nothing is sent.
+      for(const candidate of joiningOnSend(draftState.mentions,options.mentionCandidates)){
+        try{await options.onInvite(candidate);}
+        catch{options.onError(`Couldn’t add ${candidate.name}. Your message wasn’t sent. Try again.`);return;}
+      }
       await apiFetch('/api/messages',{method:'POST',headers:getApiHeaders(),body:JSON.stringify({id:request.id,...message})});
       if(userId)clearSentDraft(userId,activeChannelId,saved);
       if(activeChannelIdRef.current!==activeChannelId)return;
@@ -180,6 +185,7 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
   useLayoutEffect(()=>{session.bindCommands({inProject:props.inProject,openInvite:props.openInvite,openFiles:props.openFiles});});
   const showSend=!props.stop||Boolean(draft.trim())||pendingAttachments.length>0||sending;
   const draftRecipients=[...new Map(draftState.mentions.map(m=>[m.kind+':'+m.name,m])).values()];
+  const joining=new Set(joiningOnSend(draftState.mentions,props.mentionCandidates).map(candidate=>(candidate.kind==='Agent'?'AGENT':'HUMAN')+':'+candidate.name));
 
   function handlePickFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
@@ -293,7 +299,7 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
             rows={1}
           />
           </div>
-          {draftRecipients.length>0&&<div className="mention-delivery" aria-label="Message recipients">{draftRecipients.map(m=><span key={m.kind+':'+m.name}>{m.kind==='AGENT'?'Ask':'Notify'} @{m.name}<button type="button" aria-label={'Remove mention @'+m.name} onClick={()=>{const spans=draftState.mentions.filter(x=>x.kind===m.kind&&x.name===m.name).sort((a,b)=>b.start-a.start);let next=draft;for(const span of spans)next=next.slice(0,span.start)+next.slice(span.end);setDraft(next);}}>×</button></span>)}</div>}
+          {draftRecipients.length>0&&<div className="mention-delivery" aria-label="Message recipients">{draftRecipients.map(m=><span key={m.kind+':'+m.name}>{m.kind==='AGENT'?'Ask':'Notify'} @{m.name}{joining.has(m.kind+':'+m.name)?' · joins on send':''}<button type="button" aria-label={'Remove mention @'+m.name} onClick={()=>{const spans=draftState.mentions.filter(x=>x.kind===m.kind&&x.name===m.name).sort((a,b)=>b.start-a.start);let next=draft;for(const span of spans)next=next.slice(0,span.start)+next.slice(span.end);setDraft(next);}}>×</button></span>)}</div>}
           <p className="mention-delivery-hint"><span>{draftRecipients.some(m=>m.kind==='AGENT')?'The selected agents receive this request.':'Select an @mention to direct a request or notify a person.'}</span>{draft.trim()&&<span className="draft-storage-status" role="status">{draftStored?'Draft saved on this device':'Draft storage is unavailable. Keep this tab open until you send.'}</span>}</p>
           <div className="composer-actions">
             <button
@@ -323,7 +329,7 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
                 !activeChannel ||
                 Boolean(activeChannel.archivedAt) ||
                 !activeChannelCanPost ||
-                sending || Boolean(mentions.inviting) || hasAttachmentErrors ||
+                sending || hasAttachmentErrors ||
                 uploadingAttachmentCount > 0 ||
                 (!draft.trim() && readyAttachments.length === 0)
               }
