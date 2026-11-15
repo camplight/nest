@@ -63,13 +63,14 @@ export function WorkingRing({agent,since,events}:{agent:string;since:number;even
    <div className="absolute -translate-x-1/2 -translate-y-1/2" style={{left:`${CX/W*100}%`,top:`${CY/H*100}%`}}><AgentAvatar name={agent} size={44}/></div>
    {placed.map(({station,x,y})=><Station key={station.key} station={station} left={x/W*100} top={y/H*100}/>)}
   </div>
-  {state.feed.length>0&&<ul className="working-ring-feed m-0 mt-1 list-none border-t border-border p-0 pt-2 text-[12.5px]">
+  {/* Room for all five entries from the start, so the card never grows (or flips) while it is open. */}
+  <ul className="working-ring-feed m-0 mt-1 min-h-[126px] list-none border-t border-border p-0 pt-2 text-[12.5px]">
    {state.feed.map(entry=><li key={entry.id} className={cn('flex items-center gap-2 py-0.5',entry.failed&&'is-failed')}>
     {entry.failed?<XIcon aria-label="failed" className="size-3.5 shrink-0"/>:<CheckIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground"/>}
     <span className="min-w-0 truncate">{entry.text}</span>
     <span className="ms-auto shrink-0 text-[11px] text-muted-foreground">{ago(now-entry.at)}</span>
    </li>)}
-  </ul>}
+  </ul>
  </div>;
 }
 

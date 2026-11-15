@@ -17,7 +17,7 @@ export function WorkingRow({turn,activityUnavailable,onReview,events=[]}:{turn:W
  return <HoverCard.Root openDelay={150} closeDelay={100}>
   <HoverCard.Trigger asChild>{row}</HoverCard.Trigger>
   <HoverCard.Portal container={container}>
-   <HoverCard.Content side="bottom" align="start" sideOffset={6} collisionPadding={16}
+   <HoverCard.Content side="top" align="start" sideOffset={6} collisionPadding={16}
     className="z-50 rounded-xl border border-border bg-popover p-4 pb-3 text-popover-foreground shadow-lg animate-in fade-in-0 zoom-in-95">
     <WorkingRing agent={turn.agent} since={turn.since} events={events}/>
    </HoverCard.Content>

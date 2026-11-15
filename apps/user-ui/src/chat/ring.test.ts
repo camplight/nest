@@ -41,7 +41,11 @@ describe('ringState',()=>{
  it('marks a failing command',()=>{
   const state=ringState([ev('tool.started',{tool:'shell_run'},1),runner('process.exited',{exitCode:2},2),ev('tool.executed',{tool:'shell_run'},3)],'Pip',0);
   expect(state.stations[0]).toMatchObject({key:'shell',failed:true,count:1});
-  expect(state.feed.find(entry=>entry.failed)?.text).toBe('Shell · a command stopped with an error');
+  expect(state.feed.map(entry=>[entry.text,entry.failed])).toEqual([['Shell · a command stopped with an error',true]]);
+ });
+ it('lists a background command that fails after its tool returned',()=>{
+  const state=ringState([ev('tool.started',{tool:'shell_start'},1),ev('tool.executed',{tool:'shell_start'},2),runner('process.exited',{exitCode:1},3)],'Pip',0);
+  expect(state.feed.map(entry=>[entry.text,entry.failed])).toEqual([['Shell · a command stopped with an error',true],['Shell · started a background command',false]]);
  });
  it('marks a failed tool',()=>{
   const state=ringState([ev('tool.started',{tool:'fs_write'},1),ev('tool.failed',{tool:'fs_write',error:'secret-error'},2)],'Pip',0);

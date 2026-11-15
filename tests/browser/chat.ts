@@ -182,6 +182,17 @@ try{
   const ringText=await ring.innerText();
   assert(!ringText.includes('synthetic-secret-arg')&&!ringText.includes('synthetic-secret-output'),'The ring never shows arguments or output');
   await page.waitForTimeout(400);await page.screenshot({path:join(screenshots,'working-ring-desktop.png'),fullPage:true});
+  // On a laptop-height window the card never covers the composer and keeps its place as actions arrive.
+  await page.setViewportSize({width:1440,height:900});await page.mouse.move(5,5);await ring.waitFor({state:'hidden'});
+  await workingRow.scrollIntoViewIfNeeded();await workingRow.hover();await ring.waitFor();await page.waitForTimeout(400);
+  const composerBox=(await page.locator('.nest-chat-composer').boundingBox())!;
+  const ringBefore=(await ring.boundingBox())!;
+  assert(ringBefore.y+ringBefore.height<=composerBox.y,`The ring covers the composer (${ringBefore.y+ringBefore.height} > ${composerBox.y})`);
+  await emit('tool.started',{tool:'fs_read',args:{path:'/synthetic-secret-path'}});await emit('tool.executed',{tool:'fs_read',output:'synthetic-secret-output'});
+  await ring.getByText('3 actions',{exact:true}).waitFor();await page.waitForTimeout(300);
+  const ringAfter=(await ring.boundingBox())!;
+  assert.deepEqual([ringAfter.y,ringAfter.height],[ringBefore.y,ringBefore.height],'The ring keeps its size and place while actions arrive');
+  await page.setViewportSize({width:1440,height:1000});
   await page.keyboard.press('Escape');await ring.waitFor({state:'hidden'});
   await page.mouse.move(5,5);
   await workingRow.focus();await ring.waitFor();
