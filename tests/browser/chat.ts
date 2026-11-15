@@ -171,12 +171,16 @@ try{
   await emit('tool.started',{tool:'shell_run',args:{cmd:'echo synthetic-secret-arg'}});
   await emit('tool.executed',{tool:'shell_run',args:{cmd:'echo synthetic-secret-arg'},output:'synthetic-secret-output'});
   await appChange('Create card','ok','synthetic-ring-1');
+  await appChange('Create card','ok','synthetic-ring-2');
   await page.reload();
   const workingRow=page.locator('.working-row[data-agent=Demo][data-turn-state=working]');
   await workingRow.hover();
   const ring=page.locator('.working-ring');await ring.waitFor();
   assert.equal(await ring.locator('.ring-pulse').count(),0,'Actions from before the card opened never pulse');
-  for(const text of ['Shell · ran a command','Miro · Create card','2 actions'])await ring.getByText(text,{exact:true}).waitFor();
+  for(const text of ['Shell · ran a command','Miro · Create card','3 actions','Demo is thinking…'])await ring.getByText(text,{exact:true}).waitFor();
+  // Repeats in a row share one line with a count.
+  assert.equal(await ring.locator('.working-ring-feed li',{hasText:'Miro · Create card'}).count(),1);
+  await ring.locator('.working-ring-feed li',{hasText:'Miro · Create card'}).getByText('×2',{exact:true}).waitFor();
   assert.equal(await ring.locator('.working-ring-station',{hasText:'Shell'}).count(),1);
   assert.equal(await ring.locator('.working-ring-station',{hasText:'Miro'}).count(),1);
   const ringText=await ring.innerText();
@@ -189,15 +193,20 @@ try{
   const ringBefore=(await ring.boundingBox())!;
   assert(ringBefore.y+ringBefore.height<=composerBox.y,`The ring covers the composer (${ringBefore.y+ringBefore.height} > ${composerBox.y})`);
   await emit('tool.started',{tool:'fs_read',args:{path:'/synthetic-secret-path'}});await emit('tool.executed',{tool:'fs_read',output:'synthetic-secret-output'});
-  await ring.getByText('3 actions',{exact:true}).waitFor();await page.waitForTimeout(300);
+  await ring.getByText('4 actions',{exact:true}).waitFor();await page.waitForTimeout(300);
   const ringAfter=(await ring.boundingBox())!;
   assert.deepEqual([ringAfter.y,ringAfter.height],[ringBefore.y,ringBefore.height],'The ring keeps its size and place while actions arrive');
+  // A running command names itself in the header with how long it has run.
+  await emit('tool.started',{tool:'shell_run',args:{cmd:'sleep synthetic-secret-arg'}});
+  await ring.getByText(/^Demo is waiting on a command · \d+s$/).waitFor();
+  await emit('tool.executed',{tool:'shell_run',output:'synthetic-secret-output'});
+  await ring.getByText('Demo is thinking…',{exact:true}).waitFor();
   await page.setViewportSize({width:1440,height:1000});
   await page.keyboard.press('Escape');await ring.waitFor({state:'hidden'});
   await page.mouse.move(5,5);
   await workingRow.focus();await ring.waitFor();
   await page.evaluate(()=>localStorage.setItem('nest-theme','dark'));await page.reload();
-  await workingRow.hover();await ring.waitFor();await ring.getByText('Shell · ran a command',{exact:true}).waitFor();
+  await workingRow.hover();await ring.waitFor();await ring.getByText('Shell · ran a command',{exact:true}).first().waitFor();
   await page.waitForTimeout(400);await page.screenshot({path:join(screenshots,'working-ring-dark.png'),fullPage:true});
   await page.evaluate(()=>localStorage.removeItem('nest-theme'));await page.mouse.move(5,5);
   await emit('agent.turn.completed',{triggerEventId:'fresh-trigger'});await page.reload();

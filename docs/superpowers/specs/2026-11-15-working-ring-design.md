@@ -94,3 +94,13 @@ ellipse in first-use order, `IntegrationLogo` for apps, lucide icons for the res
 - Process exits count as Shell actions, coloured with the existing Details rule.
 - Keyboard focus opens the card too, so it is not mouse-only.
 - Mobile shows nothing new until we decide how touch should open it.
+
+## Follow-up: state line and merged repeats (approved 2026-11-15)
+
+The header names what the agent is doing now instead of "is working": "is
+thinking…" (no tool running; the engine reports no separate reasoning events),
+"is waiting on a command · 40s" (a shell tool running, timed from its start),
+"is using Fathom" (that command has called a connected app), otherwise "is
+working". Identical actions in a row share one feed line with a count ("Fathom ·
+List Meetings ×30"), so a loop is visible at a glance. No new sections: context
+use, step counts and output stay in Details.

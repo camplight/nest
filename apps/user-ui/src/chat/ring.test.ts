@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {RING_MAX_STATIONS,ringState} from './ring';
+import {RING_MAX_STATIONS,ringState,ringStatusText} from './ring';
 import type {EventRow} from '../types';
 
 let n=0;
@@ -71,6 +71,52 @@ describe('ringState',()=>{
   ],'Pip',0);
   expect(JSON.stringify(state)).not.toMatch(/secret/);
   expect(texts(state)).toEqual(['Other · used a tool','Files · read a file']);
+ });
+ it('is thinking when no tool is running',()=>{
+  expect(ringState([ev('tool.started',{tool:'fs_read'},1),ev('tool.executed',{tool:'fs_read'},2)],'Pip',0).status).toEqual({kind:'thinking'});
+ });
+ it('waits on a running command since it started',()=>{
+  expect(ringState([ev('tool.started',{tool:'shell_run'},5),runner('process.started',{processId:'p'},6)],'Pip',0).status).toEqual({kind:'command',since:5});
+ });
+ it('names the app a running command is using',()=>{
+  const state=ringState([ev('tool.started',{tool:'shell_run'},5),action('fathom','List Meetings','read','ok',6),action('miro','Get board','read','ok',7)],'Pip',0);
+  expect(state.status).toEqual({kind:'app',label:'Miro'});
+ });
+ it('does not name an app used by an earlier command',()=>{
+  const state=ringState([
+   ev('tool.started',{tool:'shell_run'},1),action('miro','Get board','read','ok',2),ev('tool.executed',{tool:'shell_run'},3),
+   ev('tool.started',{tool:'shell_run'},4),
+  ],'Pip',0);
+  expect(state.status).toEqual({kind:'command',since:4});
+ });
+ it('is working while another tool runs',()=>{
+  expect(ringState([ev('tool.started',{tool:'fs_read'},1)],'Pip',0).status).toEqual({kind:'working'});
+ });
+ it('merges repeated actions in a row into one entry with a count',()=>{
+  const state=ringState([
+   action('fathom','List Meetings','read','ok',1),action('fathom','List Meetings','read','ok',2),action('fathom','List Meetings','read','ok',3),
+   action('miro','Get board','read','ok',4),action('fathom','List Meetings','read','ok',5),
+  ],'Pip',0);
+  expect(state.feed.map(entry=>[entry.text,entry.count])).toEqual([['Fathom · List Meetings',1],['Miro · Get board',1],['Fathom · List Meetings',3]]);
+  expect(state.feed[2]?.at).toBe(3);
+  expect(state.actions).toBe(5);
+ });
+ it('keeps five distinct entries when many repeats come first',()=>{
+  const repeats=Array.from({length:30},(_,index)=>action('fathom','List Meetings','read','ok',index+1));
+  const state=ringState([...repeats,...['a','b','c','d'].map((step,index)=>action('miro',`Step ${step}`,'read','ok',40+index))],'Pip',0);
+  expect(state.feed.map(entry=>entry.text).at(-1)).toBe('Fathom · List Meetings');
+  expect(state.feed.at(-1)?.count).toBe(30);
+ });
+ it('never merges a failure into successes',()=>{
+  const state=ringState([action('miro','Create card','create','ok',1),action('miro','Create card','create','failed',2)],'Pip',0);
+  expect(state.feed.map(entry=>[entry.failed,entry.count])).toEqual([[true,1],[false,1]]);
+ });
+ it('says what the agent is doing in one line',()=>{
+  expect(ringStatusText('Pip',{kind:'thinking'},0)).toBe('Pip is thinking…');
+  expect(ringStatusText('Pip',{kind:'command',since:1000},41_000)).toBe('Pip is waiting on a command · 40s');
+  expect(ringStatusText('Pip',{kind:'command',since:0},75_000)).toBe('Pip is waiting on a command · 1m 15s');
+  expect(ringStatusText('Pip',{kind:'app',label:'Fathom'},0)).toBe('Pip is using Fathom');
+  expect(ringStatusText('Pip',{kind:'working'},0)).toBe('Pip is working');
  });
  it('keeps the last five actions',()=>{
   const state=ringState(Array.from({length:7},(_,index)=>action('miro',`Step ${index}`,'read','ok',index+1)),'Pip',0);

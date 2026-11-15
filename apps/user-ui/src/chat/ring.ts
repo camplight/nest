@@ -4,9 +4,20 @@ import type {EventRow} from '../types';
 import {connectionAppName} from '../components/ConnectionActions';
 
 export type RingStation={key:string;label:string;app?:string;count:number;failed:boolean};
-export type RingEntry={id:string;station:string;text:string;failed:boolean;at:number};
-export type RingState={stations:RingStation[];feed:RingEntry[];actions:number;thinking:boolean};
+/** One feed line; `count` is how many identical actions in a row it stands for, `at` the latest of them. */
+export type RingEntry={id:string;station:string;text:string;failed:boolean;at:number;count:number};
+/** What the agent is doing now: thinking between actions, waiting on a command (since it started), using an app inside a command, or running another tool. */
+export type RingStatus={kind:'thinking'}|{kind:'command';since:number}|{kind:'app';label:string}|{kind:'working'};
+export type RingState={stations:RingStation[];feed:RingEntry[];actions:number;thinking:boolean;status:RingStatus};
 export const RING_MAX_STATIONS=8;
+
+export const elapsed=(ms:number)=>{const s=Math.max(0,Math.floor(ms/1000));return s<60?`${s}s`:`${Math.floor(s/60)}m ${s%60}s`;};
+/** One line saying what the agent is doing right now. */
+export const ringStatusText=(agent:string,status:RingStatus,now:number)=>
+ status.kind==='thinking'?`${agent} is thinking…`
+ :status.kind==='command'?`${agent} is waiting on a command · ${elapsed(now-status.since)}`
+ :status.kind==='app'?`${agent} is using ${status.label}`
+ :`${agent} is working`;
 const FEED_SIZE=5;
 
 const FAMILIES:[prefix:string,key:string,label:string][]=[
@@ -39,12 +50,19 @@ export function ringState(events:readonly EventRow[],agent:string,since:number):
  const stations:RingStation[]=[];
  const feed:RingEntry[]=[];
  let actions=0,inFlight=0,shellInFlight=0,shellFailures=0;
+ // Start times of running shell tools, and the latest app used: an app call made since the newest command began names that command.
+ const shellStarts:number[]=[];
+ let lastApp:{label:string;at:number}|undefined;
  const station=(key:string,label:string,app?:string)=>{
   let found=stations.find(item=>item.key===key);
   if(!found){found={key,label,...(app?{app}:{}),count:0,failed:false};stations.push(found);}
   return found;
  };
- const add=(event:EventRow,key:string,text:string,failed:boolean)=>feed.push({id:event.id,station:key,text,failed,at:event.createdAt??0});
+ const add=(event:EventRow,key:string,text:string,failed:boolean)=>{
+  const at=event.createdAt??0,last=feed.at(-1);
+  if(last&&last.text===text&&last.failed===failed){last.count++;last.at=at;}
+  else feed.push({id:event.id,station:key,text,failed,at,count:1});
+ };
  for(const event of events){
   if((event.createdAt??0)<since||agentOf(event)!==agent)continue;
   const p=record(event.payload);
@@ -52,13 +70,13 @@ export function ringState(events:readonly EventRow[],agent:string,since:number):
   if(event.type==='tool.started'){
    const {key,label}=family(tool);
    station(key,label).count++;actions++;inFlight++;
-   if(key==='shell')shellInFlight++;
+   if(key==='shell'){shellInFlight++;shellStarts.push(event.createdAt??0);}
   }else if(event.type==='tool.executed'||event.type==='tool.failed'){
    const {key,label}=family(tool);
    inFlight=Math.max(0,inFlight-1);
    // shell_run reports a non-zero exit as a normal result: its process exit already marked the failure.
    const exitFailed=key==='shell'&&shellFailures>0;
-   if(key==='shell'){shellInFlight=Math.max(0,shellInFlight-1);if(exitFailed)shellFailures--;}
+   if(key==='shell'){shellInFlight=Math.max(0,shellInFlight-1);shellStarts.shift();if(exitFailed)shellFailures--;}
    const failed=event.type==='tool.failed'||exitFailed;
    if(failed)station(key,label).failed=true;
    add(event,key,exitFailed?'Shell · a command stopped with an error':`${label} · ${verb(tool,key)}`,failed);
@@ -71,11 +89,17 @@ export function ringState(events:readonly EventRow[],agent:string,since:number):
    const target=station(key,label,p.app);
    const failed=p.outcome==='failed';
    target.count++;actions++;
+   lastApp={label,at:event.createdAt??0};
    if(failed)target.failed=true;
    add(event,key,`${label} · ${p.title.trim()}`,failed);
   }
  }
- return {stations:fold(stations),feed:feed.slice(-FEED_SIZE).reverse(),actions,thinking:inFlight===0};
+ const newestCommand=shellStarts.at(-1);
+ const status:RingStatus=inFlight===0?{kind:'thinking'}
+  :newestCommand===undefined?{kind:'working'}
+  :lastApp&&lastApp.at>=newestCommand?{kind:'app',label:lastApp.label}
+  :{kind:'command',since:shellStarts[0]!};
+ return {stations:fold(stations),feed:feed.slice(-FEED_SIZE).reverse(),actions,thinking:inFlight===0,status};
 }
 
 /** First-use order; past the limit the first seven stay and the rest share one "Other" station. */

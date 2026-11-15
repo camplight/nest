@@ -6,7 +6,7 @@ import {BotIcon,BrainIcon,CheckIcon,FileTextIcon,MessageSquareIcon,TerminalIcon,
 import type {EventRow} from '../types';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {IntegrationLogo} from '../components/IntegrationLogo';
-import {ringState,type RingStation} from './ring';
+import {elapsed,ringState,ringStatusText,type RingStation} from './ring';
 import {cn} from './ui/lib/utils';
 
 const W=340,H=236,CX=W/2,CY=H/2-8,RX=126,RY=82;
@@ -20,7 +20,6 @@ const position=(index:number,count:number)=>{
  const angle=start+index*(2*Math.PI/Math.max(count,1));
  return {x:CX+RX*Math.cos(angle),y:CY+RY*Math.sin(angle)};
 };
-const elapsed=(ms:number)=>{const s=Math.max(0,Math.floor(ms/1000));return s<60?`${s}s`:`${Math.floor(s/60)}m ${s%60}s`;};
 const ago=(ms:number)=>ms<2000?'now':elapsed(ms);
 
 export function WorkingRing({agent,since,events}:{agent:string;since:number;events:readonly EventRow[]}){
@@ -43,8 +42,8 @@ export function WorkingRing({agent,since,events}:{agent:string;since:number;even
  const placed=state.stations.map((station,index)=>({station,...position(index,state.stations.length)}));
  return <div className="working-ring w-[min(380px,calc(100vw-32px))] text-foreground">
   <div className="flex items-baseline justify-between gap-3 text-sm">
-   <strong className="font-semibold">{agent} is working</strong>
-   <span className="flex gap-1.5 text-xs text-muted-foreground"><span>{elapsed(now-since)}</span><span aria-hidden="true">·</span><span>{state.actions} {state.actions===1?'action':'actions'}</span></span>
+   <strong className="working-ring-status min-w-0 truncate font-semibold">{ringStatusText(agent,state.status,now)}</strong>
+   <span className="flex shrink-0 gap-1.5 text-xs text-muted-foreground"><span>{elapsed(now-since)}</span><span aria-hidden="true">·</span><span>{state.actions} {state.actions===1?'action':'actions'}</span></span>
   </div>
   <div className="relative mx-auto mt-1" style={{width:W,maxWidth:'100%',aspectRatio:`${W}/${H}`}}>
    <svg viewBox={`0 0 ${W} ${H}`} className="absolute inset-0 size-full overflow-visible" aria-hidden="true">
@@ -68,6 +67,7 @@ export function WorkingRing({agent,since,events}:{agent:string;since:number;even
    {state.feed.map(entry=><li key={entry.id} className={cn('flex items-center gap-2 py-0.5',entry.failed&&'is-failed')}>
     {entry.failed?<XIcon aria-label="failed" className="size-3.5 shrink-0"/>:<CheckIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground"/>}
     <span className="min-w-0 truncate">{entry.text}</span>
+    {entry.count>1&&<span className="shrink-0 text-[11px] text-muted-foreground">×{entry.count}</span>}
     <span className="ms-auto shrink-0 text-[11px] text-muted-foreground">{ago(now-entry.at)}</span>
    </li>)}
   </ul>
