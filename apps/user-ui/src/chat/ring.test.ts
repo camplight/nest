@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {RING_MAX_STATIONS,ringState,ringStatusText} from './ring';
+import {RING_MAX_STATIONS,finishedText,finishedTurn,ringState,ringStatusText} from './ring';
 import type {EventRow} from '../types';
 
 let n=0;
@@ -122,5 +122,27 @@ describe('ringState',()=>{
   const state=ringState(Array.from({length:7},(_,index)=>action('miro',`Step ${index}`,'read','ok',index+1)),'Pip',0);
   expect(texts(state)).toEqual(['Miro · Step 6','Miro · Step 5','Miro · Step 4','Miro · Step 3','Miro · Step 2']);
   expect(state.actions).toBe(7);
+ });
+});
+
+describe('finishedTurn',()=>{
+ it('spans the turn from its start to its end',()=>{
+  const events=[ev('agent.turn.started',{},1000),ev('tool.started',{tool:'shell_run'},2000),ev('tool.executed',{tool:'shell_run'},3000),ev('agent.turn.completed',{},253_000)];
+  expect(finishedTurn(events,'Pip')).toEqual({since:1000,until:253_000,outcome:'done'});
+ });
+ it('reads a stopped and a failed turn',()=>{
+  expect(finishedTurn([ev('agent.turn.started',{},0),ev('agent.turn.completed',{cancelled:true},5000)],'Pip')?.outcome).toBe('stopped');
+  expect(finishedTurn([ev('wrapper.turn.started',{},0),ev('wrapper.turn.failed',{error:'x'},5000)],'Pip')?.outcome).toBe('failed');
+ });
+ it("falls back to the agent's first and last events when the turn start is not loaded",()=>{
+  expect(finishedTurn([ev('tool.started',{tool:'fs_read'},4000),ev('tool.executed',{tool:'fs_read'},9000)],'Pip')).toEqual({since:4000,until:9000,outcome:'done'});
+ });
+ it("ignores other agents' events and has nothing for an agent with none",()=>{
+  expect(finishedTurn([ev('agent.turn.started',{},0,'agent:Ann')],'Pip')).toBeNull();
+ });
+ it('says how the turn went in one line',()=>{
+  expect(finishedText('Pip',{since:1000,until:253_000,outcome:'done'})).toBe('Pip worked for 4m 12s');
+  expect(finishedText('Pip',{since:0,until:12_000,outcome:'stopped'})).toBe('Pip stopped after 12s');
+  expect(finishedText('Pip',{since:0,until:12_000,outcome:'failed'})).toBe('Pip failed after 12s');
  });
 });

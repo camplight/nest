@@ -104,3 +104,12 @@ thinking…" (no tool running; the engine reports no separate reasoning events),
 working". Identical actions in a row share one feed line with a count ("Fathom ·
 List Meetings ×30"), so a loop is visible at a glance. No new sections: context
 use, step counts and output stay in Details.
+
+## Follow-up: empty state and finished replies (approved 2026-11-15)
+
+Before the first action the ring shows a faint dashed orbit and "No actions yet.
+Tools and apps <agent> uses will appear here." Hovering the agent's avatar on a
+finished reply that has Details opens the same card for that turn, still: "worked
+for 4m 12s" / "stopped after" / "failed after", stations, counts and the last five
+actions, without timer, ages or motion. Call made: the avatar is hover-only (not a
+tab stop on every reply); Details stays the keyboard path.

@@ -167,6 +167,12 @@ try{
   // A new turn after the restart stays active until its own terminal event.
   await emit('agent.turn.started',{triggerEventId:'fresh-trigger'});await page.reload();
   await page.locator('.working-row[data-agent=Demo][data-turn-state=working]').waitFor();
+  // Before the first action the ring says nothing has happened yet instead of showing an empty card.
+  await page.locator('.working-row[data-agent=Demo][data-turn-state=working]').hover();
+  await page.locator('.working-ring').getByText('No actions yet. Tools and apps Demo uses will appear here.',{exact:true}).waitFor();
+  assert.equal(await page.locator('.working-ring .working-ring-orbit').count(),1);
+  await page.waitForTimeout(400);await page.screenshot({path:join(screenshots,'working-ring-empty.png'),fullPage:true});
+  await page.mouse.move(5,5);await page.locator('.working-ring').waitFor({state:'hidden'});
   // Hovering or focusing the working row opens the live ring: action names only, never arguments or output.
   await emit('tool.started',{tool:'shell_run',args:{cmd:'echo synthetic-secret-arg'}});
   await emit('tool.executed',{tool:'shell_run',args:{cmd:'echo synthetic-secret-arg'},output:'synthetic-secret-output'});
@@ -282,6 +288,14 @@ try{
   await turn.getByText('Miro · Create sticky note item',{exact:true}).waitFor();
   await turn.getByText('Miro · Delete card may not have finished. Check Miro before trying again',{exact:true}).waitFor();
   assert.equal(await turn.locator('.trace-chip').count(),0,'Raw events stay hidden until Details is opened');
+  // Hovering the agent's avatar on a finished reply shows that turn's ring, still.
+  await page.locator('article.message',{has:turn}).locator('.reply-ring-trigger').hover();
+  const finishedRing=page.locator('.working-ring');await finishedRing.waitFor();
+  await finishedRing.getByText(/^Demo (worked for|failed after|stopped after) \d+s$/).waitFor();
+  await finishedRing.locator('.working-ring-feed').getByText('Miro · Create sticky note item',{exact:true}).waitFor();
+  assert.equal(await finishedRing.locator('.ring-pulse').count(),0,'A finished ring never pulses');
+  await page.waitForTimeout(400);await page.screenshot({path:join(screenshots,'reply-ring-desktop.png'),fullPage:true});
+  await page.mouse.move(5,5);await finishedRing.waitFor({state:'hidden'});
   assert.equal(await page.locator('.message-human .turn-activity').count(),0,"Activity never sits under the person's question");
   // A turn that never replied stands on its own, so its control names the agent (spec: under the agent's name).
   await page.locator('.turn-activity-details > summary',{hasText:'Demo · Details'}).first().waitFor();

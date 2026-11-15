@@ -6,7 +6,7 @@ import {BotIcon,BrainIcon,CheckIcon,FileTextIcon,MessageSquareIcon,TerminalIcon,
 import type {EventRow} from '../types';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {IntegrationLogo} from '../components/IntegrationLogo';
-import {elapsed,ringState,ringStatusText,type RingStation} from './ring';
+import {elapsed,finishedText,ringState,ringStatusText,type FinishedTurn,type RingStation} from './ring';
 import {cn} from './ui/lib/utils';
 
 const W=340,H=236,CX=W/2,CY=H/2-8,RX=126,RY=82;
@@ -22,11 +22,16 @@ const position=(index:number,count:number)=>{
 };
 const ago=(ms:number)=>ms<2000?'now':elapsed(ms);
 
-export function WorkingRing({agent,since,events}:{agent:string;since:number;events:readonly EventRow[]}){
+/** The live ring of an open turn, or with `finished` a still picture of a finished one (no timer, motion or ages). */
+export function WorkingRing({agent,since,events,finished}:{agent:string;since:number;events:readonly EventRow[];finished?:FinishedTurn}){
  const state=useMemo(()=>ringState(events,agent,since),[events,agent,since]);
- const reduced=useReducedMotion();
+ const reduced=useReducedMotion()||Boolean(finished);
  const [now,setNow]=useState(()=>Date.now());
- useEffect(()=>{const id=window.setInterval(()=>setNow(Date.now()),1000);return ()=>window.clearInterval(id);},[]);
+ useEffect(()=>{
+  if(finished)return;
+  const id=window.setInterval(()=>setNow(Date.now()),1000);return ()=>window.clearInterval(id);
+ },[finished]);
+ const empty=state.stations.length===0;
  // Pulse only for actions that arrive while the card is open: counts seen at mount never pulse.
  const seen=useRef<Map<string,number>|null>(null);
  const [pulses,setPulses]=useState<{id:number;key:string}[]>([]);
@@ -42,11 +47,13 @@ export function WorkingRing({agent,since,events}:{agent:string;since:number;even
  const placed=state.stations.map((station,index)=>({station,...position(index,state.stations.length)}));
  return <div className="working-ring w-[min(380px,calc(100vw-32px))] text-foreground">
   <div className="flex items-baseline justify-between gap-3 text-sm">
-   <strong className="working-ring-status min-w-0 truncate font-semibold">{ringStatusText(agent,state.status,now)}</strong>
-   <span className="flex shrink-0 gap-1.5 text-xs text-muted-foreground"><span>{elapsed(now-since)}</span><span aria-hidden="true">·</span><span>{state.actions} {state.actions===1?'action':'actions'}</span></span>
+   <strong className="working-ring-status min-w-0 truncate font-semibold">{finished?finishedText(agent,finished):ringStatusText(agent,state.status,now)}</strong>
+   <span className="flex shrink-0 gap-1.5 text-xs text-muted-foreground">{!finished&&<><span>{elapsed(now-since)}</span><span aria-hidden="true">·</span></>}<span>{state.actions} {state.actions===1?'action':'actions'}</span></span>
   </div>
   <div className="relative mx-auto mt-1" style={{width:W,maxWidth:'100%',aspectRatio:`${W}/${H}`}}>
    <svg viewBox={`0 0 ${W} ${H}`} className="absolute inset-0 size-full overflow-visible" aria-hidden="true">
+    {/* Before the first action, a faint orbit shows where stations will appear. */}
+    {empty&&<ellipse className="working-ring-orbit fill-none stroke-border" cx={CX} cy={CY} rx={RX} ry={RY} strokeWidth={1} strokeDasharray="3 5"/>}
     {placed.map(({station,x,y})=><line key={station.key} x1={CX} y1={CY} x2={x} y2={y} className="stroke-border" strokeWidth={1}/>)}
     {state.thinking&&!reduced&&<motion.circle cx={CX} cy={CY} r={24} fill="none" className="stroke-primary" strokeWidth={2}
      initial={{scale:1,opacity:.6}} animate={{scale:1.5,opacity:0}} transition={{duration:1.1,repeat:Infinity,ease:'easeOut'}} style={{transformOrigin:`${CX}px ${CY}px`}}/>}
@@ -64,11 +71,12 @@ export function WorkingRing({agent,since,events}:{agent:string;since:number;even
   </div>
   {/* Room for all five entries from the start, so the card never grows (or flips) while it is open. */}
   <ul className="working-ring-feed m-0 mt-1 min-h-[126px] list-none border-t border-border p-0 pt-2 text-[12.5px]">
+   {empty&&<li className="working-ring-empty py-0.5 text-muted-foreground">{finished?`No tools or apps used. ${agent} answered directly.`:`No actions yet. Tools and apps ${agent} uses will appear here.`}</li>}
    {state.feed.map(entry=><li key={entry.id} className={cn('flex items-center gap-2 py-0.5',entry.failed&&'is-failed')}>
     {entry.failed?<XIcon aria-label="failed" className="size-3.5 shrink-0"/>:<CheckIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground"/>}
     <span className="min-w-0 truncate">{entry.text}</span>
     {entry.count>1&&<span className="shrink-0 text-[11px] text-muted-foreground">×{entry.count}</span>}
-    <span className="ms-auto shrink-0 text-[11px] text-muted-foreground">{ago(now-entry.at)}</span>
+    {!finished&&<span className="ms-auto shrink-0 text-[11px] text-muted-foreground">{ago(now-entry.at)}</span>}
    </li>)}
   </ul>
  </div>;

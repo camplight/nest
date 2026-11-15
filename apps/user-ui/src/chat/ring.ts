@@ -110,3 +110,23 @@ function fold(stations:RingStation[]):RingStation[]{
  const other:RingStation={key:'other',label:'Other',count:rest.reduce((sum,item)=>sum+item.count,0),failed:rest.some(item=>item.failed)};
  return [...kept,other];
 }
+
+/** A finished turn, for the ring on a reply: its span and how it ended. */
+export type FinishedTurn={since:number;until:number;outcome:'done'|'stopped'|'failed'};
+const STARTS=new Set(['agent.turn.started','wrapper.turn.started']);
+const ENDS=new Set(['agent.turn.completed','agent.turn.failed','wrapper.turn.completed','wrapper.turn.failed']);
+
+/** Reads the agent's turn from a reply's activity events; without the start or end event it uses the first or last event. */
+export function finishedTurn(events:readonly EventRow[],agent:string):FinishedTurn|null{
+ const own=events.filter(event=>agentOf(event)===agent);
+ if(!own.length)return null;
+ const at=(event:EventRow|undefined)=>event?.createdAt??0;
+ const start=own.find(event=>STARTS.has(event.type)),end=[...own].reverse().find(event=>ENDS.has(event.type));
+ const outcome=end?.type.endsWith('.failed')?'failed':end&&record(end.payload).cancelled===true?'stopped':'done';
+ return {since:at(start??own[0]),until:at(end??own.at(-1)),outcome};
+}
+
+export const finishedText=(agent:string,turn:FinishedTurn)=>{
+ const took=elapsed(turn.until-turn.since);
+ return turn.outcome==='done'?`${agent} worked for ${took}`:`${agent} ${turn.outcome} after ${took}`;
+};

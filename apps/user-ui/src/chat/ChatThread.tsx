@@ -20,6 +20,7 @@ import {cn} from './ui/lib/utils';
 import {ChatPortalProvider} from './ui/portal';
 import {activeTurns,type WorkingTurn} from './working';
 import {WorkingRow} from './WorkingRow';
+import {ReplyRing} from './ReplyRing';
 import './chat.css';
 
 export type ChatThreadProps={
@@ -113,7 +114,8 @@ function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;pr
  },[highlighted]);
  return <article ref={ref} id={`message-${item.id}`} data-message-id={item.id} tabIndex={highlighted?-1:undefined}
   className={cn('message',`message-${meta.authorKind}`,SHELL,spacing,highlighted&&'message-highlight bg-accent/40 ring-2 ring-ring')}>
-  {!mine&&<div className="w-8 shrink-0 pt-0.5">{author?authorAvatar(meta):time}</div>}
+  {!mine&&<div className="w-8 shrink-0 pt-0.5">{author?(activity&&meta.authorKind==='agent'
+   ?<ReplyRing agent={meta.authorName} events={activity.events}>{authorAvatar(meta)}</ReplyRing>:authorAvatar(meta)):time}</div>}
   <div data-slot="message-focus" tabIndex={0} role="group" aria-label={`${meta.authorName}, ${formatTime(meta.displayAt)}`} className={cn(COLUMN,mine&&MINE_COLUMN)}>
    {mine?(author?<div className="flex items-center justify-end gap-2">{actions('')}{time}</div>:actions('absolute top-0 start-0 z-10')):author?<div className="flex min-w-0 items-center gap-2">
     <strong className="message-author min-w-0 text-sm font-semibold leading-5 text-foreground [overflow-wrap:anywhere]">{meta.authorName}</strong>
