@@ -147,6 +147,8 @@
 .project-context-team-heading h3 { margin:0; }
 .project-context-team-heading>span { font-size:12px; color:var(--nest-muted); }
 .project-assignee>span:last-child { min-width:0; overflow-wrap:anywhere; font-size:13px; }
+.project-assignee-link { color:inherit; text-decoration:none; }
+.project-assignee-link:hover,.project-assignee-link:focus-visible { text-decoration:underline; text-underline-offset:2px; }
 .project-assignee small { display:block; color:var(--nest-muted); font-size:11px; margin-top:3px; }
 .project-invite { width:100%; justify-content:center; margin:20px 0 12px; }
 .project-inline-details { padding:14px 0 0; }

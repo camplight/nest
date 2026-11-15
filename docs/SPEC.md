@@ -411,6 +411,9 @@ permission-filtered `GET /api/agents` roster refreshes every ten seconds while t
 tab is visible and on window focus, without reloading chat. A failed lookup marks
 status unknown while retaining directory details; the next successful lookup
 recovers it. No global agent-status topic, new endpoint or engine change is needed.
+In a project's People & agents list, an agent that appears in the viewer's agent
+roster is a link to its settings (`?view=agents&agent=<name>&tab=settings`);
+other agents and people stay plain text.
 
 `tab=tasks&task=<id>` restores a task; older task URLs without `tab` still work.
 Tabs, reload and browser history preserve project context. Existing `?channel=`

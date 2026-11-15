@@ -146,6 +146,14 @@ try {
     const projectChannel=(await (await product.app.request('/api/channels',{headers})).json()).find((channel:any)=>channel.id===channelId);
     assert(projectChannel.participants.some((member:any)=>member.subscriberType==='HUMAN'&&member.subscriberId==='sarah@example.com'));
     assert(projectChannel.participants.some((member:any)=>member.subscriberType==='AGENT'&&member.subscriberId==='Moss'));
+    // An agent the person can open links straight to its settings.
+    const mossLink=page.locator('.project-assignee').getByRole('link',{name:'Moss',exact:true});
+    await mossLink.waitFor();
+    assert.equal(new URL(await mossLink.getAttribute('href')!,page.url()).searchParams.get('agent'),'Moss');
+    await mossLink.click();
+    await page.waitForURL(url=>url.searchParams.get('view')==='agents'&&url.searchParams.get('agent')==='Moss'&&url.searchParams.get('tab')==='settings');
+    await page.goBack();await page.locator('.project-about').getByText(aiBrief,{exact:true}).waitFor();
+    assert.equal(await page.locator('.project-assignee').getByRole('link',{name:'owner',exact:true}).count(),0,'People are not links');
     // A teammate uses their own engine session to discover and open the project.
     engine.db.prepare('UPDATE humans SET must_change_password=0 WHERE username=?').run('sarah@example.com');
     const teammateLogin=await product.app.request('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'sarah@example.com',password:'test-password'})});
