@@ -150,7 +150,16 @@ async function setup(options:ChatTestOptions,cleanup:(()=>Promise<void>|void)[])
   // The first cold Vite load also optimizes the lazy voice SDK on Linux CI.
   // Give startup its own budget; interactive assertions still use 15 seconds.
   try {await page.getByRole('textbox',{name:'Message',exact:true}).waitFor({timeout:45000});}
-  catch(error){console.error('Synthetic chat startup:',page.url(),JSON.stringify(startupErrors),(await page.locator('body').innerText()).slice(0,1400));throw error;}
+  catch(error){
+    console.error('Synthetic chat startup:',page.url(),JSON.stringify(startupErrors),(await page.locator('body').innerText()).slice(0,1400));
+    // Chromium can invalidate in-flight module requests as the disposable SFU
+    // starts its network interfaces. Retry only that transport failure, once;
+    // application errors and failures after the reload still fail the suite.
+    if(!startupErrors.some(message=>message.includes('net::ERR_NETWORK_CHANGED')))throw error;
+    console.log('Retrying synthetic chat startup after Chromium network change');
+    await page.reload();
+    await page.getByRole('textbox',{name:'Message',exact:true}).waitFor({timeout:45000});
+  }
 
   return {
     page,context,base,apiUrl,cookie,engineDb:engine.db as unknown as Database,project,post,

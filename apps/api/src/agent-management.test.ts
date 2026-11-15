@@ -31,7 +31,7 @@ beforeEach(async()=>{
  ownerId=(await (await call('/api/auth/me')).json()).id;
  await call('/api/models',{id:'default-model',provider:'openrouter',modelName:'fixture-multimodal',enabled:true});
  await call('/api/runners/register',{existingRunnerId:'fixture-runner',displayName:'Fixture'},{'content-type':'application/json','x-nest-runner-token':'runner-secret'});
- const manager=await call('/api/agents',{name:'NestSystem',modelId:'wrapped:none',workspacePath:join(dir,'manager'),assignedRunnerId:'fixture-runner',mode:'WRAPPED',desiredState:'STOPPED'});
+ const manager=await call('/api/agents',{name:'NestSystem',agentRole:'SYSTEM',modelId:'wrapped:none',workspacePath:join(dir,'manager'),assignedRunnerId:'fixture-runner',mode:'WRAPPED',desiredState:'STOPPED'});
  expect(manager.status).toBe(201);
  const managerId=(await manager.json()).id;
  channelId=(await (await call('/api/channels',{name:'manager-chat',visibility:'PRIVATE'})).json()).id;
@@ -235,4 +235,11 @@ it('creates managed agents with the built-in GLM default without a registry pres
  config.defaultModelId='openrouter:z-ai/glm-5.3';
  expect((await management(input)).status).toBe(201);
  expect(await (await call('/api/agents/EU%20Tenders')).json()).toMatchObject({modelId:'openrouter:z-ai/glm-5.3'});
+});
+
+it('requires an operator-granted SYSTEM role and honors revocation for delegated creation',async()=>{
+ expect((await product.app.request('/api/agents/NestSystem',{method:'PATCH',headers,body:JSON.stringify({agentRole:'STANDARD'})})).status).toBe(200);
+ const response=await management(input);expect(response.status).toBe(403);
+ expect(await response.json()).toMatchObject({error:expect.stringContaining('SYSTEM role')});
+ expect((await call('/api/agents/EU%20Tenders')).status).toBe(404);
 });

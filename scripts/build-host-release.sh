@@ -15,6 +15,10 @@ npm ci
 npm run test:engine -- apps/api/src/event-history-memory.test.ts apps/agent-runner/src/tools/types.test.ts
 # Keep reviewed engine authorization/realtime contracts in the native release gate.
 npm run test:engine -- \
+  apps/api/src/app.test.ts \
+  apps/api/src/routes/billing.test.ts \
+  apps/agent-runner/src/tools/path-access.test.ts \
+  packages/llm/src/index.test.ts \
   apps/api/src/security-auth.test.ts \
   apps/api/src/security-controls.test.ts \
   apps/api/src/security-federation.test.ts \
