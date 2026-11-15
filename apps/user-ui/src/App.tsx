@@ -1,7 +1,7 @@
 import {rosterChange} from './chat/members';
 import {rememberWorkspaceLoginReturn, consumeWorkspaceLoginReturn} from './workspace-login-return';
 import {canonicalWorkspaceEntry, isOnboardingEntry} from './workspace-entry';
-import {AgentNavigation, AgentWorkspaceTabs, type AgentTab} from './components/AgentNavigation';
+import {AgentNavigation, AgentWorkspaceTabs, canConnectApps, type AgentTab} from './components/AgentNavigation';
 import {conversationAgent, recentAgentChat, rememberAgentChat} from './agent-conversations';
 import {QuickTour, tourSeen, rememberTour} from './components/QuickTour';
 import {SidebarResizer, readSidebarWidth, sidebarWidthStyle} from './components/SidebarResizer';
@@ -1684,7 +1684,7 @@ export default function App() {
             onChange={event => setChannelQuery(event.target.value)}
           /></label>}
         />}
-        {activeChatAgent&&<AgentWorkspaceTabs name={activeChatAgent} tab="chat" onChat={()=>{}} onTab={tab=>selectAgent(activeChatAgent,{tab})}/>}
+        {activeChatAgent&&<AgentWorkspaceTabs name={activeChatAgent} tab="chat" connections={canConnectApps(agents.find(agent=>agent.name===activeChatAgent),userId)} onChat={()=>{}} onTab={tab=>selectAgent(activeChatAgent,{tab})}/>}
         <header className="workspace-header">
           <div>
             <span>Workspace</span>

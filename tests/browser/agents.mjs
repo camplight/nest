@@ -313,6 +313,17 @@ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)
 if(process.env.CI)console.log('SCALABLE_AGENTS_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65,animations:'disabled'})).toString('base64'));
 await mainNav.getByRole('button',{name:'Community',exact:true}).click();
 await page.waitForURL('**view=community*');
+// Only the owner of a private agent can connect apps, so other agents show no Connected apps tab; an old link opens Settings.
+await page.setViewportSize({width:1440,height:1000});
+for(const name of ['PrivateAgent','NestSystem']){
+ await page.goto(`${base}/?view=agents&agent=${encodeURIComponent(name)}&tab=connections`);
+ const tabs=page.getByRole('navigation',{name:`${name} workspace`});await tabs.getByRole('button',{name:'Settings',exact:true}).waitFor();
+ assert.equal(await tabs.getByRole('button',{name:'Connected apps',exact:true}).count(),0,`${name} offers no Connected apps tab`);
+ assert.equal(await tabs.getByRole('button',{name:'Settings',exact:true}).getAttribute('aria-current'),'page');
+ assert.equal(await page.getByText('Connected accounts are managed by this agent’s owner or external runtime.',{exact:true}).count(),0);
+}
+await page.goto(`${base}/?view=agents&agent=${encodeURIComponent('Research & Design')}`);
+await page.getByRole('navigation',{name:'Research & Design workspace'}).getByRole('button',{name:'Connected apps',exact:true}).waitFor();
 assert.equal(fullHealthRequests,0);assert(connectionRequests>0);assert.deepEqual(errors,[]);console.log('PASS: directory, selected navigation, encoded direct links, reload, history, settings persistence, failed saves, private read-only, wrapped settings, missing agents, chat links, dashboard links, mobile and avatar assets.');
 console.log(`Screenshots: ${screenshotDir}`);
 } finally { await browser.close(); }

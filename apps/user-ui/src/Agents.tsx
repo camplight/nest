@@ -1,4 +1,4 @@
-import {AgentWorkspaceTabs, type AgentTab} from './components/AgentNavigation';
+import {AgentWorkspaceTabs, canConnectApps, type AgentTab} from './components/AgentNavigation';
 import {ModelPicker} from './ModelPicker';
 import {SharedPersonalAgents} from './SharedPersonalAgents';
 import { type AgentRequestLocation } from "./AgentRequests";
@@ -33,11 +33,14 @@ function errorMessage(reason: unknown) {
 
 export function Agents({ tab,onTab,onOpenChat,requestLocation,setup, creating, onCreate, onCreated, onChat, agents, name, userId, loading, error, onSelect, onMenu, onRetry, onSaved }: Props) {
   const [query, setQuery] = useState("");
+  // Someone who cannot connect apps for this agent gets no Connected apps tab; an old link to it opens Settings.
+  const connections = canConnectApps(agents.find(agent => agent.name === name), userId);
+  const shownTab: AgentTab = tab === "connections" && !connections ? "settings" : tab;
   return <section className="dashboard agents-page" aria-label="Agents">
     <WorkspaceTopbar onMenu={onMenu} leading={name || creating ? <button className="dashboard-action" onClick={() => onSelect(null)}>← All agents</button> : requestLocation.active ? <span>Agents / Requests</span> : undefined} search={<label className="dashboard-search"><DesignIcon name="search"/><input aria-label="Search agents" placeholder="Search…" value={query} onChange={event=>{setQuery(event.target.value);if(name||creating||requestLocation.active)onSelect(null);}}/></label>}/>
 
     <div className="dashboard-content">
-      {creating ? <><div className="dashboard-title"><h1>Agents</h1></div><AgentSetupForm onCreated={onCreated}/></> : name ? <><AgentWorkspaceTabs name={name} tab={tab} onChat={()=>onOpenChat(name)} onTab={onTab}/><AgentDetails tab={tab} key={name} name={name} userId={userId} onSaved={onSaved} setup={setup} onChat={onChat} onResume={onCreate}/></> : requestLocation.active ? <><div className="dashboard-title"><h1>Requests</h1></div><p>This request workflow has been retired. Open a conversation with an agent from All agents.</p><button className="dashboard-action" onClick={()=>onSelect(null)}>All agents</button></> : <>
+      {creating ? <><div className="dashboard-title"><h1>Agents</h1></div><AgentSetupForm onCreated={onCreated}/></> : name ? <><AgentWorkspaceTabs name={name} tab={shownTab} connections={connections} onChat={()=>onOpenChat(name)} onTab={onTab}/><AgentDetails tab={shownTab} key={name} name={name} userId={userId} onSaved={onSaved} setup={setup} onChat={onChat} onResume={onCreate}/></> : requestLocation.active ? <><div className="dashboard-title"><h1>Requests</h1></div><p>This request workflow has been retired. Open a conversation with an agent from All agents.</p><button className="dashboard-action" onClick={()=>onSelect(null)}>All agents</button></> : <>
         <div className="dashboard-title"><h1>Agents</h1>{!setup?.setup && <button className="dashboard-action" onClick={onCreate}>Add your agent</button>}{setup?.setup && !setup.setup.channelId && <button className="dashboard-action" onClick={onCreate}>Resume agent setup</button>}</div>
         {error && <div role="alert">{error} <button onClick={onRetry}>Try again</button></div>}
         {loading && <p role="status">Loading agents…</p>}
@@ -140,6 +143,5 @@ function AgentDetails({ tab,name, userId, onSaved, setup, onChat, onResume }: { 
 
     {tab==='connections' && agent && !wrapped && agent.visibility === "PRIVATE" && userId && agent.ownerHumanId === userId && <AgentConnections name={name}/>}
 
-    {tab==='connections' && agent && (wrapped || agent.visibility!=='PRIVATE' || agent.ownerHumanId!==userId) && <p>Connected accounts are managed by this agent’s owner or external runtime.</p>}
   </>;
 }

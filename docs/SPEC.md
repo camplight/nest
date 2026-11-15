@@ -1583,6 +1583,9 @@ chat. New chat uses a named private channel and existing membership APIs, allowi
 separate conversations without changing direct-chat deduplication. Existing
 channel links remain valid. The agent workspace separates Chat, Settings and
 Connected apps; model selection and instructions live inside Advanced settings.
+Connected apps appears only to the owner of a private, Nest-run (not wrapped)
+agent, the only person who can connect apps for it; for anyone else the tab is
+hidden and an old `tab=connections` link opens Settings (`canConnectApps`).
 No ownership or tool-grant rules change.
 
 ## Model value picker and GLM default
