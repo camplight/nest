@@ -358,6 +358,12 @@ try{
   await page.waitForFunction(()=>{const img=document.querySelector<HTMLImageElement>('.message-agent .agent-portrait img');return !!img&&img.complete&&img.naturalWidth>0;});
   assert.equal(await humanMessage.locator('.message-human-avatar').innerText(),'SA');
   assert.equal(await humanMessage.locator('.message-human-avatar').getAttribute('aria-hidden'),'true');
+  // An agent adding someone to the chat updates People & agents live: the engine posts no join event, so the tool result does.
+  assert.equal((await post('/api/agents',{name:'LateDemo',visibility:'PUBLIC',modelId:'test-model',workspacePath:join(dir,'late-agent')},headers)).status,201);
+  assert.equal((await post(`/api/channels/${preview.channelId}/subscribe`,{subscriberType:'AGENT',subscriberId:'LateDemo'},headers)).status,200);
+  assert.equal(await page.locator('.project-assignee',{hasText:'LateDemo'}).count(),0,'The page has not reloaded the members yet');
+  assert.equal((await post('/api/events',{type:'tool.executed',source:'agent:PuffDemo',channelId:preview.channelId,payload:{tool:'events_channel_participant_add',args:{channelId:preview.channelId,subscriberType:'AGENT',subscriberId:'LateDemo'},output:{ok:true}}},{'content-type':'application/json','x-nest-runner-token':'test-runner'})).status,201);
+  await page.locator('.project-assignee',{hasText:'LateDemo'}).waitFor({state:'attached',timeout:25_000});
   await humanMessage.getByText(humanName,{exact:true}).waitFor();
   await page.screenshot({path:join(screenshots,'avatars-desktop.png'),fullPage:true});
   await page.setViewportSize({width:390,height:844});

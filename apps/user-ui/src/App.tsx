@@ -1,3 +1,4 @@
+import {rosterChange} from './chat/members';
 import {AgentNavigation, AgentWorkspaceTabs, type AgentTab} from './components/AgentNavigation';
 import {conversationAgent, recentAgentChat, rememberAgentChat} from './agent-conversations';
 import {QuickTour, tourSeen, rememberTour} from './components/QuickTour';
@@ -305,6 +306,7 @@ export default function App() {
   const activeChannelIdRef = useRef<string | null>(null);
   const lastSeenByChannelRef = useRef<Record<string, number>>({});
   const channelsRef = useRef<Channel[]>([]);
+  const rosterReloadsRef = useRef<Set<string>>(new Set());
   const usernameRef = useRef("");
   const userIdRef = useRef<string | null>(null);
   const viewerTeamIdsRef = useRef<Set<string>>(new Set());
@@ -866,6 +868,23 @@ export default function App() {
     const result = await core.refresh();
     if (channelId !== activeChannelIdRef.current || core.snapshot().channelId !== channelId) return;
     markChannelSeen(channelId, result.newestMessageAt);
+    noticeRosterChanges(core.snapshot().events);
+  }
+
+  // The engine announces no joins, so member lists reload when an agent's add/remove tool succeeds or someone the chat
+  // does not list posts. Each add/remove counts once, and each new sender once per chat, so a member reached through a
+  // team never reloads on every message; several changes at once share one reload.
+  function noticeRosterChanges(events: readonly EventRow[]) {
+    let changed = false;
+    for (const event of events) {
+      const channelId = rosterChange(event, channelsRef.current);
+      if (!channelId) continue;
+      const key = event.type === "message.created" ? `${channelId}|${event.source}` : event.id;
+      if (rosterReloadsRef.current.has(key)) continue;
+      rosterReloadsRef.current.add(key);
+      changed = true;
+    }
+    if (changed) void apiJson<Channel[]>("/api/channels?includeArchived=1").then(setChannels).catch(() => {});
   }
 
   async function loadMessageNotifications(options?: { initialize?: boolean }) {
@@ -920,6 +939,7 @@ export default function App() {
       return;
     }
     if(event.type==='message.created')window.dispatchEvent(new Event('nest-message'));
+    noticeRosterChanges([event]);
     if (!eventChannelId) return;
 
     if (activeTimelineEvent) {
