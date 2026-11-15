@@ -1846,3 +1846,5 @@ button {
 .mention-popup-chat .mention-at { font-size: 13px; }
 .mention-popup-chat .mention-empty { padding: 12px 8px; }
 .mention-popup-chat .mention-help { margin-top: 4px; padding: 6px 8px 4px; }
+/* Who a message mentions: the picked people and agents read as a tinted chip in the text, in both themes. */
+.chat-mention { padding:0 4px; border-radius:6px; background:color-mix(in srgb, var(--nest-accent) 14%, transparent); color:var(--nest-accent); font-weight:600; box-decoration-break:clone; -webkit-box-decoration-break:clone; }

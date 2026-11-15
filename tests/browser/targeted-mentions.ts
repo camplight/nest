@@ -288,6 +288,12 @@ try {
     const puffEvent=events.find((event:any)=>event.payload.targetAgentName==='Puff');
     assert(puffEvent,'The Puff request was sent');
     await page.getByText("To @Puff", { exact: true }).waitFor();
+    // The sent message shows who it mentions as highlighted chips, not plain text.
+    const sentMessage=page.locator(`[data-message-id="${puffEvent.id}"]`);
+    await sentMessage.locator('.chat-mention',{hasText:'@Puff'}).waitFor();
+    await sentMessage.locator('.chat-mention',{hasText:'@demo-bob'}).waitFor();
+    assert.notEqual(await sentMessage.locator('.chat-mention').first().evaluate(node=>getComputedStyle(node).backgroundColor),'rgba(0, 0, 0, 0)');
+    await page.screenshot({path:join(screenshots,'mention-chips-desktop.png'),fullPage:true});
     await page.setViewportSize({ width: 1440, height: 1000 });
     await input.fill("@pu");
     await input.press("Enter");

@@ -10,6 +10,7 @@ import { SyntaxHighlighter } from "./syntax-highlighter";
 import { TooltipIconButton } from "./tooltip-icon-button";
 import { useCopyToClipboard } from "./hooks/use-copy-to-clipboard";
 import { cn } from "./lib/utils";
+import { rehypeMentions } from "../mentions-highlight";
 
 const textOf = (nodes: ElementContent[]): string =>
   nodes.map((node) => (node.type === "text" ? node.value : node.type === "element" ? textOf(node.children) : "")).join("");
@@ -64,10 +65,10 @@ const components: Components = {
   hr: ({ node: _node, className, ...props }) => <hr className={cn("my-3 border-t border-border", className)} {...props} />,
 };
 
-export function MarkdownText({ text }: { text: string }): JSX.Element {
+export function MarkdownText({ text, mentions = [] }: { text: string; mentions?: readonly string[] }): JSX.Element {
   return (
     <div data-slot="markdown-text" className="min-w-0 max-w-full break-words">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[() => rehypeMentions(mentions)]} components={components}>
         {text}
       </ReactMarkdown>
     </div>

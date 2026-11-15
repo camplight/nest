@@ -1009,6 +1009,10 @@ Nonmanagers see an explanation. Another owner's private agent is never invited
 through this picker; published personal assistants keep their owner-approval path.
 Editing a selected name removes its routing metadata. Surrounding edits preserve
 it. The composer shows Ask/Notify recipients and permits multiple-agent sends.
+In the thread, a sent message shows its mentions as tinted chips in the accent
+colour (`.chat-mention`): the names stored in the message's `mentions` plus the
+agents it targeted, matched as whole `@name` words (`chat/mentions-highlight.ts`).
+Other @ text, inline code, code blocks and links are left as written.
 Server validation checks span/text agreement, recipient membership, agent
 visibility, human identity and current channel posting rights. It derives source
 from the human session. Sending itself never subscribes a recipient or expands
