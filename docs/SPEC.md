@@ -413,7 +413,8 @@ status unknown while retaining directory details; the next successful lookup
 recovers it. No global agent-status topic, new endpoint or engine change is needed.
 In a project's People & agents list, an agent that appears in the viewer's agent
 roster is a link to its settings (`?view=agents&agent=<name>&tab=settings`);
-other agents and people stay plain text.
+its avatar opens the same page for the mouse (hidden from keyboards and screen
+readers, so the name stays the one link). Other agents and people stay plain text.
 
 `tab=tasks&task=<id>` restores a task; older task URLs without `tab` still work.
 Tabs, reload and browser history preserve project context. Existing `?channel=`

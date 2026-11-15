@@ -1,4 +1,4 @@
-import {useRef,useState,type FormEvent} from 'react';
+import {useRef,useState,type FormEvent,type MouseEvent} from 'react';
 import type {Project,ProjectMember} from '@nest/schemas';
 import type {Agent,ChannelParticipant} from './types';
 import {apiJson,getApiHeaders} from './api';
@@ -30,10 +30,17 @@ export function ProjectContext({project,participants,agents,owner,onSaved,onMemb
       <div className="project-context-body">
         <h2>About this project</h2>{owner?<ProjectSettings key={project.id} project={project} onSaved={onSaved}/>:<p className="project-prose">{project.description||'A place to work together with your team.'}</p>}
         <div className="project-context-team-heading"><h3>People & agents</h3><span>{people.length+agentMembers.length}</span></div>
-        {participants.map(member=><div className="project-assignee" key={`${member.subscriberType}:${member.subscriberId}`}>{member.subscriberType==='AGENT'?<AgentAvatar name={member.subscriberId} size={32}/>:<span className="project-person-avatar" style={{width:32,height:32}} aria-hidden="true">{member.subscriberId.slice(0,2).toUpperCase()}</span>}<span>{member.subscriberType==='AGENT'&&onOpenAgent&&agents.some(agent=>agent.name===member.subscriberId)
-          ?<a className="project-assignee-link" href={`/?view=agents&agent=${encodeURIComponent(member.subscriberId)}&tab=settings`}
-            onClick={event=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();onOpenAgent(member.subscriberId);}}>{member.subscriberId}</a>
-          :<span>{member.subscriberId}</span>}<small>{member.subscriberType==='AGENT'?<>Agent · <AgentRuntimeStatus state={agents.find(agent=>agent.name===member.subscriberId)?.runtimeState}/></>:member.subscriberType==='HUMAN'?'Person':'Team'}</small></span></div>)}
+        {participants.map(member=>{
+          // An agent the person can open links (avatar and name) to its settings; a plain left-click stays in the app.
+          const opens=member.subscriberType==='AGENT'&&onOpenAgent&&agents.some(agent=>agent.name===member.subscriberId);
+          const href=`/?view=agents&agent=${encodeURIComponent(member.subscriberId)}&tab=settings`;
+          const open=(event:MouseEvent<HTMLAnchorElement>)=>{if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();onOpenAgent?.(member.subscriberId);};
+          const avatar=member.subscriberType==='AGENT'?<AgentAvatar name={member.subscriberId} size={32}/>:<span className="project-person-avatar" style={{width:32,height:32}} aria-hidden="true">{member.subscriberId.slice(0,2).toUpperCase()}</span>;
+          return <div className="project-assignee" key={`${member.subscriberType}:${member.subscriberId}`}>{opens
+          // The name is the link keyboards and screen readers use; the avatar is the same target for the mouse only.
+          ?<a className="project-assignee-avatar-link" href={href} onClick={open} tabIndex={-1} aria-hidden="true">{avatar}</a>:avatar}<span>{opens
+          ?<a className="project-assignee-link" href={href} onClick={open}>{member.subscriberId}</a>
+          :<span>{member.subscriberId}</span>}<small>{member.subscriberType==='AGENT'?<>Agent · <AgentRuntimeStatus state={agents.find(agent=>agent.name===member.subscriberId)?.runtimeState}/></>:member.subscriberType==='HUMAN'?'Person':'Team'}</small></span></div>;})}
         {owner&&<><button type="button" className="dashboard-action project-invite" onClick={()=>{setSelected([]);setError(null);dialog.current?.showModal();}}>Add people or agents</button>{onManage&&<button type="button" className="project-inline-action" onClick={onManage}>Sharing and advanced settings</button>}</>}
         {!owner&&<p className="project-muted">The project owner manages invitations.</p>}
       </div>

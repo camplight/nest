@@ -153,6 +153,11 @@ try {
     await mossLink.click();
     await page.waitForURL(url=>url.searchParams.get('view')==='agents'&&url.searchParams.get('agent')==='Moss'&&url.searchParams.get('tab')==='settings');
     await page.goBack();await page.locator('.project-about').getByText(aiBrief,{exact:true}).waitFor();
+    // The avatar opens the same page; it is one link for keyboards and screen readers, so it is not a second tab stop.
+    await page.locator('.project-assignee',{hasText:'Moss'}).locator('.project-assignee-avatar-link').click();
+    await page.waitForURL(url=>url.searchParams.get('view')==='agents'&&url.searchParams.get('agent')==='Moss'&&url.searchParams.get('tab')==='settings');
+    await page.goBack();await page.locator('.project-about').getByText(aiBrief,{exact:true}).waitFor();
+    assert.equal(await page.locator('.project-assignee',{hasText:'Moss'}).getByRole('link').count(),1,'The avatar adds no second link');
     assert.equal(await page.locator('.project-assignee').getByRole('link',{name:'owner',exact:true}).count(),0,'People are not links');
     // A teammate uses their own engine session to discover and open the project.
     engine.db.prepare('UPDATE humans SET must_change_password=0 WHERE username=?').run('sarah@example.com');

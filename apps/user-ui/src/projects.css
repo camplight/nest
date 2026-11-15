@@ -218,3 +218,5 @@
 }
 /* Too narrow for the people and agent counts beside the switch; they stay in the opened details. */
 @media(max-width:480px) { .projects-page .project-context-disclosure>summary span { display:none; } }
+.project-assignee-avatar-link { display:inline-flex; flex-shrink:0; border-radius:999px; }
+.project-assignee-avatar-link:hover { opacity:.85; }
