@@ -3,7 +3,7 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The reviewed engine pin is upstream main `e64fc064`, including OrgOps #76
+The reviewed engine pin is upstream `b294ea4`, including OrgOps #76
 voice/realtime support, #79 restart metadata, #80 byte-budget compatibility,
 the merged security fixes and #82 realtime maintenance environment handling.
 It also includes #83 runner socket wakeups with HTTP catch-up, #84 private invite
@@ -13,7 +13,8 @@ and #88 upstream trace pagination (Nest retains its own chat interface).
 It also includes explicit human/agent roles and ownership/path hardening (#74),
 durable Slack intake (#90), reasoning styles and channel billing (#91/#92),
 and a bounded visible summary for human turns ending with tool-only output (#93).
-The previously deployed pin is `7406b6a`; merging the dependency
+It additionally includes context lifecycle (#94), price refresh validation and static provider pricing (#95/#97), explicit turn completion (#96), fast shell exit handling (#98), and rejection of tool-call markup in final summaries (#99).
+The previously deployed pin is `e64fc064`; merging the dependency
 update alone does not install it on existing hosts.
 Personal onboarding binds the workspace returned by OrgOps instead of requiring
 the requested path. A reservation marker reconciles member-agent creation after
