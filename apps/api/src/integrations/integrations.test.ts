@@ -614,7 +614,7 @@ it("renewal preserves other skills and preloads the helper through the real engi
     expect(prompt).toContain("Never try another account");
     expect(prompt).not.toContain(options?.env?.NEST_CONNECTION_TOKEN);
     expect(options?.env?.NEST_CONNECTION_TOKEN).toMatch(/^nest_connection_/);
-    return {text:JSON.stringify({type:"message.created",payload:{text:"Synthetic connected-tool reply."}}),toolCalls:[],toolResults:[]};
+    return {text:JSON.stringify({turnStatus:"DONE",type:"message.created",payload:{text:"Synthetic connected-tool reply."}}),toolCalls:[],toolResults:[]};
   });
   await createTurnExecutor({projectRoot:dir,skillRoots:[{path:roots}],llmCallTimeoutMs:5000,api})(
     {...refreshed,memoryContextMode:"OFF"},
