@@ -725,3 +725,18 @@ The helper returns a clear 403 when the role is absent or revoked. This sync
 does not grant roles automatically; an instance owner/admin must grant the
 manager role explicitly if delegated creation should remain enabled. Existing
 request-bound capabilities and project-owner invitation checks remain in force.
+
+### Context and completion synchronization
+
+Advance the untouched engine from `e64fc064` to `b294ea4`, bringing upstream
+#94–#98 and the #99 final-summary markup guard. Context lifecycle and explicit
+completion are runner-owned; Nest keeps its product chat and authentication
+adapters. Price refresh uses the upstream static provider catalog. No additional
+database migrations or configured model/credential changes are part of this bump.
+
+A model that returns serialized tool calls during the tool-free final summary
+now produces the deterministic incomplete-work notice instead of exposing
+protocol text in chat. Native release checks include this regression alongside
+context lifecycle, completion, shell-exit, memory, routing and schema tests.
+Deploy only after the upstream fix is merged and both product and native release
+checks pass; normal host rollback and database snapshots remain in use.
