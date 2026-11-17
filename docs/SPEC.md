@@ -660,6 +660,8 @@ product/engine HTTP handlers. It simulates runner-authored responses without a
 model invocation. `apps/api/src/projects.test.ts` additionally covers authorization,
 immutable reviews, malformed input, idempotency and restart recovery.
 
+Composer draft and mention-picker updates are isolated from the app shell and message history; typing must not rerender the thread per character. The composer session remains mounted across project tab changes so pending sends, uploads and invitations survive. A synthetic long-thread browser regression checks committed thread renders while typing.
+
 `npm run test:ui:chat-next` runs every browser suite under `tests/browser/chat-next/` (thread, realtime, working row, actions, quote reply, attachments, composer, slash commands and the absence of the old chat) against real engine and product handlers with synthetic data. The earlier browser suites still run against the chat as it renders by default: `test:ui:chat` (`chat.ts`, `codex-progress.mjs`, `claude-code-progress.mjs` and `demo-artifacts.mjs`), `test:ui:projects`, `test:ui:dashboard`, `test:ui:images`, `test:ui:onboarding` (with `test:ui:tour`), `test:ui:agents` (with `connection-projects.mjs`), `tests/browser/targeted-mentions.ts` and `tests/browser/mentions.mjs`. On macOS three upstream tests fail in `npm run test:engine` independently of Nest (the agent runner's two `file-upload` tests and the skills merge test "merges skills from multiple roots with first-name-wins"), and `npm test`'s `deploy/demos/publish.check.mjs` node test fails there too; these four known failures are compared by test ID rather than treated as regressions.
 
 ## Private Community catalog
