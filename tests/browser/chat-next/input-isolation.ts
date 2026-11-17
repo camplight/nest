@@ -35,7 +35,8 @@ await runChatTest('composer: typing stays isolated from a long thread',async h=>
       },
     });
   })();`});
-  for(let i=0;i<60;i++)await h.emit('message.created',{text:`## Synthetic message ${i}\n\n**History** with a [link](https://example.test) and a list:\n\n- one\n- two\n\n\`\`\`js\nconst example = ${i};\n\`\`\``});
+  // Alternate authors so consecutive agent messages are not folded into one row.
+  for(let i=0;i<60;i++)await h.emit('message.created',{text:`## Synthetic message ${i}\n\n**History** with a [link](https://example.test) and a list:\n\n- one\n- two\n\n\`\`\`js\nconst example = ${i};\n\`\`\``},{source:i%2?'agent:Pip':'human:Synthetic'});
   await page.goto(`${h.base}/?channel=${h.project.channelId}`);
   const input=page.getByRole('textbox',{name:'Message',exact:true});
   await input.waitFor();
