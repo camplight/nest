@@ -7,17 +7,17 @@ await runChatTest('composer: typing stays isolated from a long thread',async h=>
   // Install before React loads. Observe actual committed work rather than timing
   // thresholds, which vary with CI load. Count new thread props reaching a commit:
   // App creates these on each render, invalidating the thread context.
-  await page.addInitScript(()=>{
-    type Fiber={type?:{name?:string};memoizedProps:object;child:Fiber|null;sibling:Fiber|null};
-    const counts:Record<string,number>={};
-    const previousProps=new Map<string,object>();
+  // Raw browser JavaScript avoids tsx's function-name helpers in serialized callbacks.
+  await page.addInitScript({content:`(() => {
+    const counts={};
+    const previousProps=new Map();
     Object.defineProperty(navigator,'connection',{configurable:true,value:{downlink:10,effectiveType:'4g',saveData:false}});
     Object.assign(window,{
       __nestRenderCounts:counts,
       __REACT_DEVTOOLS_GLOBAL_HOOK__:{
         supportsFiber:true,inject:()=>1,onCommitFiberUnmount:()=>{},
-        onCommitFiberRoot:(_id:number,root:{current:Fiber})=>{
-          function visit(fiber:Fiber|null){
+        onCommitFiberRoot:(_id,root)=>{
+          function visit(fiber){
             for(let node=fiber;node;node=node.sibling){
               const name=node.type?.name;
               if(name==='ChatThread'&&previousProps.get(name)!==node.memoizedProps){
@@ -31,7 +31,7 @@ await runChatTest('composer: typing stays isolated from a long thread',async h=>
         },
       },
     });
-  });
+  })();`});
   for(let i=0;i<60;i++)await h.emit('message.created',{text:`## Synthetic message ${i}\n\n**History** with a [link](https://example.test) and a list:\n\n- one\n- two\n\n\`\`\`js\nconst example = ${i};\n\`\`\``});
   await page.goto(`${h.base}/?channel=${h.project.channelId}`);
   const input=page.getByRole('textbox',{name:'Message',exact:true});
