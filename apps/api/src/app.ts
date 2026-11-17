@@ -23,7 +23,7 @@ import { openProductDb, type ProductDb } from '@nest/db';
 import { BrandingSchema } from '@nest/schemas';
 import { createOrgOpsClient, productHeaders, type OrgOpsClient } from '@nest/orgops-client';
 
-export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string } = {}) {
+export function createApp(config: { demoRoot?: string; restrictedDemoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string } = {}) {
   const store = config.store ?? openProductDb(config.dbPath ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_PRODUCT_DB_PATH ?? '.nest-product/nest.sqlite'));
   const orgops = config.orgops ?? createOrgOpsClient(config.orgopsUrl ?? process.env.ORGOPS_URL ?? 'http://127.0.0.1:8788');
   const app = new Hono();
@@ -31,7 +31,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     console.error('Nest request failed:', error.name);
     return c.json({error: 'Upstream service unavailable'}, 502);
   });
-  registerDemoRoutes(app, {orgops, root: config.demoRoot ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_DEMO_ROOT ?? '.nest-data/demos')});
+  registerDemoRoutes(app, {orgops, restrictedRoot: config.restrictedDemoRoot ?? (process.env.NEST_RESTRICTED_DEMO_ROOT ? resolve(process.env.NEST_RESTRICTED_DEMO_ROOT) : undefined), root: config.demoRoot ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_DEMO_ROOT ?? '.nest-data/demos')});
   app.get('/health', async c => {
     try {
       const response = await orgops.request('/health', {signal: AbortSignal.timeout(5000)});

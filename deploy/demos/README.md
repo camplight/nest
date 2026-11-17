@@ -36,3 +36,52 @@ After deployment, check all existing slugs anonymously, log in with an authorize
 test account and open each demo and its assets, then log out and verify access is
 revoked. No engine pin, database migration or engine runtime credential change is
 required. No live human credentials are used in repository tests.
+
+## Restricted presentation namespaces
+
+Nested presentations can use `/demo/<namespace>/<slug>` with files stored in a
+**separate private root**, by default a `restricted-demos` sibling of the ordinary
+demo root. `NEST_RESTRICTED_DEMO_ROOT` overrides it. Never place that root inside
+the ordinary demos directory or a public UI directory. Older application releases
+cannot serve this separate root; rollback therefore does not publish its contents.
+
+Create `<restricted-root>/<namespace>/.access.json` with this schema:
+
+```json
+{"version":1,"allowedHumanIds":["explicit-authorized-human-id"]}
+```
+
+Use stable IDs from the authoritative human directory after the owner identifies
+the intended audience. A username suffix is not verified organization membership.
+Every request revalidates the human session and reads this policy. Missing,
+malformed, empty, oversized and unreadable policies deny access. Password setup
+must be completed. Namespace, policy and asset symlinks are rejected. Restricted
+namespaces are omitted from `/api/artifacts`, including ordinary-demo collisions.
+
+A presentation lives at `<namespace>/<slug>/index.html`. Extensionless, trailing
+slash, `.html`, direct `index.html`, and relative asset URLs share the policy.
+Existing demo proxy and login return handling already cover these nested URLs.
+No Caddy modification is needed. Do not copy restricted content into ordinary
+`demos` or invoke the standard publisher: it is for all-human demo access only.
+
+### Safe installation and rollout
+
+1. Deploy the reviewed application release before installing confidential files.
+2. Verify with a synthetic namespace and synthetic content that an allowed human
+   receives the exact bytes while an excluded signed-in human receives 404.
+   Anonymous 401 alone does not prove the new audience gate is installed.
+3. Stage the complete namespace (policy and self-contained presentation) in a
+   private sibling directory outside BOTH served roots. Use an explicit owner-
+   approved ID list; never grant all users as a temporary installation step.
+4. Atomically rename the staged directory into the private root. For updates,
+   write a temporary policy/index in its containing directory and rename over the
+   destination; keep backups outside all served roots. Do not remove the policy
+   to grant access: absence fails closed. Deny filesystem write access to viewers.
+5. Verify installed bytes and signed-in allowed/denied access across aliases and
+   assets, anonymous denial, policy-file denial, logout/revocation, login return,
+   and private/no-store headers. Do not acquire another person's session; use
+   operator-owned test accounts or report authenticated verification outstanding.
+
+To revoke access, atomically replace the policy with an empty ID list or remove
+that namespace's policy. To unpublish, move the namespace outside the served
+root. Existing browser documents cannot be remotely erased after download.

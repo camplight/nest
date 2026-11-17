@@ -725,3 +725,7 @@ The helper returns a clear 403 when the role is absent or revoked. This sync
 does not grant roles automatically; an instance owner/admin must grant the
 manager role explicitly if delegated creation should remain enabled. Existing
 request-bound capabilities and project-owner invitation checks remain in force.
+
+Restricted demo audiences are a Nest API/filesystem concern. They reuse the
+existing OrgOps current-human session adapter and stable human IDs; no upstream
+engine changes, engine database reads, or schema migration are required.

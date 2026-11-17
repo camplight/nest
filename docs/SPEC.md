@@ -1506,3 +1506,10 @@ Google login preserves workspace destinations in tab-local session storage for u
 Delegated agent creation identifies the configured manager to OrgOps and requires
 an operator-granted SYSTEM agent role. Missing/revoked authority returns 403;
 Nest does not automatically promote an agent during upstream synchronization.
+
+Restricted demo namespaces use a separate private filesystem root and an explicit
+stable-human-ID namespace allowlist. Nest revalidates the OrgOps human session
+and policy for every content request; no engine state is read directly. Nested
+presentation aliases/assets share the policy and are omitted from artifact lists.
+Missing/invalid policy denies access. Ordinary demos remain available to signed-in
+humans. See deploy/demos/README.md for installation and rollback constraints.
