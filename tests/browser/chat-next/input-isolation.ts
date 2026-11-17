@@ -11,11 +11,14 @@ await runChatTest('composer: typing stays isolated from a long thread',async h=>
   await page.addInitScript({content:`(() => {
     const counts={};
     const previousProps=new Map();
+    const renderers=new Map();
     Object.defineProperty(navigator,'connection',{configurable:true,value:{downlink:10,effectiveType:'4g',saveData:false}});
     Object.assign(window,{
       __nestRenderCounts:counts,
       __REACT_DEVTOOLS_GLOBAL_HOOK__:{
-        supportsFiber:true,inject:()=>1,onCommitFiberUnmount:()=>{},
+        supportsFiber:true,renderers,
+        inject:renderer=>{const id=renderers.size+1;renderers.set(id,renderer);return id;},
+        onCommitFiberUnmount:()=>{},
         onCommitFiberRoot:(_id,root)=>{
           function visit(fiber){
             for(let node=fiber;node;node=node.sibling){
