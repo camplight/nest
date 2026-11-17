@@ -26,7 +26,7 @@ describe('restricted demo namespaces',()=>{
  it('authorizes all aliases and assets against live human identity',async()=>{
   for(const path of paths){
    const response=await app.request(path,{headers});expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toBe('private, no-store');
-   for(const h of [{},{cookie:'nest_session=invalid'},{'x-nest-runner-token':'secret'},{authorization:'Bearer secret'}])expect((await app.request(path,{headers:h})).status).toBe(401);
+   for(const h of [{},{cookie:'nest_session=invalid'},{'x-nest-runner-token':'secret'},{authorization:'Bearer secret'}] as HeadersInit[])expect((await app.request(path,{headers:h})).status).toBe(401);
    expect((await app.request(path,{headers:{cookie:'nest_session=outsider'}})).status).toBe(404);
    expect((await app.request(path,{headers:{cookie:'nest_session=setup'}})).status).toBe(403);
   }
