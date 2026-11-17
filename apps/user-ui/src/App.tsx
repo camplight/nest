@@ -12,7 +12,7 @@ import {fetchAgentStarts} from './chat/lifecycles';
 import {useChannelEvents} from './chat/useChannelEvents';
 import {adaptiveMessageBatchSize} from './chat/history';
 import {ChatThread, type ChatThreadHandle} from './chat/ChatThread';
-import {ChatComposer,useComposerSession,type ChatComposerHandle} from './chat/ChatComposer';
+import {ChatComposer,ComposerSessionProvider,type ComposerSessionOptions,type ChatComposerHandle} from './chat/ChatComposer';
 import {Share2} from 'lucide-react';
 import {HuddleButton} from './huddle/HuddleButton';
 import './huddle/huddle.css';
@@ -534,8 +534,8 @@ export default function App() {
   const activeConversationName = activeChannel ? projectIndex.find(project => project.channelId === activeChannel.id)?.name ?? channelLabel(activeChannel, username) : "";
   const mentionProject=projectIndex.find(project=>project.channelId===activeChannelId);
   const canInviteMention=activeChannelManageable&&(!mentionProject||mentionProject.ownerId===userId);
-  // Held here, above the project tabs, so leaving Chat for Files keeps a send, upload or invite in flight.
-  const composerSession = useComposerSession({
+  // The provider below owns draft state and survives project tab changes.
+  const composerOptions:ComposerSessionOptions = {
     userId,
     channel: activeChannel,
     canPost: activeChannelCanPost,
@@ -546,7 +546,7 @@ export default function App() {
     canInvite: canInviteMention,
     onInvite: inviteMention,
     onAskAssistant: askAssistant,
-  });
+  };
   async function inviteMention(candidate:import('./mentions').MentionCandidate){
     const channelId=activeChannelId,ownerId=userId;
     if(!channelId||!ownerId||!canInviteMention||!activeChannelCanPost||activeChannel?.archivedAt||candidate.inviteBlockedReason)throw Error('Invitation unavailable');
@@ -1683,7 +1683,6 @@ export default function App() {
           />
           <ChatComposer
             ref={composerRef}
-            session={composerSession}
             conversationName={activeConversationName}
             isConversationEmpty={isConversationEmpty}
             inProject={Boolean(mentionProject)}
@@ -1753,7 +1752,7 @@ export default function App() {
       </aside>;
 
   return (
-    <AgentAvatarChoices value={Object.fromEntries(agents.map(agent=>[agent.name, agent.icon]))}><WorkspaceHeaderProvider onTour={startTour} tourNew={!tourSeen(userId??username)} channelLabel={(id,fallback)=>projectIndex.find(project=>project.channelId===id)?.name ?? fallback} username={username} onAgents={()=>selectAgent(null)} onSignOut={()=>void handleLogout()} onMention={(channelId,eventId)=>{selectChannel(channelId);setFocusedMessage(eventId);const url=new URL(window.location.href);url.searchParams.set('message',eventId);window.history.replaceState(null,'',url);}}><main className={`app-shell product-shell ${view !== "workspace" ? "dashboard-shell" : ""}`}>
+    <ComposerSessionProvider options={composerOptions}><AgentAvatarChoices value={Object.fromEntries(agents.map(agent=>[agent.name, agent.icon]))}><WorkspaceHeaderProvider onTour={startTour} tourNew={!tourSeen(userId??username)} channelLabel={(id,fallback)=>projectIndex.find(project=>project.channelId===id)?.name ?? fallback} username={username} onAgents={()=>selectAgent(null)} onSignOut={()=>void handleLogout()} onMention={(channelId,eventId)=>{selectChannel(channelId);setFocusedMessage(eventId);const url=new URL(window.location.href);url.searchParams.set('message',eventId);window.history.replaceState(null,'',url);}}><main className={`app-shell product-shell ${view !== "workspace" ? "dashboard-shell" : ""}`}>
       <aside className={`sidebar ${mobileSidebarOpen ? "sidebar-mobile-open" : ""} ${tourOpen ? "tour-navigation" : ""}`}>
         <button
           type="button"
@@ -2220,6 +2219,6 @@ export default function App() {
           </section>
         </div>
       ) : null}
-    </main></WorkspaceHeaderProvider></AgentAvatarChoices>
+    </main></WorkspaceHeaderProvider></AgentAvatarChoices></ComposerSessionProvider>
   );
 }
