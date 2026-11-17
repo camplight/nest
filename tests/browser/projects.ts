@@ -190,8 +190,10 @@ try {
 
     }catch(error){console.error("Teammate routing regression failed:",error);throw error;}finally{await teammateContext.close();}
     // A visible private agent owned by a teammate can be invited without an onboarding-directory entry.
+    console.log('Testing teammate-owned agent invitation');
     const sarahHeaders={'content-type':'application/json',cookie:teammateLogin.headers.get('set-cookie')!.split(';')[0]};
     const teammateAgent=await product.app.request('/api/agents',{method:'POST',headers:sarahHeaders,body:JSON.stringify({name:'Website Developer',visibility:'PRIVATE',modelId:'test-model',workspacePath:join(dir,'website-developer')})});
+    console.log('Teammate agent creation returned:',teammateAgent.status);
     assert.equal(teammateAgent.status,201);
     const sharedChat=await (await product.app.request('/api/channels',{method:'POST',headers:sarahHeaders,body:JSON.stringify({name:'Existing shared work',visibility:'PRIVATE'})})).json();
     for(const member of [{subscriberType:'HUMAN',subscriberId:'owner'},{subscriberType:'AGENT',subscriberId:'Website Developer'}]){
@@ -199,7 +201,9 @@ try {
     }
     await page.reload();
     const invitationComposer=page.getByRole('textbox',{name:'Message',exact:true});
+    console.log('Filling teammate invitation');
     await invitationComposer.fill('@Website');
+    console.log('Waiting for teammate invitation option');
     const invitedOption=page.getByRole('listbox',{name:'Mention people and agents'}).getByRole('option').filter({hasText:'Website Developer'});
     await invitedOption.waitFor();assert.notEqual(await invitedOption.getAttribute('aria-disabled'),'true');
     if(process.env.CI)console.log('TRUSTED_INVITE_DESKTOP_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));

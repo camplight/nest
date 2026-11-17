@@ -37,7 +37,7 @@
     "test:engine": "cd vendor/orgops && node ../../node_modules/vitest/vitest.mjs run --config ../../vitest.engine.config.ts",
     "migrate:product": "node --import tsx scripts/migrate-product-data.ts",
     "test:ui:agents": "node --import tsx tests/browser/agents.mjs && node --import tsx tests/browser/agent-models.ts && node --import tsx tests/browser/agent-runtime-status.ts && npm run test:ui:trusted",
-    "test:ui:projects": "node --import tsx tests/browser/projects.ts && npm run test:ui:dashboard && npm run test:ui:chat && npm run test:ui:chat-next -- input-isolation composer-parity slash-commands quote-reply",
+    "test:ui:projects": "npm run test:ui:chat-next -- input-isolation composer-parity slash-commands quote-reply && node --import tsx tests/browser/projects.ts && npm run test:ui:dashboard && npm run test:ui:chat",
     "test:ui:dashboard": "node --import tsx tests/browser/dashboard.ts && npm run test:ui:dashboard:webkit",
     "test:ui:community": "node --import tsx tests/browser/community.ts",
     "test:ui:auth": "node --import tsx tests/browser/google-auth.ts",
