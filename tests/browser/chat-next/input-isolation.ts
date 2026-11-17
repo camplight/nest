@@ -5,10 +5,13 @@ import {runChatTest} from '../support/chat-harness';
 await runChatTest('composer: typing stays isolated from a long thread',async h=>{
   const {page}=h;
   // Install before React loads. Observe actual committed work rather than timing
-  // thresholds, which vary with CI load. PerformedWork is React's render flag.
+  // thresholds, which vary with CI load. Count new thread props reaching a commit:
+  // App creates these on each render, invalidating the thread context.
   await page.addInitScript(()=>{
-    type Fiber={type?:{name?:string};flags:number;child:Fiber|null;sibling:Fiber|null};
+    type Fiber={type?:{name?:string};memoizedProps:object;child:Fiber|null;sibling:Fiber|null};
     const counts:Record<string,number>={};
+    const previousProps=new Map<string,object>();
+    Object.defineProperty(navigator,'connection',{configurable:true,value:{downlink:10,effectiveType:'4g',saveData:false}});
     Object.assign(window,{
       __nestRenderCounts:counts,
       __REACT_DEVTOOLS_GLOBAL_HOOK__:{
@@ -17,7 +20,10 @@ await runChatTest('composer: typing stays isolated from a long thread',async h=>
           function visit(fiber:Fiber|null){
             for(let node=fiber;node;node=node.sibling){
               const name=node.type?.name;
-              if(name&&(node.flags&1))counts[name]=(counts[name]??0)+1;
+              if(name==='ChatThread'&&previousProps.get(name)!==node.memoizedProps){
+                counts[name]=(counts[name]??0)+1;
+                previousProps.set(name,node.memoizedProps);
+              }
               visit(node.child);
             }
           }
