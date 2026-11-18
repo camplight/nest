@@ -181,7 +181,9 @@ await runChatTest('quote-reply: Quote selection quotes only the selected part, n
 
   await page.evaluate(()=>window.getSelection()?.removeAllRanges());
   await button.waitFor({state:'detached',timeout:3000});
-  const group=page.locator('.nest-chat article[aria-label="Agent activity"]').first();
+  // The reply's tool activity sits under its Details; open it to reach the activity card.
+  const group=page.locator('.nest-chat .turn-activity-details').first();
+  await group.locator('summary').click();
   await group.locator('.trace-chip').first().click();
   const card=group.locator('.trace-detail-card');
   await card.waitFor({timeout:3000});
