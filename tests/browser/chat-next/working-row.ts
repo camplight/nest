@@ -57,6 +57,8 @@ await runChatTest('composer stop: Stop takes Send\'s place while an agent works 
   await rows(page).waitFor({state:'detached',timeout:5000});
   await send.waitFor();
   assert.equal(await stop.count(),0,'Stop leaves with the turn');
+  // The stopped turn has no reply: its raw events, including Stopped, sit under the agent's Details.
+  await page.locator('.turn-activity-details summary',{hasText:`${agentName} · Details`}).click();
   await page.getByRole('button',{name:'Stopped',exact:true}).waitFor({timeout:5000});
 });
 

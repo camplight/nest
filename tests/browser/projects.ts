@@ -237,9 +237,14 @@ try {
     await page.setViewportSize({width:390,height:844});
     if(process.env.CI)console.log('TRUSTED_INVITE_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
     await invitedOption.click();
-    await page.getByLabel('Message recipients').getByText('Ask @Website Developer').waitFor();
-    const invitedChannels=await (await product.app.request('/api/channels',{headers})).json();
-    assert(invitedChannels.find((c:any)=>c.id===channelId).participants.some((p:any)=>p.subscriberType==='AGENT'&&p.subscriberId==='Website Developer'));
+    // Picking only marks the agent in the draft; it joins when the message is sent.
+    await page.getByLabel('Message recipients').getByText('Ask @Website Developer · joins on send').waitFor();
+    const isParticipant=async()=>(await (await product.app.request('/api/channels',{headers})).json()).find((c:any)=>c.id===channelId).participants.some((p:any)=>p.subscriberType==='AGENT'&&p.subscriberId==='Website Developer');
+    assert.equal(await isParticipant(),false);
+    await invitationComposer.pressSequentially(' please review the launch page.');
+    await page.getByRole('button',{name:'Send',exact:true}).click();
+    await page.getByText(/please review the launch page\./).first().waitFor();
+    assert.equal(await isParticipant(),true);
     const unchangedAgent=await (await product.app.request('/api/agents/Website%20Developer',{headers:sarahHeaders})).json();
     assert.equal(unchangedAgent.visibility,'PRIVATE');assert.notEqual(unchangedAgent.ownerHumanId,fixtureOwner);
     await invitationComposer.fill('');
