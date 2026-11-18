@@ -439,6 +439,8 @@ systemctl enable nest-engine nest-api nest-runner nest-caddy >/dev/null
 install -m 755 "$release/deploy/devops/nest-ops.py" /usr/local/lib/nest-ops.py
 install -m 755 "$release/deploy/devops/nest-watchdog.py" /usr/local/lib/nest-watchdog.py
 printf '{"commit":"%s","domain":"%s"}\n' "$sha" "$domain" > /etc/nest/native.json
+# Healthy activation establishes a coherent pair even after an operator recovery.
+rm -f /var/lib/nest-watchdog/recovery-required
 systemctl enable --now nest-native-watchdog.timer >/dev/null
 systemctl start nest-caddy
 committed=1
