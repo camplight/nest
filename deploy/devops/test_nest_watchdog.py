@@ -28,6 +28,14 @@ class WatchdogTests(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
+    def test_incomplete_database_restore_blocks_automatic_restart(self):
+        self.state.parent.mkdir()
+        (self.state.parent / 'recovery-required').touch()
+        with patch.object(watchdog, 'inspect') as inspect, patch.object(watchdog, 'run') as run:
+            watchdog.recover()
+        inspect.assert_not_called()
+        run.assert_not_called()
+
     def test_requires_three_consecutive_known_unhealthy_checks(self):
         state = {}
         for now in [100, 160]:
