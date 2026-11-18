@@ -69,7 +69,9 @@ def prune_releases(root, active, keep=3):
         except (OSError, ValueError):
             continue
         candidates.append(release)
-    candidates.sort(key=lambda p: p.stat().st_mtime_ns, reverse=True)
+    # Directory mtimes change when dependencies are repaired/removed. The
+    # immutable artifact receipt records installation time instead.
+    candidates.sort(key=lambda p: (p / '.artifact-sha256').stat().st_mtime_ns, reverse=True)
     protected.update(p.resolve() for p in candidates[:keep])
     removed = []
     for release in candidates:
