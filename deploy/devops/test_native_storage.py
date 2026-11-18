@@ -28,6 +28,7 @@ class StorageTests(unittest.TestCase):
         path.mkdir()
         (path / 'nest-release.json').write_text(json.dumps({'commit': sha}))
         (path / '.artifact-sha256').write_text('a' * 64)
+        os.utime(path / '.artifact-sha256', (number, number))
         os.utime(path, (number, number))
         return path
 
@@ -65,6 +66,14 @@ class StorageTests(unittest.TestCase):
         self.assertTrue((data / 'secret').exists())
         self.assertTrue((backup / 'release').exists())
         self.assertTrue(all(p.exists() for p in releases[:2] + releases[5:]))
+
+    def test_dependency_cleanup_does_not_make_an_old_release_recent(self):
+        releases = [self.release(i) for i in range(1, 6)]
+        os.utime(releases[0], (1000, 1000))
+        os.utime(releases[1], (2000, 2000))
+        removed = storage.prune_releases(self.root, releases[-1])
+        self.assertEqual(set(removed), {p.name for p in releases[:2]})
+        self.assertTrue(all(p.exists() for p in releases[2:]))
 
     def test_unmanaged_directories_real_runtime_data_and_symlink_releases_are_untouched(self):
         valid = [self.release(i) for i in range(1, 6)]
