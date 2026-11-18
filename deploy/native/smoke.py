@@ -19,7 +19,7 @@ class Provider(BaseHTTPRequestHandler):
     def do_POST(self):
         self.rfile.read(int(self.headers.get('Content-Length', 0)))
         Provider.calls += 1
-        event = {'type': 'message.created', 'payload': {'text': 'Native smoke agent replied.'}}
+        event = {'turnStatus': 'DONE', 'type': 'message.created', 'payload': {'text': 'Native smoke agent replied.'}}
         body = json.dumps({'id': 'synthetic-native', 'object': 'chat.completion',
                            'created': int(time.time()), 'model': 'native-smoke',
                            'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': json.dumps(event)},
@@ -76,7 +76,8 @@ try:
     replied = False
     for _ in range(90):
         events = call('/api/events?channelId=' + channel + '&limit=100')
-        if any(e['source'] == 'agent:' + name and e['type'] == 'message.created' for e in events):
+        if any(e['source'] == 'agent:' + name and e['type'] == 'message.created'
+               and e.get('payload', {}).get('text') == 'Native smoke agent replied.' for e in events):
             replied = True
             break
         time.sleep(1)
