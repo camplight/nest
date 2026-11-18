@@ -725,3 +725,21 @@ The helper returns a clear 403 when the role is absent or revoked. This sync
 does not grant roles automatically; an instance owner/admin must grant the
 manager role explicitly if delegated creation should remain enabled. Existing
 request-bound capabilities and project-owner invitation checks remain in force.
+
+### Stop and auto-compact synchronization
+
+The pin advances from upstream main `59867614` (OrgOps #94–98, synchronized
+by Nest #90) to `10ab0fa` from camplight/orgops#101, without vendor source
+changes. That PR adds turn cancellation (`POST /api/agents/:name/turns/cancel`,
+`agent.turn.cancel_requested`, `cancelled` on `agent.turn.completed`), the
+`FULL_CHANNEL_EVENTS_AUTO_COMPACT` memory mode, `ORGOPS_CHANNEL_ID` in agent
+shells, optional `OPENAI_COMPATIBLE_REASONING_EFFORT`, and runner fixes for
+step-limit replies, text-only models given images, `events_emit` JSON-text
+payloads and `shell_run` events waking stopped agents.
+
+There are no engine or Nest product migrations; the memory mode is a new value
+of an existing text setting. Nest's composer Stop calls the cancel endpoint, and
+agent settings offer the new memory mode. Native CI adds the upstream
+history-compaction, channel-loop and runner tests. Do not merge this pin before
+camplight/orgops#101; if that PR is squash-merged, move the pin to the resulting
+upstream main commit before merging Nest.
