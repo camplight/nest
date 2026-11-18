@@ -1508,3 +1508,16 @@ Google login preserves workspace destinations in tab-local session storage for u
 Delegated agent creation identifies the configured manager to OrgOps and requires
 an operator-granted SYSTEM agent role. Missing/revoked authority returns 403;
 Nest does not automatically promote an agent during upstream synchronization.
+
+## Native deployment disk safety
+
+Nest's native controller bounds artifact downloads and checks non-root disk
+headroom before download. The installer checks expanded release and paired DB/WAL
+snapshot/migration capacity before extraction and immediately before downtime.
+Successful activation retains the active, three newest and recent snapshot-linked
+release directories; it never prunes runtime data or database backups. The
+watchdog is restored on installer exit even if coherent rollback fails its health
+check. Incomplete DB/configuration recovery blocks automatic restarts with a
+persistent operator-recovery marker. See `deploy/native/README.md` for the exact
+budgets and restoration procedure. This is Nest deployment infrastructure only;
+OrgOps remains untouched.

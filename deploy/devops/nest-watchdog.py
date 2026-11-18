@@ -92,6 +92,9 @@ def recover():
         except BlockingIOError:
             print('Nest watchdog: deployment in progress; skipped')
             return
+        if (STATE.parent / 'recovery-required').exists():
+            print('Nest watchdog: incomplete database/configuration recovery; operator review required')
+            return
         try:
             state = json.loads(STATE.read_text()) if STATE.exists() else {}
             if not isinstance(state, dict):

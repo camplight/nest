@@ -74,9 +74,20 @@ cmp /etc/nest/livekit.yaml "$work/livekit.yaml"
 voice_smoke
 # Configuration failure after the snapshot must restore the previous DB pair/config.
 printf 'NEST_RUNNER_TOKEN=synthetic\n' > "$work/invalid.env"
-if install_host --env-file "$work/invalid.env"; then
+# Reproduce the outage: rollback restores state but its health check also fails.
+# The EXIT finalizer must still restart the timer and preserve the failure exit.
+mkdir "$work/bin"
+cat > "$work/bin/curl" <<'SH'
+#!/usr/bin/env bash
+if [[ " $* " == *" --retry 30 "* && " $* " == *"http://127.0.0.1:8787/health"* ]]; then exit 22; fi
+exec /usr/bin/curl "$@"
+SH
+chmod +x "$work/bin/curl"
+if PATH="$work/bin:$PATH" install_host --env-file "$work/invalid.env"; then
   echo 'FAIL: invalid configuration was accepted'; exit 1
 fi
+systemctl is-active --quiet nest-native-watchdog.timer
+test ! -e /var/lib/nest-watchdog/recovery-required
 curl --fail --silent http://127.0.0.1:8787/health >/dev/null
 cmp /app/.nest-data/runner-id "$work/runner-id"
 python3 deploy/native/smoke.py
