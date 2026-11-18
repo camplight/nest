@@ -88,7 +88,9 @@ if PATH="$work/bin:$PATH" install_host --env-file "$work/invalid.env"; then
 fi
 systemctl is-active --quiet nest-native-watchdog.timer
 test ! -e /var/lib/nest-watchdog/recovery-required
-curl --fail --silent http://127.0.0.1:8787/health >/dev/null
+# The injected failure bypassed rollback's readiness wait. The real services
+# start asynchronously; verify their eventual health with the normal curl.
+/usr/bin/curl --fail --silent --show-error --max-time 5 --retry 30 --retry-all-errors --retry-delay 1 http://127.0.0.1:8787/health >/dev/null
 cmp /app/.nest-data/runner-id "$work/runner-id"
 python3 deploy/native/smoke.py
 # SFU failure is recovered independently, without restarting APIs or the runner.
