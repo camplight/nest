@@ -895,8 +895,10 @@ security guarantees. See [PERSONAL_AGENTS.md](PERSONAL_AGENTS.md) for installati
 configuration, expiry/renewal, limitations and live release checks.
 
 Account changes appear in the chat. Agent shells receive `ORGOPS_CHANNEL_ID`
-from the engine, and the `nest-connections` helper forwards it on execute as
-`x-nest-channel-id`. Nest classifies the executed tool from its provider tags
+from engines that provide it (not yet upstream OrgOps main), and the
+`nest-connections` helper forwards it on execute as `x-nest-channel-id`. Without
+it Nest has no chat to post into, so it records no line and the working ring
+shows no app stations; the agent's result is unchanged. Nest classifies the executed tool from its provider tags
 (`readOnlyHint` → read, else `destructiveHint` → delete, `updateHint` → update,
 `createHint` → create, none → other) and posts a DELIVERED
 `telemetry.nest.connection.action` event (source `system:nest-connections`,
