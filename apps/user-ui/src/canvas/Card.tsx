@@ -1,7 +1,7 @@
 // A chat card on the surface (the mock's `cardInner`): title and last activity, the apps used here, one row per
 // participant with what they are doing now and a state dot, file tiles, and a footer with the newest Needs you reason
 // (or Nudge, or Moving / All quiet) and Open. Memoized: it re-renders only when its card, pulse, needs or drag offset changes.
-import {memo,useCallback,useState,useSyncExternalStore} from 'react';
+import {memo,useCallback,useState,useSyncExternalStore,type KeyboardEvent} from 'react';
 import type {BoardCard} from '@nest/schemas';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {fileHref} from '../attachments';
@@ -62,6 +62,12 @@ export type CardProps = {
   linkTarget?: boolean;
   /** This chat's scheduled jobs (flows set up): the mock's badge under the last activity. */
   schedules?: readonly ScheduleJob[];
+  /**
+   * Editors (with `draggable`): the card is a Tab stop and a key pressed on the card itself (never on a control inside it)
+   * goes here, for arrow-key moves. `moveHint` is the id of the text that says so.
+   */
+  onMoveKey?(channelId: string, event: KeyboardEvent<HTMLElement>): void;
+  moveHint?: string;
 };
 export const CONNECT_TITLE = 'Connect: pass this chat\'s results to another chat';
 export const PORT_TITLE = 'Drag to another chat to pass results along';
@@ -267,12 +273,13 @@ function OpenBody({card, pulse, needs, viewer, onNudge, facesDraggable, dragging
 }
 
 export const Card = memo(function Card({card, draggable, dx, dy, dragging, measure, pulse, needs = NO_NEEDS, viewer = '', onNudge, onRemove, onOpen, open = false, windowed = false,
-  facesDraggable = false, draggingFace = null, dropping = false, selected = false, areaTitle, areaTint, onConnect, linkTarget = false, schedules}: CardProps) {
+  facesDraggable = false, draggingFace = null, dropping = false, selected = false, areaTitle, areaTint, onConnect, linkTarget = false, schedules, onMoveKey, moveHint}: CardProps) {
   const title = cardTitle(card);
   const ref = useCallback((element: HTMLElement | null) => measure(card.channelId, element), [card.channelId, measure]);
   const opens = card.access === 'open' && onOpen ? onOpen : undefined;
   const attention = card.access === 'open' && needs.length > 0;
   const connects = card.access === 'open' ? onConnect : undefined;
+  const moveKey = draggable ? onMoveKey : undefined;
   return <article
     ref={ref}
     className={`canvas-card${dragging ? ' is-dragging' : ''}${opens ? ' is-openable' : ''}${open ? ' is-open' : ''}${windowed ? ' is-windowed' : ''}${dropping ? ' is-drop-target' : ''}${selected ? ' is-selected' : ''}${areaTitle ? ' in-area' : ''}${attention ? ' needs-you' : ''}${linkTarget ? ' linktarget' : ''}`}
@@ -282,6 +289,9 @@ export const Card = memo(function Card({card, draggable, dx, dy, dragging, measu
     data-drag={draggable ? 'card' : undefined}
     aria-label={`Chat ${title}`}
     aria-current={open ? 'true' : undefined}
+    tabIndex={moveKey ? 0 : undefined}
+    aria-describedby={moveKey ? moveHint : undefined}
+    onKeyDown={moveKey ? event => { if (event.target === event.currentTarget) moveKey(card.channelId, event); } : undefined}
     onClick={opens ? event => { if (!(event.target as Element).closest(OWN_CLICK)) opens(card.channelId); } : undefined}
     style={{width: card.w, transform: `translate(${card.x + dx}px, ${card.y + dy}px)`}}>
     <div className="canvas-card-head">

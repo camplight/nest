@@ -856,7 +856,13 @@ Phase 1 is built from
    has a flat 1.5 px border in the area's tint (no thick top stripe; a needs-you card keeps its coral border), and screen readers hear "In area <area>".
    A card or chats dropped into an area grow it, never shrink it, so they fit inside
    with 32 px around them and 72 px above them for the title bar (an ordinary area
-   resize, at most 20 000 px). An editor can also move the open chat from its header:
+   resize, at most 20 000 px). Editors can also move a card or an area with the keyboard: each card and area is a
+   Tab stop for them (a viewer's are not) and the arrow keys move the focused one 8 canvas px per press, 40 with
+   Shift. Only a key pressed on the card or area itself counts, never on its title field, buttons or menu. Presses
+   less than 400 ms apart preview at once and form one move, stored through the same operation as a drop (a card
+   grows the area it lands in; an area takes its cards and nested areas along); a pointer press or a move of
+   another item stores a pending burst first. Escape during a burst puts it back where it started. A polite live
+   region then says "Moved into <area>", "Moved out of <area>", "Moved" or "Move cancelled". An editor can also move the open chat from its header:
    the Area picker puts its card in the first free spot under the chosen area's title
    bar (the area grows to fit), places a loose chat there directly, or with No area
    moves the card just outside its area; the view follows the card. For a loose chat the

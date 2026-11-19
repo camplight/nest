@@ -51,3 +51,19 @@ describe('Card',()=>{
     expect(render({...open,forkOf:null} as BoardCard)).not.toContain('c-fork');
   });
 });
+
+describe('Card keyboard move',()=>{
+  const open={...base,access:'open',title:'Pricing',canManage:true,archived:false,projectId:null,participants:[],forkOf:null} as BoardCard;
+  const markup=(props:{draggable:boolean;onMoveKey?:()=>void})=>renderToStaticMarkup(<Card card={open} dx={0} dy={0} dragging={false} measure={()=>{}}
+    moveHint="hint" {...props}/>);
+  it('is focusable for editors, with the arrow-key hint',()=>{
+    const html=markup({draggable:true,onMoveKey:()=>{}});
+    expect(html).toContain('tabindex="0"');
+    expect(html).toContain('aria-describedby="hint"');
+  });
+  it('is not a Tab stop for viewers',()=>{
+    const html=markup({draggable:false});
+    expect(html).not.toContain('tabindex');
+    expect(html).not.toContain('aria-describedby');
+  });
+});

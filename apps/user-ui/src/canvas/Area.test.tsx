@@ -18,3 +18,16 @@ describe('Area + Chat',()=>{
     expect(render({})).not.toContain('canvas-area-new');
   });
 });
+
+describe('Area keyboard move',()=>{
+  it('is focusable for editors, with the arrow-key hint',()=>{
+    const html=render({onMoveKey:()=>{},moveHint:'hint'});
+    expect(html).toMatch(/<section[^>]*tabindex="0"/);
+    expect(html).toMatch(/<section[^>]*aria-describedby="hint"/);
+  });
+  it('is not a Tab stop for viewers',()=>{
+    const html=render({canEdit:false,onMoveKey:()=>{},moveHint:'hint'});
+    expect(html).not.toMatch(/<section[^>]*tabindex/);
+    expect(html).not.toContain('aria-describedby');
+  });
+});

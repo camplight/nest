@@ -1,6 +1,6 @@
 // The infinite canvas: pan and zoom (mouse, trackpad, touch), culling, area drawing and card/area moves.
 // One transformed container holds every mounted item; only items near the viewport mount.
-import {useCallback,useEffect,useLayoutEffect,useMemo,useReducer,useRef,useState,type DragEvent as ReactDragEvent,type MutableRefObject,type PointerEvent as ReactPointerEvent} from 'react';
+import {useCallback,useEffect,useId,useLayoutEffect,useMemo,useReducer,useRef,useState,type DragEvent as ReactDragEvent,type KeyboardEvent as ReactKeyboardEvent,type MutableRefObject,type PointerEvent as ReactPointerEvent} from 'react';
 import {CanvasTint,areaFor,type BoardCard,type BoardLink,type CanvasArea,type CanvasBoard,type ContextLink} from '@nest/schemas';
 import type {BoardOp} from './board-store';
 import {Area,type AreaContext,type AreaSummary} from './Area';
@@ -17,6 +17,7 @@ import {Links} from './Links';
 import {createPortal} from 'react-dom';
 import {draggedAgent,inviteLabel,setDraggedAgent} from './invite-label';
 import {linkRelease,tempLinkPath} from './link-geometry';
+import {createMoveBurst,moveAnnouncement,nudge as arrowStep,type MoveBurst} from './keyboard-move';
 
 export type SurfaceProps = {
   board: CanvasBoard;
@@ -179,6 +180,9 @@ function writeView(key: string, view: View) {
 }
 const clampCoord = (n: number) => Math.round(Math.min(MAX_COORD, Math.max(-MAX_COORD, n)));
 const clampSize = (n: number) => Math.round(Math.min(MAX_AREA, Math.max(MIN_AREA, n)));
+/** What the arrow-key hint says to screen readers on a focused card or area. */
+const MOVE_HINT = 'Arrow keys move it, Shift moves further, Escape puts it back.';
+type KeyMove = {kind: 'card' | 'area'; id: string; members?: {cards: Set<string>; areas: Set<string>}; burst: MoveBurst};
 const isEditable = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + b.y) / 2});
@@ -495,14 +499,92 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   const releaseAt = (from: string, at: {clientX: number; clientY: number}) => linkRelease(document.elementFromPoint(at.clientX, at.clientY), surfaceRef.current, from,
     id => boardRef.current.cards.some(card => card.channelId === id && card.access === 'open'));
 
+  /**
+   * Stores a card moved by (dx, dy) world px, from a pointer drop or an arrow-key burst. A card that lands in an area that
+   * does not quite hold it grows the area to fit. Answers the card's area before and after, or undefined without the card.
+   */
+  const commitCardMove = useCallback((channelId: string, dx: number, dy: number) => {
+    const current = boardRef.current, apply = (op: BoardOp) => void applyRef.current(op);
+    const card = current.cards.find(c => c.channelId === channelId);
+    if (!card) return undefined;
+    const moved = {x: clampCoord(card.x + dx), y: clampCoord(card.y + dy), w: card.w, h: heights.current.get(card.channelId) ?? CARD_PLACE_HEIGHT};
+    apply({kind: 'moveCard', channelId: card.channelId, x: moved.x, y: moved.y});
+    const target = areaFor(cardCentre(moved), current.areas);
+    const grown = target ? growToFit(target, [moved]) : null;
+    if (target && grown) apply({kind: 'patchArea', areaId: target.id, patch: grown});
+    return {before: areaFor(cardCentre(card), current.areas) ?? null, after: target ?? null};
+  }, []);
+  /** Stores an area moved by (dx, dy) world px; the cards and areas inside it move with it. */
+  const commitAreaMove = useCallback((areaId: string, dx: number, dy: number) => {
+    const area = boardRef.current.areas.find(a => a.id === areaId);
+    if (area) void applyRef.current({kind: 'patchArea', areaId: area.id, patch: {x: clampCoord(area.x + dx), y: clampCoord(area.y + dy)}, moveCards: true});
+  }, []);
+
+  /**
+   * Arrow keys on a focused card or area (editors): presses preview at once and form one move that is stored, like a
+   * drop, 400 ms after the last; Escape puts the burst back. The live region says where it went.
+   */
+  const keyMove = useRef<KeyMove | null>(null);
+  const [said, setSaid] = useState<{id: number; text: string} | null>(null);
+  const saidId = useRef(0);
+  const say = useCallback((text: string) => setSaid({id: ++saidId.current, text}), []);
+  /** The item last moved by keyboard stays mounted when it leaves the culled view, so its focus is never lost. */
+  const [held, setHeld] = useState<string | null>(null);
+  useEffect(() => () => keyMove.current?.burst.cancel(), []);
+  const moveByKey = useCallback((kind: KeyMove['kind'], id: string, event: ReactKeyboardEvent<HTMLElement>) => {
+    if (boardRef.current.canvas.role === 'view') return;
+    const active = keyMove.current?.kind === kind && keyMove.current.id === id ? keyMove.current : null;
+    if (event.key === 'Escape') {
+      if (!active) return;
+      // Only the move: an open chat or the tool keep their Escape for the next press.
+      event.preventDefault();
+      event.stopPropagation();
+      active.burst.cancel();
+      return;
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    const step = arrowStep(event.key, event.shiftKey);
+    if (!step) return;
+    event.preventDefault();
+    if (gesture.current?.active) return;
+    let entry = active;
+    if (!entry) {
+      keyMove.current?.burst.flush();
+      const current = boardRef.current;
+      if (kind === 'card' ? !current.cards.some(c => c.channelId === id) : !current.areas.some(a => a.id === id)) return;
+      const members = kind === 'area' ? areaMembers(id, current.cards, current.areas) : undefined;
+      const done = (text: string) => {
+        if (keyMove.current === made) keyMove.current = null;
+        setPreview(null);
+        say(text);
+      };
+      const made: KeyMove = {kind, id, members, burst: createMoveBurst({
+        commit: (dx, dy) => {
+          if (kind === 'area') { commitAreaMove(id, dx, dy); done('Moved'); return; }
+          const areas = commitCardMove(id, dx, dy);
+          done(areas ? moveAnnouncement(areas.before, areas.after) : 'Moved');
+        },
+        revert: () => done('Move cancelled'),
+      })};
+      keyMove.current = entry = made;
+      setHeld(`${kind}:${id}`);
+    }
+    const {dx, dy} = entry.burst.step(step.dx, step.dy);
+    setPreview(kind === 'card' ? {kind: 'card', id, dx, dy} : {kind: 'area', id, dx, dy, cards: entry.members!.cards, areas: entry.members!.areas});
+  }, [commitCardMove, commitAreaMove, say]);
+  const moveCardByKey = useCallback((channelId: string, event: ReactKeyboardEvent<HTMLElement>) => moveByKey('card', channelId, event), [moveByKey]);
+  const moveAreaByKey = useCallback((areaId: string, event: ReactKeyboardEvent<HTMLElement>) => moveByKey('area', areaId, event), [moveByKey]);
+  const moveHint = useId();
+
   function startPinch() {
     const [[a, pa], [b, pb]] = [...touches.current.entries()];
     pinch.current = {ids: [a, b], dist: Math.max(1, distance(pa, pb)), mid: midpoint(pa, pb), view: viewRef.current};
   }
 
   function pointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    // A new press always ends the previous gesture, even when this one is ignored below.
+    // A new press always ends the previous gesture, even when this one is ignored below; an arrow-key move is stored first.
     if (gesture.current) cancel();
+    keyMove.current?.burst.flush();
     if (event.pointerType === 'touch') {
       touches.current.set(event.pointerId, local(event));
       if (touches.current.size === 2) { cancel(); startPinch(); return; }
@@ -607,20 +689,9 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     const dx = (point.x - g.start.x) / zoom, dy = (point.y - g.start.y) / zoom;
     const current = boardRef.current;
     const apply = (op: BoardOp) => void applyRef.current(op);
-    if (g.mode === 'card') {
-      const card = current.cards.find(c => c.channelId === g.id);
-      if (card) {
-        const moved = {x: clampCoord(card.x + dx), y: clampCoord(card.y + dy), w: card.w, h: heights.current.get(card.channelId) ?? CARD_PLACE_HEIGHT};
-        apply({kind: 'moveCard', channelId: card.channelId, x: moved.x, y: moved.y});
-        // A card dropped into an area that does not quite hold it grows the area to fit.
-        const target = areaFor(cardCentre(moved), current.areas);
-        const grown = target ? growToFit(target, [moved]) : null;
-        if (target && grown) apply({kind: 'patchArea', areaId: target.id, patch: grown});
-      }
-    } else if (g.mode === 'area') {
-      const area = current.areas.find(a => a.id === g.id);
-      if (area) apply({kind: 'patchArea', areaId: area.id, patch: {x: clampCoord(area.x + dx), y: clampCoord(area.y + dy)}, moveCards: true});
-    } else if (g.mode === 'resize') {
+    if (g.mode === 'card') commitCardMove(g.id!, dx, dy);
+    else if (g.mode === 'area') commitAreaMove(g.id!, dx, dy);
+    else if (g.mode === 'resize') {
       const area = current.areas.find(a => a.id === g.id);
       if (area) apply({kind: 'patchArea', areaId: area.id, patch: {w: clampSize(g.base!.w + dx), h: clampSize(g.base!.h + dy)}});
     } else if (g.mode === 'draw') {
@@ -785,12 +856,12 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     <div className={`canvas-world${compact ? ' is-compact' : ''}`} style={{transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, visibility: ready ? undefined : 'hidden'}}>
       {board.areas.map(area => {
         const shift = areaShift(area), resize = preview?.kind === 'resize' && preview.id === area.id ? preview : null;
-        if (!shift && !resize && !shownAreas.has(area.id)) return null;
+        if (!shift && !resize && !shownAreas.has(area.id) && held !== `area:${area.id}`) return null;
         return <Area key={area.id} area={area} dx={shift?.dx ?? 0} dy={shift?.dy ?? 0} w={resize?.w ?? area.w} h={resize?.h ?? area.h}
           canEdit={canEdit} compact={compact} summary={summaries?.get(area.id)} dropTarget={dropArea?.id === area.id ? dropArea.kind : null} onRename={rename} onDelete={remove}
           empty={!occupied.has(area.id)} contextOpen={area.id === contextAreaId}
           context={areaContext?.get(area.id)} onContext={onAreaContext ? openAreaContext : undefined} onLinkOpen={openLink} onLinkHover={hoverLink}
-          renaming={area.id === renameAreaId} onRenameStarted={renameStarted} onNewChat={onNewChatInArea}/>;
+          renaming={area.id === renameAreaId} onRenameStarted={renameStarted} onNewChat={onNewChatInArea} onMoveKey={moveAreaByKey} moveHint={moveHint}/>;
       })}
       {lines.map(line => <ContextLine key={line.key} from={line.from} to={line.to}/>)}
       {links?.length ? <Links links={links} rects={linkRects} selected={selectedChannelId} onOpen={openFlow} onToggleFork={toggleFork}/> : null}
@@ -800,7 +871,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       {preview?.kind === 'draw' ? <div className="canvas-area-draft" style={{transform: `translate(${preview.rect.x}px, ${preview.rect.y}px)`, width: Math.max(MIN_AREA, preview.rect.w), height: Math.max(MIN_AREA, preview.rect.h)}}/> : null}
       {board.cards.map(card => {
         const shift = cardShift(card), home = homeOf(card);
-        if (!shift && !shownCards.has(card.channelId)) return null;
+        if (!shift && !shownCards.has(card.channelId) && held !== `card:${card.channelId}`) return null;
         return <Card key={card.channelId} card={card} draggable={canEdit} dx={shift?.dx ?? 0} dy={shift?.dy ?? 0}
           dragging={preview?.kind === 'card' && preview.id === card.channelId} measure={measure}
           pulse={card.access === 'open' ? pulses.get(card.channelId) : undefined}
@@ -812,7 +883,8 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
           draggingFace={preview?.kind === 'face' && preview.id === card.channelId ? preview.agent : null}
           dropping={dropId === card.channelId} selected={card.channelId === selectedChannelId}
           areaTitle={home?.title} areaTint={home?.tint} schedules={card.access === 'open' ? schedules?.get(card.channelId) : undefined}
-          onConnect={onLinkPick && canConnect?.(card) ? pickLink : undefined} linkTarget={preview?.kind === 'link' && preview.over === card.channelId}/>;
+          onConnect={onLinkPick && canConnect?.(card) ? pickLink : undefined} linkTarget={preview?.kind === 'link' && preview.over === card.channelId}
+          onMoveKey={moveCardByKey} moveHint={moveHint}/>;
       })}
     </div>
     {preview?.kind === 'face' ? <div className={`canvas-face-ghost${preview.away ? ' is-away' : ''}`} aria-hidden="true"
@@ -820,6 +892,9 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       <AgentAvatar name={preview.agent} size={34}/>
       {preview.away ? <span className="canvas-face-ghost-label">{removeLabel(preview.agent, board.cards.find(card => card.channelId === preview.id))}</span> : null}
     </div> : null}
+    {canEdit ? <p id={moveHint} className="canvas-visually-hidden">{MOVE_HINT}</p> : null}
+    {/* Arrow-key moves only; a pointer drop shows where it went. */}
+    <div className="canvas-visually-hidden" role="status">{said ? <span key={said.id}>{said.text}</span> : null}</div>
     {inviteTip ? createPortal(<div className="canvas-invite-tip" aria-hidden="true" style={{left: inviteTip.x + 14, top: inviteTip.y + 16}}>{inviteTip.text}</div>, document.body) : null}
     <div className="canvas-chrome canvas-tools" role="toolbar" aria-label="Canvas tools">
       <button type="button" className="canvas-tool" aria-pressed={tool === 'area'} disabled={!canEdit}

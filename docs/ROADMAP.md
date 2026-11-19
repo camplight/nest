@@ -571,8 +571,8 @@ sandboxes and repos. Needs you covered unread mentions and tasks waiting for rev
 only; approvals and missed runs have since arrived with Phase 3, and picks arrive
 with Phase 4. Inviting agents
 on the canvas works by drag only, with no keyboard or touch route yet. Moving cards
-and areas is by pointer or touch drag only; a keyboard route to move them is
-deferred too. Loose chats the person has hidden are not searchable with Ctrl/Cmd+K
+and areas by keyboard has since arrived: an editor's focused card or area moves with
+the arrow keys (8 px, 40 with Shift), stored once per burst like a drop. Loose chats the person has hidden are not searchable with Ctrl/Cmd+K
 unless Show hidden is on.
 
 ## Switchyard canvas — Phase 2 implemented on the branch

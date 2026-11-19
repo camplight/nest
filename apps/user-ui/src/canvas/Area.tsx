@@ -43,10 +43,16 @@ export type AreaProps = {
   onRenameStarted?(areaId: string): void;
   /** Editors: start a new chat in this area (`+ Chat`, or New chat here in the menu); it opens straight away. */
   onNewChat?(areaId: string): void;
+  /**
+   * Editors: the area is a Tab stop and a key pressed on the area itself (never on its title field, buttons or menu)
+   * goes here, for arrow-key moves. `moveHint` is the id of the text that says so.
+   */
+  onMoveKey?(areaId: string, event: KeyboardEvent<HTMLElement>): void;
+  moveHint?: string;
 };
 
 export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, summary, dropTarget = null, empty = false, contextOpen = false, onRename, onDelete, context, onContext, onLinkOpen, onLinkHover,
-  renaming = false, onRenameStarted, onNewChat}: AreaProps) {
+  renaming = false, onRenameStarted, onNewChat, onMoveKey, moveHint}: AreaProps) {
   const [editing, setEditing] = useState(false);
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -93,11 +99,15 @@ export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, su
   const label = context ? contextLabel(context, canEdit ? 'Add context' : 'No context') : null;
   const usedBy = context ? usedByList(context.usedBy) : '';
   const shelf = !compact && empty && context?.files.length ? context.files : null;
+  const moveKey = canEdit ? onMoveKey : undefined;
   return <section
     className={`canvas-area${dropTarget ? ' is-drop-target' : ''}`}
     aria-label={`Area ${area.title}`}
     data-area-id={area.id}
     data-tint={area.tint}
+    tabIndex={moveKey ? 0 : undefined}
+    aria-describedby={moveKey ? moveHint : undefined}
+    onKeyDown={moveKey ? event => { if (event.target === event.currentTarget) moveKey(area.id, event); } : undefined}
     style={{width: w, height: h, transform: `translate(${area.x + dx}px, ${area.y + dy}px)`}}>
     <div className="canvas-area-bar" data-drag={canEdit ? 'area' : undefined}>
       {editing

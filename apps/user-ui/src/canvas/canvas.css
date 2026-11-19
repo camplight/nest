@@ -1536,12 +1536,15 @@
   outline: 2px solid color-mix(in srgb, var(--nest-lime) 45%, transparent);
   outline-offset: 2px;
 }
-/* Open is a visible footer button (the mock's open-btn); a keyboard focus also rings the whole card. */
-.canvas-card:has(.canvas-card-open:focus-visible) {
+/*
+ * Open is a visible footer button (the mock's open-btn); a keyboard focus also rings the whole card. An editor's card is
+ * a Tab stop itself (arrow keys move it) and rings the same way.
+ */
+.canvas-card:is(:focus-visible, :has(.canvas-card-open:focus-visible)) {
   box-shadow: 0 0 0 2px var(--nest-surface), 0 0 0 4px var(--nest-lime), var(--canvas-shadow);
 }
 /* Forced colours drop box-shadows; this transparent outline then shows in the system colour. The open card keeps its own. */
-.canvas-card:not(.is-open):has(.canvas-card-open:focus-visible) {
+.canvas-card:not(.is-open):is(:focus-visible, :has(.canvas-card-open:focus-visible)) {
   outline: 2px solid transparent;
   outline-offset: 2px;
 }
@@ -2885,6 +2888,11 @@ li.canvas-phone-row[data-access] {
   border-color: color-mix(in srgb, var(--nest-coral) 55%, var(--nest-border));
 }
 
+/* An editor's area is a Tab stop (arrow keys move it). */
+.canvas-area:focus-visible {
+  outline: 2px solid var(--nest-lime);
+  outline-offset: 3px;
+}
 /* While a card or loose chat is dragged over an area, the area lights up and says where it will land. */
 .canvas-area.is-drop-target {
   background: color-mix(in srgb, var(--tint) 16%, transparent);
