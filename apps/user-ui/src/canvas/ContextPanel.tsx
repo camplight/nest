@@ -200,10 +200,10 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
     for (const {url, title} of links) {
       try {
         const {link, created} = await addContextWebLink(canvasId, scope, url, title);
-        if (!mounted.current) return;
+        if (created) changed();
+        if (!mounted.current) continue;
         if (!created) setWebLinkError('Already in context');
         setContext(current => current && {...current, webLinks: [...current.webLinks.filter(l => l.id !== link.id), link]});
-        if (created) changed();
       } catch (error) {
         if (mounted.current) setWebLinkError(error instanceof ApiError && error.status === 409 ? `Context is full: ${MAX_WEB_LINKS_PER_SCOPE} links` : errorText(error, 'Could not add the link. Try again.'));
         return;
