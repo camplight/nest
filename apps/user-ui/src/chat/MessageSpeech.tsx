@@ -2,12 +2,12 @@ import {useEffect,useRef,useState} from 'react';
 import {apiFetch,apiJson} from '../api';
 import {apiUrl} from '../config';
 
-function waitFor(target:EventTarget,event:string,signal:AbortSignal):Promise<void> {
+function waitFor(target:EventTarget,event:string,signal:AbortSignal,start?:()=>void):Promise<void> {
   return new Promise((resolve,reject)=>{
     const clean=()=>{target.removeEventListener(event,done);target.removeEventListener('error',fail);signal.removeEventListener('abort',fail);};
     const done=()=>{clean();resolve();},fail=()=>{clean();reject(Error('Speech interrupted'));};
     target.addEventListener(event,done,{once:true});target.addEventListener('error',fail,{once:true});signal.addEventListener('abort',fail,{once:true});
-    if(signal.aborted)fail();
+    if(signal.aborted)fail();else {try{start?.();}catch{fail();}}
   });
 }
 export function MessageSpeech({eventId}:{eventId:string}) {
@@ -45,10 +45,8 @@ export function MessageSpeech({eventId}:{eventId:string}) {
       try {
         while(!signal.aborted) {
           const {done,value}=await reader.read();if(done)break;
-          const updated=waitFor(buffer,'updateend',signal);
           // Keep only one chunk pending in JS while the media decoder consumes it.
-          buffer.appendBuffer(new Uint8Array(value).buffer);
-          await updated;
+          await waitFor(buffer,'updateend',signal,()=>buffer.appendBuffer(new Uint8Array(value).buffer));
         }
         if(!signal.aborted&&media.readyState==='open')media.endOfStream();
       } finally {await reader.cancel().catch(()=>undefined);reader.releaseLock();}
