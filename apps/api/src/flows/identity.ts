@@ -27,18 +27,35 @@ export class SwitchyardUnavailableError extends Error {
   }
 }
 
+/** The service agent is missing and no SYSTEM-role creator is configured, so Nest cannot make it. */
+class SwitchyardNoCreatorError extends Error {
+  constructor() {
+    super('it does not exist and no creator is configured (set NEST_MANAGEMENT_AGENT_NAME to a SYSTEM-role agent)');
+    this.name = 'SwitchyardNoCreatorError';
+  }
+}
+/** The engine refused to create the service agent (403): a scoped token, or a creator without the SYSTEM role. */
+class SwitchyardCreateRefusedError extends EngineError {
+  constructor(readonly problem: string) { super(403, '/api/agents'); }
+}
+
 const defaultWorkspaceRoot = () =>
   resolve(fileURLToPath(new URL('../../../../', import.meta.url)), process.env.NEST_ENGINE_DATA_DIR ?? '.nest-data', 'workspaces/managed');
 
 /**
  * Nest's service identity: a real engine agent that stays stopped, so it never takes turns.
  * Nest posts as it with the global runner token, which keeps its requested `agent:<name>` source.
+ * The engine accepts its owner and visibility only from a SYSTEM-role agent, so Nest creates it as `creator`
+ * (default `NEST_MANAGEMENT_AGENT_NAME`, Nest's management agent); an existing agent is adopted without one.
  */
-export function createSwitchyard({ store, orgops, token, name, workspaceRoot, defaultModelId, now = Date.now, log = line => console.warn(line) }: {
+export function createSwitchyard({ store, orgops, token, name, creator, workspaceRoot, defaultModelId, now = Date.now, log = line => console.warn(line) }: {
   store: ProductDb; orgops: OrgOpsClient; token: string | undefined; name?: string;
+  /** The SYSTEM-role agent the service agent is created as; empty means none. */
+  creator?: string;
   workspaceRoot?: string; defaultModelId?: string; now?: () => number; log?: (line: string) => void;
 }) {
   const agentName = name || process.env.NEST_SWITCHYARD_AGENT_NAME || 'Switchyard';
+  const creatorName = (creator ?? process.env.NEST_MANAGEMENT_AGENT_NAME ?? '').trim();
   const root = workspaceRoot ?? defaultWorkspaceRoot();
   // The cached adoption verdict: which agent is ours, or that the name is taken. Never its run state.
   type Verdict = { state: SwitchyardState; at: number; agentId?: string; ownerId?: string };
@@ -61,7 +78,8 @@ export function createSwitchyard({ store, orgops, token, name, workspaceRoot, de
     if (problem) log(`[switchyard] service agent ${agentName} unavailable: ${problem}`);
   }
   const describe = (error: unknown) =>
-    error instanceof EngineError ? `engine status ${error.status}` : error instanceof Error ? error.name : 'unknown error';
+    error instanceof SwitchyardNoCreatorError ? error.message : error instanceof SwitchyardCreateRefusedError ? error.problem
+      : error instanceof EngineError ? `engine status ${error.status}` : error instanceof Error ? error.name : 'unknown error';
 
   async function stopIfStarted(service: ServiceClient, agent: ServiceAgent) {
     if (agent.desiredState === 'STOPPED') return;
@@ -75,6 +93,7 @@ export function createSwitchyard({ store, orgops, token, name, workspaceRoot, de
     if (!owner) throw new Error('The engine has no humans');
     let agent = await service.agent(agentName);
     if (!agent) {
+      if (!creatorName) throw new SwitchyardNoCreatorError();
       let createError: unknown = null;
       try {
         await service.createAgent({
@@ -82,9 +101,11 @@ export function createSwitchyard({ store, orgops, token, name, workspaceRoot, de
           workspacePath: resolve(root, 'switchyard'), ownerHumanId: owner.id, visibility: 'PRIVATE', mode: 'CLASSIC',
           desiredState: 'STOPPED', runtimeState: 'STOPPED', emitAuditEvents: false,
           enabledSkills: [], alwaysPreloadedSkills: [], allowOutsideWorkspace: false, allowOwnerHumanSecrets: false,
-        });
+        }, creatorName);
       } catch (error) { createError = error; /* A concurrent create or a lost response: reconcile by name below. */ }
       agent = await service.agent(agentName);
+      if (!agent && createError instanceof EngineError && createError.status === 403)
+        throw new SwitchyardCreateRefusedError(`engine status 403 creating it as ${creatorName} (needs the global runner token and a creator with the SYSTEM role)`);
       if (!agent) throw createError ?? new Error('The created service agent could not be read back');
     }
     if (!ours(agent, owner.id)) return { state: { ok: false, reason: 'name-taken' }, at: now() };
@@ -106,8 +127,9 @@ export function createSwitchyard({ store, orgops, token, name, workspaceRoot, de
       } catch (error) {
         cached = null;
         report(describe(error));
-        // Only an outage is a state; a 4xx (a wrong or scoped token, a rejected agent) or a bug is thrown.
-        if (isEngineOutage(error)) return { ok: false, reason: 'engine-unavailable' } as const;
+        // An outage or a missing creator is a state; a 4xx (a wrong or scoped token, a creator without the SYSTEM
+        // role, a rejected agent) or a bug is thrown, and availability reports it as engine-unavailable.
+        if (isEngineOutage(error) || error instanceof SwitchyardNoCreatorError) return { ok: false, reason: 'engine-unavailable' } as const;
         throw error;
       } finally { checking = null; }
     })();

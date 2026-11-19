@@ -62,7 +62,7 @@ describe('forks against the unchanged engine', () => {
     summaries = []; duringSummary = null;
     product = createApp({
       orgops: client, dbPath: join(dir, 'product.sqlite'), canvasEnabled: true, contextFilesDir: join(dir, 'context-files'),
-      connectionEngineToken: RUNNER, switchyardName: 'Switchyard', switchyardWorkspaceRoot: join(dir, 'managed'),
+      connectionEngineToken: RUNNER, switchyardName: 'Switchyard', switchyardCreator: 'NestSystem', switchyardWorkspaceRoot: join(dir, 'managed'),
       summarize: async input => { summaries.push(input); await duringSummary?.(); return { text: `Summary (by test):\n${input.texts.length} messages`, model: 'test' }; },
     });
     owner = await login('owner');
@@ -73,6 +73,8 @@ describe('forks against the unchanged engine', () => {
       const res = await call(owner, 'POST', '/api/agents', { name, modelId: 'test', workspacePath: join(dir, name), desiredState: 'STOPPED', visibility: 'PUBLIC' });
       expect(res.status, await res.clone().text()).toBe(201);
     }
+    // Nest's SYSTEM-role management agent: the engine takes Switchyard's owner and visibility only from one.
+    expect((await call(owner, 'POST', '/api/agents', { name: 'NestSystem', agentRole: 'SYSTEM', modelId: 'test', workspacePath: join(dir, 'NestSystem'), desiredState: 'STOPPED' })).status).toBe(201);
     // A: the owner's chat with Pip, which the reader can read and the mate cannot. B: another chat of the owner's.
     a = await chat('A', [{ type: 'AGENT', id: 'Pip' }, { type: 'HUMAN', id: 'reader' }]);
     b = await chat('B', [{ type: 'AGENT', id: 'Pom' }]);

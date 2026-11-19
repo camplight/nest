@@ -21,7 +21,7 @@ describe('the Switchyard service identity against the unchanged engine', () => {
     product.app.request(path, { method, headers: h, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const runner = (path: string) => engine.app.request(path, { headers: { 'x-orgops-runner-token': RUNNER } });
   const switchyard = (...args: [token?: string]) =>
-    createSwitchyard({ store: product.store, orgops: client, token: args.length ? args[0] : RUNNER, name: 'Switchyard', workspaceRoot: join(dir, 'managed'), defaultModelId: 'test', now: () => clock });
+    createSwitchyard({ store: product.store, orgops: client, token: args.length ? args[0] : RUNNER, name: 'Switchyard', workspaceRoot: join(dir, 'managed'), defaultModelId: 'test', creator: 'NestSystem', now: () => clock });
 
   beforeEach(async () => {
     vi.stubEnv('ORGOPS_MASTER_KEY', Buffer.alloc(32, 99).toString('base64'));
@@ -33,7 +33,7 @@ describe('the Switchyard service identity against the unchanged engine', () => {
       if (new Headers(init?.headers).get('x-orgops-runner-token')) serviceCalls.push(`${init?.method ?? 'GET'} ${new URL(String(url)).pathname}`);
       return engine.app.fetch(new Request(url, init));
     }) as typeof fetch);
-    product = createApp({ orgops: client, dbPath: join(dir, 'product.sqlite'), canvasEnabled: true, contextFilesDir: join(dir, 'context-files'), connectionEngineToken: RUNNER });
+    product = createApp({ orgops: client, dbPath: join(dir, 'product.sqlite'), canvasEnabled: true, contextFilesDir: join(dir, 'context-files'), connectionEngineToken: RUNNER, switchyardCreator: 'NestSystem' });
     const r = await call(json, 'POST', '/api/auth/login', { username: 'owner', password: 'password' });
     owner = { ...json, cookie: r.headers.get('set-cookie')!.split(';')[0] };
     ownerId = (await (await call(owner, 'GET', '/api/humans')).json()).find((h: any) => h.username === 'owner').id;
@@ -43,6 +43,8 @@ describe('the Switchyard service identity against the unchanged engine', () => {
       const res = await call(owner, 'POST', '/api/agents', { name, modelId: 'test', workspacePath: join(dir, name), desiredState: 'STOPPED' });
       expect(res.status, await res.clone().text()).toBe(201);
     }
+    // Nest's SYSTEM-role management agent: the engine takes Switchyard's owner and visibility only from one.
+    expect((await call(owner, 'POST', '/api/agents', { name: 'NestSystem', agentRole: 'SYSTEM', modelId: 'test', workspacePath: join(dir, 'NestSystem'), desiredState: 'STOPPED' })).status).toBe(201);
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -148,7 +150,7 @@ describe('the Switchyard service identity against the unchanged engine', () => {
     const room = await chat('Room', ['Pip']);
     await sy.join(room);
     // Renamed: a new service agent name posts in a chat only the old one joined.
-    const renamed = createSwitchyard({ store: product.store, orgops: client, token: RUNNER, name: 'Yard', workspaceRoot: join(dir, 'managed'), defaultModelId: 'test', now: () => clock });
+    const renamed = createSwitchyard({ store: product.store, orgops: client, token: RUNNER, name: 'Yard', workspaceRoot: join(dir, 'managed'), defaultModelId: 'test', creator: 'NestSystem', now: () => clock });
     serviceCalls = [];
     await renamed.post({ channelId: room, text: 'First', target: 'Pip', kind: 'handoff', setBy: ownerId, idempotencyKey: 'nest:test:renamed:1' });
     expect(serviceCalls).toContain(`POST /api/channels/${room}/subscribe`);
@@ -238,20 +240,43 @@ describe('the Switchyard service identity against the unchanged engine', () => {
     const scoped = decodeURIComponent(String(invite.invite.inviteUrl).split('/').pop()!);
     for (const [token, status] of [[scoped, 403], ['not-the-runner-token', 401]] as const) {
       const lines: string[] = [];
-      const sy = createSwitchyard({ store: product.store, orgops: client, token, name: 'Switchyard', workspaceRoot: join(dir, 'managed'), defaultModelId: 'test', now: () => clock, log: line => lines.push(line) });
+      const sy = createSwitchyard({ store: product.store, orgops: client, token, name: 'Switchyard', workspaceRoot: join(dir, 'managed'), defaultModelId: 'test', creator: 'NestSystem', now: () => clock, log: line => lines.push(line) });
       await expect(sy.ensure()).rejects.toMatchObject({ name: 'EngineError', status });
       await expect(sy.post({ channelId: 'c', text: 'x', target: null, kind: 'note', setBy: ownerId, idempotencyKey: 'nest:test:refused' })).rejects.toMatchObject({ status });
-      // One line per change of problem, holding the status but never the token.
-      expect(lines).toEqual([`[switchyard] service agent Switchyard unavailable: engine status ${status}`]);
+      // One line per change of problem, holding the status but never the token. The scoped token reads humans and is
+      // refused only when it creates the agent; the wrong token is refused at once.
+      const problem = status === 403 ? 'engine status 403 creating it as NestSystem (needs the global runner token and a creator with the SYSTEM role)' : `engine status ${status}`;
+      expect(lines).toEqual([`[switchyard] service agent Switchyard unavailable: ${problem}`]);
       expect(lines.join()).not.toContain(token);
     }
     expect((await call(owner, 'GET', '/api/agents/Switchyard')).status).toBe(404);
   });
 
+  it('creates the agent only as a SYSTEM-role creator, and adopts an existing one without', async () => {
+    const lines: string[] = [];
+    const as = (creator: string) => createSwitchyard({ store: product.store, orgops: client, token: RUNNER, name: 'Switchyard', workspaceRoot: join(dir, 'managed'), defaultModelId: 'test', creator, now: () => clock, log: line => lines.push(line) });
+    // No creator: nothing is asked of the engine beyond reads, and flows are unavailable.
+    const none = as('');
+    expect(await none.ensure()).toEqual({ ok: false, reason: 'engine-unavailable' });
+    await expect(none.post({ channelId: 'c', text: 'x', target: null, kind: 'note', setBy: ownerId, idempotencyKey: 'nest:test:no-creator' })).rejects.toMatchObject({ reason: 'engine-unavailable' });
+    expect(serviceCalls.filter(c => c.startsWith('POST'))).toEqual([]);
+    // A STANDARD agent as the creator: the engine refuses the owner and visibility fields.
+    await expect(as('Pip').ensure()).rejects.toMatchObject({ name: 'EngineError', status: 403 });
+    expect(lines).toEqual([
+      '[switchyard] service agent Switchyard unavailable: it does not exist and no creator is configured (set NEST_MANAGEMENT_AGENT_NAME to a SYSTEM-role agent)',
+      '[switchyard] service agent Switchyard unavailable: engine status 403 creating it as Pip (needs the global runner token and a creator with the SYSTEM role)',
+    ]);
+    expect((await call(owner, 'GET', '/api/agents/Switchyard')).status).toBe(404);
+    // Made once by the SYSTEM agent, it is adopted later without any creator.
+    expect(await as('NestSystem').ensure()).toEqual({ ok: true, name: 'Switchyard' });
+    expect(await agent('Switchyard')).toMatchObject({ ownerHumanId: ownerId, visibility: 'PRIVATE', agentRole: 'STANDARD' });
+    expect(await as('').ensure()).toEqual({ ok: true, name: 'Switchyard' });
+  });
+
   it('reports engine-unavailable only for an unreachable engine', async () => {
     const lines: string[] = [];
     const down = createOrgOpsClient('http://engine', (async () => { throw new TypeError('fetch failed'); }) as typeof fetch);
-    const sy = createSwitchyard({ store: product.store, orgops: down, token: RUNNER, name: 'Switchyard', workspaceRoot: join(dir, 'managed'), defaultModelId: 'test', now: () => clock, log: line => lines.push(line) });
+    const sy = createSwitchyard({ store: product.store, orgops: down, token: RUNNER, name: 'Switchyard', workspaceRoot: join(dir, 'managed'), defaultModelId: 'test', creator: 'NestSystem', now: () => clock, log: line => lines.push(line) });
     expect(await sy.ensure()).toEqual({ ok: false, reason: 'engine-unavailable' });
     expect(await sy.ensure()).toEqual({ ok: false, reason: 'engine-unavailable' });
     expect(lines).toEqual(['[switchyard] service agent Switchyard unavailable: EngineUnreachableError']);

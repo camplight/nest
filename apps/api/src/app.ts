@@ -38,7 +38,7 @@ import { registerAgentMemoryRoutes } from './agent-memory';
 import { createContextCompactionWorker } from './context-compaction-worker';
 import type { HistorySummarizer } from './context-compaction';
 
-export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string; canvasEnabled?: boolean; compaction?: {engineToken?:string; summarize?:HistorySummarizer; now?:()=>number}; contextFilesDir?: string; contextSetupWaitMs?: number; switchyardName?: string; switchyardWorkspaceRoot?: string; summarize?: Summarize; flowsNow?: () => number } = {}) {
+export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string; canvasEnabled?: boolean; compaction?: {engineToken?:string; summarize?:HistorySummarizer; now?:()=>number}; contextFilesDir?: string; contextSetupWaitMs?: number; switchyardName?: string; switchyardCreator?: string; switchyardWorkspaceRoot?: string; summarize?: Summarize; flowsNow?: () => number } = {}) {
   const store = config.store ?? openProductDb(config.dbPath ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_PRODUCT_DB_PATH ?? '.nest-product/nest.sqlite'));
   const orgops = config.orgops ?? createOrgOpsClient(config.orgopsUrl ?? process.env.ORGOPS_URL ?? 'http://127.0.0.1:8788');
   const app = new Hono();
@@ -54,6 +54,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   const switchyard = createSwitchyard({
     store, orgops, token: serviceToken,
     name: config.switchyardName ?? process.env.NEST_SWITCHYARD_AGENT_NAME, defaultModelId: defaultAgentModelId,
+    creator: config.switchyardCreator ?? process.env.NEST_MANAGEMENT_AGENT_NAME,
     workspaceRoot: config.switchyardWorkspaceRoot ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_ENGINE_DATA_DIR ?? '.nest-data', 'workspaces/managed'),
   });
   const hooks = createHooks({store, orgops, token: serviceToken, switchyard, now: config.flowsNow});

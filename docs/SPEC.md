@@ -1280,7 +1280,10 @@ deviations; item 16 the checks.
 
 2. The service agent. Background posts come from a real engine agent named
    `NEST_SWITCHYARD_AGENT_NAME` (default `Switchyard`). Nest creates it through the
-   service token (`NEST_CONNECTION_METADATA_TOKEN`, else `NEST_RUNNER_TOKEN`) as a
+   service token (`NEST_CONNECTION_METADATA_TOKEN`, else `NEST_RUNNER_TOKEN`), acting
+   as the SYSTEM-role management agent `NEST_MANAGEMENT_AGENT_NAME`
+   (`x-orgops-agent-name` on that one request; the engine accepts an owner and
+   visibility from a runner token only for a SYSTEM-role agent), as a
    `PRIVATE`, `CLASSIC` agent owned by the instance owner (the first human), with
    `desiredState:'STOPPED'`, `emitAuditEvents:false` and the description
    `Nest service identity for hand-offs, scheduled runs, webhooks and fork seeds. It
@@ -2025,7 +2028,10 @@ deviations; item 16 the checks.
       (unset or empty means `Switchyard`). Nest creates the agent (item 2) on the first
       flows tick after start or the first availability request, with the default
       agent model and the workspace `{NEST_ENGINE_DATA_DIR or .nest-data}/workspaces/
-      managed/switchyard`; nothing has to be made by hand. Webhook URLs need the
+      managed/switchyard`; nothing has to be made by hand, but creating it needs
+      `NEST_MANAGEMENT_AGENT_NAME` naming an agent with the SYSTEM role (the same
+      management agent that creates agents for people). An agent Nest already created
+      is adopted without one. Webhook URLs need the
       reverse proxy to route `/api/hooks/*` to the Nest API and set
       `x-forwarded-proto` and `x-forwarded-host` (Caddy does).
     - Recovery. The server log line `[switchyard] service agent {name} unavailable:
@@ -2036,7 +2042,11 @@ deviations; item 16 the checks.
         restore the description Nest wrote; the next check (within 60 s) adopts or
         creates the agent again.
       - `engine-unavailable`: the engine is down or refused the token (the log names
-        the status). Hand-offs, bookings and webhook calls resume on their own: the
+        the status), or the service agent does not exist and cannot be created: no
+        `NEST_MANAGEMENT_AGENT_NAME` is set (`no creator is configured`), or the engine
+        answered 403 to the create (`creating it as {creator}`: the creator lacks the
+        SYSTEM role or the token is scoped). Grant the management agent the SYSTEM
+        role or use the global runner token; the next check creates the agent. Hand-offs, bookings and webhook calls resume on their own: the
         worker retries with the same keys, unbooked runs past their grace are recorded
         as missed with `engine unavailable`, and webhook callers get 503 and retry.
       - Someone started the agent: Nest stops it before its next join, post or drain

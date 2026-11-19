@@ -67,7 +67,15 @@ export function serviceClient(request: EngineRequest, token: string) {
   const name = (value: string) => encodeURIComponent(value);
   return {
     agent: (agentName: string) => maybe<ServiceAgent>(`/api/agents/${name(agentName)}`),
-    createAgent: async (body: Record<string, unknown>) => (await call('/api/agents', json(body))).json() as Promise<{id: string}>,
+    /**
+     * Owner, visibility and other authority fields are accepted only from a SYSTEM-role agent, so `asAgent` names the
+     * agent this one call is made as (`x-orgops-agent-name`); without it the runner token alone gets 403 for them.
+     */
+    createAgent: async (body: Record<string, unknown>, asAgent?: string) => {
+      const init = json(body);
+      if (asAgent) init.headers = {...init.headers as Record<string, string>, 'x-orgops-agent-name': asAgent};
+      return (await call('/api/agents', init)).json() as Promise<{id: string}>;
+    },
     stopAgent: async (agentName: string) => { await drop(await call(`/api/agents/${name(agentName)}/stop`, {method: 'POST'})); },
     subscribe: async (channelId: string, member: {subscriberType: 'AGENT'; subscriberId: string}) => {
       await drop(await call(`/api/channels/${name(channelId)}/subscribe`, json(member)));
