@@ -175,12 +175,38 @@ describe('forks against the unchanged engine', () => {
     expect((await fork(owner, { childChannelId: randomUUID(), parentChannelId: a, parentEventId: message.id, timeZone: 'Not/AZone' })).status).toBe(400);
   });
 
+  it('refuses a parent the viewer can only view or that is archived, and Switchyard joins neither chat', async () => {
+    const message = await say(a, 'agent:Pip', 'Agreed on more data.');
+    const switchyardIn = async (channelId: string) =>
+      ((await (await engineCall('GET', `/api/channels/${channelId}/participants`)).json()) as { subscriberType: string; subscriberId: string }[])
+        .some(p => p.subscriberType === 'AGENT' && p.subscriberId === 'Switchyard');
+    // The owner shares A with mate to view: mate reads it but cannot post, so its findings could never flow back.
+    expect((await call(owner, 'POST', `/api/channels/${a}/share`, { viewerType: 'HUMAN', viewerId: 'mate' })).status).toBe(200);
+    expect((await (await call(mate, 'GET', '/api/channels')).json() as { id: string }[]).some(ch => ch.id === a)).toBe(true);
+    const mates = await project(mate, 'Fork: Agreed');
+    const refused = await fork(mate, { childChannelId: mates, parentChannelId: a, parentEventId: message.id });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ error: 'You need to read and post in the chat you fork from' });
+    // An archived parent: the owner reads it but nobody posts in it.
+    const old = await chat('Old', [{ type: 'AGENT', id: 'Pom' }]);
+    const said = await say(old, 'agent:Pom', 'Final answer.');
+    expect((await call(owner, 'POST', `/api/channels/${old}/archive`)).status).toBe(200);
+    const child = await project(owner, 'Fork: Final');
+    expect((await fork(owner, { childChannelId: child, parentChannelId: old, parentEventId: said.id })).status).toBe(403);
+    for (const id of [a, mates, old, child]) expect(await switchyardIn(id)).toBe(false);
+    expect([...product.store.flows.forksOf(a), ...product.store.flows.forksOf(old)]).toEqual([]);
+    expect(product.store.flows.linksTouching([a, old])).toEqual([]);
+    // Reading a parent is enough to list its forks.
+    expect((await call(mate, 'GET', `/api/flows/forks?parentChannelId=${a}`)).status).toBe(200);
+  });
+
   it('refuses a viewer who cannot read the parent, a message from another chat and a child the viewer did not start', async () => {
     const message = await say(a, 'agent:Pip', 'Agreed on more data.');
     // The mate cannot read A, even into a chat of their own.
     const mates = await project(mate, 'Fork: Agreed');
     const refused = await fork(mate, { childChannelId: mates, parentChannelId: a, parentEventId: message.id });
     expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ error: 'You need to read and post in the chat you fork from' });
     // A message from B, claimed to be in A.
     const child = await project(owner, 'Fork: Agreed', ['Pip']);
     const elsewhere = await say(b, 'agent:Pom', 'Something in B');

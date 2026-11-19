@@ -1374,7 +1374,10 @@ deviations; item 16 the checks.
    applies the same rule to the viewer's own channel list, with their teams read
    through their session (`GET /api/teams/me`), so a flow never starts out paused.
    The hand-off worker, scheduler and webhook endpoint pause (`access`) once the
-   creator's access goes, for example when they leave the team. Who may pause or
+   creator's access goes, for example when they leave the team. A failed teams read
+   is an outage like a failed channel read: nothing pauses, and a run the scheduler
+   already booked in the engine still fires when due if teams could not be read on
+   any tick in the 60 s before it. Who may pause or
    disconnect (`member`, S10) does not count teams or shares.
 
 4. Routes. Each needs a signed-in person (401, or 403 until the password is set),
@@ -1479,10 +1482,11 @@ deviations; item 16 the checks.
 
      Titles follow the viewer's own access, as in the links list.
    - `POST /api/flows/forks` takes `{childChannelId, parentChannelId, parentEventId,
-     timeZone?}` and makes the child a fork of that message. The viewer must read the
-     parent by the flows rule (403; a viewer share is enough, though its findings link
-     then pauses with `access` when it first delivers, as the viewer cannot post in
-     the parent), the event must be a `message.created` in the
+     timeZone?}` and makes the child a fork of that message. The viewer must read and
+     post in the parent by the flows rule, since the fork reads it and its findings
+     link posts into it (else 403 `You need to read and post in the chat you fork
+     from`, before Switchyard joins anything; a viewer share or an archived parent is
+     refused), the event must be a `message.created` in the
      parent read with the viewer's session (404), and the child must be a project chat
      the viewer started (403); a child equal to the parent or an unknown `timeZone`
      answers 400. Switchyard joins both chats and posts the seed into the child with

@@ -282,7 +282,7 @@ describe('schedules against the unchanged engine', () => {
     expect((await call(owner, 'POST', `/api/teams/${team}/members`, { memberType: 'HUMAN', memberId: 'mate' })).status).toBeLessThan(300);
     const t = await chat('T', [{ type: 'AGENT', id: 'Pom' }, { type: 'TEAM', id: team }]);
     const s = await create(mate, { channelId: t, agent: 'Pom' });
-    // A member of the team is not a member of the chat.
+    // The creator edits and manages their own schedule, whatever their access comes through.
     expect(s).toMatchObject({ canEdit: true, canManage: true });
     expect((await call(mate, 'DELETE', `/api/teams/${team}/members/HUMAN/mate`)).status).toBeLessThan(300);
     at(MON_0900 - 30_000);

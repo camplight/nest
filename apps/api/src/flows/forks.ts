@@ -63,8 +63,10 @@ export function registerForkRoutes(routes: Hono<{ Variables: { human: Human } }>
     const headers = c.req.raw.headers;
     const channels = await viewerChannels(headers);
     const parent = channels.get(input.parentChannelId), child = channels.get(input.childChannelId);
-    // The rule links use (S9): teams count as the engine counts them, and a viewer share reads.
-    if (!(await viewerAccess(headers, human)(parent)).read) throw fail(403, 'You need to read the chat you fork from');
+    // The fork reads the parent and its findings link posts into it, so the rule links use (S9) needs both: a viewer
+    // share (read only) or an archived parent is refused before Switchyard joins anything.
+    const access = await viewerAccess(headers, human)(parent);
+    if (!access.read || !access.post) throw fail(403, 'You need to read and post in the chat you fork from');
     const project = store.projects.byChannels([input.childChannelId]).get(input.childChannelId);
     if (!child || !project || store.projects.project(project.id)?.ownerId !== human.id) throw fail(403, 'A fork goes into a chat you started');
 
