@@ -3,9 +3,9 @@ import type {BoardCard,ContextCounts,ContextLink,ContextUse} from '@nest/schemas
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** `Notes · 2 files`, `Notes`, `1 file`, or `empty` (`Add context` for editors) when there is nothing. */
+/** `Notes · 2 files · 1 link`, `Notes`, `1 file`, or `empty` (`Add context` for editors) when there is nothing. */
 export function contextLabel(counts: ContextCounts, empty = 'Add context') {
-  return [counts.notes ? 'Notes' : '', counts.fileCount ? plural(counts.fileCount, 'file') : ''].filter(Boolean).join(' · ') || empty;
+  return [counts.notes ? 'Notes' : '', counts.fileCount ? plural(counts.fileCount, 'file') : '', counts.linkCount ? plural(counts.linkCount, 'link') : ''].filter(Boolean).join(' · ') || empty;
 }
 
 /** `A`, `A and B`, `A, B and C`. */
@@ -114,3 +114,10 @@ export function chatSees(card: Extract<BoardCard, {access: 'open'}>, canvasName:
   if (!area) return {kind: 'sees', areaId: null, names: [canvasName]};
   return {kind: 'sees', areaId: area.id, names: [canvasName, area.title || 'Untitled area', ...links.filter(link => link.available).map(link => link.title)]};
 }
+
+/** A pasted link's host, for its second line. Stored links are normalized, so the parse only fails on bad data. */
+export function webLinkHost(url: string) {
+  try { return new URL(url).host; } catch { return url; }
+}
+/** The address without its schemeand a trailing lone slash: `a.com/x?y=1`, shown when a link has no title. */
+export const webLinkAddress = (url: string) => url.replace(/^https?:\/\//i, '').replace(/\/$/, '');

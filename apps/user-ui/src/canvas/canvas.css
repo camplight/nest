@@ -3774,3 +3774,12 @@ li.canvas-phone-row[data-access] {
 .canvas-sched-button .cnt { font: 700 11px Inter, sans-serif; background: var(--canvas-surface-2); border-radius: 999px; padding: 0 6px; margin-left: 2px; }
 /* Forest on coral (5.98:1), as the danger button: the mock's white on coral is below 4.5:1. */
 .canvas-sched-button .cnt.hot { background: var(--nest-coral); color: var(--nest-forest); }
+/* Pasted web links: the row text is the anchor. */
+.canvas-context-weblink {
+  color: inherit;
+  text-decoration: none;
+}
+.canvas-context-weblink:hover .canvas-context-ref-title,
+.canvas-context-weblink:focus-visible .canvas-context-ref-title {
+  text-decoration: underline;
+}

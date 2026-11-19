@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import type {BoardCard,ContextLink} from '@nest/schemas';
-import {chatSees,contextLabel,fileKind,fileTypeLabel,joinNames,linkDetail,linkElsewhere,usedByList} from './context-label';
+import {chatSees,contextLabel,fileKind,fileTypeLabel,joinNames,linkDetail,linkElsewhere,usedByList,webLinkAddress,webLinkHost} from './context-label';
 
 const link = (over: Partial<ContextLink> = {}): ContextLink => ({sourceAreaId: 's1', title: 'Brand kit', canvasId: 'c1', canvasName: 'Atlas', available: true, counts: {notes: true, fileCount: 1, linkCount: 0}, ...over});
 const card = (home: Extract<BoardCard, {access: 'open'}>['home']): Extract<BoardCard, {access: 'open'}> => ({
@@ -12,6 +12,8 @@ describe('context labels', () => {
     expect(contextLabel({notes: true, fileCount: 1, linkCount: 0})).toBe('Notes · 1 file');
     expect(contextLabel({notes: true, fileCount: 0, linkCount: 0})).toBe('Notes');
     expect(contextLabel({notes: false, fileCount: 3, linkCount: 0})).toBe('3 files');
+    expect(contextLabel({notes: true, fileCount: 5, linkCount: 2})).toBe('Notes · 5 files · 2 links');
+    expect(contextLabel({notes: false, fileCount: 0, linkCount: 1})).toBe('1 link');
     expect(contextLabel({notes: false, fileCount: 0, linkCount: 0})).toBe('Add context');
     expect(contextLabel({notes: false, fileCount: 0, linkCount: 0}, 'No context')).toBe('No context');
   });
@@ -104,5 +106,13 @@ describe('what an open chat sees (home semantics)', () => {
     expect(chatSees(card({isHere: false, label: null, available: false}), 'Atlas', area, [])).toEqual({kind: 'unavailable'});
     expect(chatSees(card(null), 'Atlas', area, [])).toEqual({kind: 'none'});
     expect(chatSees(card(undefined), 'Atlas', area, [])).toEqual({kind: 'none'});
+  });
+});
+
+describe('web link text', () => {
+  it('shows the host and the address without its scheme', () => {
+    expect(webLinkHost('https://docs.a.com:8080/x?y=1')).toBe('docs.a.com:8080');
+    expect(webLinkAddress('https://a.com/')).toBe('a.com');
+    expect(webLinkAddress('http://a.com/x?y=1')).toBe('a.com/x?y=1');
   });
 });

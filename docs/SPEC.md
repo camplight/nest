@@ -1052,6 +1052,11 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
      canvas and for each area
    - `GET /api/canvases/:id/context/files/:fileId` downloads any context file of the
      canvas, area files included
+   - `POST …/context/web-links` (`{url, title?}`; 201 new, 200 when the address is already
+     there, 409 when the scope holds 50) and `DELETE …/context/web-links/:linkId`, for the
+     canvas and each area: pasted web links, http(s) only, stored normalized. Scope reads
+     carry `webLinks`, counts carry `linkCount`, and agents get the links with their files
+     list. Nest never fetches a pasted address and shows no remote favicons.
    - `POST /api/canvases/:id/areas/:areaId/context/links` and
      `DELETE …/context/links/:sourceAreaId` (use another area's context)
    - `GET /api/canvases/context-sources` (areas the person can link to, each with
@@ -1070,6 +1075,14 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
      on the area and whether each can read it: `ready`, `unconfigured` or wrapped)
    - `POST /api/canvases/:id/cards/:channelId/home` ("Use this area's context"; chat
      members only)
+
+   The popover pastes: with it focused (outside its fields), editors can paste files,
+   which upload as if dropped, or text with up to 10 web addresses, which become links
+   (the title comes from a single copied anchor). A Links section between Files and Also
+   uses lists each link's title or address, its host, opens it in a new tab with
+   `rel="noopener noreferrer"` and lets editors remove it. A viewer's paste does nothing.
+   Messages: `Paste a link or a file to add it here.`, `Already in context`,
+   `Context is full: 50 links`.
 
    Limits, each rejected with 400: notes 20,000 characters per scope, 20 files per
    upload request, 20 MiB per file, 50 files per scope, 200 MiB of context files per

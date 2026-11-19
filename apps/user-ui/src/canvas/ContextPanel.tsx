@@ -2,17 +2,19 @@
 // opened it (an area's `◱` chip, a `↳` chip, the chat header's "sees N contexts" or the Canvas context button). It
 // floats over the canvas, so an open chat stays open beside it; on phones it is a bottom sheet. Notes are a plain
 // textarea (no rich text, spec section 4); edits never post to a chat.
-import {useCallback,useEffect,useLayoutEffect,useRef,useState,type CSSProperties,type DragEvent} from 'react';
-import {MAX_LINKS_PER_AREA,type ContextReader,type ScopeContext} from '@nest/schemas';
+import {useCallback,useEffect,useLayoutEffect,useRef,useState,type ClipboardEvent,type CSSProperties,type DragEvent} from 'react';
+import {MAX_LINKS_PER_AREA,MAX_WEB_LINKS_PER_SCOPE,type ContextReader,type ScopeContext} from '@nest/schemas';
 import type {PendingAttachment} from '../attachments';
 import {ChatAttachments} from '../components/ChatAttachments';
 import {
-  addContextLink,contextFileHref,deleteContextFile,errorText,getContext,getContextReaders,getContextSources,
-  putNotes,putNotesKeepalive,removeContextLink,uploadContextFile,type ContextSource,type PanelScope,
+  addContextLink,addContextWebLink,contextFileHref,deleteContextFile,errorText,getContext,getContextReaders,getContextSources,
+  putNotes,putNotesKeepalive,removeContextLink,removeContextWebLink,uploadContextFile,type ContextSource,type PanelScope,
 } from './context-api';
 import {useNotesAutosave} from './notes-autosave';
-import {contextLabel,linkDetail,linkElsewhere,usedByList} from './context-label';
+import {contextLabel,linkDetail,linkElsewhere,usedByList,webLinkAddress,webLinkHost} from './context-label';
 import {FileTile} from './FileTile';
+import {pasteAction} from './context-paste';
+import {ApiError} from '../api';
 
 export const CONTEXT_WARNING = 'Everyone in these chats, including their agents, can see this.';
 
@@ -55,6 +57,7 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
   const [picker, setPicker] = useState(false);
   const [sources, setSources] = useState<ContextSource[] | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [webLinkError, setWebLinkError] = useState<string | null>(null);
   const [readers, setReaders] = useState<ContextReader[] | null>(null);
 
   const mounted = useRef(true);
@@ -191,6 +194,44 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
     if (canEdit) addFiles(Array.from(event.dataTransfer.files)); else onViewOnlyDrop?.();
   }
 
+  // Paste: files go to the upload path, web addresses become links, in order, until the scope is full. Nothing is fetched.
+  async function addWebLinks(links: {url: string; title: string | null}[]) {
+    setWebLinkError(null);
+    for (const {url, title} of links) {
+      try {
+        const {link, created} = await addContextWebLink(canvasId, scope, url, title);
+        if (!mounted.current) return;
+        if (!created) setWebLinkError('Already in context');
+        setContext(current => current && {...current, webLinks: [...current.webLinks.filter(l => l.id !== link.id), link]});
+        if (created) changed();
+      } catch (error) {
+        if (mounted.current) setWebLinkError(error instanceof ApiError && error.status === 409 ? `Context is full: ${MAX_WEB_LINKS_PER_SCOPE} links` : errorText(error, 'Could not add the link. Try again.'));
+        return;
+      }
+    }
+  }
+  async function removeWebLink(linkId: string) {
+    setWebLinkError(null);
+    try {
+      await removeContextWebLink(canvasId, scope, linkId);
+      changed();
+      if (mounted.current) setContext(current => current && {...current, webLinks: current.webLinks.filter(l => l.id !== linkId)});
+    } catch (error) {
+      if (mounted.current) setWebLinkError(errorText(error, 'Could not remove the link. Try again.'));
+    }
+  }
+  function paste(event: ClipboardEvent<HTMLDivElement>) {
+    const target = event.target;
+    const inField = target instanceof HTMLElement && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName));
+    const data = event.clipboardData;
+    const action = pasteAction({editable: canEdit && !!context, inField, files: Array.from(data?.files ?? []), text: data?.getData('text/plain') ?? '', html: data?.getData('text/html') ?? ''});
+    if (action.kind === 'ignore') return;
+    event.preventDefault();
+    if (action.kind === 'files') addFiles(action.files);
+    else if (action.kind === 'links') void addWebLinks(action.links);
+    else setWebLinkError('Paste a link or a file to add it here.');
+  }
+
   function togglePicker() {
     setLinkError(null);
     setPicker(open => !open);
@@ -241,7 +282,7 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
       if (canEdit) setDropping(true);
     }}
     onDragLeave={event => { if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) setDropping(false); }}
-    onDrop={drop}>
+    onDrop={drop} onPaste={paste}>
     <header className="canvas-context-head">
       <h2 ref={headingRef} tabIndex={-1}>Context · {name}</h2>
       <p className="canvas-context-explainer">
@@ -280,6 +321,28 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
               onRemove={canEdit ? () => void removeFile(file.id, file.name) : undefined}/>)}
           </ul> : !uploads.length ? <p className="canvas-context-muted">{canEdit ? 'No files yet. Drop some here or use Add files.' : 'No files.'}</p> : null}
           <ChatAttachments items={uploads} error={fileError} onRemove={id => setUploads(current => current.filter(row => row.localId !== id))}/>
+        </section>
+
+        <section className="canvas-context-section">
+          <h3 className="canvas-context-label">Links</h3>
+          {context.webLinks.length ? <ul className="canvas-context-refs" aria-label="Links">
+            {context.webLinks.map(item => {
+              const host = webLinkHost(item.url), shown = item.title || webLinkAddress(item.url);
+              return <li key={item.id} className="canvas-context-ref">
+                <span className="canvas-context-ref-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+                </span>
+                <a className="canvas-context-ref-text canvas-context-weblink" href={item.url} target="_blank" rel="noopener noreferrer">
+                  <span className="canvas-context-ref-title">{shown}</span>
+                  <small>{host}</small>
+                </a>
+                {canEdit ? <button type="button" className="canvas-context-unlink" aria-label={`Remove link ${item.title || host}`} title="Remove link" onClick={() => void removeWebLink(item.id)}>
+                  <span aria-hidden="true">✕</span>
+                </button> : null}
+              </li>;
+            })}
+          </ul> : <p className="canvas-context-muted">{canEdit ? 'No links yet. Paste one here.' : 'No links.'}</p>}
+          {webLinkError ? <p className="canvas-context-error" role="alert">{webLinkError}</p> : null}
         </section>
 
         {scope.kind === 'area' ? <section className="canvas-context-section">

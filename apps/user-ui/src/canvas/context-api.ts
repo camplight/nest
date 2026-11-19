@@ -1,5 +1,5 @@
 // Typed helpers for the canvas context routes (apps/api/src/canvas-context.ts): notes, files, links and readers.
-import type {ContextFile,ContextReader,ContextSource,ContextSummary,ScopeContext} from '@nest/schemas';
+import type {ContextFile,ContextWebLink,ContextReader,ContextSource,ContextSummary,ScopeContext} from '@nest/schemas';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 import {apiUrl} from '../config';
 import {NotesConflict} from './notes-autosave';
@@ -70,3 +70,11 @@ export const removeContextLink = (canvasId: string, areaId: string, sourceAreaId
   apiFetch(`${scopePath(canvasId, {kind: 'area', areaId})}/links/${encodeURIComponent(sourceAreaId)}`, {method: 'DELETE'}).then(() => undefined);
 export const getContextReaders = (canvasId: string, areaId: string) =>
   apiJson<ContextReader[]>(`${scopePath(canvasId, {kind: 'area', areaId})}/readers`);
+
+/** `created` is false when the address was already in this scope (the API answers 200 with the existing link); a full scope rejects with an ApiError of status 409. */
+export async function addContextWebLink(canvasId: string, scope: PanelScope, url: string, title: string | null) {
+  const res = await apiFetch(`${scopePath(canvasId, scope)}/web-links`, write('POST', title ? {url, title} : {url}));
+  return {link: (await res.json()) as ContextWebLink, created: res.status === 201};
+}
+export const removeContextWebLink = (canvasId: string, scope: PanelScope, linkId: string) =>
+  apiFetch(`${scopePath(canvasId, scope)}/web-links/${encodeURIComponent(linkId)}`, {method: 'DELETE'}).then(() => undefined);
