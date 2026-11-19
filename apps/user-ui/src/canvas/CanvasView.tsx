@@ -21,6 +21,7 @@ import {CARD_PLACE_HEIGHT,areaAround,clearOfCards,dropLayout,gridPlacement,loose
 import {SPLIT_MAX,SPLIT_MIN,clampSplit,readSplit,splitAt,writeSplit} from './split';
 import {cardTitle} from './Card';
 import {AgentTray,trayHeading} from './AgentTray';
+import {AddAgentPicker} from './AddAgentPicker';
 import {busyCounts,effectivePins,togglePin,trayAgents} from './tray';
 import {createPinPresses,createPinSaver} from './pin-saver';
 import {NeedsYou,useReviews} from './NeedsYou';
@@ -1655,6 +1656,7 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
         // Until App's chat is ready its drop zone takes none (appDropAccept), so these handlers do; after, that zone takes them.
         onFiles={windowed && !chatReady ? (files, folders) => { if (folders) say(FOLDER_NOTICE); if (files.length) chatFilesRef.current(chatChannelId!, files, false); } : undefined}
         title={chatTitle} onRename={chatProject ? renameChat : undefined} sub={chatSub} area={chatArea} onPlace={placeHere} onUseHere={useHere}
+        onAddAgent={openCard?.access === 'open' && manageable(openCard) ? {agents: roster, members: openCard.participants.filter(p => p.subscriberType === 'AGENT').map(p => p.subscriberId), onPick: name => dropAgent(openCard.channelId, name)} : undefined}
         digest={chatDigest} setup={chatSetup} onConnect={chatConnect} onSchedule={chatSchedule}
         announce={memberNotice && board ? {id: memberNotice.id, text: memberNotice.text} : state.notice && state.canvasId === canvasId ? {id: `store:${state.notice}`, text: state.notice} : null}
         onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => windowed ? closeWin(chatChannelId!) : onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
@@ -1768,7 +1770,7 @@ function ChatSubline({sub}: {sub: ChatSub}) {
   </p>;
 }
 
-function CanvasChat({channelId, mode, win, bounds, onMove, onFiles, zIndex, title, onRename, sub, area, onPlace, onUseHere, digest, setup, announce, onConnect, onSchedule, onMode, onClose, onOpenRegular, children}: {
+function CanvasChat({channelId, mode, win, bounds, onMove, onFiles, zIndex, title, onRename, sub, area, onPlace, onUseHere, onAddAgent, digest, setup, announce, onConnect, onSchedule, onMode, onClose, onOpenRegular, children}: {
   channelId: string; mode: CanvasChatMode;
   /** A desktop focus chat: a window at this top-left (relative to `.canvas-body`), sized from `bounds`. Phones and split screen have none. */
   win?: ChatWindow; bounds?: Bounds;
@@ -1780,6 +1782,8 @@ function CanvasChat({channelId, mode, win, bounds, onMove, onFiles, zIndex, titl
   /** The chat's owner may rename it (a project chat): the title opens for typing, as does Rename chat in the More menu. False keeps the editor open. */
   onRename?(name: string): Promise<boolean>;
   title: string; sub?: ChatSub; area?: ChatArea; onPlace?(): void; onUseHere?(): Promise<void>;
+  /** The person may add agents here: the More menu's Add agent… opens a picker of these agents (members shown disabled); a pick runs the same add as a drop. */
+  onAddAgent?: {agents: Agent[]; members: string[]; onPick(name: string): void};
   /** Where it stands, above the Setup line (the mock's digest before cfgBlock). */
   digest?: ReactNode;
   /** The Setup line, at the top of the chat body. */
@@ -1844,6 +1848,8 @@ function CanvasChat({channelId, mode, win, bounds, onMove, onFiles, zIndex, titl
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const menuId = useId();
+  const [adding, setAdding] = useState(false);
+  const closeAdding = useCallback(() => { setAdding(false); menuButton.current?.focus({preventScroll: true}); }, []);
   useEffect(() => {
     if (!menu) return;
     const key = (event: KeyboardEvent) => {
@@ -1977,8 +1983,11 @@ function CanvasChat({channelId, mode, win, bounds, onMove, onFiles, zIndex, titl
               onClick={() => { setMenu(false); menuButton.current?.focus({preventScroll: true}); onPlace(); }}>Place on canvas</button> : null}
             {onUseHere ? <button type="button" className="canvas-chat-menu-item" onClick={() => void onUseHere()}>Use this area's context</button> : null}
             {onRename ? <button type="button" className="canvas-chat-menu-item" onClick={() => { setMenu(false); startRename(); }}>Rename chat</button> : null}
+            {onAddAgent ? <button type="button" className="canvas-chat-menu-item" aria-haspopup="dialog" onClick={() => setAdding(true)}>Add agent…</button> : null}
             <span ref={setMoreSlot} className="canvas-chat-slot"/>
           </div>
+          {adding && onAddAgent ? <AddAgentPicker agents={onAddAgent.agents} members={onAddAgent.members}
+            onPick={name => { onAddAgent.onPick(name); closeAdding(); }} onClose={closeAdding}/> : null}
         </div>
         <button type="button" className="canvas-chat-icon canvas-chat-close" aria-label="Close" title="Close" onClick={onClose}><X size={16} aria-hidden="true"/></button>
       </div>

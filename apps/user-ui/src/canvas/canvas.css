@@ -3861,3 +3861,59 @@ li.canvas-phone-row[data-access] {
 .canvas-share-avatar + .canvas-share-avatar,
 .canvas-share-avatar + .canvas-share-more { margin-left: -6px; }
 .canvas-share-more { padding: 0 5px; font-size: 11px; }
+
+/* The label that follows an agent dragged over a card. */
+.canvas-invite-tip {
+  position: fixed;
+  z-index: 60;
+  max-width: 280px;
+  border-radius: 8px;
+  padding: 5px 9px;
+  background: var(--nest-text);
+  color: var(--nest-surface);
+  font: 600 12px/1.3 Inter, sans-serif;
+  pointer-events: none;
+  box-shadow: var(--canvas-shadow);
+}
+/* Add agent… (open chat's More menu): a searchable list under the ⋯ button, like the All agents picker. */
+.canvas-add-agent {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 6;
+  width: 280px;
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--nest-border);
+  border-radius: 12px;
+  padding: 8px;
+  background: var(--nest-surface);
+  box-shadow: var(--canvas-shadow);
+}
+.canvas-add-agent-list {
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.canvas-add-agent-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 10px;
+  padding: 5px 8px;
+  background: transparent;
+  color: var(--nest-text);
+  text-align: left;
+  cursor: pointer;
+}
+.canvas-add-agent-row:is(:hover, .is-active):not(:disabled) {
+  background: var(--nest-muted-surface);
+}
+.canvas-add-agent-row:disabled {
+  opacity: .6;
+  cursor: default;
+}

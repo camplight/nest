@@ -14,6 +14,8 @@ import {ORIGIN,areaMembers,cardCentre,clampZoom,fit,growToFit,isCompact,toCanvas
 import {CARD_PLACE_HEIGHT} from './loose';
 import {clearOfDrawer,presentView,stageBounds} from './sheet';
 import {Links} from './Links';
+import {createPortal} from 'react-dom';
+import {draggedAgent,inviteLabel,setDraggedAgent} from './invite-label';
 import {linkRelease,tempLinkPath} from './link-geometry';
 
 export type SurfaceProps = {
@@ -338,6 +340,14 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   /** The area a loose chat would land in if dropped now. */
   const [chatDropArea, setDropArea] = useState<{id: string; kind: 'chat' | 'files'} | null>(null);
   const setChatDropArea = (id: string | null, kind: 'chat' | 'files' = 'chat') => setDropArea(current => id ? (current?.id === id && current.kind === kind ? current : {id, kind}) : null);
+  // The label that follows an agent dragged over a card (its target says what dropping does).
+  const [inviteTip, setInviteTip] = useState<{x: number; y: number; text: string} | null>(null);
+  const tipFor = (event: ReactDragEvent) => {
+    const agent = draggedAgent(), id = (event.target instanceof Element ? event.target.closest<HTMLElement>('.canvas-card') : null)?.dataset.channelId;
+    const card = id ? boardRef.current.cards.find(c => c.channelId === id) : undefined;
+    setInviteTip(agent && card ? {x: event.clientX, y: event.clientY, text: inviteLabel({agent, card: {title: cardTitle(card), access: card.access,
+      manageable: Boolean(canManageCard?.(card)), members: card.access === 'open' ? card.participants.filter(p => p.subscriberType === 'AGENT').map(p => p.subscriberId) : []}})} : null);
+  };
   const carriesAgent = (event: ReactDragEvent) => Boolean(agentDropRef.current) && event.dataTransfer.types.includes(AGENT_DRAG_TYPE);
   const openCardAt = (event: ReactDragEvent) => {
     const id = (event.target instanceof Element ? event.target.closest<HTMLElement>('.canvas-card') : null)?.dataset.channelId;
@@ -345,7 +355,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     return card?.access === 'open' ? card : null;
   };
   useEffect(() => {
-    const end = () => { setDropId(null); setChatDropArea(null); };
+    const end = () => { setDropId(null); setChatDropArea(null); setInviteTip(null); setDraggedAgent(null); };
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') end(); };
     window.addEventListener('dragend', end, true);
     // A drop that lands elsewhere (the bottom box, the panel) or a drag that leaves the window ends the highlight too.
@@ -384,6 +394,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     if (carriesAgent(event)) {
       const card = openCardAt(event);
       setDropId(card?.channelId ?? null);
+      tipFor(event);
       if (!card) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = 'copy';
@@ -404,7 +415,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       return;
     }
     if (carriesAgent(event)) {
-      setDropId(null);
+      setDropId(null); setInviteTip(null);
       const card = openCardAt(event);
       if (!card) return;
       event.preventDefault();
@@ -766,7 +777,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     onDragStart={event => event.preventDefault()}
     onDragOver={dragOver}
     onDrop={drop}
-    onDragLeave={event => { if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) { setDropId(null); setChatDropArea(null); } }}
+    onDragLeave={event => { if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) { setDropId(null); setChatDropArea(null); setInviteTip(null); } }}
     onLostPointerCapture={event => {
       // Only the surface's own capture counts; a touch target losing its implicit capture to the surface bubbles here too.
       if (event.target === surfaceRef.current && gesture.current?.pointerId === event.pointerId && gesture.current.active) cancel();
@@ -809,6 +820,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       <AgentAvatar name={preview.agent} size={34}/>
       {preview.away ? <span className="canvas-face-ghost-label">{removeLabel(preview.agent, board.cards.find(card => card.channelId === preview.id))}</span> : null}
     </div> : null}
+    {inviteTip ? createPortal(<div className="canvas-invite-tip" aria-hidden="true" style={{left: inviteTip.x + 14, top: inviteTip.y + 16}}>{inviteTip.text}</div>, document.body) : null}
     <div className="canvas-chrome canvas-tools" role="toolbar" aria-label="Canvas tools">
       <button type="button" className="canvas-tool" aria-pressed={tool === 'area'} disabled={!canEdit}
         title={canEdit ? 'Drag on the canvas to draw an area' : 'You can view this canvas but not change it.'}

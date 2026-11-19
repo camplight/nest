@@ -978,6 +978,15 @@ Phase 1 is built from
    carries none). A face dragged far enough off
    its card to remove the agent shows `Remove {agent} from "{title}"` in coral.
 
+   Inviting agents. While a tray or picker face is dragged over a card, a floating label
+   follows the pointer: `Invite {agent} to "{title}"`, `{agent} is already here`, or
+   `You can't add agents to this chat` (locked, unavailable or not manageable cards).
+   The native drag image is unchanged. For keyboard and touch, the open chat's More menu
+   has `Add agent…` (when the person may manage the chat): a searchable picker of the
+   roster the All agents picker lists, with Arrow, Enter and Escape; agents already in
+   the chat read `In this chat` and are disabled; a pick runs the same add as a drop
+   (same checks and notices) and focus returns to the More button.
+
    Area summaries. At compact zoom an area's title has a summary under it, counting the
    cards in it and in the areas inside it: `2 need you · 3 moving · 1 quiet`, with zero
    parts left out and the need count in coral. A card can count as both moving and

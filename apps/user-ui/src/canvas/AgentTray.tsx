@@ -7,6 +7,7 @@ import type {Agent} from '../types';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {AGENT_DRAG_TYPE} from './Surface';
 import {oneLine} from './pulse';
+import {setDraggedAgent} from './invite-label';
 import {areaAgentNames,busyLabel,pickerGroups,type PickerFilter} from './tray';
 
 /** The tray's heading: suggestions for the open chat when there are any, else the pinned agents. The Legend's hint names the visible one. */
@@ -22,6 +23,7 @@ const OTHER_DIALOG = '[aria-modal="true"], .dialog-backdrop, .canvas-chat[data-m
 function startDrag(event: ReactDragEvent, name: string) {
   event.dataTransfer.setData(AGENT_DRAG_TYPE, name);
   event.dataTransfer.effectAllowed = 'copy';
+  setDraggedAgent(name);
 }
 /** The agent's role: the first line of its engine description. */
 const roleOf = (agent: Agent) => oneLine(agent.description);
