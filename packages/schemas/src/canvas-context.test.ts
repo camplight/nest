@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ContextNotesSchema, homeAfterMove, MAX_NOTES_CHARS } from './canvas-context';
+import { ContextNotesSchema, ContextWebLinkSchema, homeAfterMove, MAX_NOTES_CHARS, normalizeWebUrl } from './canvas-context';
 
 describe('context schemas', () => {
   it('rejects notes over the limit', () => {
@@ -17,5 +17,18 @@ describe('context schemas', () => {
   it('creates a first home only on a placement, never on a move (R19)', () => {
     expect(homeAfterMove(null, { canvasId: 'c1', areaId: 'a1', byMember: true, placement: false })).toBeNull();
     expect(homeAfterMove(null, { canvasId: 'c1', areaId: null, byMember: true, placement: false })).toBeNull();
+  });
+});
+
+describe('web links', () => {
+  it('normalizes http(s) urls and rejects everything else', () => {
+    expect(normalizeWebUrl('HTTPS://Example.com')).toBe('https://example.com/');
+    for (const bad of ['javascript:alert(1)', 'data:text/html,x', 'ftp://x', 'not a url', `https://e.com/${'a'.repeat(2049)}`]) expect(normalizeWebUrl(bad)).toBeNull();
+  });
+  it('validates a link body strictly', () => {
+    expect(ContextWebLinkSchema.safeParse({ url: 'https://a.example', title: '  Hi  ' })).toMatchObject({ success: true, data: { title: 'Hi' } });
+    expect(ContextWebLinkSchema.safeParse({ url: 'ftp://a.example' }).success).toBe(false);
+    expect(ContextWebLinkSchema.safeParse({ url: 'https://a.example', extra: 1 }).success).toBe(false);
+    expect(ContextWebLinkSchema.safeParse({ url: 'https://a.example', title: 'x'.repeat(201) }).success).toBe(false);
   });
 });

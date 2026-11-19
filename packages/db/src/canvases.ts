@@ -161,6 +161,7 @@ export function createCanvasStore(db: Database.Database) {
       // removed by the API from canvasContext.storageKeysForArea(), which must be read BEFORE this call.
       db.prepare("DELETE FROM product_canvas_context WHERE scope_kind='area' AND scope_id=?").run(areaId);
       db.prepare("DELETE FROM product_canvas_context_files WHERE scope_kind='area' AND scope_id=?").run(areaId);
+      db.prepare("DELETE FROM product_canvas_context_web_links WHERE scope_kind='area' AND scope_id=?").run(areaId);
       touch(canvasId);
       audit('audit.canvas.area.removed', actor, { canvasId, areaId });
     })();

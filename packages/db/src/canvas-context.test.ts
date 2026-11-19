@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { CanvasConflictError, CanvasLimitError, openProductDb } from './index';
+import { ContextWebLinksFullError } from './canvas-context';
 import type { ContextScope } from '../../schemas/src/canvas-context';
 
 let dir: string;
@@ -20,7 +21,7 @@ const f = (size = 10, key: string = randomUUID()) => ({ id: randomUUID(), name: 
 describe('canvas context store', () => {
   it('saves notes with compare-and-swap and rejects a stale version', () => {
     const c = mkCanvas(); const scope: ContextScope = { kind: 'canvas', canvasId: c.id };
-    expect(ctx().get(scope)).toEqual({ notes: '', version: 0, files: [] });
+    expect(ctx().get(scope)).toEqual({ notes: '', version: 0, files: [], webLinks: [] });
     expect(ctx().setNotes(scope, 'one', 0, 'owner')).toEqual({ notes: 'one', version: 1 });
     expect(() => ctx().setNotes(scope, 'two', 0, 'owner')).toThrow(CanvasConflictError);
     expect(() => ctx().setNotes(scope, 'two', 5, 'owner')).toThrow(CanvasConflictError);
@@ -74,7 +75,7 @@ describe('canvas context store', () => {
     expect(ctx().storageKeysForArea(a.id)).toEqual(['ka']);
     store.canvases.removeArea(c.id, a.id, a.version, 'owner');
     expect(store.db.prepare('SELECT COUNT(*) AS n FROM product_canvas_context').get()).toEqual({ n: 0 });
-    expect(ctx().get(scope)).toEqual({ notes: '', version: 0, files: [] });
+    expect(ctx().get(scope)).toEqual({ notes: '', version: 0, files: [], webLinks: [] });
     expect(ctx().storageKeysForArea(a.id)).toEqual([]);
     expect(ctx().links(b.id)).toEqual([]);
     expect(ctx().home('ch')).toEqual({ canvasId: c.id, areaId: null });
@@ -133,5 +134,48 @@ describe('canvas context store', () => {
     expect(ctx().skillEnabled('bot')).toBe(true);
     const rows = store.db.prepare("SELECT actor_id, payload_json FROM product_audit WHERE type='audit.canvas.context.skill.enabled'").all();
     expect(rows).toEqual([{ actor_id: 'system', payload_json: JSON.stringify({ agentName: 'bot' }) }]);
+  });
+
+  describe('web links', () => {
+    it('adds and lists web links per scope in added order', () => {
+      const c = mkCanvas(); const a = mkArea(c.id); const scope = areaScope(c.id, a.id);
+      ctx().addWebLink(scope, { id: randomUUID(), url: 'https://a.example/', title: null }, 'owner');
+      ctx().addWebLink(scope, { id: randomUUID(), url: 'https://b.example/', title: 'B' }, 'owner');
+      expect(ctx().get(scope).webLinks.map(l => l.url)).toEqual(['https://a.example/', 'https://b.example/']);
+      expect(ctx().get(scope).webLinks[1]).toMatchObject({ title: 'B', addedBy: 'owner' });
+      expect(ctx().get({ kind: 'canvas', canvasId: c.id }).webLinks).toEqual([]);
+    });
+    it('a duplicate url returns the existing link', () => {
+      const c = mkCanvas(); const scope: ContextScope = { kind: 'canvas', canvasId: c.id };
+      const first = ctx().addWebLink(scope, { id: randomUUID(), url: 'https://example.com/', title: null }, 'owner');
+      const second = ctx().addWebLink(scope, { id: randomUUID(), url: 'https://example.com/', title: null }, 'owner');
+      expect(first.created).toBe(true);
+      expect(second.created).toBe(false);
+      expect(second.link.id).toBe(first.link.id);
+      expect(ctx().get(scope).webLinks).toHaveLength(1);
+    });
+    it('refuses the 51st link', () => {
+      const c = mkCanvas(); const scope: ContextScope = { kind: 'canvas', canvasId: c.id };
+      for (let i = 0; i < 50; i++) ctx().addWebLink(scope, { id: randomUUID(), url: `https://example.com/${i}`, title: null }, 'owner');
+      expect(() => ctx().addWebLink(scope, { id: randomUUID(), url: 'https://example.com/x', title: null }, 'owner')).toThrow(ContextWebLinksFullError);
+    });
+    it('removeWebLink deletes it and audits ids only', () => {
+      const c = mkCanvas(); const scope: ContextScope = { kind: 'canvas', canvasId: c.id };
+      const { link } = ctx().addWebLink(scope, { id: randomUUID(), url: 'https://secret.example/path', title: 'Secret title' }, 'owner');
+      expect(ctx().webLink(link.id)).toEqual({ canvasId: c.id, scope });
+      expect(ctx().removeWebLink(link.id, 'owner')).toBe(true);
+      expect(ctx().removeWebLink(link.id, 'owner')).toBe(false);
+      expect(ctx().webLink(link.id)).toBeNull();
+      expect(ctx().get(scope).webLinks).toEqual([]);
+      const rows = store.db.prepare("SELECT type, payload_json FROM product_audit WHERE type LIKE 'audit.canvas.context.web-link.%'").all() as { type: string; payload_json: string }[];
+      expect(rows.map(r => r.type)).toEqual(['audit.canvas.context.web-link.added', 'audit.canvas.context.web-link.removed']);
+      for (const r of rows) { expect(r.payload_json).not.toContain('secret.example'); expect(r.payload_json).not.toContain('Secret title'); expect(r.payload_json).toContain(link.id); }
+    });
+    it('removeArea deletes the area\'s web links', () => {
+      const c = mkCanvas(); const a = mkArea(c.id); const scope = areaScope(c.id, a.id);
+      ctx().addWebLink(scope, { id: randomUUID(), url: 'https://example.com/', title: null }, 'owner');
+      store.canvases.removeArea(c.id, a.id, a.version, 'owner');
+      expect(store.db.prepare('SELECT COUNT(*) AS n FROM product_canvas_context_web_links').get()).toEqual({ n: 0 });
+    });
   });
 });

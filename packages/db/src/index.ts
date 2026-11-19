@@ -28,7 +28,7 @@ export function openProductDb(path = '.nest-product/nest.sqlite') {
   db.pragma('foreign_keys = ON');
   db.exec('CREATE TABLE IF NOT EXISTS product_migrations (name TEXT PRIMARY KEY)');
   db.transaction(() => {
-    for (const name of ['001_projects', '002_project_chats', '003_community', '004_personal_agents', '005_integrations', '006_mentions', '007_agent_requests', '008_project_collaboration', '009_connection_projects', '010_project_naming', '011_canvases', '012_canvas_context', '013_agent_pins', '014_links_forks', '015_schedules', '016_triggers', '017_context_compaction']) {
+    for (const name of ['001_projects', '002_project_chats', '003_community', '004_personal_agents', '005_integrations', '006_mentions', '007_agent_requests', '008_project_collaboration', '009_connection_projects', '010_project_naming', '011_canvases', '012_canvas_context', '013_agent_pins', '014_links_forks', '015_schedules', '016_triggers', '017_context_compaction', '018_context_web_links']) {
       if (!db.prepare('SELECT name FROM product_migrations WHERE name=?').get(name)) {
         db.exec(readFileSync(new URL(`../migrations/${name}.sql`, import.meta.url), 'utf8'));
         db.prepare('INSERT INTO product_migrations VALUES (?)').run(name);

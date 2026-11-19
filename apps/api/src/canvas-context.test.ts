@@ -127,9 +127,9 @@ describe('canvas context API against the unchanged engine', () => {
       const a1 = await area(owner, a, 'Research');
       const put = await call(owner, 'PUT', `/api/canvases/${a}/areas/${a1}/context`, { notes: 'Ship on Friday', version: 0 });
       expect(put.status).toBe(200);
-      expect(await put.json()).toEqual({ notes: 'Ship on Friday', version: 1, files: [], links: [], usedBy: [], inChats: false });
+      expect(await put.json()).toEqual({ notes: 'Ship on Friday', version: 1, files: [], webLinks: [], links: [], usedBy: [], inChats: false });
       const canvasPut = await call(owner, 'PUT', `/api/canvases/${a}/context`, { notes: 'Whole canvas', version: 0 });
-      expect(await canvasPut.json()).toEqual({ notes: 'Whole canvas', version: 1, files: [], links: [], usedBy: [], inChats: false });
+      expect(await canvasPut.json()).toEqual({ notes: 'Whole canvas', version: 1, files: [], webLinks: [], links: [], usedBy: [], inChats: false });
 
       expect((await call(mate, 'GET', `/api/canvases/${a}/areas/${a1}/context`)).status).toBe(404);
       await share(a, 'view');

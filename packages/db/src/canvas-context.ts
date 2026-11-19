@@ -1,16 +1,22 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import {
-  MAX_CONTEXT_BYTES_PER_CANVAS, MAX_CONTEXT_FILES_PER_SCOPE, MAX_LINKS_PER_AREA,
-  type ChatHome, type ContextFile, type ContextScope,
+  MAX_CONTEXT_BYTES_PER_CANVAS, MAX_CONTEXT_FILES_PER_SCOPE, MAX_LINKS_PER_AREA, MAX_WEB_LINKS_PER_SCOPE,
+  type ChatHome, type ContextFile, type ContextWebLink, type ContextScope,
 } from '../../schemas/src/canvas-context';
 import { CanvasConflictError, CanvasLimitError } from './canvases';
 
 export type NewContextFile = { id: string; name: string; mime: string; size: number; storageKey: string };
 export type StoredContextFile = { canvasId: string; scope: ContextScope; storageKey: string; name: string; mime: string; size: number };
 
+export type NewContextWebLink = { id: string; url: string; title: string | null };
+export class ContextWebLinksFullError extends Error {
+  constructor() { super(`A context can hold at most ${MAX_WEB_LINKS_PER_SCOPE} links`); this.name = 'ContextWebLinksFullError'; }
+}
+
 export function createCanvasContextStore(db: Database.Database) {
   const scopeId = (s: ContextScope) => (s.kind === 'canvas' ? s.canvasId : s.areaId);
+  const webLinkColumns = 'id, url, title, added_by AS addedBy, added_at AS addedAt';
   const fileColumns = 'id, name, mime, size, uploaded_by AS uploadedBy, uploaded_at AS uploadedAt';
 
   function audit(verb: string, actor: string, payload: unknown) {
@@ -19,9 +25,12 @@ export function createCanvasContextStore(db: Database.Database) {
   function files(scope: ContextScope) {
     return db.prepare(`SELECT ${fileColumns} FROM product_canvas_context_files WHERE scope_kind=? AND scope_id=? ORDER BY uploaded_at, id`).all(scope.kind, scopeId(scope)) as ContextFile[];
   }
+  function webLinks(scope: ContextScope) {
+    return db.prepare(`SELECT ${webLinkColumns} FROM product_canvas_context_web_links WHERE scope_kind=? AND scope_id=? ORDER BY added_at, rowid`).all(scope.kind, scopeId(scope)) as ContextWebLink[];
+  }
   function get(scope: ContextScope) {
     const row = db.prepare('SELECT notes, version FROM product_canvas_context WHERE scope_kind=? AND scope_id=?').get(scope.kind, scopeId(scope)) as { notes: string; version: number } | undefined;
-    return { notes: row?.notes ?? '', version: row?.version ?? 0, files: files(scope) };
+    return { notes: row?.notes ?? '', version: row?.version ?? 0, files: files(scope), webLinks: webLinks(scope) };
   }
   // Notes never appear in the audit payload, only ids.
   function setNotes(scope: ContextScope, notes: string, version: number, actor: string) {
@@ -72,6 +81,34 @@ export function createCanvasContextStore(db: Database.Database) {
       db.prepare('DELETE FROM product_canvas_context_files WHERE id=?').run(fileId);
       audit('file.removed', actor, { canvasId: found.canvasId, scope: found.scope.kind, scopeId: scopeId(found.scope), fileId });
       return { storageKey: found.storageKey };
+    })();
+  }
+
+  // Audit payloads carry ids only, never the URL or title.
+  function addWebLink(scope: ContextScope, input: NewContextWebLink, actor: string): { link: ContextWebLink; created: boolean } {
+    return db.transaction(() => {
+      const existing = db.prepare(`SELECT ${webLinkColumns} FROM product_canvas_context_web_links WHERE scope_kind=? AND scope_id=? AND url=?`).get(scope.kind, scopeId(scope), input.url) as ContextWebLink | undefined;
+      if (existing) return { link: existing, created: false };
+      const count = (db.prepare('SELECT COUNT(*) AS n FROM product_canvas_context_web_links WHERE scope_kind=? AND scope_id=?').get(scope.kind, scopeId(scope)) as { n: number }).n;
+      if (count >= MAX_WEB_LINKS_PER_SCOPE) throw new ContextWebLinksFullError();
+      db.prepare('INSERT INTO product_canvas_context_web_links(id,canvas_id,scope_kind,scope_id,url,title,added_by,added_at) VALUES (?,?,?,?,?,?,?,?)')
+        .run(input.id, scope.canvasId, scope.kind, scopeId(scope), input.url, input.title, actor, Date.now());
+      audit('web-link.added', actor, { canvasId: scope.canvasId, scope: scope.kind, scopeId: scopeId(scope), linkId: input.id });
+      return { link: db.prepare(`SELECT ${webLinkColumns} FROM product_canvas_context_web_links WHERE id=?`).get(input.id) as ContextWebLink, created: true };
+    })();
+  }
+  function webLink(linkId: string): { canvasId: string; scope: ContextScope } | null {
+    const r = db.prepare('SELECT canvas_id AS canvasId, scope_kind AS kind, scope_id AS sid FROM product_canvas_context_web_links WHERE id=?').get(linkId) as { canvasId: string; kind: 'canvas' | 'area'; sid: string } | undefined;
+    if (!r) return null;
+    return { canvasId: r.canvasId, scope: r.kind === 'canvas' ? { kind: 'canvas', canvasId: r.canvasId } : { kind: 'area', canvasId: r.canvasId, areaId: r.sid } };
+  }
+  function removeWebLink(linkId: string, actor: string) {
+    return db.transaction(() => {
+      const found = webLink(linkId);
+      if (!found) return false;
+      db.prepare('DELETE FROM product_canvas_context_web_links WHERE id=?').run(linkId);
+      audit('web-link.removed', actor, { canvasId: found.canvasId, scope: found.scope.kind, scopeId: scopeId(found.scope), linkId });
+      return true;
     })();
   }
 
@@ -173,7 +210,7 @@ export function createCanvasContextStore(db: Database.Database) {
   }
 
   return {
-    get, setNotes, addFile, file, removeFile, canvasBytes, links, link, unlink, usedBy, home, homeEntry, setHome, clearHome, homesIn,
+    get, setNotes, addWebLink, removeWebLink, webLink, addFile, file, removeFile, canvasBytes, links, link, unlink, usedBy, home, homeEntry, setHome, clearHome, homesIn,
     storageKeysFor, storageKeysForArea, keyFor, saveKey, revokeKey, agentForKey, markSkillEnabled, skillEnabled,
   };
 }

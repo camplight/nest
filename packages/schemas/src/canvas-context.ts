@@ -5,13 +5,30 @@ export const MAX_CONTEXT_FILE_BYTES = 20 * 1024 * 1024;
 export const MAX_CONTEXT_FILES_PER_SCOPE = 50;
 export const MAX_CONTEXT_BYTES_PER_CANVAS = 200 * 1024 * 1024;
 export const MAX_LINKS_PER_AREA = 10;
+export const MAX_WEB_LINKS_PER_SCOPE = 50;
+export const MAX_WEB_LINK_URL = 2048;
+export const MAX_WEB_LINK_TITLE = 200;
 
 export type ContextScope = { kind: 'canvas'; canvasId: string } | { kind: 'area'; canvasId: string; areaId: string };
 
 export const ContextNotesSchema = z.object({ notes: z.string().max(MAX_NOTES_CHARS), version: z.number().int().min(0) }).strict();
 export const ContextLinkSchema = z.object({ sourceAreaId: z.string().uuid() }).strict();
+/** The normalized http(s) form of a pasted URL, or null when it is not a web URL or is too long. */
+export function normalizeWebUrl(input: string): string | null {
+  if (input.length > MAX_WEB_LINK_URL) return null;
+  let url: URL;
+  try { url = new URL(input); } catch { return null; }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  return url.href.length > MAX_WEB_LINK_URL ? null : url.href;
+}
+export const ContextWebLinkSchema = z.object({
+  url: z.string().max(MAX_WEB_LINK_URL).refine(u => normalizeWebUrl(u) !== null, 'Enter an http or https URL'),
+  title: z.string().trim().max(MAX_WEB_LINK_TITLE).optional(),
+}).strict();
 export const UseHomeSchema = z.object({ channelId: z.string().min(1).max(200) }).strict();
 
+/** A pasted web address kept in a scope's context. */
+export type ContextWebLink = { id: string; url: string; title: string | null; addedBy: string; addedAt: number };
 export type ContextFile = { id: string; name: string; mime: string; size: number; uploadedBy: string; uploadedAt: number };
 /** Whether a scope has notes and how many files it holds: what an area's `◱ Notes · 2 files` chip reads. */
 export type ContextCounts = { notes: boolean; fileCount: number };
@@ -27,7 +44,7 @@ export type ContextLink = {
 /** An area that uses this one's context. Its title is null when the viewer cannot read its canvas. */
 export type ContextUse = { areaId: string; title: string | null };
 export type ScopeContext = {
-  notes: string; version: number; files: ContextFile[]; links: ContextLink[];
+  notes: string; version: number; files: ContextFile[]; webLinks: ContextWebLink[]; links: ContextLink[];
   usedBy: ContextUse[];
   /** Whether any chat's (available) home context includes this scope, including chats homed in areas that link here. */
   inChats: boolean;
