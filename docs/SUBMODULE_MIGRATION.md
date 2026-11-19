@@ -726,6 +726,17 @@ does not grant roles automatically; an instance owner/admin must grant the
 manager role explicitly if delegated creation should remain enabled. Existing
 request-bound capabilities and project-owner invitation checks remain in force.
 
+## Deployment capacity and rollback recovery
+
+No engine pin, schema, credentials or runtime paths change for deployment storage
+safety. Install the updated host controller to activate pre-download space checks;
+the installer independently checks extraction and paired snapshot headroom. Old
+immutable release directories are retained according to the documented native
+policy; data backups remain untouched. Rollback health failure no longer skips
+watchdog restoration. Partial DB/configuration restoration requires operator
+recovery before any automatic restart; preserve the recovery marker until the
+matching DB/release pair is restored.
+
 ### Nest-side chat compaction
 
 "Full history, summarized when long" runs in Nest on the current upstream pin, with

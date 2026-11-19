@@ -45,8 +45,24 @@ else
 fi
 flock -n 9 || { echo 'Another deployment is active.' >&2; exit 1; }
 printf '%s  %s\n' "$digest" "$artifact" | sha256sum --check --status
+# Reject insufficient space before extraction, package installation or downtime.
+python3 "$root/deploy/native/storage.py" install --artifact "$artifact"
 work=$(mktemp -d /opt/nest/host-stage.XXXXXX)
-trap 'rm -rf "$work"' EXIT
+restore_watchdog=0
+finish() {
+  result=$?
+  trap - EXIT
+  rm -rf "$work" || true
+  if [[ $restore_watchdog == 1 && ! -f /var/lib/nest-watchdog/recovery-required ]]; then
+    # This must run even if rollback's service start or health check fails.
+    systemctl start nest-native-watchdog.timer || echo 'ERROR: watchdog timer could not be restored' >&2
+  fi
+  if [[ -f /var/lib/nest-watchdog/recovery-required ]]; then
+    echo 'ERROR: database/configuration recovery incomplete; automatic restarts blocked. Operator recovery required.' >&2
+  fi
+  exit "$result"
+}
+trap finish EXIT
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends ca-certificates curl xz-utils python3 python3-venv rsync git gh openssh-client >/dev/null
@@ -196,12 +212,18 @@ try:
 except Exception: pass
 pathlib.Path(sys.argv[1]).write_text(json.dumps(state))
 PY
+# Recheck immediately before downtime: staging/other writers may consume space.
+python3 "$root/deploy/native/storage.py" snapshot
 committed=0
 databases_snapshotted=0
 recover() {
   result=$?
   trap - ERR
   if [[ $committed == 0 ]]; then
+    if [[ -f $backup/units/nest-native-watchdog.timer ]]; then restore_watchdog=1; fi
+    # A partial DB/config restoration must not be automatically restarted.
+    install -d -m 700 /var/lib/nest-watchdog
+    touch /var/lib/nest-watchdog/recovery-required
     systemctl stop nest-native-watchdog.timer nest-native-watchdog.service nest-caddy nest-livekit nest-runner nest-api nest-engine 2>/dev/null || true
     if [[ $databases_snapshotted == 1 ]]; then
     python3 - "$backup" <<'PY'
@@ -234,13 +256,14 @@ PY
     if [[ -n $old_release && -d $old_release ]]; then
       ln -sfn "$old_release" /app
       for tool in codex claude; do ln -sfn "$old_release/deploy/native/agent-clis/node_modules/.bin/$tool" "/usr/local/bin/$tool"; done
+      # DB pair, configuration, units and release pointer are now coherent.
+      rm -f /var/lib/nest-watchdog/recovery-required
       systemctl reset-failed nest-engine nest-api nest-runner nest-caddy 2>/dev/null || true
       if [[ -f /etc/nest/livekit-enabled ]]; then systemctl start nest-livekit; else systemctl disable nest-livekit 2>/dev/null || true; fi
       systemctl start nest-engine nest-api
       if [[ ! -f /etc/nest/runner-paused ]]; then systemctl start nest-runner; fi
       systemctl start nest-caddy
       curl --fail --silent --show-error --max-time 5 --retry 30 --retry-all-errors --retry-delay 1 --output /dev/null http://127.0.0.1:8787/health
-      if [[ -f $backup/units/nest-native-watchdog.timer ]]; then systemctl start nest-native-watchdog.timer; fi
     else
       systemctl disable nest-engine nest-api nest-runner nest-caddy nest-livekit nest-native-watchdog.timer 2>/dev/null || true
       rm -f /app
@@ -260,7 +283,7 @@ PYCODE
       install -d -m 700 -o node -g node /var/lib/nest/engine /var/lib/nest/product /var/lib/nest/files
       if [[ -f $backup/watchdog-enabled ]]; then systemctl enable --now nest-watchdog.timer || true; fi
     fi
-    echo "Activation failed; previous release/database pair restored. Backup: $backup" >&2
+    echo "Activation failed; rollback completed. Backup: $backup" >&2
   fi
   exit "$result"
 }
@@ -416,8 +439,12 @@ systemctl enable nest-engine nest-api nest-runner nest-caddy >/dev/null
 install -m 755 "$release/deploy/devops/nest-ops.py" /usr/local/lib/nest-ops.py
 install -m 755 "$release/deploy/devops/nest-watchdog.py" /usr/local/lib/nest-watchdog.py
 printf '{"commit":"%s","domain":"%s"}\n' "$sha" "$domain" > /etc/nest/native.json
+# Healthy activation establishes a coherent pair even after an operator recovery.
+rm -f /var/lib/nest-watchdog/recovery-required
 systemctl enable --now nest-native-watchdog.timer >/dev/null
 systemctl start nest-caddy
 committed=1
 trap - ERR
+# Cleanup is post-commit maintenance: a failure must never roll back live writes.
+python3 "$root/deploy/native/storage.py" prune || echo 'WARNING: old release cleanup failed; operator review required' >&2
 printf 'Native Nest active: %s. Offline database/config backup: %s\n' "$sha" "$backup"
