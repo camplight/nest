@@ -85,14 +85,18 @@ body.sidebar-resizing {
 .sidebar-collapse-toggle svg {
   transition: transform 0.15s ease;
 }
-/* Icon-only sidebar on desktop. Labels stay in the DOM as accessible names. */
+/* Icon-only sidebar on desktop. Labels stay in the DOM as accessible names. The rail keeps its own width:
+   App drops the resizable inline --sidebar-width while collapsed, so this value sizes every shell grid. */
 @media (min-width: 761px) {
+  .product-shell.sidebar-collapsed {
+    --sidebar-width: 72px;
+  }
   .product-shell.sidebar-collapsed,
   .product-shell.sidebar-collapsed.dashboard-shell {
-    grid-template-columns: 72px minmax(0, 1fr);
+    grid-template-columns: var(--sidebar-width, 72px) minmax(0, 1fr);
   }
   .product-shell.sidebar-collapsed:not(.dashboard-shell) {
-    grid-template-columns: 72px minmax(0, 1fr) 280px;
+    grid-template-columns: var(--sidebar-width, 72px) minmax(0, 1fr) 280px;
   }
   .product-shell.sidebar-collapsed > .sidebar {
     padding: 20px 12px;
@@ -137,7 +141,7 @@ body.sidebar-resizing {
 }
 @media (min-width: 761px) and (max-width: 900px) {
   .product-shell.sidebar-collapsed:not(.dashboard-shell) {
-    grid-template-columns: 72px minmax(0, 1fr);
+    grid-template-columns: var(--sidebar-width, 72px) minmax(0, 1fr);
   }
 }
 @media (max-width: 760px) {

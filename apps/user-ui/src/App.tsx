@@ -2077,7 +2077,7 @@ export default function App() {
 
         <div className="instance-sidebar-footer dashboard-attribution"><span>Powered by</span><DesignIcon name="nest-mark" /><img src={`${import.meta.env.BASE_URL}design/nest-wordmark.svg`} alt="Nest" /></div>
       </aside>
-      <SidebarResizer width={sidebarWidth} onChange={setSidebarWidth} />
+      {sidebarCollapsed ? null : <SidebarResizer width={sidebarWidth} onChange={setSidebarWidth} />}
       {mobileSidebarOpen ? (
         <button
           type="button"
