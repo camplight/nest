@@ -8,7 +8,7 @@ import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 import {addChatMember,removeChatMember} from '../chat-members';
 import {StartChat} from '../ProjectStart';
 import {NOT_SCHEDULED_NO_AGENT,NOT_SCHEDULED_TOO_LONG,browserZone,notScheduledText,promptTooLong,type TypedSchedule} from '../dock-schedule';
-import {boardApi,createCanvas,setCardHome,deleteCanvas,getAgentPins,getHidden,isCanvasGone,isPinsConflict,putAgentPins,listCanvases,renameCanvas,setHidden,withFreshVersion} from './api';
+import {getMembers,type CanvasMembers,boardApi,createCanvas,setCardHome,deleteCanvas,getAgentPins,getHidden,isCanvasGone,isPinsConflict,putAgentPins,listCanvases,renameCanvas,setHidden,withFreshVersion} from './api';
 import {CanvasSwitcher} from './CanvasSwitcher';
 import {ShareDialog} from './ShareDialog';
 import {createBoardStore,type BoardOp} from './board-store';
@@ -28,7 +28,10 @@ import {needsByChannel,needsYouItems,type NeedsItem} from './needs';
 import {CanvasSearch} from './CanvasSearch';
 import {PhoneList,usePhoneLayout} from './PhoneList';
 import {searchIndex,type SearchItem} from './search';
-import type {CardPulse} from './pulse';
+import {canvasSummary,type CardPulse} from './pulse';
+import {summaryText} from './area-summary';
+import {Legend} from './Legend';
+import {ShareAvatars} from './ShareAvatars';
 import {cardCentre,growToFit,type Point} from './geometry';
 import type {AreaContext} from './Area';
 import {CONTEXT_WARNING,ContextPanel} from './ContextPanel';
@@ -178,6 +181,9 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
   const freshList = fetched?.key === listKey ? fetched.list : null;
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
+  // Who the canvas is shared with, for the avatars in the owner's Share button; a failed read just shows none.
+  const [members, setMembers] = useState<{canvasId: string; members: CanvasMembers['members']} | null>(null);
+  const loadMembers = useCallback((id: string) => { getMembers(id).then(result => setMembers({canvasId: id, members: result.members}), () => {}); }, []);
   const selectRef = useRef(onSelectCanvas); selectRef.current = onSelectCanvas;
   /** Re-reads the person's canvases (after create, rename, delete, sharing or access loss). */
   const reloadList = useCallback(async () => {
@@ -813,6 +819,10 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
   // The drawer's rows read the same pulses and Needs you items as the cards: a row's reason, activity and chip.
   const loose = useMemo(() => cards ? looseChats({channels, projects, boardChannelIds: boardIds, hidden, username, userId: humanId, pulses, needs: cardNeeds, showHidden}) : [],
     [cards, channels, projects, boardIds, hidden, username, humanId, pulses, cardNeeds, showHidden]);
+  const ownsBoard = board?.canvas.role === 'owner', boardId = board?.canvas.id;
+  useEffect(() => { if (ownsBoard && boardId) loadMembers(boardId); }, [ownsBoard, boardId, loadMembers]);
+  const boardCards = board?.cards;
+  const summaryLine = useMemo(() => boardCards ? summaryText(canvasSummary(boardCards, pulses)) : '', [boardCards, pulses]);
   const shownLoose = useMemo(() => showHidden ? loose.filter(chat => !hidden.has(chat.channelId)) : loose, [loose, hidden, showHidden]);
   const looseHot = useMemo(() => shownLoose.some(looseNeedsYou), [shownLoose]);
   // Scheduled jobs (flows): the viewer's schedules and agents' own booked runs. Cards show a badge, the open chat its strips,
@@ -1569,6 +1579,7 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
         <AgentTray suggested={tray.suggested} pinned={tray.pinned} pins={shownPins} pinsReady={pins !== null} onTogglePin={toggle}
           agents={roster} humanId={humanId} owners={owners} busy={busy} cards={board.cards} areas={board.areas} open={pickerOpen} onOpenChange={showPicker}/>
         {/* Files dropped on empty canvas start a chat here, beside a split chat or chat windows too; a window takes the drops on itself. */}
+        {phone || (chatShown && chatMode === 'split') ? null : <Legend/>}
         {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice schedules={flowsOn} onCreated={created} fileDrop
           fileDropAccept={outsideCanvasChat} fileDropOverlay={false} onFilesDropped={dockFiles}/></div> : null}
         {fileDrag ? <p className="canvas-file-hint" role="status">{board.canvas.role === 'view' ? FILE_DRAG_HINT_VIEW : FILE_DRAG_HINT}</p> : null}
@@ -1590,10 +1601,12 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
       </button>
     </div> : undefined} leading={canvasId ? <div className="canvas-heading">
       <h1 className="canvas-name" title={name}>{name}</h1>
+      {summaryLine ? <span className="canvas-summary">{summaryLine}</span> : null}
       <CanvasSwitcher canvases={canvases ?? []} current={current} open={switcherOpen} onOpenChange={setSwitcherOpen}
         onSelect={id => onSelectCanvas(id)} onCreate={createNew} onRename={rename} onDelete={remove}/>
       {board && board.canvas.role === 'owner' ? <button type="button" className="canvas-share-button canvas-share-open" title="Share this canvas" onClick={() => setSharing(true)}>
         <Share2 size={16} aria-hidden="true"/><span className="canvas-bar-label">Share</span>
+        {members?.canvasId === board.canvas.id ? <ShareAvatars members={members.members} viewerId={humanId}/> : null}
       </button> : null}
       {board ? <button type="button" className={`canvas-share-button canvas-context-button${contextSummary?.canvas.hasContext ? ' has-context' : ''}`}
         aria-haspopup="dialog" aria-expanded={panel?.kind === 'canvas'} title={`Canvas context: notes and files every chat on ${board.canvas.name} can see`}
@@ -1609,7 +1622,7 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
     {searchOpen && canvasId ? <CanvasSearch items={index} onClose={() => setSearchOpen(false)} onChoose={choose}/> : null}
     <div className={`canvas-body${chatShown ? ` has-chat is-${chatMode}` : ''}`}>
       {sharing && board && board.canvas.role === 'owner' ? <ShareDialog canvasId={board.canvas.id} ownerId={board.canvas.ownerId} humans={humans}
-        version={canvasVersion} freshVersion={freshVersion} onSaved={() => { void store.refresh({force: true}); void reloadList().catch(() => {}); }} onClose={() => setSharing(false)}/> : null}
+        version={canvasVersion} freshVersion={freshVersion} onSaved={() => { loadMembers(board.canvas.id); void store.refresh({force: true}); void reloadList().catch(() => {}); }} onClose={() => setSharing(false)}/> : null}
       <CanvasMain inert={chatShown && chatMode === 'focus' && phone}>
         <div className="canvas-notices">
           {state.notice && state.canvasId === canvasId ? <div className="canvas-notice" role="status">

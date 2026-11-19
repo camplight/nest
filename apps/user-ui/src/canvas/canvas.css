@@ -2870,22 +2870,19 @@ li.canvas-phone-row[data-access] {
   transform: none;
 }
 
-/* Area membership: a card in an area carries a stripe in the area's tint. */
+/* Area membership: a card in an area carries a border in the area's tint. */
 .canvas-card[data-tint="moss"] { --tint: var(--nest-lime); }
 .canvas-card[data-tint="muff"] { --tint: var(--nest-coral); }
 .canvas-card[data-tint="pip"] { --tint: var(--canvas-pip); }
 .canvas-card[data-tint="pom"] { --tint: var(--canvas-amber); }
 .canvas-card[data-tint="puff"] { --tint: var(--nest-muted); }
 .canvas-card.in-area {
-  border-color: color-mix(in srgb, var(--tint) 45%, var(--nest-border));
-  border-top: 4px solid var(--tint);
+  border: 1.5px solid color-mix(in srgb, var(--tint) 45%, var(--nest-border));
 }
-/* Something needs you here: a coral border (the mock's `.card.att`); a card in an area keeps its tinted top stripe. */
-.canvas-card.needs-you {
-  border-color: color-mix(in srgb, var(--nest-coral) 55%, var(--nest-border));
-}
+/* Something needs you here: a coral border (the mock's `.card.att`), also for a card in an area. */
+.canvas-card.needs-you,
 .canvas-card.in-area.needs-you {
-  border-top-color: var(--tint);
+  border-color: color-mix(in srgb, var(--nest-coral) 55%, var(--nest-border));
 }
 
 /* While a card or loose chat is dragged over an area, the area lights up and says where it will land. */
@@ -3783,3 +3780,80 @@ li.canvas-phone-row[data-access] {
 .canvas-context-weblink:focus-visible .canvas-context-ref-title {
   text-decoration: underline;
 }
+
+/* Legend (the mock's `.legend`): above the zoom buttons; presses pass through everywhere but its own box. */
+.canvas-legend {
+  position: absolute;
+  right: 16px;
+  bottom: 70px;
+  z-index: 3;
+  max-width: 240px;
+  box-sizing: border-box;
+  border: 1px solid var(--nest-border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: var(--nest-surface);
+  box-shadow: var(--canvas-shadow);
+  font-size: 12px;
+  color: var(--nest-text);
+}
+.canvas-legend ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.canvas-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.canvas-legend p {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--nest-muted);
+}
+.canvas-legend-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  border-radius: 50%;
+}
+.canvas-legend-dot.is-working { background: var(--nest-lime); }
+.canvas-legend-dot.is-waiting { background: var(--nest-coral); }
+.canvas-legend-dot.is-quiet { border: 1.5px dashed var(--canvas-amber); }
+
+/* Summary line beside the canvas name, and the share pill's avatars. */
+.canvas-summary {
+  font-size: 13px;
+  color: var(--nest-muted);
+  white-space: nowrap;
+}
+@container canvas-bar (max-width: 1200px) {
+  .canvas-summary { display: none; }
+}
+.canvas-share-avatars {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+}
+.canvas-share-avatar,
+.canvas-share-more {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--nest-surface);
+  border-radius: 999px;
+  background: var(--nest-muted-surface);
+  color: var(--nest-text);
+  font-size: 10px;
+  font-weight: 600;
+}
+.canvas-share-avatar + .canvas-share-avatar,
+.canvas-share-avatar + .canvas-share-more { margin-left: -6px; }
+.canvas-share-more { padding: 0 5px; font-size: 11px; }

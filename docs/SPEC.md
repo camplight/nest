@@ -853,7 +853,7 @@ Phase 1 is built from
    view; on a view-only canvas or a phone it opens in focus and stays loose (the
    drawer, on a wide screen, opens and points at it). While a card or loose chat is dragged, the area it would join (by its centre)
    lights up with a "Place in <area> · shares its context" label on its top edge. A card in an area
-   carries a stripe in the area's tint, and screen readers hear "In area <area>".
+   has a flat 1.5 px border in the area's tint (no thick top stripe; a needs-you card keeps its coral border), and screen readers hear "In area <area>".
    A card or chats dropped into an area grow it, never shrink it, so they fit inside
    with 32 px around them and 72 px above them for the title bar (an ordinary area
    resize, at most 20 000 px). An editor can also move the open chat from its header:
@@ -911,6 +911,12 @@ Phase 1 is built from
    canvas menu and Context become icons below 1100 px; Needs you becomes a dot and its
    count below 1000 px). Every button keeps its full text as its name. Narrower windows
    wrap the heading rather than run it under the search; phones keep the phone layout.
+
+   A summary line after the canvas name reads `N chats · X moving · Y quiet` (quiet omitted at 0; open chats only,
+   counted like the area summaries) and hides when the bar is under 1200 px. The owner's Share button carries up to
+   three initials avatars of the people the canvas is shared with (not the viewer), then `+N`, tooltip `People with
+   access`: membership from the members endpoint, not presence. A Legend pill above the zoom buttons explains the
+   working, waiting on you and gone quiet markers and the tray drag hint; it is hidden in split screen and on phones.
 
    Cards. An open card shows its title with the last activity (`5m`), the apps its
    agents used (up to four logos, each titled `<app>: N reads · M changes`, then the

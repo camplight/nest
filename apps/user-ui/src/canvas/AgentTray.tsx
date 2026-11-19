@@ -9,6 +9,8 @@ import {AGENT_DRAG_TYPE} from './Surface';
 import {oneLine} from './pulse';
 import {areaAgentNames,busyLabel,pickerGroups,type PickerFilter} from './tray';
 
+/** The tray's heading while it suggests agents for the open chat; the Legend's hint names it. */
+export const TRAY_HEADING = 'Suggested for this chat';
 const FILTERS: {value: PickerFilter; label: string}[] = [
   {value: 'all', label: 'All'}, {value: 'yours', label: 'Yours'}, {value: 'free', label: 'Free now'}, {value: 'working', label: 'Working'},
 ];
@@ -62,7 +64,7 @@ export function AgentTray({suggested, pinned, pins, pinsReady, onTogglePin, agen
       <div className="canvas-chrome canvas-tray-strip">
         <div className="canvas-tray-scroll">
           {suggested.length ? <>
-            <span className="canvas-tray-sugg">Suggested for this chat</span>
+            <span className="canvas-tray-sugg">{TRAY_HEADING}</span>
             <ul className="canvas-tray-faces" data-group="suggested" aria-label="Suggested for this chat">{suggested.map(face)}</ul>
             <span className="canvas-tray-sep" aria-hidden="true"/>
           </> : <span className="canvas-tray-label">Pinned</span>}

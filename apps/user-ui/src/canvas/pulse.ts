@@ -166,3 +166,16 @@ export function areaSummaries(cards: {channelId: string; x: number; y: number; w
   }
   return result;
 }
+
+/** The whole canvas in one line: open chats, those with an agent working (moving) and those gone quiet, counted as `areaSummaries` does. */
+export function canvasSummary(cards: readonly {channelId: string; access?: string; archived?: boolean}[], pulses: ReadonlyMap<string, CardPulse>): {chats: number; moving: number; quiet: number} {
+  const total = {chats: 0, moving: 0, quiet: 0};
+  for (const card of cards) {
+    if (card.access !== 'open' || card.archived) continue;
+    total.chats++;
+    const agents = pulses.get(card.channelId)?.agents;
+    if (agents?.some(agent => agent.state === 'working')) total.moving++;
+    if (agents?.some(agent => agent.state === 'quiet')) total.quiet++;
+  }
+  return total;
+}

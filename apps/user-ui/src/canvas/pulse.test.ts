@@ -1,8 +1,9 @@
 import {describe,expect,it} from 'vitest';
 import type {MentionNotification} from '@nest/schemas';
 import type {Agent,EventRow} from '../types';
-import {QUIET_AFTER_MS,areaSummaries,cardPulse,oneLine,type CardPulse} from './pulse';
+import {QUIET_AFTER_MS,areaSummaries,canvasSummary,cardPulse,oneLine,type CardPulse} from './pulse';
 import type {AppCall} from '../app-activity';
+import {summaryText} from './area-summary';
 
 const now=Date.UTC(2026,10,8,12,0,0);
 const min=60_000;
@@ -141,5 +142,27 @@ describe('oneLine',()=>{
     expect(oneLine('\n\n- **Done:** shipped `v2`\nnext')).toBe('Done: shipped v2');
     expect(oneLine('x'.repeat(200))).toHaveLength(140);
     expect(oneLine(undefined)).toBe('');
+  });
+});
+
+describe('canvasSummary',()=>{
+  const pulses=new Map<string,CardPulse>([
+    ['w',{agents:[{name:'A',state:'working',since:0}],needsYou:[]} as unknown as CardPulse],
+    ['q',{agents:[{name:'B',state:'quiet',since:0}],needsYou:[]} as unknown as CardPulse],
+    ['i',{agents:[{name:'C',state:'idle',since:0}],needsYou:[]} as unknown as CardPulse],
+  ]);
+  const open=(channelId:string)=>({channelId,access:'open' as const,archived:false});
+  it('counts open cards and maps working to moving and quiet to quiet',()=>{
+    expect(canvasSummary([open('w'),open('q'),open('i'),open('none')],pulses)).toEqual({chats:4,moving:1,quiet:1});
+  });
+  it('ignores archived and locked cards',()=>{
+    expect(canvasSummary([open('w'),{channelId:'q',access:'open' as const,archived:true},{channelId:'i',access:'locked' as const}],pulses)).toEqual({chats:1,moving:1,quiet:0});
+  });
+});
+describe('summaryText',()=>{
+  it('omits quiet at zero and uses the singular',()=>{
+    expect(summaryText({chats:5,moving:2,quiet:1})).toBe('5 chats · 2 moving · 1 quiet');
+    expect(summaryText({chats:5,moving:2,quiet:0})).toBe('5 chats · 2 moving');
+    expect(summaryText({chats:1,moving:0,quiet:0})).toBe('1 chat · 0 moving');
   });
 });

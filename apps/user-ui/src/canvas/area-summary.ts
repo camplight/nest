@@ -15,3 +15,10 @@ export function summaryParts(summary: AreaSummary, usedByOthers: boolean): Summa
   if (summary.quiet) parts.push({text: `${summary.quiet} quiet`});
   return parts.length ? parts : [{text: 'all quiet'}];
 }
+
+/** The top bar's `5 chats · 2 moving · 1 quiet`: quiet is left out at zero, a single chat reads `1 chat`. */
+export function summaryText(summary: {chats: number; moving: number; quiet: number}): string {
+  const parts = [`${summary.chats} ${summary.chats === 1 ? 'chat' : 'chats'}`, `${summary.moving} moving`];
+  if (summary.quiet) parts.push(`${summary.quiet} quiet`);
+  return parts.join(' · ');
+}
