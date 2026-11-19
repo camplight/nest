@@ -17,7 +17,7 @@ import {Links} from './Links';
 import {createPortal} from 'react-dom';
 import {draggedAgent,inviteLabel,setDraggedAgent} from './invite-label';
 import {linkRelease,tempLinkPath} from './link-geometry';
-import {createMoveBurst,moveAnnouncement,nudge as arrowStep,type MoveBurst} from './keyboard-move';
+import {createMoveBurst,moveAnnouncement,nudge as arrowStep,pressArmsMove,type MoveBurst} from './keyboard-move';
 
 export type SurfaceProps = {
   board: CanvasBoard;
@@ -514,10 +514,12 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     if (target && grown) apply({kind: 'patchArea', areaId: target.id, patch: grown});
     return {before: areaFor(cardCentre(card), current.areas) ?? null, after: target ?? null};
   }, []);
-  /** Stores an area moved by (dx, dy) world px; the cards and areas inside it move with it. */
+  /** Stores an area moved by (dx, dy) world px; the cards and areas inside it move with it. False when the area is gone. */
   const commitAreaMove = useCallback((areaId: string, dx: number, dy: number) => {
     const area = boardRef.current.areas.find(a => a.id === areaId);
-    if (area) void applyRef.current({kind: 'patchArea', areaId: area.id, patch: {x: clampCoord(area.x + dx), y: clampCoord(area.y + dy)}, moveCards: true});
+    if (!area) return false;
+    void applyRef.current({kind: 'patchArea', areaId: area.id, patch: {x: clampCoord(area.x + dx), y: clampCoord(area.y + dy)}, moveCards: true});
+    return true;
   }, []);
 
   /**
@@ -553,16 +555,17 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       const current = boardRef.current;
       if (kind === 'card' ? !current.cards.some(c => c.channelId === id) : !current.areas.some(a => a.id === id)) return;
       const members = kind === 'area' ? areaMembers(id, current.cards, current.areas) : undefined;
-      const done = (text: string) => {
+      /** Ends the burst; nothing is said when the item left the board meanwhile and nothing was stored. */
+      const done = (text: string | null) => {
         if (keyMove.current === made) keyMove.current = null;
         setPreview(null);
-        say(text);
+        if (text) say(text);
       };
       const made: KeyMove = {kind, id, members, burst: createMoveBurst({
         commit: (dx, dy) => {
-          if (kind === 'area') { commitAreaMove(id, dx, dy); done('Moved'); return; }
+          if (kind === 'area') { done(commitAreaMove(id, dx, dy) ? 'Moved' : null); return; }
           const areas = commitCardMove(id, dx, dy);
-          done(areas ? moveAnnouncement(areas.before, areas.after) : 'Moved');
+          done(areas ? moveAnnouncement(areas.before, areas.after) : null);
         },
         revert: () => done('Move cancelled'),
       })};
@@ -839,6 +842,8 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     data-role={board.canvas.role}
     style={{backgroundSize: `${tile}px ${tile}px`, backgroundPosition: `${view.x}px ${view.y}px`}}
     onPointerDown={pointerDown}
+    // A mouse or touch press on an editor's card or area keeps focus on the surface: only Tab arms arrow-key moves.
+    onMouseDown={event => { if (pressArmsMove(event.target as Element)) { event.preventDefault(); surfaceRef.current?.focus({preventScroll: true}); } }}
     onPointerMove={pointerMove}
     onPointerUp={pointerUp}
     onPointerCancel={pointerUp}

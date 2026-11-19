@@ -70,3 +70,15 @@ export function moveAnnouncement(before: {id: string; title: string} | null, aft
   if (!after && before) return `Moved out of ${before.title || 'Untitled area'}`;
   return 'Moved';
 }
+
+/** What a press focuses: the nearest of these at or above the pressed element (the surface itself has tabindex -1). */
+const FOCUSABLE = 'a[href], button, input, textarea, select, [contenteditable], [tabindex]';
+type Pressed = {closest(selector: string): {matches(selector: string): boolean} | null};
+/**
+ * A mouse or touch press would focus an editor's card or area itself (not a control inside it). The surface then keeps
+ * focus instead, as it did before cards and areas were Tab stops: only keyboard focus arms arrow-key moves, so a
+ * click never leaves a card or area that the next arrow press would silently move.
+ */
+export function pressArmsMove(target: Pressed | null) {
+  return Boolean(target?.closest(FOCUSABLE)?.matches('.canvas-card, .canvas-area'));
+}

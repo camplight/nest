@@ -1,5 +1,5 @@
 import {describe,expect,it,vi} from 'vitest';
-import {createMoveBurst,moveAnnouncement,nudge} from './keyboard-move';
+import {createMoveBurst,moveAnnouncement,nudge,pressArmsMove} from './keyboard-move';
 
 /** A timer the test fires by hand: only the newest pending callback is kept, as clearTimer drops the older one. */
 function fakeTimer(){
@@ -90,5 +90,24 @@ describe('moveAnnouncement',()=>{
   it('says Moved when the area did not change',()=>{
     expect(moveAnnouncement(research,{...research})).toBe('Moved');
     expect(moveAnnouncement(null,null)).toBe('Moved');
+  });
+});
+
+describe('pressArmsMove',()=>{
+  /** A pressed element whose nearest focusable ancestor (what a press would focus) carries `classes`, or none. */
+  const pressOn=(classes:string[]|null)=>({closest:(selector:string)=>{
+    expect(selector).toContain('[tabindex]');
+    return classes?{matches:(s:string)=>s.split(',').some(part=>classes.includes(part.trim().slice(1)))}:null;
+  }});
+  it('is true when a press would focus an editor\'s card or area itself',()=>{
+    expect(pressArmsMove(pressOn(['canvas-card']))).toBe(true);
+    expect(pressArmsMove(pressOn(['canvas-area']))).toBe(true);
+  });
+  it('is false for a control inside them, the surface, or nothing focusable',()=>{
+    expect(pressArmsMove(pressOn(['canvas-card-open']))).toBe(false);
+    expect(pressArmsMove(pressOn(['canvas-area-input']))).toBe(false);
+    expect(pressArmsMove(pressOn(['canvas-surface']))).toBe(false);
+    expect(pressArmsMove(pressOn(null))).toBe(false);
+    expect(pressArmsMove(null)).toBe(false);
   });
 });
