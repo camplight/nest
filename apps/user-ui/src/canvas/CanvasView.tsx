@@ -14,7 +14,6 @@ import {ShareDialog} from './ShareDialog';
 import {createBoardStore,type BoardOp} from './board-store';
 import {Surface,type FileDropTarget,type SurfaceControls} from './Surface';
 import {FOLDER_NOTICE,dragCarriesFiles,outsideCanvasChat} from '../components/file-drop';
-import {AgentAvatar} from '../components/AgentAvatar';
 import {ChatHeaderSlotsContext,type ChatHeaderSlots} from '../chat/header-slots';
 import {nudgeMessage,type CanvasLive} from './live';
 import {LooseDrawer,LooseToggle,MAX_BULK} from './LooseDrawer';
@@ -36,7 +35,9 @@ import {CONTEXT_WARNING,ContextPanel} from './ContextPanel';
 import {errorText,getContextSummary,uploadContextFile,type PanelScope} from './context-api';
 import {chatSees,contextLabel,joinNames,type ChatSees} from './context-label';
 import {clearOfDrawer,stageBounds,type Bounds} from './sheet';
-import {clampWindow,moveWindow,placeWindow,windowVars,type ChatWindow} from './chat-windows';
+import {bringToFront,closeWindow,moveWindow,openWindow,placeWindow,pruneWindows,readWindows,windowVars,writeWindows,clampWindow,type ChatWindow,type WindowList} from './chat-windows';
+import {ActiveWindowBody,ChatFaces,PassiveThread,PassiveWindow,windowFileDrop,type ChatPerson} from './PassiveWindow';
+import {useWindowDrag} from './useWindowDrag';
 import {isServiceAgent,useFlows} from './useFlows';
 import {LinkConflict,createLink,createSchedule,createTrigger,deleteLink,deleteSchedule,deleteTrigger,flowError,getLinks,patchLatest,patchSchedule,patchTrigger,rotateTrigger,runScheduleNow,sendNow,type LinkView} from './flows-api';
 import {useDigestActions,type ChangeRequests} from './useDigestActions';
@@ -51,11 +52,13 @@ import {SchedulePopover,type ScheduleDraft,type WebhookDraft} from './SchedulePo
 import {ClockIcon,ScheduledList,scheduleStrip} from './ScheduledList';
 import {jobsByChannel,scheduleJobs,scheduledCount,setupChip,type ScheduleJob} from './schedule-jobs';
 import type {WindowCores} from '../chat/window-cores';
+import type {ChannelEventsCore} from '../chat/channel-events';
 import './canvas.css';
 
 export type CanvasHuman = {id?: string; username: string};
 export type CanvasChatMode = 'focus' | 'split';
 export type CanvasViewProps = {
+  /** Live cores for the chat windows (passive ones show their own thread; the active one until App's chat is ready). */
   windowCores: WindowCores;
   canvasId: string | null;
   humanId: string;
@@ -70,7 +73,10 @@ export type CanvasViewProps = {
   chat: ReactNode;
   chatChannelId: string | null;
   chatMode: CanvasChatMode | null;
-  onOpenChat(channelId: string, mode: CanvasChatMode): void;
+  /** App's events are for `chatChannelId` and loaded: the active window then swaps its own thread for App's chat. */
+  chatReady: boolean;
+  /** `replace` swaps the history entry (activating a window); without it App replaces only when the chat stays the same. */
+  onOpenChat(channelId: string, mode: CanvasChatMode, options?: {replace?: boolean}): void;
   /** `replace` closes without a new history entry, as when the open chat leaves the visible list. */
   onCloseChat(options?: {replace?: boolean}): void;
   onOpenRegular(channelId: string): void;
@@ -113,6 +119,11 @@ const NO_PULSES: ReadonlyMap<string, CardPulse> = new Map();
 const NOTHING: ReadonlySet<string> = new Set();
 const NO_LINKS: LinkView[] = [];
 const NO_JOBS: readonly ScheduleJob[] = [];
+const NO_WINDOWS: WindowList = [];
+const NO_CORES: ReadonlyMap<string, ChannelEventsCore> = new Map();
+/** The back window's z-index (the focus sheet's own); each window nearer the front is one higher, under popovers and menus. */
+const WINDOW_Z = 21;
+const noop = () => {};
 /**
  * The open clock popover: a new item (`key` fixed when it opened), a schedule, or a webhook. `url` is a webhook's full URL
  * right after it was made or rotated, shown once; `created` is the made webhook until the list has it.
@@ -147,7 +158,7 @@ async function sendNudge(channelId: string, agent: string) {
   await apiJson('/api/messages', {method: 'POST', headers: getApiHeaders(), body: JSON.stringify(nudgeMessage(channelId, agent))});
 }
 
-export function CanvasView({canvasId, humanId, username, humans, channels, projects, agents, onSelectCanvas, onMenu, chat, chatChannelId, chatMode, onOpenChat, onCloseChat, onOpenRegular, onChatFiles, live, refreshChannels, onChannels, changeRequests, forks}: CanvasViewProps) {
+export function CanvasView({windowCores, canvasId, humanId, username, humans, channels, projects, agents, onSelectCanvas, onMenu, chat, chatChannelId, chatMode, chatReady, onOpenChat, onCloseChat, onOpenRegular, onChatFiles, live, refreshChannels, onChannels, changeRequests, forks}: CanvasViewProps) {
   const store = useMemo(() => createBoardStore({api: boardApi, now: Date.now, intervalMs: SYNC_INTERVAL_MS}), []);
   // Phones get a list in place of the free canvas.
   const phone = usePhoneLayout();
@@ -385,7 +396,19 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
    * a canvas that stays fully usable (no dimming, nothing hidden). Phones have no free canvas, so their chat fills the body.
    */
   const windowed = chatShown && chatMode === 'focus' && !phone;
-  const chatTitle = (openCard?.access === 'open' ? cardTitle(openCard) : null) ?? candidates.find(c => c.channelId === chatChannelId)?.title ?? 'Chat';
+  /** A chat's name in its window header: its card's title, else its loose-chat title, else `Chat`. */
+  const titleFor = (channelId: string | null) => {
+    const card = cards?.find(c => c.channelId === channelId);
+    return (card?.access === 'open' ? cardTitle(card) : null) ?? candidates.find(c => c.channelId === channelId)?.title ?? 'Chat';
+  };
+  /** Who is in a chat (its open card's participants, else its channel's). */
+  const participantsOf = (channelId: string | null) => {
+    const card = cards?.find(c => c.channelId === channelId);
+    return (card?.access === 'open' ? card.participants : channels.find(channel => channel.id === channelId)?.participants) ?? [];
+  };
+  const personOf = (p: {subscriberType: string; subscriberId: string}): ChatPerson =>
+    ({agent: p.subscriberType === 'AGENT', name: p.subscriberId, service: p.subscriberType === 'AGENT' && isServiceAgent(p.subscriberId, service)});
+  const chatTitle = titleFor(chatChannelId);
   // A loose chat this person may place: an editor's, on desktop (phones have no free canvas to place it on).
   const canPlaceLoose = Boolean(board && chatShown && !openCard && !phone && board.canvas.role !== 'view' && candidates.some(c => c.channelId === chatChannelId));
   // The header's Area picker: editors only, for a card on a canvas with areas, or a loose chat (which can also go on the
@@ -397,11 +420,11 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   // The keyboard (and single-pointer) way to put one loose chat on the canvas, beside dragging its drawer row.
   const placeHere = canPlaceLoose ? () => void moveToAreaRef.current(chatChannelId!, null) : undefined;
   // The header's sub-line: who is in the chat, then where it sits and which context it reads (home semantics).
-  const chatPeople = (openCard?.access === 'open' ? openCard.participants : channels.find(channel => channel.id === chatChannelId)?.participants) ?? [];
+  const chatPeople = participantsOf(chatChannelId);
   const chatHome = board && openCard?.access === 'open' ? areaFor(cardCentre(openCard), board.areas) ?? null : null;
   const chatChannel = channels.find(channel => channel.id === chatChannelId);
   const chatSub: ChatSub | undefined = board && chatShown ? {
-    people: chatPeople.map(p => ({agent: p.subscriberType === 'AGENT', name: p.subscriberId, service: p.subscriberType === 'AGENT' && isServiceAgent(p.subscriberId, service)})),
+    people: chatPeople.map(personOf),
     state: chatChannel?.archivedAt ? 'Archived' : chatChannel?.canPost === false ? 'Read-only' : undefined,
     place: openCard?.access === 'open'
       ? {kind: 'card', area: chatHome ? chatHome.title || 'Untitled area' : null,
@@ -428,7 +451,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const presentCard = useCallback((channelId: string) => {
     const root = viewRoot.current, surface = root?.querySelector('.canvas-surface')?.getBoundingClientRect();
     const dock = root?.querySelector('.canvas-dock')?.getBoundingClientRect();
-    const sheet = root?.querySelector<HTMLElement>('.canvas-chat[data-mode="focus"]');
+    const sheet = root?.querySelector<HTMLElement>('.canvas-chat[data-mode="focus"]:not(.is-passive)');
     const dockTop = surface && dock?.height ? dock.top - surface.top : null;
     // The card lands clear of an open Loose chats drawer when the sheet fits beside it.
     const drawer = root?.querySelector('.canvas-drawer')?.getBoundingClientRect();
@@ -441,43 +464,115 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     else controls.current?.reveal({channelId});
   }, [presentCard]);
   /**
-   * The window's top-left, relative to `.canvas-body` (where the chat is positioned), and the bounds it was clamped to: the
-   * stage clear of the bottom box. Placed when a chat opens as a window (beside its card when the card is on screen, else at
-   * the bounds' top-left; clear of an open Loose chats drawer when it fits), kept where it is dragged, pulled back inside on
-   * a resize and dropped when the chat closes or goes to split screen. The view never moves it: it is fixed to the screen.
+   * Chat windows (desktop focus mode): this canvas's open windows, front to back, with their top-left relative to
+   * `.canvas-body` (where they are positioned). The active one is App's open chat; the others are passive and show their own
+   * live thread. Kept per canvas in session storage (dropping chats no longer in the person's list), so a reload brings
+   * them back. Phones never use them; split screen hides them and keeps the list for floating again.
    */
-  const [floating, setFloating] = useState<{win: ChatWindow; bounds: Bounds} | null>(null);
+  const [winState, setWinState] = useState<{canvasId: string | null; list: WindowList}>(() => ({canvasId, list: canvasId ? readWindows(canvasId) : NO_WINDOWS}));
+  // Another canvas: its own windows, read in this render so no window of the last canvas is ever drawn over this one.
+  if (winState.canvasId !== canvasId) setWinState({canvasId, list: canvasId ? readWindows(canvasId) : NO_WINDOWS});
+  const windows = winState.canvasId === canvasId ? winState.list : NO_WINDOWS;
+  const setWindows = useCallback((change: (list: WindowList) => WindowList) =>
+    setWinState(current => { const list = change(current.list); return list === current.list ? current : {...current, list}; }), []);
+  useEffect(() => { if (winState.canvasId) writeWindows(winState.canvasId, winState.list); }, [winState]);
+  // Chats that left the person's list close their windows (not before App's first channel read, when the list is empty).
+  useEffect(() => {
+    if (!channels.length) return;
+    const ids = new Set(channels.map(channel => channel.id));
+    setWindows(list => { const next = pruneWindows(list, ids); return next.length === list.length ? list : next; });
+  }, [channels, canvasId, setWindows]);
+  // The windows this person can open now (never on phones), and those drawn: floating mode, i.e. no split-screen chat.
+  const openable = useMemo(() => phone ? NO_WINDOWS : windows.filter(win => channels.some(channel => channel.id === win.channelId)), [phone, windows, channels]);
+  const floatingOn = !phone && !(chatShown && chatMode === 'split');
+  const shownWindows = floatingOn ? openable : NO_WINDOWS;
+  const hasWindows = openable.length > 0;
+  const activeWindowId = windowed ? chatChannelId : null;
+  const windowsRef = useRef(openable); windowsRef.current = openable;
+  const activeWindowRef = useRef(activeWindowId); activeWindowRef.current = activeWindowId;
+  /** Where windows may sit (the stage clear of the bottom box), measured while any is open and on a resize. */
+  const [bounds, setBounds] = useState<Bounds | null>(null);
+  const boundsRef = useRef(bounds); boundsRef.current = bounds;
   const windowFor = windowed ? chatChannelId : null;
   // Placed again once the stage is there: a chat opened while the canvas loads (a reload or deep link) first measures the
   // bare body, with no card and no bottom box to keep clear of.
   const stageFor = board?.canvas.id ?? null;
+  const placedEarly = useRef<string | null>(null);
+  /**
+   * The one place a window opens: whenever a chat becomes the active floating chat (a card, the drawer, a new chat, Needs
+   * you, search, a fork, the URL, or the header's float button), it comes to the front, or opens beside its card when that
+   * is on screen, else cascaded from the front window, else at the bounds' top-left (clear of an open Loose chats drawer when
+   * it fits). A 5th window closes the back-most passive one. Before paint, so a window never shows at a fallback spot.
+   */
   useLayoutEffect(() => {
+    if (!floatingOn || (!windowFor && !hasWindows)) return;
     const body = viewRoot.current?.querySelector<HTMLElement>('.canvas-body');
-    const frame = windowFor && body ? windowFrame(body) : null;
-    if (!windowFor || !body || !frame) { setFloating(null); return; }
+    if (!body) return;
+    const frame = windowFrame(body);
+    setBounds(frame.bounds);
+    if (!windowFor) return;
+    const staged = Boolean(body.querySelector('.canvas-stage'));
+    if (windowsRef.current.some(win => win.channelId === windowFor) && (placedEarly.current !== windowFor || !staged)) {
+      setWindows(list => list[0]?.channelId === windowFor ? list : bringToFront(list, windowFor));
+      return;
+    }
+    placedEarly.current = staged ? null : windowFor;
     const card = body.querySelector<HTMLElement>(`.canvas-card[data-channel-id="${CSS.escape(windowFor)}"]`)?.getBoundingClientRect();
     const onScreen = card && card.right > frame.stage.left && card.left < frame.stage.right && card.bottom > frame.stage.top && card.top < frame.stage.bottom;
     const drawer = body.querySelector('.canvas-drawer')?.getBoundingClientRect();
-    const at = placeWindow(onScreen ? {x: card.left - frame.body.left, y: card.top - frame.body.top, w: card.width} : null, null,
-      clearOfDrawer(frame.bounds, drawer?.width ? drawer.right - frame.body.left : null));
-    setFloating({win: {channelId: windowFor, ...at}, bounds: frame.bounds});
-  }, [windowFor, stageFor]);
+    const room = clearOfDrawer(frame.bounds, drawer?.width ? drawer.right - frame.body.left : null);
+    setWindows(list => {
+      const rest = list.filter(win => win.channelId !== windowFor);
+      const at = placeWindow(onScreen ? {x: card.left - frame.body.left, y: card.top - frame.body.top, w: card.width} : null, rest[0] ?? null, room);
+      return openWindow(rest, windowFor, at, windowFor);
+    });
+  }, [floatingOn, windowFor, stageFor, hasWindows, setWindows]);
+  // A resize re-measures; each window is drawn pulled back inside the new bounds (its saved spot is kept for a wider stage).
   useEffect(() => {
-    if (!windowFor) return;
-    const resize = () => {
-      const body = viewRoot.current?.querySelector<HTMLElement>('.canvas-body'), frame = body ? windowFrame(body) : null;
-      if (frame) setFloating(current => current && {win: clampWindow(current.win, frame.bounds), bounds: frame.bounds});
-    };
+    if (!floatingOn || !hasWindows) return;
+    const resize = () => { const body = viewRoot.current?.querySelector<HTMLElement>('.canvas-body'); if (body) setBounds(windowFrame(body).bounds); };
     window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
-  }, [windowFor]);
-  const moveFloating = useCallback((at: Point) => {
-    setFloating(current => current && {...current, win: moveWindow([current.win], current.win.channelId, at, current.bounds)[0]});
+  }, [floatingOn, hasWindows]);
+  /** A dragged window's new top-left, saved on release. */
+  const moveWin = useCallback((channelId: string, at: Point) => {
+    const frame = boundsRef.current;
+    if (frame) setWindows(list => moveWindow(list, channelId, at, frame));
+  }, [setWindows]);
+  /**
+   * Each open window holds its chat's live core (the active one too, so it can show its own thread until App's chat is
+   * ready and is instant once passive again). Released when the window closes, the canvas changes or the view unmounts.
+   */
+  const coreKey = openable.map(win => win.channelId).join('\n');
+  const heldCores = useRef<{from: WindowCores; cores: Map<string, ChannelEventsCore>}>({from: windowCores, cores: new Map()});
+  const [cores, setCores] = useState<ReadonlyMap<string, ChannelEventsCore>>(NO_CORES);
+  useLayoutEffect(() => {
+    const held = heldCores.current;
+    // A new session's cores: the old ones are dropped with their session.
+    if (held.from !== windowCores) {
+      for (const id of held.cores.keys()) held.from.release(id);
+      heldCores.current = {from: windowCores, cores: new Map()};
+    }
+    const now = heldCores.current, want = new Set(coreKey ? coreKey.split('\n') : []);
+    for (const id of [...now.cores.keys()]) if (!want.has(id)) { windowCores.release(id); now.cores.delete(id); }
+    for (const id of want) if (!now.cores.has(id)) now.cores.set(id, windowCores.acquire(id));
+    setCores(new Map(now.cores));
+  }, [coreKey, windowCores]);
+  useEffect(() => () => {
+    const held = heldCores.current;
+    for (const id of held.cores.keys()) held.from.release(id);
+    held.cores.clear();
   }, []);
   // Only chats in App's visible list open: a UI-hidden chat is never loaded or marked seen behind the canvas.
   const visibleRef = useRef(channels); visibleRef.current = channels;
+  // A chat that already has a window only comes forward, so its history entry is replaced like an activation.
   const openRef = useRef(onOpenChat);
-  openRef.current = (channelId: string, mode: CanvasChatMode) => { if (visibleRef.current.some(channel => channel.id === channelId)) onOpenChat(channelId, mode); };
+  openRef.current = (channelId: string, mode: CanvasChatMode, options?: {replace?: boolean}) => {
+    if (!visibleRef.current.some(channel => channel.id === channelId)) return;
+    const raised = mode === 'focus' && !phoneRef.current && windowsRef.current.some(win => win.channelId === channelId);
+    const replace = options?.replace ?? (raised || undefined);
+    onOpenChat(channelId, mode, replace === undefined ? undefined : {replace});
+  };
   // The open chat left the visible list (hidden, or access lost): close it in place of this entry.
   const closeRef = useRef(onCloseChat); closeRef.current = onCloseChat;
   const listed = useRef(false);
@@ -487,6 +582,38 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     // Before App's first channel read the list is empty; App's own load closes an unreadable chat from the URL.
     if (listed.current || channels.length) { listed.current = false; closeRef.current({replace: true}); }
   }, [chatChannelId, channels]);
+  /** A press, focus or file drop in a passive window: it comes to the front and becomes the active chat (no new history entry). */
+  const replyTo = useRef<string | null>(null);
+  const activateWin = useCallback((channelId: string) => {
+    if (channelId === activeWindowRef.current) return;
+    setWindows(list => bringToFront(list, channelId));
+    replyTo.current = channelId;
+    openRef.current(channelId, 'focus', {replace: true});
+  }, [setWindows]);
+  // Its message box takes focus once App's chat for it is ready (the window shows its own thread until then).
+  useEffect(() => {
+    if (replyTo.current === null) return;
+    if (replyTo.current !== chatChannelId || !windowed) { replyTo.current = null; return; }
+    if (!chatReady) return;
+    replyTo.current = null;
+    const frame = requestAnimationFrame(() => viewRoot.current?.querySelector<HTMLTextAreaElement>('.canvas-chat[data-window="true"]:not(.is-passive) textarea')?.focus({preventScroll: true}));
+    return () => cancelAnimationFrame(frame);
+  }, [chatReady, chatChannelId, windowed]);
+  /** Close on a window: the active one hands the box to the next window front to back, or closes the chat when it was the last. */
+  const closeWin = useCallback((channelId: string) => {
+    const {next} = closeWindow(windowsRef.current, channelId);
+    setWindows(list => list.some(win => win.channelId === channelId) ? closeWindow(list, channelId).list : list);
+    if (channelId !== activeWindowRef.current) return;
+    if (next) openRef.current(next, 'focus', {replace: true}); else closeRef.current();
+  }, [setWindows]);
+  // The active chat closed some other way (App, a fork, the chat leaving the list): its window closes with it. Passive ones stay.
+  const lastActive = useRef<{canvasId: string | null; channelId: string} | null>(null);
+  useEffect(() => {
+    const was = lastActive.current;
+    lastActive.current = chatChannelId ? {canvasId, channelId: chatChannelId} : null;
+    if (!was || chatChannelId || was.canvasId !== canvasId || phoneRef.current) return;
+    setWindows(list => list.some(win => win.channelId === was.channelId) ? closeWindow(list, was.channelId).list : list);
+  }, [chatChannelId, canvasId, setWindows]);
   // The context popover floats over the canvas: opening it leaves an open chat (split or focus) as it is.
   // The same opener closes it again; another opener moves it there.
   const panelRef = useRef(panel); panelRef.current = panel;
@@ -640,6 +767,9 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const tray = useMemo(() => board ? trayAgents({agents: roster, cards: board.cards, areas: board.areas, selectedId: selected?.channelId ?? null, pins: shownPins})
     : {suggested: [], pinned: []}, [board, roster, selected, shownPins]);
   const busy = useMemo(() => busyCounts(board?.cards ?? [], pulses), [board, pulses]);
+  // Every card with a window drawn gets the open ring (the active one keeps the stronger is-open).
+  const windowKey = shownWindows.map(win => win.channelId).join('\n');
+  const windowChannelIds = useMemo<ReadonlySet<string>>(() => windowKey ? new Set(windowKey.split('\n')) : NOTHING, [windowKey]);
   const owners = useMemo(() => new Map(humans.flatMap(person => person.id ? [[person.id, person.username] as const] : [])), [humans]);
   // Needs you and search. Only chats the person can see are named: open cards and loose chats, never a locked or unavailable card.
   const titles = useMemo(() => {
@@ -783,6 +913,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       await new Promise(resolve => requestAnimationFrame(resolve));
       setSelectedId(project.channelId);
       const mode = modeRef.current ?? lastModeRef.current;
+      // A window shows its message box only once App's chat is ready, which can outlast the polling below.
+      if (mode === 'focus') replyTo.current = project.channelId;
       openRef.current(project.channelId, mode);
       if (mode === 'split') requestAnimationFrame(() => requestAnimationFrame(() => controls.current?.reveal({channelId: project.channelId})));
       let tries = 0;
@@ -1118,7 +1250,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       const frame = () => {
         const root = viewRoot.current;
         const card = root?.querySelector<HTMLElement>(`.canvas-card[data-channel-id="${CSS.escape(child)}"]`);
-        if ((!card || root?.querySelector('.canvas-chat')) && ++tries < 60) { requestAnimationFrame(frame); return; }
+        if ((!card || root?.querySelector('.canvas-chat:not(.is-passive)')) && ++tries < 60) { requestAnimationFrame(frame); return; }
         controls.current?.reveal({channelId: child});
         if (!card) return;
         flashCard(card);
@@ -1362,6 +1494,11 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const current = board?.canvas ?? canvases?.find(c => c.id === canvasId) ?? null;
   const ownerName = current && current.role !== 'owner' ? humans.find(h => h.id === current.ownerId)?.username ?? 'the owner' : null;
   const name = board?.canvas.name ?? canvases?.find(c => c.id === canvasId)?.name ?? '';
+  // Front window highest; the active window is always the front one.
+  const windowZ = (channelId: string) => WINDOW_Z + Math.max(0, shownWindows.length - 1 - shownWindows.findIndex(win => win.channelId === channelId));
+  const activeEntry = windowed ? shownWindows.find(win => win.channelId === chatChannelId) : undefined;
+  const activeWin = activeEntry && bounds ? clampWindow(activeEntry, bounds) : undefined;
+  const activeCore = activeWindowId ? cores.get(activeWindowId) : undefined;
   let body: ReactNode;
   if (!canvasId) {
     body = listFailed ? <CanvasMessage text="Could not load your canvases." action="Try again" onAction={() => setListAttempt(n => n + 1)}/>
@@ -1387,7 +1524,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     body = <>
       <div className="canvas-stage">
         <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={applyTracked} pulses={pulses} onNudge={sendNudge}
-          onDropChat={canPlace ? dropChat : undefined} controls={controls} onOpenChat={openFromCard} openChannelId={chatShown ? chatChannelId : null}
+          onDropChat={canPlace ? dropChat : undefined} controls={controls} onOpenChat={openFromCard} openChannelId={chatShown ? chatChannelId : null} windowChannelIds={windowChannelIds}
           onDropAgent={dropAgent} onRemoveAgent={removeAgent} canManageCard={manageable} onSelectCard={setSelectedId} selectedChannelId={selected?.channelId ?? null}
           areaContext={areaContext} onAreaContext={openAreaContext} contextAreaId={panel?.kind === 'area' ? panel.areaId : null} onOpenCanvas={id => onSelectCanvas(id)} onDropFiles={dropFiles}
           needs={cardNeeds} viewer={username} onNotice={say} onAreaCreated={setRenameAreaId} renameAreaId={renameAreaId} onRenameStarted={renameStarted}
@@ -1466,12 +1603,25 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         canPlace={board.canvas.role !== 'view'} draggable onNewArea={newArea} onArchive={hide} onClose={closeDrawer} now={Date.now}
         onOpenChat={openLoose} highlight={highlight} focusKey={drawerFocus}/> : null}
       {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!}
-        win={windowed && floating?.win.channelId === chatChannelId ? floating.win : undefined} bounds={floating?.bounds} onMove={moveFloating} title={chatTitle} sub={chatSub} area={chatArea} onPlace={placeHere} onUseHere={useHere}
+        win={activeWin} bounds={bounds ?? undefined} zIndex={activeWin ? windowZ(activeWin.channelId) : undefined} onMove={at => moveWin(chatChannelId!, at)}
+        onFiles={windowed ? (files, folders) => { if (folders) say(FOLDER_NOTICE); if (files.length) chatFilesRef.current(chatChannelId!, files); } : undefined}
+        title={chatTitle} sub={chatSub} area={chatArea} onPlace={placeHere} onUseHere={useHere}
         digest={chatDigest} setup={chatSetup} onConnect={chatConnect} onSchedule={chatSchedule}
         announce={memberNotice && board ? {id: memberNotice.id, text: memberNotice.text} : state.notice && state.canvasId === canvasId ? {id: `store:${state.notice}`, text: state.notice} : null}
-        onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
-        {chat}
+        onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => windowed ? closeWin(chatChannelId!) : onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
+        {/* A window shows its own live thread until App's chat (thread and message box) is ready for it: no blank on a switch. */}
+        {windowed ? <ActiveWindowBody ready={chatReady} passive={activeCore
+          ? <PassiveThread core={activeCore} username={username} agents={agents} title={chatTitle} onActivate={noop}/> : null}>{chat}</ActiveWindowBody> : chat}
       </CanvasChat> : null}
+      {/* The other windows: live and read-only; a press, focus or file drop makes one the active chat. */}
+      {bounds ? shownWindows.map(win => {
+        const core = cores.get(win.channelId);
+        if (win.channelId === activeWindowId || !core) return null;
+        const id = win.channelId;
+        return <PassiveWindow key={id} win={clampWindow(win, bounds)} bounds={bounds} zIndex={windowZ(id)} title={titleFor(id)} people={participantsOf(id).map(personOf)}
+          core={core} username={username} agents={agents} onActivate={() => activateWin(id)} onClose={() => closeWin(id)} onMove={at => moveWin(id, at)}
+          onFiles={(files, folders) => { if (folders) say(FOLDER_NOTICE); if (!files.length) return; activateWin(id); chatFilesRef.current(id, files); }}/>;
+      }) : null}
       {panel && board ? <ContextPanel key={`${board.canvas.id}:${panel.kind === 'area' ? panel.areaId : 'canvas'}`} canvasId={board.canvas.id}
         canvasName={board.canvas.name} scope={panel.kind === 'area' ? {kind: 'area', areaId: panel.areaId} : {kind: 'canvas'}} anchor={panel.anchor}
         title={panel.kind === 'area' ? board.areas.find(a => a.id === panel.areaId)?.title : undefined}
@@ -1520,8 +1670,6 @@ function windowFrame(body: HTMLElement) {
 const SPLIT_STEP = 2;
 /** Another dialog above the chat (manage channel, the tour) takes Escape and Tab for itself, and so does an open context popover. */
 const OTHER_DIALOG = '[aria-modal="true"]:not(.canvas-chat), .dialog-backdrop, .canvas-context, .canvas-flow-pop';
-/** What a press on a window's header may start a drag from: anything but its controls. */
-const NOT_A_HANDLE = 'button, a, input, select, textarea, label, [contenteditable="true"], .canvas-chat-menu';
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
 
 /** A sheet's height while it opens (its CSS min-height): the camera centres at least this much. */
@@ -1537,21 +1685,18 @@ const ON_CANVAS = 'canvas';
 /** Who is in the open chat, and where its card sits and which context it reads. */
 type ChatSub = {
   /** `service`: the Switchyard agent, which posts hand-offs and scheduled runs and never replies. */
-  people: {agent: boolean; name: string; service?: boolean}[];
+  people: ChatPerson[];
   /** An archived or read-only chat says so here (the regular view's header line, which the sheet leaves out). */
   state?: 'Archived' | 'Read-only';
   place: {kind: 'loose'} | {kind: 'card'; area: string | null; sees: ChatSees};
   /** Opens the context the chat sees (its home area's, or the canvas's) under the pressed control. */
   onSees(areaId: string | null, opener: HTMLElement): void;
 };
-const MAX_SUB_FACES = 5;
 const CHAT_CONNECT_TITLE = 'Connect: pass results to another chat';
-const initials = (name: string) => name.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(' ').filter(Boolean).slice(0, 2).map(word => word[0]).join('').toUpperCase() || '?';
 
 /** The mock's `.ch-sub`: participant faces, then `in {area} · sees N contexts` (a button to that context) or where it comes from. */
 function ChatSubline({sub}: {sub: ChatSub}) {
   const {people, place} = sub;
-  const shown = people.slice(0, MAX_SUB_FACES), more = people.length - shown.length;
   const where = place.kind === 'loose' ? 'Plain chat · not on this canvas' : place.area ? `in ${place.area}` : 'on the canvas';
   let sees: ReactNode = null;
   if (place.kind === 'card') {
@@ -1565,25 +1710,20 @@ function ChatSubline({sub}: {sub: ChatSub}) {
       : <span>no shared context yet</span>;
   }
   return <p className="canvas-chat-sub">
-    {people.length ? <span className="canvas-chat-faces" role="img" aria-label={`In this chat: ${people.map(p => p.name).join(', ')}`}>
-      {shown.map(person => person.agent
-        ? <span key={`a:${person.name}`} className="canvas-chat-face" title={person.service ? `${person.name} · posts hand-offs and scheduled runs; never replies` : person.name}><AgentAvatar name={person.name} size={20}/></span>
-        : <span key={`h:${person.name}`} className="canvas-chat-face is-human" title={person.name} aria-hidden="true">{initials(person.name)}</span>)}
-      {more ? <span className="canvas-chat-face is-more" aria-hidden="true">+{more}</span> : null}
-    </span> : null}
+    <ChatFaces people={people}/>
     <span>{where}{sees ? ' · ' : ''}</span>{sees}
     {sub.state ? <span className="canvas-chat-state"> · {sub.state}</span> : null}
   </p>;
 }
 
-function CanvasChat({channelId, mode, win, bounds, onMove, onActivate, zIndex, title, sub, area, onPlace, onUseHere, digest, setup, announce, onConnect, onSchedule, onMode, onClose, onOpenRegular, children}: {
+function CanvasChat({channelId, mode, win, bounds, onMove, onFiles, zIndex, title, sub, area, onPlace, onUseHere, digest, setup, announce, onConnect, onSchedule, onMode, onClose, onOpenRegular, children}: {
   channelId: string; mode: CanvasChatMode;
   /** A desktop focus chat: a window at this top-left (relative to `.canvas-body`), sized from `bounds`. Phones and split screen have none. */
   win?: ChatWindow; bounds?: Bounds;
-  /** Dragging the window's header asks for this top-left; the owner clamps it to the bounds. */
+  /** Dragging the window's header asks for this top-left on release; the owner clamps and saves it. */
   onMove?(at: Point): void;
-  /** A press anywhere in the window. */
-  onActivate?(): void;
+  /** Files dropped on the window while App's chat is not ready to take them itself (App's drop zone takes them after). */
+  onFiles?(files: File[], folders: boolean): void;
   zIndex?: number;
   title: string; sub?: ChatSub; area?: ChatArea; onPlace?(): void; onUseHere?(): Promise<void>;
   /** Where it stands, above the Setup line (the mock's digest before cfgBlock). */
@@ -1608,10 +1748,8 @@ function CanvasChat({channelId, mode, win, bounds, onMove, onActivate, zIndex, t
   const closeRef = useRef(onClose); closeRef.current = onClose;
   const modeRef = useRef(mode); modeRef.current = mode;
   const windowed = Boolean(win);
-  const winRef = useRef(win); winRef.current = win;
-  const moveRef = useRef(onMove); moveRef.current = onMove;
-  // The header drags a window: the pointer's travel since the press, from where the window was, clamped by the owner.
-  const drag = useRef<{id: number; x: number; y: number; from: Point} | null>(null);
+  // The header drags a window: it follows the pointer locally and is saved on release.
+  const drag = useWindowDrag({win, bounds, panel, onMove, focusOnStart: true});
 
   // Tab stays inside a phone's full-screen chat (the canvas behind it is inert). It acts only when focus is in the chat,
   // on the page body or in the canvas: focus in any other dialog or portal (the Huddle, Manage channel, a popover) is that
@@ -1669,17 +1807,19 @@ function CanvasChat({channelId, mode, win, bounds, onMove, onActivate, zIndex, t
   const slots = useMemo<ChatHeaderSlots>(() => ({actions: actionsSlot, more: moreSlot}), [actionsSlot, moreSlot]);
 
   // Focus moves into the chat when it opens. On close it returns to the opened card's Open button when that card
-  // is mounted (after a mouse open too), else to what was focused before, else the canvas.
+  // is mounted (after a mouse open too), else to what was focused before, else the canvas. A chat that stays open as a
+  // passive window (another window became active) only hands over: no focus move and no flash.
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const body = panel.current?.closest<HTMLElement>('.canvas-body') ?? null;
     panel.current?.focus({preventScroll: true});
     return () => {
-      if (!body?.isConnected) return;
+      if (!body?.isConnected || body.querySelector(`.canvas-chat.is-passive[data-channel-id="${CSS.escape(channelId)}"]`)) return;
       const cardElement = body.querySelector<HTMLElement>(`.canvas-card[data-channel-id="${CSS.escape(channelId)}"]`);
       const card = cardElement?.querySelector<HTMLElement>('.canvas-card-open') ?? null;
       const surface = body.querySelector<HTMLElement>('.canvas-surface');
-      const target = [card, previous, surface].find(element => element?.isConnected && body.contains(element));
+      // Never into a passive window: focus there would make it the active chat.
+      const target = [card, previous, surface].find(element => element?.isConnected && body.contains(element) && !element.closest('.canvas-chat.is-passive'));
       target?.focus({preventScroll: true});
       // The mock's closeCard: the card the chat closed back into flashes once.
       if (cardElement && modeRef.current === 'focus') flashCard(cardElement);
@@ -1708,13 +1848,12 @@ function CanvasChat({channelId, mode, win, bounds, onMove, onActivate, zIndex, t
   const finish = () => { if (resizing.current === null) return; resizing.current = null; writeSplit(splitRef.current); };
   const nudge = (delta: number) => { const next = clampSplit(splitRef.current + delta); setSplit(next); writeSplit(next); };
 
-  const endDrag = () => { drag.current = null; };
-
   const focus = mode === 'focus';
-  const sheet = focus && win && bounds ? {...windowVars(win, bounds), ...(zIndex === undefined ? {} : {zIndex})} as CSSProperties : undefined;
-  return <section ref={panel} className="canvas-chat" data-mode={mode} data-window={windowed ? 'true' : undefined} tabIndex={-1}
+  const sheet = focus && drag.win && bounds ? {...windowVars(drag.win, bounds), ...(zIndex === undefined ? {} : {zIndex})} as CSSProperties : undefined;
+  const drop = windowed && onFiles ? windowFileDrop(onFiles) : undefined;
+  return <section ref={panel} className="canvas-chat" data-mode={mode} data-window={windowed ? 'true' : undefined} data-channel-id={channelId} tabIndex={-1}
     role={focus ? 'dialog' : 'region'} aria-modal={focus && !windowed ? true : undefined} aria-label={`Open chat ${title}`}
-    style={focus ? sheet : {width: `${split}%`}} onPointerDownCapture={windowed ? onActivate : undefined}>
+    style={focus ? sheet : {width: `${split}%`}} onDragOver={drop?.onDragOver} onDrop={drop?.onDrop}>
     {focus ? null : <div className="canvas-chat-divider" role="separator" aria-label="Resize chat" aria-orientation="vertical"
       aria-valuenow={split} aria-valuemin={SPLIT_MIN} aria-valuemax={SPLIT_MAX} aria-valuetext={`Chat ${Math.round(split)}% wide`} tabIndex={0}
       onPointerDown={event => {
@@ -1730,22 +1869,7 @@ function CanvasChat({channelId, mode, win, bounds, onMove, onActivate, zIndex, t
         else if (event.key === 'ArrowRight') { event.preventDefault(); nudge(-SPLIT_STEP); }
       }}/>}
     {/* The mock's `.ch-head`: title and sub-line, then `.ch-acts` of 30 px icon buttons and Close. */}
-    <header className="canvas-chat-bar" onPointerDown={windowed ? event => {
-      // Only presses on the header's own DOM: a dialog portaled from its slots (the Huddle) bubbles here through React too.
-      const at = winRef.current, target = event.target;
-      if (event.button !== 0 || !at || !moveRef.current || !(target instanceof Element) || !event.currentTarget.contains(target) || target.closest(NOT_A_HANDLE)) return;
-      // No text selection while dragging. That also skips the press's own focus change, so focus moves into the window
-      // here (unless it is already inside), and Escape then closes the window that was just dragged.
-      event.preventDefault();
-      if (!panel.current?.contains(document.activeElement)) panel.current?.focus({preventScroll: true});
-      drag.current = {id: event.pointerId, x: event.clientX, y: event.clientY, from: {x: at.x, y: at.y}};
-      try { event.currentTarget.setPointerCapture(event.pointerId); } catch {}
-    } : undefined}
-      onPointerMove={windowed ? event => {
-        const d = drag.current;
-        if (d?.id === event.pointerId) moveRef.current?.({x: d.from.x + event.clientX - d.x, y: d.from.y + event.clientY - d.y});
-      } : undefined}
-      onPointerUp={windowed ? endDrag : undefined} onPointerCancel={windowed ? endDrag : undefined} onLostPointerCapture={windowed ? endDrag : undefined}>
+    <header className="canvas-chat-bar" {...(windowed ? drag.handlers : {})}>
       <div className="canvas-chat-heading">
         <h2 className="canvas-chat-title">{title}</h2>
         {sub ? <ChatSubline sub={sub}/> : null}

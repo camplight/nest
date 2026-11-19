@@ -8,6 +8,8 @@ export const FILE_DROP_TARGETS = '.canvas-card, .canvas-area, .canvas-context';
 export const outsideFileDropTargets = (target: EventTarget | null) => !(target instanceof Element && target.closest(FILE_DROP_TARGETS));
 /** Inside the chat open beside or over the canvas: a split chat takes only the drops on itself. */
 export const insideCanvasChat = (target: EventTarget | null) => target instanceof Element && Boolean(target.closest('.canvas-chat'));
+/** Inside the active canvas chat (split, or the active window): a passive window takes its own drops for its own chat. */
+export const insideActiveCanvasChat = (target: EventTarget | null) => target instanceof Element && Boolean(target.closest('.canvas-chat:not(.is-passive)'));
 /** The canvas's bottom box: every drop that no card, area, popover or open chat takes ("anywhere else"). */
 export const outsideCanvasChat = (target: EventTarget | null) => outsideFileDropTargets(target) && !insideCanvasChat(target);
 export const FOLDER_NOTICE = 'Folders can’t be attached directly. Drop individual files or a ZIP archive.';

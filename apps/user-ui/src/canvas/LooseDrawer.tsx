@@ -213,7 +213,7 @@ export function LooseDrawer({id, open, chats, count, hidden, showHidden, onShowH
       const active = document.activeElement;
       const inside = Boolean(active && (root.current?.contains(active) || active.closest(`[aria-controls="${CSS.escape(id)}"]`)));
       if (!inside) {
-        if (document.querySelector('.canvas-chat[data-mode="focus"]')) return;
+        if (document.querySelector('.canvas-chat[data-mode="focus"]:not(.is-passive)')) return;
         if (active && active !== document.body && (!active.closest('.canvas-main') || typing(active))) return;
       }
       event.preventDefault();

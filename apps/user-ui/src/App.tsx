@@ -37,7 +37,7 @@ import { CanvasView, type CanvasChatMode, type CanvasForks } from "./canvas/Canv
 import { useFlowsEnabled, useServiceAgent } from "./canvas/useFlows";
 import { flowError, getForks } from "./canvas/flows-api";
 import { startFork, type ForkSource } from "./canvas/fork";
-import { insideCanvasChat, outsideFileDropTargets } from "./components/file-drop";
+import { insideActiveCanvasChat, outsideFileDropTargets } from "./components/file-drop";
 import { canvasAvailability } from "./canvas/api";
 import { usePhoneLayout } from "./canvas/PhoneList";
 import { unseenAppAgents } from "./chat/wrapped";
@@ -1850,7 +1850,7 @@ export default function App() {
     },
   } : undefined;
   const chatWorkspace = <section className={`workspace${view === "workspace" ? " standalone-workspace" : ""}`}>
-        <ChatFileDrop scope={`${userId??''}:${activeChannelId??''}`} accept={view==="canvas"&&canvasChat.mode!==null?insideCanvasChat:outsideFileDropTargets} overlay={!(view==="canvas"&&canvasChat.mode!==null)} onFiles={files=>composerRef.current?.enqueueFiles(files)} disabledReason={!activeChannel?'Choose a conversation before attaching files.':activeChannel.archivedAt?'Restore this conversation before attaching files.':!activeChannelCanPost?'This conversation is read-only.':sending?'Wait for this message to finish sending.':undefined}/>
+        <ChatFileDrop scope={`${userId??''}:${activeChannelId??''}`} accept={view==="canvas"&&canvasChat.mode!==null?insideActiveCanvasChat:outsideFileDropTargets} overlay={!(view==="canvas"&&canvasChat.mode!==null)} onFiles={files=>composerRef.current?.enqueueFiles(files)} disabledReason={!activeChannel?'Choose a conversation before attaching files.':activeChannel.archivedAt?'Restore this conversation before attaching files.':!activeChannelCanPost?'This conversation is read-only.':sending?'Wait for this message to finish sending.':undefined}/>
         {view === "workspace" && <WorkspaceTopbar
           onMenu={() => setMobileSidebarOpen(true)}
           search={<label className="dashboard-search"><DesignIcon name="search" /><input
@@ -2100,7 +2100,8 @@ export default function App() {
       {view === "canvas" ? (canvasAvailable ? <CanvasView canvasId={selectedCanvas} humanId={userId ?? ""} username={username} channels={visibleChannels} projects={projectIndex} agents={visibleAgents} humans={humans}
         onSelectCanvas={selectCanvas} onMenu={() => setMobileSidebarOpen(true)}
         chat={chatWorkspace} chatChannelId={canvasChat.channelId} chatMode={canvasChat.mode}
-        onOpenChat={(channelId, mode) => openCanvasChat(channelId, mode, { replace: channelId === canvasChat.channelId })} onCloseChat={options => openCanvasChat(null, null, options)}
+        chatReady={channelSnapshot.channelId === canvasChat.channelId && !channelSnapshot.loading}
+        onOpenChat={(channelId, mode, options) => openCanvasChat(channelId, mode, { replace: options?.replace ?? channelId === canvasChat.channelId })} onCloseChat={options => openCanvasChat(null, null, options)}
         onOpenRegular={channelId => selectChannel(channelId)} live={canvasLiveRef.current} windowCores={windowCores}
         onChatFiles={(channelId, files) => setChatFiles(current => ({ channelId, files: current?.channelId === channelId ? [...current.files, ...files] : files }))}
         refreshChannels={async () => {

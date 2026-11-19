@@ -82,7 +82,7 @@ export function ScheduledList({canvasName, jobs, titles, onCanvas, anchor, now, 
         requestAnimationFrame(() => {
           const active = document.activeElement;
           if (active && active !== document.body && active.isConnected) return;
-          view.querySelector<HTMLElement>('.canvas-chat')?.focus({preventScroll: true});
+          view.querySelector<HTMLElement>('.canvas-chat:not(.is-passive)')?.focus({preventScroll: true});
         });
         return;
       }

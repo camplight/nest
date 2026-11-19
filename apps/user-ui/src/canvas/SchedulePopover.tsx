@@ -111,7 +111,7 @@ export function SchedulePopover({chat, schedule, trigger = null, webhooks = fals
     heading.current?.focus({preventScroll: true});
     return () => {
       const view = ref.current?.closest<HTMLElement>('.canvas-view') ?? document;
-      [anchorRef.current, previous, view.querySelector<HTMLElement>('.canvas-chat')].find(element => element?.isConnected)?.focus({preventScroll: true});
+      [anchorRef.current, previous, view.querySelector<HTMLElement>('.canvas-chat:not(.is-passive)')].find(element => element?.isConnected)?.focus({preventScroll: true});
     };
   }, []);
   const place = usePopPlacement(ref, anchor, 200, 8);

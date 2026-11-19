@@ -31,6 +31,8 @@ export type SurfaceProps = {
   onOpenChat?(channelId: string): void;
   /** The chat open beside or over the canvas, marked on its card. */
   openChannelId?: string | null;
+  /** Chats with a window over the canvas (desktop floating mode): their cards get a lighter open ring. */
+  windowChannelIds?: ReadonlySet<string>;
   /** An agent from the tray or picker dropped on an open card. Locked and unavailable cards take no drop. */
   onDropAgent?(channelId: string, agent: string): void;
   /** An agent's face dragged more than REMOVE_DISTANCE outside its card. */
@@ -123,6 +125,7 @@ const removeLabel = (agent: string, card: BoardCard | undefined) => card ? `Remo
 const NO_PULSES: ReadonlyMap<string, CardPulse> = new Map();
 const NO_NEEDS: ReadonlyMap<string, NeedsItem[]> = new Map();
 const NONE: NeedsItem[] = [];
+const NO_WINDOWS: ReadonlySet<string> = new Set();
 /** The mock's drawing guidance, shown when the Area tool is armed. */
 export const DRAW_HINT = 'Drag on the canvas to draw an area. Chats in it can share its context. Esc cancels.';
 /**
@@ -177,7 +180,7 @@ const isEditable = (target: EventTarget | null) => target instanceof HTMLElement
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + b.y) / 2});
 
-export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null,
+export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null, windowChannelIds = NO_WINDOWS,
   onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onOpenCanvas, onDropFiles,
   needs = NO_NEEDS, viewer = '', onNotice, onAreaCreated, renameAreaId = null, onRenameStarted, onNewChat, onNewChatInArea, onViewChange, onEmptyPress, onFit,
   links, onOpenLink, onToggleFork, canConnect, onConnect, onNewStep, onLinkPick, schedules}: SurfaceProps) {
@@ -792,6 +795,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
           needs={card.access === 'open' ? needs.get(card.channelId) ?? NONE : NONE} viewer={viewer}
           onNudge={onNudge ? nudge : undefined} onRemove={canEdit ? removeCard : undefined}
           onOpen={onOpenChat ? openCard : undefined} open={card.channelId === openChannelId}
+          windowed={windowChannelIds.has(card.channelId)}
           facesDraggable={Boolean(onRemoveAgent && canManageCard?.(card))}
           draggingFace={preview?.kind === 'face' && preview.id === card.channelId ? preview.agent : null}
           dropping={dropId === card.channelId} selected={card.channelId === selectedChannelId}

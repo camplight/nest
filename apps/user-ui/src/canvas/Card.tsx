@@ -40,6 +40,8 @@ export type CardProps = {
   onOpen?(channelId: string): void;
   /** This card's chat is the one open now. */
   open?: boolean;
+  /** The chat has a window over the canvas (a lighter ring than the active chat's `is-open`). */
+  windowed?: boolean;
   /** The person may add and remove this chat's agents: agent faces get a drag handle (drag off to remove). */
   facesDraggable?: boolean;
   /** The agent whose face is being dragged off this card right now. */
@@ -264,7 +266,7 @@ function OpenBody({card, pulse, needs, viewer, onNudge, facesDraggable, dragging
   </>;
 }
 
-export const Card = memo(function Card({card, draggable, dx, dy, dragging, measure, pulse, needs = NO_NEEDS, viewer = '', onNudge, onRemove, onOpen, open = false,
+export const Card = memo(function Card({card, draggable, dx, dy, dragging, measure, pulse, needs = NO_NEEDS, viewer = '', onNudge, onRemove, onOpen, open = false, windowed = false,
   facesDraggable = false, draggingFace = null, dropping = false, selected = false, areaTitle, areaTint, onConnect, linkTarget = false, schedules}: CardProps) {
   const title = cardTitle(card);
   const ref = useCallback((element: HTMLElement | null) => measure(card.channelId, element), [card.channelId, measure]);
@@ -273,7 +275,7 @@ export const Card = memo(function Card({card, draggable, dx, dy, dragging, measu
   const connects = card.access === 'open' ? onConnect : undefined;
   return <article
     ref={ref}
-    className={`canvas-card${dragging ? ' is-dragging' : ''}${opens ? ' is-openable' : ''}${open ? ' is-open' : ''}${dropping ? ' is-drop-target' : ''}${selected ? ' is-selected' : ''}${areaTitle ? ' in-area' : ''}${attention ? ' needs-you' : ''}${linkTarget ? ' linktarget' : ''}`}
+    className={`canvas-card${dragging ? ' is-dragging' : ''}${opens ? ' is-openable' : ''}${open ? ' is-open' : ''}${windowed ? ' is-windowed' : ''}${dropping ? ' is-drop-target' : ''}${selected ? ' is-selected' : ''}${areaTitle ? ' in-area' : ''}${attention ? ' needs-you' : ''}${linkTarget ? ' linktarget' : ''}`}
     data-channel-id={card.channelId}
     data-tint={areaTitle ? areaTint : undefined}
     data-access={card.access}
