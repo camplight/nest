@@ -9,10 +9,21 @@ describe('when Nest compacts a chat',()=>{
     expect(shouldCompact({historyChars:7_500,historyMaxChars:10_000})).toBe(true);
     expect(shouldCompact({historyChars:5,historyMaxChars:0})).toBe(false);
   });
+  it('also starts when the chat nears the runner\'s message limit',()=>{
+    expect(shouldCompact({historyChars:10,historyMaxChars:10_000,messageCount:89})).toBe(false);
+    expect(shouldCompact({historyChars:10,historyMaxChars:10_000,messageCount:90})).toBe(true);
+  });
+  it('keeps at most half of the runner\'s message limit word for word',()=>{
+    const events=Array.from({length:200},(_,n)=>message(n+1,'ok'));
+    const plan=planCompaction(events,{historyMaxChars:120_000})!;
+    expect(plan.kept.length).toBeLessThanOrEqual(60);
+    expect(plan.kept.at(-1)?.id).toBe('e200');
+  });
   it('keeps recent messages word for word within half the budget and summarizes the rest',()=>{
     const events=Array.from({length:40},(_,n)=>message(n+1));
     const plan=planCompaction(events,{historyMaxChars:2_000})!;
-    const keptChars=plan.kept.reduce((sum,event)=>sum+JSON.stringify({source:event.source,type:event.type,payload:event.payload}).length,0);
+    // Measured as the runner renders history: a pretty-printed event record.
+    const keptChars=plan.kept.reduce((sum,event)=>sum+JSON.stringify({eventId:event.id,channelId:event.channelId,type:event.type,source:event.source,payload:event.payload},null,2).length,0);
     expect(keptChars).toBeLessThanOrEqual(1_000);
     expect(plan.kept.at(-1)?.id).toBe('e40');
     expect([...plan.older,...plan.kept].map(e=>e.id)).toEqual(events.map(e=>e.id));

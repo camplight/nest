@@ -1,8 +1,10 @@
 import type {ProductDb,CompactionJob} from '@nest/db';
 import type {ContextCompactionEngine} from '@nest/orgops-client';
-import {engineIgnoredPrefixes,planCompaction,shouldCompact,summarizeHistory,type HistorySummarizer} from './context-compaction';
+import {MIN_HISTORY_CHARS,engineIgnoredPrefixes,planCompaction,shouldCompact,summarizeHistory,type HistorySummarizer} from './context-compaction';
 
-type Reading={id:string;channelId?:string;createdAt:number;payload:{agentName?:unknown;memoryContextMode?:unknown;historyChars?:unknown;historyMaxChars?:unknown}};
+type Reading={id:string;source:string;channelId?:string;createdAt:number;payload:{agentName?:unknown;memoryContextMode?:unknown;historyChars?:unknown;historyMaxChars?:unknown;messageCount?:unknown}};
+// Only the runner records readings under this source; the engine rewrites a person's source to human:<name>.
+const RUNNER_SOURCE='system:runner:context';
 type Outcome={status:'compacted'|'skipped';cutoffEventId?:string;more?:boolean};
 
 /**
@@ -22,10 +24,12 @@ export function createContextCompactionWorker({store,engine,summarize=summarizeH
     const optedIn=jobs.optedInAgentNames();
     for(const reading of await engine.telemetry(cursor) as Reading[]) {
       cursor=Math.max(cursor,reading.createdAt);
-      const {agentName,memoryContextMode,historyChars,historyMaxChars}=reading.payload??{};
-      if(typeof agentName!=='string'||!optedIn.has(agentName)||memoryContextMode!=='FULL_CHANNEL_EVENTS'||!reading.channelId)continue;
-      if(typeof historyChars!=='number'||typeof historyMaxChars!=='number'||!shouldCompact({historyChars,historyMaxChars}))continue;
-      jobs.enqueue({agentName,channelId:reading.channelId,triggerEventId:reading.id,historyMaxChars,at:now()});
+      if(reading.source!==RUNNER_SOURCE||!reading.channelId)continue;
+      const {agentName,memoryContextMode,historyChars,historyMaxChars,messageCount}=reading.payload??{};
+      if(typeof agentName!=='string'||!optedIn.has(agentName)||memoryContextMode!=='FULL_CHANNEL_EVENTS')continue;
+      if(typeof historyChars!=='number'||typeof historyMaxChars!=='number')continue;
+      if(!shouldCompact({historyChars,historyMaxChars,messageCount:typeof messageCount==='number'?messageCount:0}))continue;
+      jobs.enqueue({agentName,channelId:reading.channelId,triggerEventId:reading.id,historyMaxChars:Math.max(MIN_HISTORY_CHARS,historyMaxChars),at:now()});
     }
     jobs.setCursor(cursor);
   }
@@ -34,10 +38,11 @@ export function createContextCompactionWorker({store,engine,summarize=summarizeH
     const agent=await engine.agent(job.agent_name);
     if(!agent||agent.mode==='WRAPPED'||agent.memoryContextMode!=='FULL_CHANNEL_EVENTS'||!jobs.autoCompact(agent.name,agent.id))return {status:'skipped'};
     const model=await engine.modelReference(agent.modelId);
-    if(!model)return {status:'skipped'};
+    // Nothing is sent to a model for a chat the agent is not in.
+    if(!model||!await engine.subscribed(agent.name,job.channel_id))return {status:'skipped'};
     const boundary=await engine.boundary(agent.name,job.channel_id);
     const page=await engine.channelEvents(job.channel_id,boundary?.cutoffAt,engineIgnoredPrefixes);
-    const plan=planCompaction(page.events,{historyMaxChars:job.history_max_chars,truncated:page.truncated});
+    const plan=planCompaction(page.events,{historyMaxChars:Math.max(MIN_HISTORY_CHARS,job.history_max_chars),truncated:page.truncated});
     if(!plan)return {status:'skipped'};
     const env=await engine.modelEnv(agent.name,model);
     const summary=await summarize({model,env,agentName:agent.name,previousSummary:boundary?.summary,events:plan.older});
@@ -46,6 +51,7 @@ export function createContextCompactionWorker({store,engine,summarize=summarizeH
     if(current?.eventId!==boundary?.eventId||!jobs.holds(job,now()))return {status:'skipped'};
     const result=await engine.compact(agent.name,{channelId:job.channel_id,summary,cutoffAt:plan.cutoff.createdAt,cutoffEventId:plan.cutoff.id,
       reason:'Nest summarized the older part of a long chat',idempotencyKey:`nest-compact:${agent.name}:${job.channel_id}:${plan.cutoff.id}`});
+    // 'rejected' (not subscribed, not allowed, invalid) is final: a retry would only pay for the summary again.
     return result==='compacted'?{status:'compacted',cutoffEventId:plan.cutoff.id,more:plan.more}:{status:'skipped'};
   }
 

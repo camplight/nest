@@ -13,8 +13,8 @@ const runner={'content-type':'application/json','x-nest-runner-token':'runner-se
 const call=(path:string,method='GET',body?:unknown,h:Record<string,string>=headers)=>product.app.request(path,{method,headers:h,...(body===undefined?{}:{body:JSON.stringify(body)})});
 const engineCall=(path:string)=>engine.app.fetch(new Request('http://engine'+path,{headers:{'x-orgops-runner-token':'runner-secret'}}));
 const say=async(source:string,text:string)=>(await (await call('/api/events','POST',{type:'message.created',source,channelId,payload:{text}},source.startsWith('human:')?headers:runner)).json()).id as string;
-const telemetry=(historyChars:number,agentName='Pip',memoryContextMode='FULL_CHANNEL_EVENTS')=>call('/api/events','POST',{type:'telemetry.context.window.updated',source:'system:runner:context',status:'DELIVERED',channelId,
-  payload:{agentName,modelId:'default-model',contextWindowTokens:8_000,estimatedUsedTokens:1,estimatedAvailableTokens:1,utilizationPct:1,messageCount:2,systemChars:1,systemContextChars:0,historyChars,historyMaxChars:10_000,memoryContextMode}},runner);
+const telemetry=(historyChars:number,agentName='Pip',memoryContextMode='FULL_CHANNEL_EVENTS',{as=runner,historyMaxChars=10_000,channel}:{as?:Record<string,string>;historyMaxChars?:number;channel?:string}={})=>call('/api/events','POST',{type:'telemetry.context.window.updated',source:'system:runner:context',status:'DELIVERED',channelId:channel??channelId,
+  payload:{agentName,modelId:'default-model',contextWindowTokens:8_000,estimatedUsedTokens:1,estimatedAvailableTokens:1,utilizationPct:1,messageCount:2,systemChars:1,systemContextChars:0,historyChars,historyMaxChars,memoryContextMode}},as);
 const compactions=async()=>(await (await engineCall(`/api/events?channelId=${channelId}&type=agent.context.compacted`)).json()) as {id:string;source:string;payload:{summary:string;cutoffEventId:string;cutoffAt:number}}[];
 const memoryMode=async()=>(await (await call('/api/agents/Pip')).json()).memoryContextMode;
 const tick=()=>product.contextCompaction.tick();
@@ -89,6 +89,26 @@ describe('Full history, summarized when long',()=>{
     await telemetry(9_000,'Pip','PER_CHANNEL_CROSS_CHANNEL');await tick();
     expect(summarize).not.toHaveBeenCalled();
     expect(await compactions()).toEqual([]);
+  });
+  it('ignores readings that a person posted, and chats the agent is not in',async()=>{
+    await call('/api/agents/Pip','PATCH',{memoryContextMode:'FULL_CHANNEL_EVENTS_AUTO_COMPACT'});
+    await tick();await longChat(40);
+    expect((await telemetry(9_000,'Pip','FULL_CHANNEL_EVENTS',{as:headers,historyMaxChars:1})).status).toBe(201);
+    await tick();
+    const other=(await (await call('/api/channels','POST',{name:'elsewhere',visibility:'PRIVATE'})).json()).id;
+    await telemetry(9_000,'Pip','FULL_CHANNEL_EVENTS',{channel:other});
+    await tick();await tick();
+    expect(summarize).not.toHaveBeenCalled();
+    expect(await compactions()).toEqual([]);
+  });
+  it('shows the choice in the agent list for people, and keeps it through admin saves',async()=>{
+    await call('/api/agents/Pip','PATCH',{memoryContextMode:'FULL_CHANNEL_EVENTS_AUTO_COMPACT'});
+    const listed=async(h:Record<string,string>)=>((await (await call('/api/agents','GET',undefined,h)).json()) as {name:string;memoryContextMode:string}[]).find(agent=>agent.name==='Pip')!.memoryContextMode;
+    expect(await listed(headers)).toBe('FULL_CHANNEL_EVENTS_AUTO_COMPACT');
+    expect(await listed(runner)).toBe('FULL_CHANNEL_EVENTS');
+    // The admin UI saves every field it loaded, including the listed mode.
+    expect((await call('/api/agents/Pip','PATCH',{description:'Edited',memoryContextMode:await listed(headers)})).status).toBe(200);
+    expect(await memoryMode()).toBe('FULL_CHANNEL_EVENTS_AUTO_COMPACT');
   });
   it('retries a failed summary later without posting anything',async()=>{
     await call('/api/agents/Pip','PATCH',{memoryContextMode:'FULL_CHANNEL_EVENTS_AUTO_COMPACT'});

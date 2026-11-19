@@ -1192,9 +1192,11 @@ The Conversation memory choice "Full history, summarized when long" is a Nest mo
 engine has no such mode. Nest's `PATCH /api/agents/:name` route sends
 `FULL_CHANNEL_EVENTS` to the engine instead. Only after the engine accepts the change
 does Nest record the choice in `product_agent_memory`, keyed by agent name and pinned
-to the agent's engine ID. Choosing any other mode clears it. `GET /api/agents/:name`
-reports the Nest mode while the engine still reads full history and the pinned ID
-matches. Who may change an agent stays the engine's decision.
+to the agent's engine ID. Choosing any other mode clears it. `GET /api/agents` and
+`GET /api/agents/:name` report the Nest mode to people while the engine still reads
+full history and the pinned ID matches. Runner-credentialed reads always get the
+engine's own mode. The admin UI offers the mode too, so saving other fields there
+keeps it. Who may change an agent stays the engine's decision.
 
 `createContextCompactionWorker` (apps/api, polled every 15 seconds) uses the
 `NEST_RUNNER_TOKEN` service credential:
@@ -1203,17 +1205,24 @@ matches. Who may change an agent stays the engine's decision.
   stored in `product_settings`. On first start the cursor begins at the newest event.
 - It queues a chat in `product_context_compactions` when the reading meets all of
   these:
+  - the reading's source is `system:runner:context`. Readings that people post get a
+    `human:` source from the engine and are ignored;
   - the reading is for an opted-in agent in `FULL_CHANNEL_EVENTS`;
-  - `historyChars` is at least 75% of `historyMaxChars`;
+  - `historyChars` is at least 75% of `historyMaxChars` (taken as at least 8,000), or
+    `messageCount` is at least 75% of the runner's message limit
+    (`ORGOPS_HISTORY_MAX_EVENTS`, default 120);
   - the chat is not already queued or running;
   - the chat was not compacted in the last 5 minutes;
   - after five failures, the last attempt was more than an hour ago.
 - To run a job, it reads the following over engine HTTP: the agent, its model
   reference, and the latest `agent.context.*` boundary (found the way the runner
-  finds it). It also reads the chat events after that boundary, leaving out the types
-  the runner leaves out of history.
-- It keeps the newest messages that fit in half the history budget word for word, and
-  never splits messages that share a timestamp.
+  finds it). It skips the job, with no model call, unless the agent is subscribed to
+  the chat. It also reads the chat events after that boundary in pages of 500,
+  leaving out the types the runner leaves out of history. It re-reads any event whose
+  listed payload was truncated.
+- It keeps the newest messages word for word, up to half the history budget and half
+  the message limit. They are measured as the runner renders them, as pretty-printed
+  event records. Messages that share a timestamp are never split.
 - It sends the older ones, merged with the previous summary, to the agent's own model
   with the agent's provider keys from `/api/secrets/env`. If the agent has no
   provider keys, it uses this process's keys when every required key is set. The
@@ -1226,6 +1235,7 @@ matches. Who may change an agent stays the engine's decision.
 The engine records `agent.context.compacted`, and the runner's next turn reads the
 summary plus the messages after the cutoff. SQLite leases, five attempts with backoff
 and a lease check before posting keep several API processes from duplicating work.
+When the engine rejects a post (400, 403 or 404), the job is not retried.
 Raw provider or engine errors are never logged. Agents in other modes, wrapped
 agents, and models outside the native catalog are skipped. The engine records
 telemetry only while the agent's audit events are on (the default).

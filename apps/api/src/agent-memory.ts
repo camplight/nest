@@ -20,12 +20,16 @@ export function registerAgentMemoryRoutes(app:Hono,{store,orgops,forward,now=Dat
   }
   async function presented(response:Response) {
     if(!response.ok||!response.headers.get('content-type')?.includes('application/json'))return response;
-    const agent=await response.json() as EngineAgent;
+    const value=await response.json() as EngineAgent|EngineAgent[];
     const headers=new Headers(response.headers);
     headers.delete('content-length');headers.delete('content-encoding');
-    return Response.json(present(agent),{status:response.status,headers});
+    return Response.json(Array.isArray(value)?value.map(present):present(value),{status:response.status,headers});
   }
-  app.get('/api/agents/:name',async c=>presented(await forward(c.req.raw)));
+  // Runners read the engine's own modes; the Nest mode is for people's settings screens.
+  const fromRunner=(request:Request)=>['x-nest-runner-token','x-orgops-runner-token','authorization'].some(name=>request.headers.has(name));
+  const read=async(c:{req:{raw:Request}})=>{const response=await forward(c.req.raw);return fromRunner(c.req.raw)?response:presented(response);};
+  app.get('/api/agents',read);
+  app.get('/api/agents/:name',read);
   app.patch('/api/agents/:name',async c=>{
     const source=c.req.raw;
     const text=await source.text();

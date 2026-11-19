@@ -14,6 +14,10 @@ export const KEEP_SHARE=0.5;
 /** The engine allows 24,000 and its runner shows up to 16,000 in the prompt. */
 export const SUMMARY_MAX_CHARS=12_000;
 const MIN_OLDER_EVENTS=2;
+/** The runner's floor for the history budget; readings below it are not trusted. */
+export const MIN_HISTORY_CHARS=8_000;
+/** The runner keeps at most this many history messages (ORGOPS_HISTORY_MAX_EVENTS, default 120). */
+export const historyEventCap=()=>{const value=Number(process.env.ORGOPS_HISTORY_MAX_EVENTS);return Number.isInteger(value)&&value>0?value:120;};
 const LINE_MAX_CHARS=4_000;
 const MIN_TRANSCRIPT_CHARS=16_000;
 
@@ -24,11 +28,12 @@ export function isMeaningfulEvent(event:ChannelEvent) {
 }
 export const engineIgnoredPrefixes=IGNORED_PREFIXES;
 
-export function shouldCompact({historyChars,historyMaxChars}:{historyChars:number;historyMaxChars:number}) {
-  return historyMaxChars>0&&historyChars>=historyMaxChars*COMPACT_TRIGGER_SHARE;
+export function shouldCompact({historyChars,historyMaxChars,messageCount=0}:{historyChars:number;historyMaxChars:number;messageCount?:number}) {
+  return historyMaxChars>0&&(historyChars>=historyMaxChars*COMPACT_TRIGGER_SHARE||messageCount>=historyEventCap()*COMPACT_TRIGGER_SHARE);
 }
 
-const eventChars=(event:ChannelEvent)=>JSON.stringify({source:event.source,type:event.type,payload:event.payload}).length;
+// Sized as the runner renders a history message: a pretty-printed event record.
+const eventChars=(event:ChannelEvent)=>JSON.stringify({eventId:event.id,channelId:event.channelId,parentEventId:(event as {parentEventId?:unknown}).parentEventId,type:event.type,source:event.source,payload:event.payload??{}},null,2).length;
 
 function lineOf(event:ChannelEvent) {
   const payload=event.payload as {text?:unknown}|null;
@@ -47,11 +52,11 @@ export function planCompaction(events:ChannelEvent[],{historyMaxChars,truncated=
   const ordered=events.filter(isMeaningfulEvent).sort((a,b)=>a.createdAt-b.createdAt);
   let keepStart=ordered.length;
   if(!truncated) {
-    const budget=historyMaxChars*KEEP_SHARE;
+    const budget=historyMaxChars*KEEP_SHARE,maxKept=Math.floor(historyEventCap()*KEEP_SHARE);
     let total=0;
     while(keepStart>0) {
       const chars=eventChars(ordered[keepStart-1]!);
-      if(keepStart<ordered.length&&total+chars>budget)break;
+      if(keepStart<ordered.length&&(total+chars>budget||ordered.length-keepStart>=maxKept))break;
       total+=chars;keepStart--;
     }
     // The engine reloads events strictly after the cutoff time.

@@ -265,6 +265,11 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
         if (required.every(key => process.env[key])) return Object.fromEntries(keys.filter(key => process.env[key]).map(key => [key,process.env[key]]));
         throw Error('Agent provider credentials are unavailable');
       },
+      async subscribed(agentName:string, channelId:string) {
+        const channels = (await read<ActivityChannel[]>('/api/channels?includeArchived=1')) ?? [];
+        const channel = channels.find(item => item.id === channelId);
+        return Boolean(channel && !channel.archivedAt && channel.participants.some(p => p.subscriberType === 'AGENT' && p.subscriberId === agentName));
+      },
       /** The latest boundary, found the same way the engine runner finds it. */
       async boundary(agentName:string, channelId:string) {
         const latest = (await events({channelId,typePrefix:'agent.context.',source:`agent:${agentName}`,order:'desc',limit:'10'}))
@@ -277,13 +282,29 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
         return {eventId:latest.id, cutoffAt, ...(summary ? {summary} : {})};
       },
       /** Chat events after a time, oldest first, without the event types the runner leaves out of history. */
-      async channelEvents(channelId:string, afterExclusive:number|undefined, excludeTypePrefix:string[], limit=5_000) {
-        const page = await events({channelId,order:'asc',limit:String(limit),excludeTypePrefix,...(afterExclusive !== undefined ? {after:String(afterExclusive)} : {})});
-        return {events:page, truncated:page.length >= limit};
+      async channelEvents(channelId:string, afterExclusive:number|undefined, excludeTypePrefix:string[], {pageSize=500,maxPages=10}={}) {
+        const all:CompactionEvent[] = [];
+        let after = afterExclusive;
+        for (let pageNumber = 0; pageNumber < maxPages; pageNumber++) {
+          const page = await events({channelId,order:'asc',limit:String(pageSize),excludeTypePrefix,...(after !== undefined ? {after:String(after)} : {})});
+          for (const event of page) {
+            // Listings cut large payloads; read those events in full.
+            all.push(event.payloadTruncated ? (await read<CompactionEvent>(`/api/events/${encodeURIComponent(event.id)}`)) ?? event : event);
+          }
+          if (page.length < pageSize) return {events:all, truncated:false};
+          // Events sharing the last timestamp may continue on the next page; stop before them.
+          const last = page.at(-1)!.createdAt;
+          if (page[0]!.createdAt === last) return {events:all, truncated:true};
+          while (all.at(-1)?.createdAt === last) all.pop();
+          after = all.at(-1)!.createdAt;
+        }
+        return {events:all, truncated:true};
       },
       async compact(agentName:string, body:{channelId:string;summary:string;cutoffAt:number;cutoffEventId:string;reason:string;idempotencyKey:string}) {
         const response = await request(`/api/agents/${encodeURIComponent(agentName)}/context/compact`,{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(body)});
         if (response.status === 409) return 'stale' as const;
+        // Not subscribed, not allowed or invalid: retrying would only repeat the summary.
+        if ([400,403,404].includes(response.status)) return 'rejected' as const;
         if (!response.ok) throw Error(`Engine rejected the compaction (${response.status})`);
         return 'compacted' as const;
       },
@@ -295,5 +316,5 @@ export type OrgOpsClient = ReturnType<typeof createOrgOpsClient>;
 export type ActivityChannel = {id:string;archivedAt?:number|null;participants:{subscriberType:string;subscriberId:string}[]};
 
 export type ManagedEngineAgent = {agentRole?:'STANDARD'|'SYSTEM';id:string;name:string;mode:string;ownerHumanId:string|null;visibility:string;assignedRunnerId:string|null;workspacePath:string;modelId:string;description:string;systemInstructions:string;allowOutsideWorkspace:boolean;allowOwnerHumanSecrets:boolean};
-export type CompactionEvent = {id:string;type:string;source:string;channelId?:string;createdAt:number;payload:unknown};
+export type CompactionEvent = {id:string;type:string;source:string;channelId?:string;createdAt:number;payload:unknown;payloadTruncated?:boolean};
 export type ContextCompactionEngine = ReturnType<OrgOpsClient['contextCompaction']>;
