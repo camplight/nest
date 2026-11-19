@@ -3787,7 +3787,7 @@ li.canvas-phone-row[data-access] {
   right: 16px;
   bottom: 70px;
   z-index: 3;
-  max-width: 240px;
+  width: 240px;
   box-sizing: border-box;
   border: 1px solid var(--nest-border);
   border-radius: 10px;
@@ -3796,6 +3796,10 @@ li.canvas-phone-row[data-access] {
   box-shadow: var(--canvas-shadow);
   font-size: 12px;
   color: var(--nest-text);
+}
+/* The centred bottom box (up to 600 px) and this 240 px pill share the stage's bottom edge: below 1112 px they would meet, so the legend steps aside. Its 70 px bottom clears the 58 px top of the zoom box. */
+@container (max-width: 1111px) {
+  .canvas-legend { display: none; }
 }
 .canvas-legend ul {
   display: grid;

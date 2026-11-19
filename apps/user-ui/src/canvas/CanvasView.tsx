@@ -20,7 +20,7 @@ import {LooseDrawer,LooseToggle,MAX_BULK} from './LooseDrawer';
 import {CARD_PLACE_HEIGHT,areaAround,clearOfCards,dropLayout,gridPlacement,looseChats,looseNeedsYou,slotInArea,slotOutsideAreas,type Placed} from './loose';
 import {SPLIT_MAX,SPLIT_MIN,clampSplit,readSplit,splitAt,writeSplit} from './split';
 import {cardTitle} from './Card';
-import {AgentTray} from './AgentTray';
+import {AgentTray,trayHeading} from './AgentTray';
 import {busyCounts,effectivePins,togglePin,trayAgents} from './tray';
 import {createPinPresses,createPinSaver} from './pin-saver';
 import {NeedsYou,useReviews} from './NeedsYou';
@@ -1579,7 +1579,7 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
         <AgentTray suggested={tray.suggested} pinned={tray.pinned} pins={shownPins} pinsReady={pins !== null} onTogglePin={toggle}
           agents={roster} humanId={humanId} owners={owners} busy={busy} cards={board.cards} areas={board.areas} open={pickerOpen} onOpenChange={showPicker}/>
         {/* Files dropped on empty canvas start a chat here, beside a split chat or chat windows too; a window takes the drops on itself. */}
-        {phone || (chatShown && chatMode === 'split') ? null : <Legend/>}
+        {phone || (chatShown && chatMode === 'split') ? null : <Legend heading={trayHeading(tray.suggested.length > 0)}/>}
         {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice schedules={flowsOn} onCreated={created} fileDrop
           fileDropAccept={outsideCanvasChat} fileDropOverlay={false} onFilesDropped={dockFiles}/></div> : null}
         {fileDrag ? <p className="canvas-file-hint" role="status">{board.canvas.role === 'view' ? FILE_DRAG_HINT_VIEW : FILE_DRAG_HINT}</p> : null}

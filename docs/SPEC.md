@@ -913,10 +913,10 @@ Phase 1 is built from
    wrap the heading rather than run it under the search; phones keep the phone layout.
 
    A summary line after the canvas name reads `N chats · X moving · Y quiet` (quiet omitted at 0; open chats only,
-   counted like the area summaries) and hides when the bar is under 1200 px. The owner's Share button carries up to
+   counted like the area summaries but including loose cards, so it can exceed the sum of the area summaries) and hides when the bar is under 1200 px. The owner's Share button carries up to
    three initials avatars of the people the canvas is shared with (not the viewer), then `+N`, tooltip `People with
    access`: membership from the members endpoint, not presence. A Legend pill above the zoom buttons explains the
-   working, waiting on you and gone quiet markers and the tray drag hint; it is hidden in split screen and on phones.
+   working, waiting on you and gone quiet markers and the tray drag hint; it names the tray heading that is visible (Suggested for this chat, or Pinned) and is hidden in split screen, on phones and when the stage is under 1112 px wide (where it would meet the bottom box).
 
    Cards. An open card shows its title with the last activity (`5m`), the apps its
    agents used (up to four logos, each titled `<app>: N reads · M changes`, then the

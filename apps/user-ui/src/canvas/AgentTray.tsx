@@ -9,8 +9,10 @@ import {AGENT_DRAG_TYPE} from './Surface';
 import {oneLine} from './pulse';
 import {areaAgentNames,busyLabel,pickerGroups,type PickerFilter} from './tray';
 
-/** The tray's heading while it suggests agents for the open chat; the Legend's hint names it. */
-export const TRAY_HEADING = 'Suggested for this chat';
+/** The tray's heading: suggestions for the open chat when there are any, else the pinned agents. The Legend's hint names the visible one. */
+export const TRAY_SUGGESTED = 'Suggested for this chat';
+export const TRAY_PINNED = 'Pinned';
+export const trayHeading = (hasSuggested: boolean) => hasSuggested ? TRAY_SUGGESTED : TRAY_PINNED;
 const FILTERS: {value: PickerFilter; label: string}[] = [
   {value: 'all', label: 'All'}, {value: 'yours', label: 'Yours'}, {value: 'free', label: 'Free now'}, {value: 'working', label: 'Working'},
 ];
@@ -64,10 +66,10 @@ export function AgentTray({suggested, pinned, pins, pinsReady, onTogglePin, agen
       <div className="canvas-chrome canvas-tray-strip">
         <div className="canvas-tray-scroll">
           {suggested.length ? <>
-            <span className="canvas-tray-sugg">{TRAY_HEADING}</span>
+            <span className="canvas-tray-sugg">{TRAY_SUGGESTED}</span>
             <ul className="canvas-tray-faces" data-group="suggested" aria-label="Suggested for this chat">{suggested.map(face)}</ul>
             <span className="canvas-tray-sep" aria-hidden="true"/>
-          </> : <span className="canvas-tray-label">Pinned</span>}
+          </> : <span className="canvas-tray-label">{TRAY_PINNED}</span>}
           {pinned.length ? <ul className="canvas-tray-faces" data-group="pinned" aria-label="Pinned">{pinned.map(face)}</ul> : null}
         </div>
         <button ref={button} type="button" className="canvas-tray-all" aria-expanded={open} aria-haspopup="dialog"
