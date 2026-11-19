@@ -49,11 +49,13 @@ import {startFork,type ForkResult,type ForkSource} from './fork';
 import {SchedulePopover,type ScheduleDraft,type WebhookDraft} from './SchedulePopover';
 import {ClockIcon,ScheduledList,scheduleStrip} from './ScheduledList';
 import {jobsByChannel,scheduleJobs,scheduledCount,setupChip,type ScheduleJob} from './schedule-jobs';
+import type {WindowCores} from '../chat/window-cores';
 import './canvas.css';
 
 export type CanvasHuman = {id?: string; username: string};
 export type CanvasChatMode = 'focus' | 'split';
 export type CanvasViewProps = {
+  windowCores: WindowCores;
   canvasId: string | null;
   humanId: string;
   username: string;

@@ -1,4 +1,5 @@
 import {rosterChange} from './chat/members';
+import { createWindowCores, type WindowCores } from "./chat/window-cores";
 import {rememberWorkspaceLoginReturn, consumeWorkspaceLoginReturn} from './workspace-login-return';
 import {canonicalWorkspaceEntry, isOnboardingEntry} from './workspace-entry';
 import {AgentNavigation, AgentWorkspaceTabs, canConnectApps, type AgentTab} from './components/AgentNavigation';
@@ -352,6 +353,10 @@ export default function App() {
   const [humans, setHumans] = useState<Array<{ id?: string; username: string }>>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [channelEvents, setChannelEvents] = useState<ChannelEventsCore>(createSessionChannelEvents);
+  // Live cores for passive canvas windows; replaced with channelEvents so one session's cores never serve the next.
+  const [windowCores, setWindowCores] = useState<WindowCores>(() => createWindowCores(createSessionChannelEvents));
+  const windowCoresRef = useRef(windowCores);
+  windowCoresRef.current = windowCores;
   const channelEventsRef = useRef(channelEvents);
   channelEventsRef.current = channelEvents;
   const channelSnapshot = useChannelEvents(channelEvents);
@@ -1044,6 +1049,7 @@ export default function App() {
     if (event.type.startsWith("tool.") && event.createdAt !== undefined) serverClock.noteServerTime(event.createdAt, { fresh: true });
     // Before the duplicate check: a status republish of a turn event still updates the card pulse.
     if (canvasViewRef.current) canvasLiveRef.current?.ingest(event);
+    windowCoresRef.current.ingest(event);
     // Only a first sighting counts for unread and nest-message; a status republish just updates the store.
     const sighting = core.seen(event.id, event.status);
     if (sighting === "duplicate") return;
@@ -1206,6 +1212,7 @@ export default function App() {
           ws.send(JSON.stringify({ type: "subscribe", topic }));
         }
         void refreshChannelEvents();
+        windowCoresRef.current.refreshAll();
         void loadMessageNotifications();
         // Events missed while disconnected: reseed the canvas cards too.
         if (canvasViewRef.current) void canvasLiveRef.current?.refresh();
@@ -1386,6 +1393,9 @@ export default function App() {
     const nextChannelEvents = createSessionChannelEvents();
     channelEventsRef.current = nextChannelEvents;
     setChannelEvents(nextChannelEvents);
+    const nextWindowCores = createWindowCores(createSessionChannelEvents);
+    windowCoresRef.current = nextWindowCores;
+    setWindowCores(nextWindowCores);
     setActiveChannelId(null);
     updateChannelDeepLink(null, true);
     setChannelQuery("");
@@ -2091,7 +2101,7 @@ export default function App() {
         onSelectCanvas={selectCanvas} onMenu={() => setMobileSidebarOpen(true)}
         chat={chatWorkspace} chatChannelId={canvasChat.channelId} chatMode={canvasChat.mode}
         onOpenChat={(channelId, mode) => openCanvasChat(channelId, mode, { replace: channelId === canvasChat.channelId })} onCloseChat={options => openCanvasChat(null, null, options)}
-        onOpenRegular={channelId => selectChannel(channelId)} live={canvasLiveRef.current}
+        onOpenRegular={channelId => selectChannel(channelId)} live={canvasLiveRef.current} windowCores={windowCores}
         onChatFiles={(channelId, files) => setChatFiles(current => ({ channelId, files: current?.channelId === channelId ? [...current.files, ...files] : files }))}
         refreshChannels={async () => {
           // Projects first, so a new project chat shows in Loose chats under its project name.
