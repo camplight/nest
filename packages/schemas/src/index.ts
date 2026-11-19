@@ -10,6 +10,7 @@ export * from './messages';
 
 export * from './agent-requests';
 export * from './agent-management';
+export * from './agent-memory';
 
 export type DashboardActivity={runs:{id:string;agent:string;channelId:string;channelName:string;startedAt:number;state:'working'|'unconfirmed'}[];limited:boolean;checkedAt:number};
 export type OpenRouterModel = {id:string;canonicalSlug?:string;name:string;description:string;context:number|null;inputPrice:number|null;outputPrice:number|null;tools:boolean;vision:boolean;reasoning:boolean};

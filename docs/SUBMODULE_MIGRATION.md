@@ -725,3 +725,17 @@ The helper returns a clear 403 when the role is absent or revoked. This sync
 does not grant roles automatically; an instance owner/admin must grant the
 manager role explicitly if delegated creation should remain enabled. Existing
 request-bound capabilities and project-owner invitation checks remain in force.
+
+### Nest-side chat compaction
+
+"Full history, summarized when long" runs in Nest on the current upstream pin, with
+no engine mode or vendor change. Nest stores `FULL_CHANNEL_EVENTS` in the engine and
+records the choice in its own `product_agent_memory`. Its worker uses the
+`NEST_RUNNER_TOKEN` service credential to read `telemetry.context.window.updated`,
+the latest `agent.context.*` boundary and chat events. It then posts summaries
+through the existing `POST /api/agents/:name/context/compact` (OrgOps #94). Product
+migration `011_context_compaction.sql` adds the setting and job tables, and needs no
+engine migration. Agents that were set to `FULL_CHANNEL_EVENTS_AUTO_COMPACT` on an
+engine carrying the unmerged OrgOps #101 must be switched back to a supported engine
+mode before running upstream main. Saving the option again in Settings after the
+upgrade enables Nest compaction.

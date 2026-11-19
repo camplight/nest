@@ -231,9 +231,69 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
       },
     };
   }
-  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, agentModelEnv, connectionContext, assistantDirectory, agentManagement, connectionActivity, projectNamingEnv, projectNamingContext, baseUrl: base.origin };
+  /** Service access for Nest's chat compaction through the engine's context API. */
+  function contextCompaction(serviceToken: string) {
+    if (!serviceToken) throw Error('Context compaction is not configured');
+    const headers = {'x-orgops-runner-token':serviceToken};
+    async function read<T>(path:string):Promise<T|null> {
+      const response = await request(path,{headers});
+      if (response.status === 404) return null;
+      if (!response.ok) throw Error('Engine context unavailable');
+      return response.json() as Promise<T>;
+    }
+    const events = async (query:Record<string,string|string[]>) => {
+      const params = new URLSearchParams();
+      for (const [key,value] of Object.entries(query)) for (const item of [value].flat()) params.append(key,item);
+      return (await read<CompactionEvent[]>(`/api/events?${params}`)) ?? [];
+    };
+    return {
+      /** Context-window telemetry the runner records each turn, oldest first. */
+      telemetry: (after:number, limit=500) => events({type:'telemetry.context.window.updated',after:String(after),order:'asc',limit:String(limit)}),
+      async latestTelemetryAt() {
+        return (await events({type:'telemetry.context.window.updated',order:'desc',limit:'1'}))[0]?.createdAt ?? 0;
+      },
+      agent: (name:string) => read<{id:string;name:string;mode?:string;modelId:string;memoryContextMode?:string}>(`/api/agents/${encodeURIComponent(name)}`),
+      async modelReference(modelId:string) {
+        const models = nativeModels((await read<{id:string;provider:string;modelName:string;enabled:boolean}[]>('/api/models')) ?? []);
+        return models.find(m => m.id === modelId || m.reference === modelId)?.reference ?? null;
+      },
+      /** The agent's provider keys, or this process's when the agent has none; never other secrets. */
+      async modelEnv(agentName:string, model:string) {
+        const {required,keys} = providerEnvKeys(model);
+        const env = await agentModelEnv(agentName, serviceToken, model).catch(() => ({} as Record<string,string|undefined>));
+        if (required.every(key => env[key])) return Object.fromEntries(keys.filter(key => env[key]).map(key => [key,env[key]]));
+        if (required.every(key => process.env[key])) return Object.fromEntries(keys.filter(key => process.env[key]).map(key => [key,process.env[key]]));
+        throw Error('Agent provider credentials are unavailable');
+      },
+      /** The latest boundary, found the same way the engine runner finds it. */
+      async boundary(agentName:string, channelId:string) {
+        const latest = (await events({channelId,typePrefix:'agent.context.',source:`agent:${agentName}`,order:'desc',limit:'10'}))
+          .filter(event => event.type === 'agent.context.compacted' || event.type === 'agent.context.cleared')
+          .sort((a,b) => b.createdAt - a.createdAt)[0];
+        if (!latest) return null;
+        const payload = (latest.payload ?? {}) as {cutoffAt?:unknown;summary?:unknown};
+        const cutoffAt = latest.type === 'agent.context.compacted' && typeof payload.cutoffAt === 'number' ? Math.floor(payload.cutoffAt) : latest.createdAt;
+        const summary = latest.type === 'agent.context.compacted' && typeof payload.summary === 'string' ? payload.summary.trim() : '';
+        return {eventId:latest.id, cutoffAt, ...(summary ? {summary} : {})};
+      },
+      /** Chat events after a time, oldest first, without the event types the runner leaves out of history. */
+      async channelEvents(channelId:string, afterExclusive:number|undefined, excludeTypePrefix:string[], limit=5_000) {
+        const page = await events({channelId,order:'asc',limit:String(limit),excludeTypePrefix,...(afterExclusive !== undefined ? {after:String(afterExclusive)} : {})});
+        return {events:page, truncated:page.length >= limit};
+      },
+      async compact(agentName:string, body:{channelId:string;summary:string;cutoffAt:number;cutoffEventId:string;reason:string;idempotencyKey:string}) {
+        const response = await request(`/api/agents/${encodeURIComponent(agentName)}/context/compact`,{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(body)});
+        if (response.status === 409) return 'stale' as const;
+        if (!response.ok) throw Error(`Engine rejected the compaction (${response.status})`);
+        return 'compacted' as const;
+      },
+    };
+  }
+  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, agentModelEnv, connectionContext, assistantDirectory, agentManagement, connectionActivity, contextCompaction, projectNamingEnv, projectNamingContext, baseUrl: base.origin };
 }
 export type OrgOpsClient = ReturnType<typeof createOrgOpsClient>;
 export type ActivityChannel = {id:string;archivedAt?:number|null;participants:{subscriberType:string;subscriberId:string}[]};
 
 export type ManagedEngineAgent = {agentRole?:'STANDARD'|'SYSTEM';id:string;name:string;mode:string;ownerHumanId:string|null;visibility:string;assignedRunnerId:string|null;workspacePath:string;modelId:string;description:string;systemInstructions:string;allowOutsideWorkspace:boolean;allowOwnerHumanSecrets:boolean};
+export type CompactionEvent = {id:string;type:string;source:string;channelId?:string;createdAt:number;payload:unknown};
+export type ContextCompactionEngine = ReturnType<OrgOpsClient['contextCompaction']>;

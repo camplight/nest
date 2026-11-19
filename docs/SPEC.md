@@ -638,7 +638,10 @@ include owner, engine channel IDs and the collaboration policy added by migratio
 project foreign key; deliverables and reviews have immutable typed columns,
 foreign keys and uniqueness per task attempt/deliverable. Public types in
 `packages/schemas/src/projects.ts` and the store in `packages/db/src/projects.ts`
-are kept in agreement with this schema. Both databases already participate in
+are kept in agreement with this schema. `011_context_compaction.sql` adds
+`product_agent_memory` (an agent's Nest memory choice) and
+`product_context_compactions` (the chat compaction queue); see
+[Chat compaction for long agent chats](#chat-compaction-for-long-agent-chats). Both databases already participate in
 host-controller deployment snapshots and rollback.
 
 Branding includes displayName (1–60 chars), logoUrl, primaryColor, accentColor,
@@ -1180,6 +1183,51 @@ or automatic agent work is introduced. Engine HTTP remains authoritative, with n
 engine DB reads or source changes. This uses request-time checks across HTTP;
 there is no cross-system atomic permission transaction or invitation rollback.
 
+
+## Chat compaction for long agent chats
+
+The Conversation memory choice "Full history, summarized when long" is a Nest mode,
+`FULL_CHANNEL_EVENTS_AUTO_COMPACT` (`packages/schemas/src/agent-memory.ts`). The
+engine has no such mode. Nest's `PATCH /api/agents/:name` route sends
+`FULL_CHANNEL_EVENTS` to the engine instead. Only after the engine accepts the change
+does Nest record the choice in `product_agent_memory`, keyed by agent name and pinned
+to the agent's engine ID. Choosing any other mode clears it. `GET /api/agents/:name`
+reports the Nest mode while the engine still reads full history and the pinned ID
+matches. Who may change an agent stays the engine's decision.
+
+`createContextCompactionWorker` (apps/api, polled every 15 seconds) uses the
+`NEST_RUNNER_TOKEN` service credential:
+
+- It reads the runner's `telemetry.context.window.updated` events after a cursor
+  stored in `product_settings`. On first start the cursor begins at the newest event.
+- It queues a chat in `product_context_compactions` when the reading meets all of
+  these:
+  - the reading is for an opted-in agent in `FULL_CHANNEL_EVENTS`;
+  - `historyChars` is at least 75% of `historyMaxChars`;
+  - the chat is not already queued or running;
+  - the chat was not compacted in the last 5 minutes;
+  - after five failures, the last attempt was more than an hour ago.
+- To run a job, it reads the following over engine HTTP: the agent, its model
+  reference, and the latest `agent.context.*` boundary (found the way the runner
+  finds it). It also reads the chat events after that boundary, leaving out the types
+  the runner leaves out of history.
+- It keeps the newest messages that fit in half the history budget word for word, and
+  never splits messages that share a timestamp.
+- It sends the older ones, merged with the previous summary, to the agent's own model
+  with the agent's provider keys from `/api/secrets/env`. If the agent has no
+  provider keys, it uses this process's keys when every required key is set. The
+  output is limited to 4,000 tokens and 12,000 characters, with a two-minute timeout.
+- A backlog larger than the history budget is summarized in steps, oldest first.
+- After the summary is written, it checks the boundary again. It then posts
+  `POST /api/agents/:name/context/compact` with the summary, the cutoff event ID and
+  time, and the idempotency key `nest-compact:<agent>:<channel>:<cutoffEventId>`.
+
+The engine records `agent.context.compacted`, and the runner's next turn reads the
+summary plus the messages after the cutoff. SQLite leases, five attempts with backoff
+and a lease check before posting keep several API processes from duplicating work.
+Raw provider or engine errors are never logged. Agents in other modes, wrapped
+agents, and models outside the native catalog are skipped. The engine records
+telemetry only while the agent's audit events are on (the default).
 
 ## Background AI project naming
 

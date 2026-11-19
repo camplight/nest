@@ -66,13 +66,16 @@ no owner-secret delegation. Personal agents start with OrgOps's `FULL_CHANNEL_EV
 memory mode: each turn sees that chat's own messages, so a follow-up such as
 "put that in a table" works from the agent's previous reply. The engine default,
 `PER_CHANNEL_CROSS_CHANNEL`, replaces summarized messages with model-written notes
-and runs four summary jobs on the agent's model after its turns. With an engine that
-supports it, `FULL_CHANNEL_EVENTS_AUTO_COMPACT` works like full history but, once a
-chat no longer fits, summarizes its older part once into a context boundary instead
-of dropping the oldest messages. Owners can switch
+and runs four summary jobs on the agent's model after its turns. "Full history,
+summarized when long" (`FULL_CHANNEL_EVENTS_AUTO_COMPACT`) is a Nest mode. The engine
+reads full history, and once a chat reaches three quarters of the agent's history
+budget, Nest summarizes its older part in the background through the engine's
+context-compaction API instead of letting the oldest messages drop off (see SPEC,
+"Chat compaction for long agent chats"). Owners can switch
 between these modes under Settings → Advanced → Conversation memory (an agent
-already set to `OFF` also shows "No memory"); Nest sends `memoryContextMode`
-through the existing engine agent PATCH. Existing agents keep their mode. The workspace flag controls file-tool paths; it is
+already set to `OFF` also shows "No memory"). Nest sends `memoryContextMode`
+through the existing engine agent PATCH and translates the Nest mode at that
+boundary. Existing agents keep their mode. The workspace flag controls file-tool paths; it is
 not an OS sandbox for shell commands. The shared model key is available to native agents through the engine secret
 context (including their shell environment); this is a trusted-team deployment,
 not per-user provider-key isolation. Users do not enter a model key into onboarding. A valid model record is not proof
