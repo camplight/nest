@@ -62,7 +62,7 @@ export function registerSpeechRoutes(app:Hono, {store,orgops,provider}:{store:Pr
     tickets.delete(token);
     return prepare(c,true,ticket.eventId);
   });
-  async function prepare(c:import('hono').Context<{Variables:{human:Human}}>, play:boolean, eventId=c.req.param('id')) {
+  async function prepare(c:import('hono').Context<{Variables:{human:Human}}>, play:boolean, eventId:string=c.req.param('id') ?? '') {
     const headers=c.req.raw.headers;
     const r=await orgops.humanRequest('/api/events/'+encodeURIComponent(eventId),headers);
     if (r.status===403 || r.status===404) return c.json({error:'Message not found'},404);
