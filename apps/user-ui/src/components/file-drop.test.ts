@@ -1,5 +1,5 @@
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
-import {droppedFiles,insideActiveCanvasChat,outsideCanvasChat} from './file-drop';
+import {droppedFiles,appDropAccept,insideActiveCanvasChat,outsideCanvasChat,outsideFileDropTargets} from './file-drop';
 
 const item=(file:File|null,directory=false)=>({kind:'file',getAsFile:()=>file,webkitGetAsEntry:()=>({isDirectory:directory})});
 const data=(items:unknown[],files:File[]=[])=>({items,files}) as unknown as DataTransfer;
@@ -48,5 +48,20 @@ describe('which drop zone takes a drop',()=>{
   it('gives the bottom box every drop outside chats and drop targets',()=>{
     expect(outsideCanvasChat(inside(['canvas']))).toBe(true);
     expect(outsideCanvasChat(inside(['canvas-card']))).toBe(false);
+  });
+});
+
+describe('appDropAccept',()=>{
+  const target={} as EventTarget;
+  it('takes nothing in floating windows until the active chat is ready, so the window gets the drop',()=>{
+    expect(appDropAccept({canvasChatMode:'focus',phone:false,chatReady:false})(target)).toBe(false);
+  });
+  it('takes the active chat once it is ready, and in split or on a phone regardless',()=>{
+    expect(appDropAccept({canvasChatMode:'focus',phone:false,chatReady:true})).toBe(insideActiveCanvasChat);
+    expect(appDropAccept({canvasChatMode:'split',phone:false,chatReady:false})).toBe(insideActiveCanvasChat);
+    expect(appDropAccept({canvasChatMode:'focus',phone:true,chatReady:false})).toBe(insideActiveCanvasChat);
+  });
+  it('leaves cards and areas to themselves with no chat open',()=>{
+    expect(appDropAccept({canvasChatMode:null,phone:false,chatReady:false})).toBe(outsideFileDropTargets);
   });
 });

@@ -1605,7 +1605,7 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
         onOpenChat={openLoose} highlight={highlight} focusKey={drawerFocus}/> : null}
       {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!}
         win={activeWin} bounds={bounds ?? undefined} zIndex={activeWin ? windowZ(activeWin.channelId) : undefined} onMove={at => moveWin(chatChannelId!, at)}
-        // Once App's chat is ready its own drop zone takes the files (and refuses them while sending or read-only).
+        // Until App's chat is ready its drop zone takes none (appDropAccept), so these handlers do; after, that zone takes them.
         onFiles={windowed && !chatReady ? (files, folders) => { if (folders) say(FOLDER_NOTICE); if (files.length) chatFilesRef.current(chatChannelId!, files, false); } : undefined}
         title={chatTitle} sub={chatSub} area={chatArea} onPlace={placeHere} onUseHere={useHere}
         digest={chatDigest} setup={chatSetup} onConnect={chatConnect} onSchedule={chatSchedule}

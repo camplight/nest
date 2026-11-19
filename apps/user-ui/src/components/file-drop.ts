@@ -12,6 +12,16 @@ export const insideCanvasChat = (target: EventTarget | null) => target instanceo
 export const insideActiveCanvasChat = (target: EventTarget | null) => target instanceof Element && Boolean(target.closest('.canvas-chat:not(.is-passive)'));
 /** The canvas's bottom box: every drop that no card, area, popover or open chat takes ("anywhere else"). */
 export const outsideCanvasChat = (target: EventTarget | null) => outsideFileDropTargets(target) && !insideCanvasChat(target);
+/**
+ * Which drops App's window-wide zone takes. On a canvas with a chat open it takes only the active chat's; in floating
+ * windows (focus mode, not a phone) until that chat is ready it takes none, so the window's own handler gets the drop
+ * and hands the files to the chat once its composer is ready. Elsewhere it leaves cards, areas and the popover alone.
+ */
+export function appDropAccept({canvasChatMode, phone, chatReady}: {canvasChatMode: string | null; phone: boolean; chatReady: boolean}): (target: EventTarget | null) => boolean {
+  if (canvasChatMode === null) return outsideFileDropTargets;
+  if (canvasChatMode === 'focus' && !phone && !chatReady) return () => false;
+  return insideActiveCanvasChat;
+}
 export const FOLDER_NOTICE = 'Folders can’t be attached directly. Drop individual files or a ZIP archive.';
 
 export function dragCarriesFiles(data: DataTransfer | null): boolean {
