@@ -104,7 +104,7 @@ function AgentDetails({ tab,name, userId, onSaved, setup, onChat, onResume }: { 
         <div className="agent-field"><label htmlFor="agent-description">About this agent</label><textarea id="agent-description" rows={3} value={description} disabled={!editable || busy} onChange={e => { setDescription(e.target.value); setSaved(false); }} /><small>A short description shown in your team.</small></div>
         {wrapped ? <p className="dashboard-card agent-runtime-note">This wrapped agent manages its instructions, model and skills in its external runtime. Nest’s description is editable here; execution configuration remains in administration.</p> : <div className="agent-field"><label htmlFor="agent-instructions">Personality and instructions</label><textarea id="agent-instructions" rows={6} value={instructions} disabled={!editable || busy} onChange={e => { setInstructions(e.target.value); setSaved(false); }} /></div>}
         <details className="agent-advanced">
-          <summary>Advanced <span>Model, instructions and runtime</span></summary>
+          <summary>Advanced <span>Model and runtime</span></summary>
           <div className="agent-advanced-content">
         {!wrapped && <ModelPicker agentName={name} value={model} disabled={!editable || busy} onChange={value=>{setModel(value);setSaved(false);}}/>}
 

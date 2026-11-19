@@ -70,7 +70,7 @@ export function registerSpeechRoutes(app:Hono, {store,orgops,provider}:{store:Pr
     usage.count++; recent.set(human,usage); active.add(human);
     try {
       const audio=await provider(text,config,AbortSignal.any([c.req.raw.signal,AbortSignal.timeout(60_000)]));
-      return new Response(audio,{headers:{'Content-Type':'audio/mpeg','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+      return new Response(new Uint8Array(audio).buffer,{headers:{'Content-Type':'audio/mpeg','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
     } catch {return c.json({error:'Could not generate speech. Please try again.'},502);}
     finally {active.delete(human);}
   });
