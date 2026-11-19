@@ -138,6 +138,7 @@ try {
     assert.equal((product.store.db.prepare('SELECT COUNT(*) AS count FROM product_projects').get() as {count:number}).count,1);
     await page.getByRole('heading',{name:'Website launch',exact:true,level:1}).waitFor();
     assert(new URL(page.url()).searchParams.get('project'));
+    console.log('Project created; testing AI brief');
     const projectId=new URL(page.url()).searchParams.get('project')!;
     const namingRun=(async()=>{for(let n=0;n<20;n++)await product.projectNaming.tick();})();
     await namingStarted;assert.notEqual(product.store.projects.project(projectId)?.description,aiBrief,'Chat opens before AI naming completes');releaseNaming();await namingRun;
@@ -146,6 +147,33 @@ try {
     const projectChannel=(await (await product.app.request('/api/channels',{headers})).json()).find((channel:any)=>channel.id===channelId);
     assert(projectChannel.participants.some((member:any)=>member.subscriberType==='HUMAN'&&member.subscriberId==='sarah@example.com'));
     assert(projectChannel.participants.some((member:any)=>member.subscriberType==='AGENT'&&member.subscriberId==='Moss'));
+    // An agent the person can open links straight to its settings.
+    const mossLink=page.locator('.project-assignee').getByRole('link',{name:'Moss',exact:true});
+    await mossLink.waitFor();
+    assert.equal(new URL(await mossLink.getAttribute('href')!,page.url()).searchParams.get('agent'),'Moss');
+    await mossLink.click();
+    await page.waitForURL(url=>url.searchParams.get('view')==='agents'&&url.searchParams.get('agent')==='Moss'&&url.searchParams.get('tab')==='settings');
+    await page.goBack();await page.locator('.project-about').getByText(aiBrief,{exact:true}).waitFor();
+    // The avatar opens the same page; it is one link for keyboards and screen readers, so it is not a second tab stop.
+    await page.locator('.project-assignee',{hasText:'Moss'}).locator('.project-assignee-avatar-link').click();
+    await page.waitForURL(url=>url.searchParams.get('view')==='agents'&&url.searchParams.get('agent')==='Moss'&&url.searchParams.get('tab')==='settings');
+    await page.goBack();await page.locator('.project-about').getByText(aiBrief,{exact:true}).waitFor();
+    assert.equal(await page.locator('.project-assignee',{hasText:'Moss'}).getByRole('link').count(),1,'The avatar adds no second link');
+    assert.equal(await page.locator('.project-assignee').getByRole('link',{name:'owner',exact:true}).count(),0,'People are not links');
+    // The owner removes an agent after confirming; the owner's own row has no remove control.
+    assert.equal(await page.getByRole('button',{name:'Remove owner from this project',exact:true}).count(),0,'The owner cannot remove themselves');
+    await page.getByRole('button',{name:'Remove Moss from this project',exact:true}).click();
+    const confirmRemove=page.getByRole('group',{name:'Remove Moss?',exact:true});
+    await confirmRemove.getByText('Moss loses access to this chat and its files.',{exact:true}).waitFor();
+    await confirmRemove.getByRole('button',{name:'Cancel',exact:true}).click();
+    await page.locator('.project-assignee',{hasText:'Moss'}).getByRole('link',{name:'Moss',exact:true}).waitFor();
+    await page.getByRole('button',{name:'Remove Moss from this project',exact:true}).click();
+    await page.screenshot({path:join(screenshots,'project-member-remove-desktop.png'),fullPage:true});
+    await confirmRemove.getByRole('button',{name:'Remove',exact:true}).click();
+    await page.locator('.project-assignee',{hasText:'Moss'}).waitFor({state:'detached'});
+    const afterRemoval=(await (await product.app.request('/api/channels',{headers})).json()).find((channel:any)=>channel.id===channelId);
+    assert(!afterRemoval.participants.some((member:any)=>member.subscriberType==='AGENT'&&member.subscriberId==='Moss'),'Moss left the project chat');
+    console.log('AI brief visible; testing teammate access');
     // A teammate uses their own engine session to discover and open the project.
     engine.db.prepare('UPDATE humans SET must_change_password=0 WHERE username=?').run('sarah@example.com');
     const teammateLogin=await product.app.request('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'sarah@example.com',password:'test-password'})});
@@ -162,12 +190,37 @@ try {
       await teammatePage.getByRole('textbox',{name:'Message',exact:true}).waitFor();
       assert.equal(await teammatePage.getByRole('navigation',{name:'Project sections'}).getByRole('button',{name:'Members',exact:true}).count(),0);
       await teammatePage.locator('.project-about').getByText('sarah@example.com',{exact:true}).waitFor();
+      assert.equal(await teammatePage.locator('.project-about').getByRole('button',{name:/^Remove /}).count(),0,'Only the owner removes members');
       assert.equal(await teammatePage.getByRole('button',{name:'Sharing',exact:true}).count(),0);
       assert.equal(await teammatePage.getByRole('button',{name:'Edit project details',exact:true}).count(),0);
-    }finally{await teammateContext.close();}
+      console.log('Testing legacy project URL');
+      await teammatePage.goto(`http://127.0.0.1:5298/onboarding?view=projects&project=${projectId}&tab=files`);
+      await teammatePage.getByRole('heading',{name:'Files shared in chat'}).waitFor();
+      assert.equal(new URL(teammatePage.url()).pathname,'/');
+      assert.equal(new URL(teammatePage.url()).searchParams.get('project'),projectId);
+      const projectSections=teammatePage.getByRole('navigation',{name:'Project sections'});
+      assert.equal(await teammatePage.locator('.project-about nav').count(),0);
+      await projectSections.getByRole('button',{name:'Chat',exact:true}).click();
+      await teammatePage.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+      await teammatePage.reload();await teammatePage.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+      console.log('Testing OAuth root restoration');
+      // Simulate the root landing after OAuth with a valid teammate session.
+      // Google itself is not exercised here; verify restoration before loadShell.
+      await teammatePage.evaluate(id=>sessionStorage.setItem('nest-workspace-login-return',JSON.stringify({path:`/?view=projects&project=${id}&tab=files`,expires:Date.now()+60_000})),projectId);
+      await teammatePage.goto('http://127.0.0.1:5298/');
+      console.log('OAuth root navigation returned:',teammatePage.url());
+      await teammatePage.getByRole('heading',{name:'Files shared in chat'}).waitFor();
+      console.log('OAuth destination is visible');
+      assert.equal(new URL(teammatePage.url()).searchParams.get('project'),projectId);
+      assert.equal(await teammatePage.evaluate(()=>sessionStorage.getItem('nest-workspace-login-return')),null);
+
+
+    }catch(error){console.error("Teammate routing regression failed:",error);throw error;}finally{await teammateContext.close();}
     // A visible private agent owned by a teammate can be invited without an onboarding-directory entry.
+    console.log('Testing teammate-owned agent invitation');
     const sarahHeaders={'content-type':'application/json',cookie:teammateLogin.headers.get('set-cookie')!.split(';')[0]};
     const teammateAgent=await product.app.request('/api/agents',{method:'POST',headers:sarahHeaders,body:JSON.stringify({name:'Website Developer',visibility:'PRIVATE',modelId:'test-model',workspacePath:join(dir,'website-developer')})});
+    console.log('Teammate agent creation returned:',teammateAgent.status);
     assert.equal(teammateAgent.status,201);
     const sharedChat=await (await product.app.request('/api/channels',{method:'POST',headers:sarahHeaders,body:JSON.stringify({name:'Existing shared work',visibility:'PRIVATE'})})).json();
     for(const member of [{subscriberType:'HUMAN',subscriberId:'owner'},{subscriberType:'AGENT',subscriberId:'Website Developer'}]){
@@ -175,16 +228,23 @@ try {
     }
     await page.reload();
     const invitationComposer=page.getByRole('textbox',{name:'Message',exact:true});
+    console.log('Filling teammate invitation');
     await invitationComposer.fill('@Website');
+    console.log('Waiting for teammate invitation option');
     const invitedOption=page.getByRole('listbox',{name:'Mention people and agents'}).getByRole('option').filter({hasText:'Website Developer'});
     await invitedOption.waitFor();assert.notEqual(await invitedOption.getAttribute('aria-disabled'),'true');
     if(process.env.CI)console.log('TRUSTED_INVITE_DESKTOP_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
     await page.setViewportSize({width:390,height:844});
     if(process.env.CI)console.log('TRUSTED_INVITE_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
     await invitedOption.click();
-    await page.getByLabel('Message recipients').getByText('Ask @Website Developer').waitFor();
-    const invitedChannels=await (await product.app.request('/api/channels',{headers})).json();
-    assert(invitedChannels.find((c:any)=>c.id===channelId).participants.some((p:any)=>p.subscriberType==='AGENT'&&p.subscriberId==='Website Developer'));
+    // Picking only marks the agent in the draft; it joins when the message is sent.
+    await page.getByLabel('Message recipients').getByText('Ask @Website Developer · joins on send').waitFor();
+    const isParticipant=async()=>(await (await product.app.request('/api/channels',{headers})).json()).find((c:any)=>c.id===channelId).participants.some((p:any)=>p.subscriberType==='AGENT'&&p.subscriberId==='Website Developer');
+    assert.equal(await isParticipant(),false);
+    await invitationComposer.pressSequentially(' please review the launch page.');
+    await page.getByRole('button',{name:'Send',exact:true}).click();
+    await page.getByText(/please review the launch page\./).first().waitFor();
+    assert.equal(await isParticipant(),true);
     const unchangedAgent=await (await product.app.request('/api/agents/Website%20Developer',{headers:sarahHeaders})).json();
     assert.equal(unchangedAgent.visibility,'PRIVATE');assert.notEqual(unchangedAgent.ownerHumanId,fixtureOwner);
     await invitationComposer.fill('');
@@ -252,8 +312,19 @@ try {
     await invitations.waitFor({state:'hidden'});
     await page.locator('.project-about').getByText('Builder',{exact:true}).waitFor();
     assert.equal(new URL(page.url()).searchParams.get('tab'),'chat');
+    assert.equal(await page.getByRole('button',{name:'Sharing and advanced settings',exact:true}).count(),0);
+    assert.equal(await page.locator('.project-about nav').count(),0);
+    const beforeTabs=await sections.boundingBox();
+    const beforeTitle=await page.getByRole('heading',{name:'Website launch',exact:true,level:1}).boundingBox();
+    assert(beforeTitle && beforeTabs && beforeTabs.y>=beforeTitle.y+beforeTitle.height);
+    await page.getByRole('button',{name:'Read full description',exact:true}).click();
+    await page.getByRole('button',{name:'Show less',exact:true}).click();
     await sections.getByRole('button',{name:'Files',exact:true}).click();
     await page.getByRole('heading',{name:'Files shared in chat'}).waitFor();
+    const afterTabs=await sections.boundingBox();
+    assert(beforeTabs&&afterTabs&&Math.abs(beforeTabs.y-afterTabs.y)<2,'Tabs stay in the same project-level position');
+    if(process.env.CI)console.log('PROJECT_LAYOUT_FILES_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
+
     await page.getByRole('link',{name:'brief.txt ↗',exact:true}).waitFor();
     await page.reload();await page.getByRole('heading',{name:'Files shared in chat'}).waitFor();
     assert.equal(new URL(page.url()).searchParams.get('tab'),'files');
@@ -263,12 +334,14 @@ try {
     const sendBounds=await page.getByRole('button',{name:'Send',exact:true}).boundingBox();
     assert(sendBounds && sendBounds.y+sendBounds.height<=1100);
     await page.screenshot({path:join(screenshots,'project-chat.png'),fullPage:true});
+    if(process.env.CI)console.log('PROJECT_LAYOUT_CHAT_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
     await page.setViewportSize({width:390,height:844});
     const mobileSend=await page.getByRole('button',{name:'Send',exact:true}).boundingBox();
     assert(mobileSend && mobileSend.y+mobileSend.height<=844);
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     await page.locator('.project-context-disclosure').evaluate((node:HTMLDetailsElement)=>{node.open=false;});
     await page.screenshot({path:join(screenshots,'project-chat-mobile.png'),fullPage:true});
+    if(process.env.CI)console.log('PROJECT_LAYOUT_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
     await page.setViewportSize({width:1440,height:1100});
     await page.goto(`http://127.0.0.1:5298/?channel=${channelId}`);
     await page.getByRole('navigation',{name:'Project sections'}).waitFor();
@@ -457,5 +530,5 @@ try {
     console.log('PASS: nested project navigation, keyboard disclosure, bounded shortcuts with active project, full directory search, cross-view access, single current page and mobile drawer.');
     console.log('PASS: first-message creation, @ selection, roster retry, persistent drafts, exact creation/send retry and desktop/mobile screens.');
     console.log(`PASS: automatic private chat, invited-user discovery, uploads/files, members, chat-first project tabs, legacy links, standalone chats, task dispatch/revision/approval, persistence, history and mobile. Screenshots: ${screenshots}`);
-  } finally {await browser.close();}
+  } catch (error) { console.error("Project browser regression failed:", error); throw error; } finally {await browser.close();}
 } finally {server.kill('SIGTERM');product.store.close();engine.db.close();rmSync(dir,{recursive:true,force:true});}

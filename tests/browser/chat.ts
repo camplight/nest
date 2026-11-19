@@ -9,6 +9,8 @@ import {createEngine} from './engine';
 import {createOrgOpsClient} from '../../packages/orgops-client/src/index';
 import {createApp} from '../../apps/api/src/app';
 const dir=mkdtempSync(join(tmpdir(),'nest-chat-test-')),screenshots=mkdtempSync(join(tmpdir(),'nest-chat-screenshots-'));
+// The connections skill declares the app-change event; its shapes import zod, so read them from the repo.
+process.env.ORGOPS_SKILL_ROOTS=join(process.cwd(),'skills');
 const engine=createEngine({dbPath:join(dir,'engine.sqlite'),projectRoot:dir,dataDir:dir,adminUser:'demo-owner',adminPass:'password',runnerToken:'test-runner'});
 const product=createApp({orgops:createOrgOpsClient('http://engine',async(url,init)=>engine.app.fetch(new Request(url,init))),dbPath:join(dir,'product.sqlite'),connections:null});
 const req=createRequire(join(process.cwd(),'apps/user-ui/package.json'));
@@ -28,6 +30,8 @@ try{
  const original=await post('/api/events',{type:'message.created',source:'human:demo-owner',channelId:project.channelId,payload:{text:'Prepare a launch draft for review.'}},headers);
  const originalId=(await original.json()).id;assert(originalId);
  await emit('agent.turn.started',{triggerEventId:originalId});await emit('telemetry.context.window.updated',{agentName:'Demo',modelId:'fixture',estimatedUsedTokens:1200,contextWindowTokens:32000,estimatedAvailableTokens:30800,utilizationPct:3.75,messageCount:1,systemChars:0,systemContextChars:0,historyChars:120});await emit('tool.started',{tool:'Search',args:{query:'Demo launch ideas'}});await emit('tool.executed',{tool:'Search',output:'Found three demo references'});await emit('process.output',{stream:'STDERR',text:'Synthetic diagnostic output'});await emit('process.exited',{exitCode:1});
+ const appChange=async(title:string,outcome:string,requestId:string)=>{const response=await post('/api/events',{type:'telemetry.nest.connection.action',source:'system:nest-connections',channelId:project.channelId,status:'DELIVERED',payload:{agentName:'Demo',connectionId:'synthetic-connection',app:'miro',tool:'MIRO_SYNTHETIC',title,change:'create',outcome,requestId}},{'content-type':'application/json','x-nest-runner-token':'test-runner'});assert.equal(response.status,201,await response.text());};
+ await appChange('Create sticky note item','ok','synthetic-1');await appChange('Delete card','unknown','synthetic-2');
  await emit('message.created',{text:'Synthetic retained history. '.repeat(3000)});
  let uploads=0,sends=0,failNext=false,holdNext=false,releaseUpload:(()=>void)|undefined,uploadStarted:(()=>void)|undefined;
  const browser=await chromium.launch();
@@ -69,6 +73,66 @@ try{
   await page.getByRole('heading',{name:'Manage channel',exact:true}).waitFor({state:'hidden'});
   if(process.env.CI)console.log('SHARING_DESKTOP_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
 
+  // Deleting asks inside the dialog, never with a native browser confirm.
+  const nativeDialogs:string[]=[];page.on('dialog',dialog=>{nativeDialogs.push(dialog.message());void dialog.dismiss();});
+  const doomed=await(await post('/api/channels',{name:'Channel to delete',visibility:'PRIVATE'},headers)).json();
+  await page.goto(base+'/?channel='+doomed.id);
+  await page.getByRole('button',{name:'Sharing',exact:true}).click();
+  await page.getByRole('heading',{name:'Manage channel',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Delete channel',exact:true}).click();
+  const confirmDelete=page.getByRole('group',{name:'Confirm channel deletion'});
+  await confirmDelete.getByText('Permanently delete',{exact:false}).first().waitFor();
+  await page.screenshot({path:join(screenshots,'delete-confirm-desktop.png')});
+  await confirmDelete.getByRole('button',{name:'Cancel',exact:true}).click();
+  await confirmDelete.waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'Delete channel',exact:true}).click();
+  await confirmDelete.getByRole('button',{name:'Delete permanently',exact:true}).click();
+  await page.getByRole('heading',{name:'Manage channel',exact:true}).waitFor({state:'hidden'});
+  const afterDelete=await(await product.app.request('/api/channels?includeArchived=1',{headers})).json() as {id:string}[];
+  assert(!afterDelete.some(channel=>channel.id===doomed.id),'the confirmed channel is deleted');
+  assert.deepEqual(nativeDialogs,[],'no native confirm dialog appears');
+  await page.goto(chatUrl);
+  await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+
+  // The sidebar width can be dragged or set with the keyboard, is remembered per browser and resets on double-click.
+  const sidebarWidth=async()=>Math.round((await page.locator('aside.sidebar').boundingBox())!.width);
+  const resizer=page.getByRole('separator',{name:'Resize sidebar'});
+  assert.equal(await sidebarWidth(),248);
+  const handle=(await resizer.boundingBox())!;
+  await page.mouse.move(handle.x+handle.width/2,handle.y+300);await page.mouse.down();
+  await page.mouse.move(handle.x+handle.width/2+80,handle.y+300,{steps:4});await page.mouse.up();
+  assert.equal(await sidebarWidth(),328,'dragging widens the sidebar');
+  await resizer.focus();await page.keyboard.press('ArrowLeft');
+  assert.equal(await sidebarWidth(),312,'arrow keys resize');
+  await page.reload();await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+  assert.equal(await sidebarWidth(),312,'the width survives a reload');
+  await page.screenshot({path:join(screenshots,'sidebar-resized-desktop.png')});
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  // The agent/standalone chat layout uses a different shell grid; it must follow the same width.
+  await page.goto(base+'/?channel='+other.id);
+  await page.getByPlaceholder(/Message to # Other demo chat/).waitFor();
+  assert.equal(await sidebarWidth(),312,'the chat layout uses the chosen width');
+  await resizer.focus();await page.keyboard.press('ArrowRight');
+  assert.equal(await sidebarWidth(),328,'resizing works in the chat layout');
+  await resizer.dblclick();
+  assert.equal(await sidebarWidth(),248,'double-click resets');
+  await page.goto(chatUrl);await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
+  await page.setViewportSize({width:390,height:844});
+  assert.equal(await resizer.isVisible(),false,'phones keep the drawer without a resize handle');
+  await page.setViewportSize({width:1440,height:1000});
+  // A short window makes the thread scroll; the header row gets a divider only while messages pass under it.
+  await page.setViewportSize({width:1440,height:560});
+  const panel=page.locator('.messages-panel');
+  assert(await panel.evaluate(node=>node.scrollHeight>node.clientHeight+10),'the thread scrolls in a short window');
+  await panel.evaluate(node=>{node.scrollTop=node.scrollHeight;});
+  await page.locator('.nest-chat.is-scrolled').waitFor();
+  assert.notEqual(await page.locator('.chat-header-actions').evaluate(node=>getComputedStyle(node).borderBottomColor),'rgba(0, 0, 0, 0)','scrolled messages show where the header row ends');
+  await page.waitForTimeout(200);
+  await page.screenshot({path:join(screenshots,'header-divider-scrolled-desktop.png')});
+  await panel.evaluate(node=>{node.scrollTop=0;});
+  await page.waitForFunction(()=>!document.querySelector('.nest-chat.is-scrolled'));
+  await page.setViewportSize({width:1440,height:1000});
+
   await page.screenshot({path:join(screenshots,'interrupted-before-desktop.png'),fullPage:true});
   await page.screenshot({path:join(screenshots,'retained-message-desktop.png'),fullPage:true});
   await page.setViewportSize({width:390,height:844});
@@ -103,6 +167,54 @@ try{
   // A new turn after the restart stays active until its own terminal event.
   await emit('agent.turn.started',{triggerEventId:'fresh-trigger'});await page.reload();
   await page.locator('.working-row[data-agent=Demo][data-turn-state=working]').waitFor();
+  // Before the first action the ring says nothing has happened yet instead of showing an empty card.
+  await page.locator('.working-row[data-agent=Demo][data-turn-state=working]').hover();
+  await page.locator('.working-ring').getByText('No actions yet. Tools and apps Demo uses will appear here.',{exact:true}).waitFor();
+  assert.equal(await page.locator('.working-ring .working-ring-orbit').count(),1);
+  await page.waitForTimeout(400);await page.screenshot({path:join(screenshots,'working-ring-empty.png'),fullPage:true});
+  await page.mouse.move(5,5);await page.locator('.working-ring').waitFor({state:'hidden'});
+  // Hovering or focusing the working row opens the live ring: action names only, never arguments or output.
+  await emit('tool.started',{tool:'shell_run',args:{cmd:'echo synthetic-secret-arg'}});
+  await emit('tool.executed',{tool:'shell_run',args:{cmd:'echo synthetic-secret-arg'},output:'synthetic-secret-output'});
+  await appChange('Create card','ok','synthetic-ring-1');
+  await appChange('Create card','ok','synthetic-ring-2');
+  await page.reload();
+  const workingRow=page.locator('.working-row[data-agent=Demo][data-turn-state=working]');
+  await workingRow.hover();
+  const ring=page.locator('.working-ring');await ring.waitFor();
+  assert.equal(await ring.locator('.ring-pulse').count(),0,'Actions from before the card opened never pulse');
+  for(const text of ['Shell · ran a command','Miro · Create card','3 actions','Demo is thinking…'])await ring.getByText(text,{exact:true}).waitFor();
+  // Repeats in a row share one line with a count.
+  assert.equal(await ring.locator('.working-ring-feed li',{hasText:'Miro · Create card'}).count(),1);
+  await ring.locator('.working-ring-feed li',{hasText:'Miro · Create card'}).getByText('×2',{exact:true}).waitFor();
+  assert.equal(await ring.locator('.working-ring-station',{hasText:'Shell'}).count(),1);
+  assert.equal(await ring.locator('.working-ring-station',{hasText:'Miro'}).count(),1);
+  const ringText=await ring.innerText();
+  assert(!ringText.includes('synthetic-secret-arg')&&!ringText.includes('synthetic-secret-output'),'The ring never shows arguments or output');
+  await page.waitForTimeout(400);await page.screenshot({path:join(screenshots,'working-ring-desktop.png'),fullPage:true});
+  // On a laptop-height window the card never covers the composer and keeps its place as actions arrive.
+  await page.setViewportSize({width:1440,height:900});await page.mouse.move(5,5);await ring.waitFor({state:'hidden'});
+  await workingRow.scrollIntoViewIfNeeded();await workingRow.hover();await ring.waitFor();await page.waitForTimeout(400);
+  const composerBox=(await page.locator('.nest-chat-composer').boundingBox())!;
+  const ringBefore=(await ring.boundingBox())!;
+  assert(ringBefore.y+ringBefore.height<=composerBox.y,`The ring covers the composer (${ringBefore.y+ringBefore.height} > ${composerBox.y})`);
+  await emit('tool.started',{tool:'fs_read',args:{path:'/synthetic-secret-path'}});await emit('tool.executed',{tool:'fs_read',output:'synthetic-secret-output'});
+  await ring.getByText('4 actions',{exact:true}).waitFor();await page.waitForTimeout(300);
+  const ringAfter=(await ring.boundingBox())!;
+  assert.deepEqual([ringAfter.y,ringAfter.height],[ringBefore.y,ringBefore.height],'The ring keeps its size and place while actions arrive');
+  // A running command names itself in the header with how long it has run.
+  await emit('tool.started',{tool:'shell_run',args:{cmd:'sleep synthetic-secret-arg'}});
+  await ring.getByText(/^Demo is waiting on a command · \d+s$/).waitFor();
+  await emit('tool.executed',{tool:'shell_run',output:'synthetic-secret-output'});
+  await ring.getByText('Demo is thinking…',{exact:true}).waitFor();
+  await page.setViewportSize({width:1440,height:1000});
+  await page.keyboard.press('Escape');await ring.waitFor({state:'hidden'});
+  await page.mouse.move(5,5);
+  await workingRow.focus();await ring.waitFor();
+  await page.evaluate(()=>localStorage.setItem('nest-theme','dark'));await page.reload();
+  await workingRow.hover();await ring.waitFor();await ring.getByText('Shell · ran a command',{exact:true}).first().waitFor();
+  await page.waitForTimeout(400);await page.screenshot({path:join(screenshots,'working-ring-dark.png'),fullPage:true});
+  await page.evaluate(()=>localStorage.removeItem('nest-theme'));await page.mouse.move(5,5);
   await emit('agent.turn.completed',{triggerEventId:'fresh-trigger'});await page.reload();
   await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
   await page.getByText('[Message too large to display. The original content is retained.]',{exact:true}).waitFor();
@@ -170,12 +282,32 @@ try{
   await page.getByRole('button',{name:'Send',exact:true}).click();
   await page.locator('.message-attachments a').filter({hasText:'launch-notes.txt'}).waitFor();
   assert.equal(sends,2);
-  // Tiny event boxes retain the original footprint; names are opt-in.
+  // App changes read as lines under the reply; the raw event boxes wait behind Details.
   await page.goto(chatUrl);
+  const turn=page.locator('.turn-activity').filter({hasText:'Miro · Create sticky note item'});
+  await turn.getByText('Miro · Create sticky note item',{exact:true}).waitFor();
+  await turn.getByText('Miro · Delete card may not have finished. Check Miro before trying again',{exact:true}).waitFor();
+  assert.equal(await turn.locator('.trace-chip').count(),0,'Raw events stay hidden until Details is opened');
+  // Hovering the agent's avatar on a finished reply shows that turn's ring, still.
+  await page.locator('article.message',{has:turn}).locator('.reply-ring-trigger').hover();
+  const finishedRing=page.locator('.working-ring');await finishedRing.waitFor();
+  await finishedRing.getByText(/^Demo (worked for|failed after|stopped after) \d+s$/).waitFor();
+  await finishedRing.locator('.working-ring-feed').getByText('Miro · Create sticky note item',{exact:true}).waitFor();
+  assert.equal(await finishedRing.locator('.ring-pulse').count(),0,'A finished ring never pulses');
+  await page.waitForTimeout(400);await page.screenshot({path:join(screenshots,'reply-ring-desktop.png'),fullPage:true});
+  await page.mouse.move(5,5);await finishedRing.waitFor({state:'hidden'});
+  assert.equal(await page.locator('.message-human .turn-activity').count(),0,"Activity never sits under the person's question");
+  // A turn that never replied stands on its own, so its control names the agent (spec: under the agent's name).
+  await page.locator('.turn-activity-details > summary',{hasText:'Demo · Details'}).first().waitFor();
+  assert.equal(await turn.locator('.turn-activity-details > summary').innerText(),'Details','Inside a reply, the control stays short');
+  await turn.scrollIntoViewIfNeeded();
+  await page.screenshot({path:join(screenshots,'activity-lines-desktop.png'),fullPage:true});
+  await turn.locator('.turn-activity-details > summary').click();
+  // Tiny event boxes retain the original footprint; names are opt-in.
   const activity=page.getByRole('article',{name:'Agent activity'}).filter({has:page.getByRole('button',{name:'Agent process stopped with an error',exact:true})});
   await activity.getByRole('button',{name:'Agent process stopped with an error',exact:true}).waitFor();
   await activity.scrollIntoViewIfNeeded();
-  assert.equal(await activity.locator('.trace-chip').count(),6);
+  assert.equal(await activity.locator('.trace-chip').count(),8);
   assert.equal(await activity.locator('pre').count(),0);
   assert.equal((await activity.innerText()).trim(),'','No always-visible activity prose');
   const failure=activity.getByRole('button',{name:'Agent process stopped with an error',exact:true});
@@ -195,6 +327,11 @@ try{
   await mobileContext.addCookies([{name:'nest_session',value:cookie.slice('nest_session='.length),url:base,httpOnly:true}]);
   await mobileContext.route('**/api/**',relay);await mobileContext.routeWebSocket('**/ws',socket=>socket.close());
   const mobile=await mobileContext.newPage();mobile.on('pageerror',e=>errors.push(e.message));await mobile.goto(chatUrl);
+  const mobileTurn=mobile.locator('.turn-activity').filter({hasText:'Miro · Create sticky note item'});
+  await mobileTurn.getByText('Miro · Delete card may not have finished. Check Miro before trying again',{exact:true}).waitFor();
+  await mobileTurn.scrollIntoViewIfNeeded();
+  await mobile.screenshot({path:join(screenshots,'activity-lines-mobile.png'),fullPage:true});
+  await mobileTurn.locator('.turn-activity-details > summary').tap();
   const mobileActivity=mobile.getByRole('article',{name:'Agent activity'}).filter({has:mobile.getByRole('button',{name:'Agent process stopped with an error',exact:true})}),mobileFailure=mobileActivity.getByRole('button',{name:'Agent process stopped with an error',exact:true});
   await mobileFailure.waitFor();assert.equal(await mobile.getByRole('tooltip').count(),0);
   assert(await mobile.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
@@ -221,6 +358,12 @@ try{
   await page.waitForFunction(()=>{const img=document.querySelector<HTMLImageElement>('.message-agent .agent-portrait img');return !!img&&img.complete&&img.naturalWidth>0;});
   assert.equal(await humanMessage.locator('.message-human-avatar').innerText(),'SA');
   assert.equal(await humanMessage.locator('.message-human-avatar').getAttribute('aria-hidden'),'true');
+  // An agent adding someone to the chat updates People & agents live: the engine posts no join event, so the tool result does.
+  assert.equal((await post('/api/agents',{name:'LateDemo',visibility:'PUBLIC',modelId:'test-model',workspacePath:join(dir,'late-agent')},headers)).status,201);
+  assert.equal((await post(`/api/channels/${preview.channelId}/subscribe`,{subscriberType:'AGENT',subscriberId:'LateDemo'},headers)).status,200);
+  assert.equal(await page.locator('.project-assignee',{hasText:'LateDemo'}).count(),0,'The page has not reloaded the members yet');
+  assert.equal((await post('/api/events',{type:'tool.executed',source:'agent:PuffDemo',channelId:preview.channelId,payload:{tool:'events_channel_participant_add',args:{channelId:preview.channelId,subscriberType:'AGENT',subscriberId:'LateDemo'},output:{ok:true}}},{'content-type':'application/json','x-nest-runner-token':'test-runner'})).status,201);
+  await page.locator('.project-assignee',{hasText:'LateDemo'}).waitFor({state:'attached',timeout:25_000});
   await humanMessage.getByText(humanName,{exact:true}).waitFor();
   await page.screenshot({path:join(screenshots,'avatars-desktop.png'),fullPage:true});
   await page.setViewportSize({width:390,height:844});
@@ -238,6 +381,48 @@ try{
   assert.equal((await post('/api/events',{type:'message.created',source:'agent:PuffDemo',channelId:other.id,payload:{text:'Standalone chat avatar preview'}},{'content-type':'application/json','x-nest-runner-token':'test-runner'})).status,201);
   await page.goto(base+'/?channel='+other.id);await page.locator('.message-agent .agent-portrait img').waitFor();
   assert((await page.locator('.message-agent .agent-portrait img').getAttribute('src'))?.endsWith('/design/avatars/pom.png'));
+  // A turn that fails without replying stands on its own under the agent's name, never inside the question.
+  const question=await post('/api/events',{type:'message.created',source:'human:demo-owner',channelId:project.channelId,payload:{text:'Synthetic question before a failed turn'}},headers);
+  assert.equal(question.status,201);const questionId=((await question.json()) as {id:string}).id;
+  await emit('agent.turn.started',{triggerEventId:questionId});
+  await emit('agent.turn.failed',{triggerEventId:questionId,error:'Error: Invalid image input for this synthetic model. More detail.'});
+  await page.goto(chatUrl);
+  const failedTurn=page.getByText("Demo couldn't finish: this model can't read images.",{exact:true});await failedTurn.waitFor();
+  assert.equal(await page.locator('.message-human .turn-activity').count(),0,"A failed turn never sits inside the person's question");
+  assert.equal(await page.locator('.turn-activity',{has:failedTurn}).locator('.turn-activity-details > summary').innerText(),'Demo · Details');
+  // Three agent messages collapse without changing stored history; links reveal hidden replies.
+  const foldReply=async(text:string,agentName='PuffDemo')=>{
+   const response=await post('/api/events',{type:'message.created',source:'agent:'+agentName,channelId:preview.channelId,payload:{text}},{'content-type':'application/json','x-nest-runner-token':'test-runner'});
+   assert.equal(response.status,201);return (await response.json()).id as string;
+  };
+  assert.equal((await post('/api/agents',{name:'NestSystem',visibility:'PUBLIC',modelId:'test-model',workspacePath:join(dir,'fold-agent')},headers)).status,201);
+  assert.equal((await post('/api/projects/'+preview.id+'/members',{subscriberType:'AGENT',subscriberId:'NestSystem'},headers)).status,200);
+  const hiddenReply=await foldReply('The layout review is ready.','NestSystem');
+  await foldReply('Final recommendation: simplify the homepage and keep the primary action visible.');
+  const foldUrl=base+'/?view=projects&project='+preview.id+'&tab=chat';
+  await page.setViewportSize({width:1440,height:1000});await page.goto(foldUrl);
+  const expand=page.getByRole('button',{name:'Show 2 earlier agent messages',exact:true});
+  await expand.waitFor();assert.equal(await expand.getAttribute('aria-expanded'),'false');
+  assert.equal(await expand.locator('.agent-portrait').count(),2,'Repeated agents appear once in the avatar stack');
+  assert((await expand.locator('.agent-portrait img').first().getAttribute('src'))?.endsWith('/design/avatars/pom.png'),'Fold portraits respect configured avatars');
+  assert.equal(await expand.getAttribute('title'),'Participants: PuffDemo, NestSystem');
+  assert.equal(await page.getByText('The layout review is ready.',{exact:true}).count(),0);
+  await page.getByText('Final recommendation: simplify the homepage and keep the primary action visible.',{exact:true}).waitFor();
+  if(process.env.CI)console.log('AGENT_FOLD_DESKTOP_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
+  await expand.focus();await page.keyboard.press('Enter');
+  await page.getByText('The layout review is ready.',{exact:true}).waitFor();
+  const collapse=page.getByRole('button',{name:'Hide 2 earlier agent messages',exact:true});
+  assert.equal(await collapse.getAttribute('aria-expanded'),'true');await collapse.click();
+  await expand.waitFor();
+  await page.setViewportSize({width:390,height:844});
+  if(await page.locator('.project-context-disclosure').getAttribute('open')!==null)await page.locator('.project-context-disclosure > summary').click();
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  if(process.env.CI)console.log('AGENT_FOLD_MOBILE_JPEG:'+(await page.screenshot({type:'jpeg',quality:65})).toString('base64'));
+  await page.goto(foldUrl+'&message='+hiddenReply);
+  await page.locator(`[data-message-id="${hiddenReply}"].message-highlight`).waitFor();
+  await page.getByText('The layout review is ready.',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Hide 2 earlier agent messages',exact:true}).click();
+  await expand.waitFor();
   await page.goto(chatUrl);
   // Archive guard: no upload request is made and a reason is visible.
   assert.equal((await post('/api/channels/'+project.channelId+'/archive',{},headers)).status,200);
@@ -260,5 +445,5 @@ try{
   assert.equal(uploads,beforeOffScreen,'Other product screens do not intercept file drops');
   assert.deepEqual(errors,[]);
   console.log(`PASS: whole-screen drops, picker, limits, upload failure, draft reload, late-result isolation, file-only project creation, real file bytes, compact activity, configured agent/human chat avatars, long sender names, missing-image fallback and responsive layouts. Uploads: ${uploads}. Screenshots: ${screenshots}`);
- }finally{releaseUpload?.();await browser.close();}
+ }catch(error){console.error('CHAT_BROWSER_FAILURE',error);throw error;}finally{releaseUpload?.();await browser.close();}
 }finally{server.kill('SIGTERM');engine.db.close();product.store.db.close();rmSync(dir,{recursive:true,force:true});}

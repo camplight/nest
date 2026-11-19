@@ -1,3 +1,4 @@
+import {ProjectBrief} from './ProjectBrief';
 import {useState,type FormEvent} from 'react';
 import type {Project} from '@nest/schemas';
 import {apiJson,getApiHeaders} from './api';
@@ -14,7 +15,7 @@ export function ProjectSettings({project,onSaved}:{project:Project;onSaved:(proj
     catch(reason){const text=reason instanceof Error?reason.message:'Could not save your project.';try{setError(JSON.parse(text).error??text);}catch{setError(text);}}
     finally{setBusy(false);}
   }
-  if(!editing)return <><p className="project-prose">{project.description||'Describe the goal as you chat. You can add a brief here anytime.'}</p><button type="button" className="project-inline-action" onClick={open}>Edit project details</button></>;
+  if(!editing)return <><ProjectBrief text={project.description||'Describe the goal as you chat. You can add a brief here anytime.'}/><button type="button" className="project-inline-action" onClick={open}>Edit project details</button></>;
   return <form className="project-form project-inline-details" aria-label="Edit project details" onSubmit={save}>
     {error&&<p role="alert">{error}</p>}
     <fieldset disabled={busy}><label>Name<input aria-label="Project name" autoFocus required maxLength={120} value={name} onChange={event=>setName(event.target.value)}/></label><label>Brief<textarea aria-label="Project description" maxLength={4000} rows={6} value={description} onChange={event=>setDescription(event.target.value)}/></label></fieldset>

@@ -3,14 +3,17 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The reviewed engine pin is upstream main `7406b6a`, including OrgOps #76
+The reviewed engine pin is upstream main `e64fc064`, including OrgOps #76
 voice/realtime support, #79 restart metadata, #80 byte-budget compatibility,
 the merged security fixes and #82 realtime maintenance environment handling.
 It also includes #83 runner socket wakeups with HTTP catch-up, #84 private invite
 ownership, #85 price upserts, #86 non-conversational format diagnostics and optional
 chat staging, #89 bounded late-event continuation/SYNC injection suppression,
 and #88 upstream trace pagination (Nest retains its own chat interface).
-The previously deployed pin is `eb2e19d` from OrgOps #78; merging the dependency
+It also includes explicit human/agent roles and ownership/path hardening (#74),
+durable Slack intake (#90), reasoning styles and channel billing (#91/#92),
+and a bounded visible summary for human turns ending with tool-only output (#93).
+The previously deployed pin is `7406b6a`; merging the dependency
 update alone does not install it on existing hosts.
 Personal onboarding binds the workspace returned by OrgOps instead of requiring
 the requested path. A reservation marker reconciles member-agent creation after
@@ -295,6 +298,10 @@ Explicit Dashboard navigation writes `?view=dashboard`, so reload and refresh
 preserve home even when agent onboarding is unfinished. A first visit to `/`
 can still offer personal-agent setup.
 
+On desktop the left sidebar can be resized between 200 and 440px by dragging its right
+edge or with the arrow keys on the focused handle; double-click or Enter restores 248px. The
+width is a per-browser preference in `localStorage`; phones keep the navigation drawer.
+
 Dashboard, Projects, Agents, Community and standalone chats share `WorkspaceTopbar`: each view's
 search plus the original Figma theme/bell/settings/account icons. Browser theme
 preferences synchronize between mounted controls and across tabs using storage
@@ -407,6 +414,22 @@ permission-filtered `GET /api/agents` roster refreshes every ten seconds while t
 tab is visible and on window focus, without reloading chat. A failed lookup marks
 status unknown while retaining directory details; the next successful lookup
 recovers it. No global agent-status topic, new endpoint or engine change is needed.
+In a project's People & agents list, an agent that appears in the viewer's agent
+roster is a link to its settings (`?view=agents&agent=<name>&tab=settings`);
+its avatar opens the same page for the mouse (hidden from keyboards and screen
+readers, so the name stays the one link). Other agents and people stay plain text.
+The project owner can remove any person or agent except themselves: a remove
+control at the end of the row asks for confirmation inside the row ("<name> loses
+access to this chat and its files."), then calls `DELETE
+/api/projects/:projectId/members` with the member. The route checks ownership,
+unsubscribes through the engine, rereads the roster before reporting a result,
+records `audit.project.member.removed`, and succeeds without change for someone
+already gone. Other viewers see no remove control.
+The engine posts no event when someone joins or leaves a chat, so the user UI
+reloads member lists (`GET /api/channels`) when a live or polled event shows a
+change (`rosterChange` in `chat/members.ts`): a successful
+`events_channel_participant_add`/`_remove` tool result, or a message from an agent
+or person the chat does not list yet (once per sender per chat).
 
 `tab=tasks&task=<id>` restores a task; older task URLs without `tab` still work.
 Tabs, reload and browser history preserve project context. Existing `?channel=`
@@ -628,7 +651,10 @@ with the ordered names of the agents that person pinned to their canvas tray (no
 until they first save pins); the store is `packages/db/src/agent-pins.ts`.
 Migrations `014_links_forks.sql`, `015_schedules.sql` and `016_triggers.sql` add the
 canvas flows: links, deliveries, forks, leases, schedules, runs and webhook triggers
-(see [Switchyard canvas (Phase 3)](#switchyard-canvas-phase-3), item 1). Both databases already participate in
+(see [Switchyard canvas (Phase 3)](#switchyard-canvas-phase-3), item 1). Migration
+`017_context_compaction.sql` adds `product_agent_memory` (an agent's Nest memory
+choice) and `product_context_compactions` (the chat compaction queue); see
+[Chat compaction for long agent chats](#chat-compaction-for-long-agent-chats). Both databases already participate in
 host-controller deployment snapshots and rollback.
 
 Branding includes displayName (1–60 chars), logoUrl, primaryColor, accentColor,
@@ -669,6 +695,8 @@ exercises the project/revision/approval flow in a browser against isolated real
 product/engine HTTP handlers. It simulates runner-authored responses without a
 model invocation. `apps/api/src/projects.test.ts` additionally covers authorization,
 immutable reviews, malformed input, idempotency and restart recovery.
+
+Composer draft and mention-picker updates are isolated from the app shell and message history; typing must not rerender the thread per character. The composer session remains mounted across project tab changes so pending sends, uploads and invitations survive. A synthetic long-thread browser regression checks committed thread renders while typing.
 
 `npm run test:ui:chat-next` runs every browser suite under `tests/browser/chat-next/` (thread, realtime, working row, actions, quote reply, attachments, composer, slash commands and the absence of the old chat) against real engine and product handlers with synthetic data. The earlier browser suites still run against the chat as it renders by default: `test:ui:chat` (`chat.ts`, `codex-progress.mjs`, `claude-code-progress.mjs` and `demo-artifacts.mjs`), `test:ui:projects`, `test:ui:dashboard`, `test:ui:images`, `test:ui:onboarding` (with `test:ui:tour`), `test:ui:agents` (with `connection-projects.mjs`), `tests/browser/targeted-mentions.ts` and `tests/browser/mentions.mjs`. On macOS three upstream tests fail in `npm run test:engine` independently of Nest (the agent runner's two `file-upload` tests and the skills merge test "merges skills from multiple roots with first-name-wins"), and `npm test`'s `deploy/demos/publish.check.mjs` node test fails there too; these four known failures are compared by test ID rather than treated as regressions.
 
@@ -2284,6 +2312,21 @@ existing private secret API supplies the token to its agent. Provider credential
 stay in Nest; engine processes have Composio configuration removed at launch.
 OAuth return fields are not trusted; status comes from the provider adapter.
 
+`GET /api/integrations/toolkits` without a search or cursor lists only the apps
+with an administrator auth configuration (`NEST_COMPOSIO_AUTH_CONFIGS`), sorted by
+name, so people can pick one without searching. A search covers the provider's
+whole catalog, and apps without a configuration come back with
+`connectable: false`. Linking such an app answers 409. When the provider rejects
+Nest's service key (401/403), the routes answer 503 asking for an administrator;
+other provider failures answer 502. Both are logged with the provider status and
+error slug only, never its message or the request.
+
+`GET /api/integrations/connections` leaves out accounts the person disconnected in
+Nest (the provider can keep listing them, for example an unfinished sign-in) and,
+for an app with an active account on the page, that app's unfinished or failed
+tries. The agent's app list shows a connected app as "Connected" instead of
+offering it again, as project suggestions already do.
+
 `GET /api/integrations/agents/:name/skill` reports the existing token status plus
 `grantedToolCount` (saved permissions for this agent on locally nonrevoked accounts
 of the current provider) and `preloadConfigured` (the enabled connection skill is
@@ -2294,6 +2337,29 @@ sets through the existing engine PATCH API. No prompt rewriting or workspace
 permission change is performed. Owners renew legacy credentials to opt into this
 preload; no existing agent/token is silently upgraded. Settings refresh status
 after saving tool grants or refreshing/disconnecting accounts.
+
+The skill's `GET /api/integrations/skill/tools` lists each granted connection with
+its `app`, its granted `tools` and, under `arguments`, each tool's argument names
+(`*` marks a required one) so an agent can usually call an action without a
+schema request. Nest reads them from the same provider catalog pages a full grant
+verifies, stops once every granted tool is found and caches them per app for ten
+minutes. Ungranted tools are never listed. If the catalog is unavailable the list
+still answers, with empty `arguments`.
+
+The `nest-connections` helper (version 1.2.0) adds `execute ... --out FILE`, which
+saves a result to a file and prints a short summary, and `--all --out FILE`, which
+first reads the tool's schema and pages only tools that accept a cursor argument
+(`cursor`, `start_cursor`, `page_token`, `pageToken` or `after`). Unless the caller
+set one, it asks for the largest page size the tool accepts (`limit`, `page_size`,
+`per_page`, `max_results` and similar): the schema maximum, a maximum named in the
+argument's description, or 50, capped at 200, and falls back to the tool's default
+when the first page with that size fails. A failed page is requested once more
+before paging stops. It follows the
+provider's next cursor (at most 50 pages, stopping on a repeated cursor), saves the
+merged `items` and reports `complete: false` with what it saved when a later page
+fails. Output files cannot be written into the skill directory. These keep large
+provider lists out of the model context and cut the steps a personal agent (12
+model steps per attempt) spends on plumbing.
 
 Human settings require current private-agent ownership. Skill execution validates
 that ownership, exact grants and provider account status. Without a core turn
@@ -2309,17 +2375,43 @@ engine metadata token and trusted shared runtime are prerequisites, not inferred
 security guarantees. See [PERSONAL_AGENTS.md](PERSONAL_AGENTS.md) for installation,
 configuration, expiry/renewal, limitations and live release checks.
 
+Account changes appear in the chat. Agent shells receive `ORGOPS_CHANNEL_ID`
+from engines that provide it (not yet upstream OrgOps main), and the
+`nest-connections` helper forwards it on execute as `x-nest-channel-id`. Without
+it Nest has no chat to post into, so it records no line and the working ring
+shows no app stations; the agent's result is unchanged. Nest classifies the executed tool from its provider tags
+(`readOnlyHint` → read, else `destructiveHint` → delete, `updateHint` → update,
+`createHint` → create, none → other) and posts a DELIVERED
+`telemetry.nest.connection.action` event (source `system:nest-connections`,
+declared by the skill's `event-shapes.ts`) into that chat before answering the
+helper. Its payload holds the agent, connection, app, tool slug and friendly
+title, change and outcome (`ok`; `failed` for provider refusals: a 4xx other
+than 408, or `successful: false`; `unknown` for a provider 5xx, 408 or a lost
+response, since the change may have run) and the audit
+request ID; never arguments or results. Only create, update and delete become
+lines under replies; reads and `other` feed the working ring and Details. Nest first checks with the engine
+service token that the chat exists, is not archived and lists the agent;
+otherwise it records `audit.connection.tool.line_rejected`. Recording is best
+effort with a 2-second bound and never changes the tool response. The
+`telemetry.` prefix keeps these lines out of agents' conversation history.
+
 Connected-app permissions default to a compact Give all access action, with
 locally served brand logos for the initial supported apps and a generic app icon
 for unknown providers. Choose specific actions expands the advanced search,
 Selected view and compact permission rows. Full provider descriptions and exact
 references remain under About this action; action titles are presentation only.
-The collapsed default does not fetch the catalog.
+The collapsed default does not fetch the catalog; an account with saved actions
+loads one unsearched page to read the provider's action count (Composio
+`total_items`, returned as `total` by the catalog route).
 
 Give all access loads every provider page and saves the exact current catalog
 through the existing grant endpoint in one explicit click. It ignores advanced
 search filters, reports success only after saving and does not grant future tools
-automatically. Advanced choices require Save access, and bulk Select all results
+automatically. Once an account has saved actions it also offers Remove access,
+which saves an empty grant for that account. Give all access stays until the
+saved actions reach the provider's count; if the count is unavailable, both stay.
+On first load the buttons wait for that count (Checking access…), falling back to
+both after a failure or six seconds; later saves recount without hiding them. Advanced choices require Save access, and bulk Select all results
 keeps existing selections across search and pagination. Page failures or sets
 exceeding the 2,000-action request bound never partially select or grant tools.
 UI and API share a 2,000-action bound per account. Grant PUT requests accept up to
@@ -2340,7 +2432,12 @@ Nest exposes authenticated `GET /api/agent-models`, a sanitized enabled native
 model catalog from OrgOps plus the resolved instance default. No engine database
 or provider credentials are read. `NEST_DEFAULT_AGENT_MODEL_ID` (legacy fallback:
 `NEST_PERSONAL_AGENT_MODEL_ID`) resolves a registry ID to the runner's provider:model
-reference. Nest supplies it on native `POST /api/agents` only if modelId is absent
+reference. Native providers are `openrouter`/`or`, `openai`, `anthropic` and
+`openai-compatible` (for example Fireworks, model name
+`accounts/fireworks/models/glm-5p3`, reference
+`openai-compatible:accounts/fireworks/models/glm-5p3`); the engine reads
+`OPENAI_COMPATIBLE_API_KEY` and `OPENAI_COMPATIBLE_BASE_URL` for the latter.
+Model names may contain `/` but not `:`. Nest supplies it on native `POST /api/agents` only if modelId is absent
 or empty. Explicit references and WRAPPED creation retain engine semantics.
 Missing/disabled defaults return 503, rather than creating a broken native agent.
 
@@ -2383,16 +2480,24 @@ in-app mention notifications. Unselected @ text retains ordinary channel deliver
 and may still be interpreted by an agent's coordination instructions.
 
 The picker keeps human and agent identities distinct, supports names with spaces
-and email handles. Eligible nonmembers offer Add to chat and mention when the
-human can manage invitations (the owner for product projects). Selection explicitly
-shares chat history/files, calls the existing project-members or engine-subscribe
-HTTP API, and confirms membership before inserting routing metadata. An uncertain
-response is reconciled by reading the current roster. Failure preserves the draft;
-changing chats during the request never inserts into another conversation.
+and email handles. Eligible nonmembers offer "Joins when you send" when the
+human can manage invitations (the owner for product projects). Selecting one only
+marks them in the draft (the recipient chip reads "Ask @name · joins on send");
+nobody joins until the message is sent, so editing or deleting the draft adds no
+one. On send the composer adds each marked nonmember still in the draft
+(`joiningOnSend`) through the existing project-members or engine-subscribe HTTP
+API and confirms membership before posting the message. An uncertain response is
+reconciled by reading the current roster. If anyone cannot be added, nothing is
+sent and the draft is kept ("Couldn’t add <name>. Your message wasn’t sent. Try
+again."). Changing chats during the send never clears another conversation's draft.
 Nonmanagers see an explanation. Another owner's private agent is never invited
 through this picker; published personal assistants keep their owner-approval path.
 Editing a selected name removes its routing metadata. Surrounding edits preserve
 it. The composer shows Ask/Notify recipients and permits multiple-agent sends.
+In the thread, a sent message shows its mentions as tinted chips in the accent
+colour (`.chat-mention`): the names stored in the message's `mentions` plus the
+agents it targeted, matched as whole `@name` words (`chat/mentions-highlight.ts`).
+Other @ text, inline code, code blocks and links are left as written.
 Server validation checks span/text agreement, recipient membership, agent
 visibility, human identity and current channel posting rights. It derives source
 from the human session. Sending itself never subscribes a recipient or expands
@@ -2497,7 +2602,7 @@ JSONL, reasoning, tool arguments/results and stderr are never forwarded as progr
 runner credential, channel and parent event. Stable per-item identities reconcile
 lost responses; bounded best-effort delivery cannot prevent a final reply.
 
-The chat keeps its compact activity icons and shows only the latest progress text
+The chat keeps its compact activity (raw events under Details) and shows only the latest progress text
 for each active turn, including across intervening human messages. Completion or
 failure clears that text; earlier updates remain available in activity details.
 These bookkeeping events cannot wake other agents or create message notifications.
@@ -2557,6 +2662,61 @@ engine DB reads or source changes. This uses request-time checks across HTTP;
 there is no cross-system atomic permission transaction or invitation rollback.
 
 
+## Chat compaction for long agent chats
+
+The Conversation memory choice "Full history, summarized when long" is a Nest mode,
+`FULL_CHANNEL_EVENTS_AUTO_COMPACT` (`packages/schemas/src/agent-memory.ts`). The
+engine has no such mode. Nest's `PATCH /api/agents/:name` route sends
+`FULL_CHANNEL_EVENTS` to the engine instead. Only after the engine accepts the change
+does Nest record the choice in `product_agent_memory`, keyed by agent name and pinned
+to the agent's engine ID. Choosing any other mode clears it. `GET /api/agents` and
+`GET /api/agents/:name` report the Nest mode to people while the engine still reads
+full history and the pinned ID matches. Runner-credentialed reads always get the
+engine's own mode. The admin UI offers the mode too, so saving other fields there
+keeps it. Who may change an agent stays the engine's decision.
+
+`createContextCompactionWorker` (apps/api, polled every 15 seconds) uses the
+`NEST_RUNNER_TOKEN` service credential:
+
+- It reads the runner's `telemetry.context.window.updated` events after a cursor
+  stored in `product_settings`. On first start the cursor begins at the newest event.
+- It queues a chat in `product_context_compactions` when the reading meets all of
+  these:
+  - the reading's source is `system:runner:context`. Readings that people post get a
+    `human:` source from the engine and are ignored;
+  - the reading is for an opted-in agent in `FULL_CHANNEL_EVENTS`;
+  - `historyChars` is at least 75% of `historyMaxChars` (taken as at least 8,000), or
+    `messageCount` is at least 75% of the runner's message limit
+    (`ORGOPS_HISTORY_MAX_EVENTS`, default 120);
+  - the chat is not already queued or running;
+  - the chat was not compacted in the last 5 minutes;
+  - after five failures, the last attempt was more than an hour ago.
+- To run a job, it reads the following over engine HTTP: the agent, its model
+  reference, and the latest `agent.context.*` boundary (found the way the runner
+  finds it). It skips the job, with no model call, unless the agent is subscribed to
+  the chat. It also reads the chat events after that boundary in pages of 500,
+  leaving out the types the runner leaves out of history. It re-reads any event whose
+  listed payload was truncated.
+- It keeps the newest messages word for word, up to half the history budget and half
+  the message limit. They are measured as the runner renders them, as pretty-printed
+  event records. Messages that share a timestamp are never split.
+- It sends the older ones, merged with the previous summary, to the agent's own model
+  with the agent's provider keys from `/api/secrets/env`. If the agent has no
+  provider keys, it uses this process's keys when every required key is set. The
+  output is limited to 4,000 tokens and 12,000 characters, with a two-minute timeout.
+- A backlog larger than the history budget is summarized in steps, oldest first.
+- After the summary is written, it checks the boundary again. It then posts
+  `POST /api/agents/:name/context/compact` with the summary, the cutoff event ID and
+  time, and the idempotency key `nest-compact:<agent>:<channel>:<cutoffEventId>`.
+
+The engine records `agent.context.compacted`, and the runner's next turn reads the
+summary plus the messages after the cutoff. SQLite leases, five attempts with backoff
+and a lease check before posting keep several API processes from duplicating work.
+When the engine rejects a post (400, 403 or 404), the job is not retried.
+Raw provider or engine errors are never logged. Agents in other modes, wrapped
+agents, and models outside the native catalog are skipped. The engine records
+telemetry only while the agent's audit events are on (the default).
+
 ## Background AI project naming
 
 `POST /api/projects/:projectId/suggest-details` accepts a confirmed product message
@@ -2570,7 +2730,9 @@ tools, a 20-second timeout and bounded output. Generated metadata is schema-chec
 Provider credentials stay server-side. The selected provider's API environment key
 is reused when present. Otherwise the OrgOps client resolves the configured system
 agent's provider environment through `/api/secrets/env`, without a channel/team
-context, and returns only the required provider key/options. The source agent must
+context, and returns only the required provider key/options (both
+`OPENAI_COMPATIBLE_API_KEY` and `OPENAI_COMPATIBLE_BASE_URL` for
+`openai-compatible`; the process-env shortcut needs every required key). The source agent must
 have owner-human secret delegation explicitly disabled and match the manager's
 pinned ID when using its default source. It does not resolve a user's personal
 agent/accounts, read the engine database, or return secrets/model diagnostics.
@@ -2633,16 +2795,36 @@ must be removed before sending, with the draft preserved. Archived, read-only an
 sending states block new attachments. Folder drops explain how to use a ZIP or
 individual files; ordinary text/link drags retain browser behaviour.
 
-Activity keeps the original tiny 22px event boxes, replacing letter abbreviations
-with SVG icons. Green and red distinguish successful and failed events; hover or
-keyboard focus shows a short event label and timestamp. Clicking/tapping a box
-opens a compact label card with an optional Details toggle for the recorded
-event payload; clicking/tapping the box again closes the card. Mobile needs no
-hover. No summary prose or step list is shown by default. Diagnostic output and missing process exit codes
-do not imply failure. Event colours describe individual events, never project
-acceptance. No execution, retry or engine event semantics change.
+Each agent turn's activity (from `agent.turn.started` to `agent.turn.completed`
+or `agent.turn.failed`, keyed by agent) sits under that turn's reply, never under
+the person's question. A wrapped agent reports each turn twice, as `agent.turn.*`
+from the engine and `wrapper.turn.*` from its wrapper, with the same
+`triggerEventId`; both make one turn, which ends when both have ended. A turn with
+no reply stands on its own, labelled with the agent's name, unless it did nothing:
+every message wakes each agent in the chat, so a reply-less turn made only of its
+start and end, context telemetry and a clean wrapper exit is not shown. A tool
+call, app action, failure, non-zero exit or Stop keeps it. Events outside any turn (a background process, a compaction) join
+the agent's most recent earlier reply in that chat, or stand alone when there is
+none. By default the group shows only:
 
-Live progress text no longer appears inside the activity group: it moves to the working row of the active turn (see "Chat on assistant-ui"). Uploads go through `XMLHttpRequest` to the same authenticated file API, so each pending file shows a real progress bar, and image files show a thumbnail before sending. The activity chips themselves are unchanged.
+- one line per `telemetry.nest.connection.action` (see "Personal-agent onboarding"): "Miro ·
+  Create sticky note item"; a failed change adds "failed" in the danger tone; an
+  `unknown` outcome reads "… may not have finished. Check Miro before trying
+  again" in a muted tone, so nobody repeats a change that went through;
+- a failed turn as one plain sentence ("NikiPA couldn't finish: …"), mapped from
+  known engine errors with the error's first sentence as the fallback;
+- a small "Details" control. Opening it renders the original tiny 22px event boxes
+  (SVG icons, green/red per event, hover/focus label and timestamp, click for a
+  label card with an optional payload toggle). They are rendered only while open.
+
+Chat history loads `telemetry.nest.connection.action` as its own per-type query
+beside messages, turns, tools, context telemetry, wrapped turns and processes;
+live events of that type join the same groups. Diagnostic output and missing
+process exit codes do not imply failure. Event colours describe individual
+events, never project acceptance. No execution, retry or engine event semantics
+change.
+
+Live progress text no longer appears inside the activity group: it moves to the working row of the active turn (see "Chat on assistant-ui"). Uploads go through `XMLHttpRequest` to the same authenticated file API, so each pending file shows a real progress bar, and image files show a thumbnail before sending.
 
 ## Project connection approval
 
@@ -2710,11 +2892,11 @@ Project and standalone chats render their message list with assistant-ui. The ol
 
 2. History. The first page issues 7 engine event queries (`chat/history.ts`, `CHAT_EVENT_QUERIES`: messages, failed turns, turn events, tool events, context telemetry, wrapper turns and process events), plus scheduled-run triggers with the canvas flag on (Switchyard canvas, Phase 3, item 11), each with its own cursor, so a busy query family never hides another. Later pages issue up to 7 (8 with the flag on): `requestedQueries` skips every query family whose cursor is exhausted. Scrolling near the top loads the previous page. A deep link to a message outside the loaded pages fetches that event alone through `GET /api/events/:id` and shows it as detached; detached events never move the paging cursors, and an "Earlier messages not loaded" marker separates them from the loaded history. A deep-linked message is scrolled into view, focused and highlighted by the thread itself.
 
-3. Working row. While an agent's turn is active, a working row with the agent's avatar, name and an animated indicator follows the message that triggered it (or the last item when that message is not loaded). It is a `role="status"` element. It starts with `agent.turn.started` or `wrapper.turn.started`, shows the latest codex or wrapped progress text from `agent.turn.phase` events (only that whitelisted text, never tool arguments or output), and ends when the turn completes or fails, when a newer turn of the same agent supersedes it, or when the agent was stopped after the turn began. There is no time limit. Agents created through `POST /api/agents` without a `desiredState` default to RUNNING (only the agent-copy route and `POST /api/federation/agents/transfer`, the remote leg of a copy, default to STOPPED), and the engine bumps `updatedAt` on every agent update, not only on stop. Stopping an agent sets `desiredState` to STOPPED and `updatedAt` to the time of the stop in milliseconds, so the row ends when `desiredState` is STOPPED and `updatedAt` is later than the turn's first event. `desiredState` alone is not used, because an agent may already be STOPPED before the turn began, and `runtimeState` is not used, because agents without a live runner report STOPPED while their events still arrive. `WorkingRow` renders `AgentAvatar` inside a plain sized `div`, not the `.agent-portrait` wrapper message headers use. The participants panel line is unchanged.
+3. Working row. While an agent's turn is active, a working row with the agent's avatar, name and an animated indicator follows the message that triggered it (or the last item when that message is not loaded). It is a `role="status"` element. It starts with `agent.turn.started` or `wrapper.turn.started`, shows the latest codex or wrapped progress text from `agent.turn.phase` events (only that whitelisted text, never tool arguments or output), and ends when the turn completes or fails, when a newer turn of the same agent supersedes it, or when the agent was stopped after the turn began. While native (`agent.turn.started`) turns run in the open chat and the viewer can post, the composer's Send button becomes Stop when nothing is typed, and a compact Stop sits beside Send otherwise. Stop posts the engine's `POST /api/agents/:name/turns/cancel` with the channel for each working agent. The row shows "Stopping…" once `agent.turn.cancel_requested` for that turn arrives, and the activity trail labels a completion with `cancelled: true` "Stopped". Wrapped turns have no Stop. Stop needs an engine with turn cancellation: Nest reads the engine's `GET /api/event-types` once per session and offers Stop only when it declares `agent.turn.cancel_requested`. Upstream OrgOps main does not declare it yet, so there is no Stop until that change lands. There is no time limit. Agents created through `POST /api/agents` without a `desiredState` default to RUNNING (only the agent-copy route and `POST /api/federation/agents/transfer`, the remote leg of a copy, default to STOPPED), and the engine bumps `updatedAt` on every agent update, not only on stop. Stopping an agent sets `desiredState` to STOPPED and `updatedAt` to the time of the stop in milliseconds, so the row ends when `desiredState` is STOPPED and `updatedAt` is later than the turn's first event. `desiredState` alone is not used, because an agent may already be STOPPED before the turn began, and `runtimeState` is not used, because agents without a live runner report STOPPED while their events still arrive. `WorkingRow` renders `AgentAvatar` inside a plain sized `div`, not the `.agent-portrait` wrapper message headers use. The participants panel line is unchanged. Hovering or keyboard-focusing a live working row (not an interrupted or unavailable one) opens the working ring, a radix hover card in the chat portal: the agent's avatar with a station per kind of action used this turn (Shell, Files, Memory, Messages, Agents, Other, and one per connected app with its logo, reads included), a count per station, a red station for failures, a breathing ring while no tool is running, a pulse for each action that arrives while the card is open, the elapsed time and action count, a header line naming the current state ("is thinking…" while no tool runs, "is waiting on a command · 40s" while a shell tool runs, "is using Fathom" once that command calls a connected app, otherwise "is working"), and the last five actions by name, where identical actions in a row share one line with a count such as "×30" (`ringState` and `ringStatusText` in `chat/ring.ts`). Before the first action the card shows a dashed orbit and "No actions yet. Tools and apps <agent> uses will appear here." Hovering the agent's avatar on a finished reply that carries Details opens the same card for that turn as a still picture (`ReplyRing`, `finishedTurn`): "<agent> worked for 4m 12s" (or "stopped after" / "failed after"), the action count, stations and last five actions, with no timer, ages, pulses or breathing; a reply whose turn used no tools or apps has no card The avatar is not a tab stop; keyboard users use Details. Tool arguments, outputs, paths and provider results never appear. Reduced motion removes pulses and breathing. Touch devices get nothing new yet.
 
 4. Message actions. Each message (never an activity group or a working row) has Copy message (the raw text), Copy link (the existing `?message=` deep link) and Quote. Desktop shows the bar on hover and keyboard focus; touch toggles it with a tap. Selecting text inside one message body offers "Quote selection". Activity groups and the working row carry `data-aui-quote-selectable="false"`; `selectionQuote` (`chat/quote.ts`) rejects a selection that spans two messages or whose anchor or focus end lies in such an element, checking only those two ends. That rule is covered by the unit tests of `selectionQuote`; the browser case for activity cards passes on structure alone, because activity wrappers sit outside `[data-message-id]`.
 
-5. Quote reply. Quoting inserts a Markdown blockquote of the author and text (cut to 2000 characters) into the composer and sets the reply target, shown above the composer as "Replying to" the author with a way to clear it. Sending passes `replyTo`. A message with `payload.inReplyTo` shows "Replying to <author>" above its body only when the target resolves (from the loaded events, else `GET /api/events/:id`) to a `message.created` in the same channel; any other result shows nothing. Clicking it runs the normal deep link.
+5. Quote reply. Quoting inserts a Markdown blockquote of the author and text (cut to 2000 characters) into the composer and sets the reply target, shown above the composer as "Replying to" the author with a way to clear it. Sending passes `replyTo`. A message with `payload.inReplyTo` shows "Replying to <author>" above its body only when the target resolves (from the loaded events, else `GET /api/events/:id`) to a `message.created` in the same channel; any other result shows nothing. Clicking it runs the normal deep link. An agent reply also links to the message that started its turn (the event's `parentEventId`) when another message came between them, so answers that arrive after a newer question say which question they answer; a reply directly after its question shows no link. The link reads "Replying to <author>: <excerpt>" (up to 160 characters of the target, on one line).
 
 6. Export. An Export button above the thread downloads the loaded conversation as Markdown: a title, then each message with author, a sortable timestamp, its text and links to its attachments. An activity group becomes one count line ("Agent activity: N events"); event payloads, tool details and progress text are never exported.
 
@@ -2908,17 +3090,49 @@ The shortlist uses popularity, not benchmark scores. Model descriptions are
 collapsed behind About; the UI omits the ranking explanation. Catalog data is
 cached 15 minutes, with explicitly stale fallback for at most 24 hours.
 
-`POST /api/agents/:name/model-check` accepts `{model: "provider/model"}`. A live
+`POST /api/agents/:name/model-check` accepts `{model: "provider/model"}`, or an
+`openai-compatible:<model>` reference. A live
 human must be allowed to edit that agent (public agent or private owner). The
 adapter resolves that agent's provider env using the configured engine token,
-returns only OpenRouter keys server-side, and uses the same OrgOps LLM library
+returns only the tested provider's keys server-side (OpenRouter keys, or the
+OpenAI-compatible key and base URL), and uses the same OrgOps LLM library
 for a bounded synthetic tool check. No chat, instructions or real tools are sent.
 Checks have a 20s deadline, 256-token output limit, one step and 30s per-human
 cooldown per API process. Provider errors and credentials are not returned.
+A missing key names that provider's secrets (an OpenAI-compatible agent is not
+told to add an OpenRouter key). A passing OpenAI-compatible check returns only a
+provider label derived from the base URL host (`Fireworks` or
+`OpenAI-compatible`), never the URL. The summary shows such a model as
+`glm-5p3 · Fireworks`; intelligence scores still need an OpenRouter key.
 Passing selects the model in the form; the existing engine-authorized settings
 PATCH saves it. Tests never mutate the model or enable a global registry entry.
 Wrapped agents retain external model management. Colon variants are rejected
 because the pinned LLM parser does not preserve those suffixes.
+
+`GET /api/agents/:name/model-providers` uses the same human and ownership checks,
+then answers `{providers:[{id,label}]}` with only the providers whose required keys
+are all configured for that agent: `openrouter` (`OpenRouter`) and
+`openai-compatible` (labelled `Fireworks` or `OpenAI-compatible` from the base URL
+host). Keys and the base URL never leave the server. The picker offers only these
+providers, with an OpenRouter/Fireworks switch when both are configured. Under an
+OpenAI-compatible provider it shows no OpenRouter catalog, scores or links. It
+shows four suggested model cards (the saved model, then the newest models), then
+"Browse all N models" with search and an image-input filter, and the "Exact
+Fireworks model ID" field (sent as `openai-compatible:<model>`). When the list is
+unknown the saved model's provider is used; an empty list says no provider key is
+configured.
+
+`GET /api/agents/:name/compatible-models` (same checks) reads the agent's
+provider list from `<OPENAI_COMPATIBLE_BASE_URL>/models` with its own key and
+returns `{provider,models,fetchedAt,stale}`. Models are tool-capable chat models
+only (embeddings and `supports_tools: false` are dropped), with tools, image input
+and context as the provider reports them (`null` when it does not), models newest
+first and routes (Fireworks `routers/…`) last. For Fireworks, display names and
+descriptions come from its serverless model API, and a route takes its model's name
+plus its variant (`GLM-5.3 (fast)`). Without those names, the ID reads as words.
+Prices are not shown; the provider does not report them. Lists are cached 15
+minutes per hashed key and base URL, with a stale fallback for 24 hours. Neither
+the key nor the base URL is returned.
 
 ## Agent conversation navigation
 
@@ -2929,12 +3143,17 @@ chat. New chat uses a named private channel and existing membership APIs, allowi
 separate conversations without changing direct-chat deduplication. Existing
 channel links remain valid. The agent workspace separates Chat, Settings and
 Connected apps; model selection and instructions live inside Advanced settings.
+Connected apps appears only to the owner of a private, Nest-run (not wrapped)
+agent, the only person who can connect apps for it; for anyone else the tab is
+hidden and an old `tab=connections` link opens Settings (`canConnectApps`).
 No ownership or tool-grant rules change.
 
 ## Model value picker and GLM default
 
 Agent names are plain text in user settings. The redundant configured-model
-dropdown is removed; the OpenRouter picker is the single native-model control.
+dropdown is removed; the model picker is the single native-model control. It
+shows the OpenRouter catalog for OpenRouter and an exact-ID field for an
+OpenAI-compatible provider such as Fireworks.
 Connect still runs a synthetic tool call before Save settings applies a choice.
 
 `GET /api/agents/:name/model-benchmarks` is human-authenticated and checks agent
@@ -2965,3 +3184,32 @@ and https://openrouter.ai/z-ai/glm-5.3 .
 ### Trusted invitations for visible agents
 
 Project owners may invite agents already visible through their human-scoped engine session, including private agents owned by teammates outside the onboarding directory. The mention picker applies the same rule. Project/channel management checks remain required; agent ownership, private history, credentials and settings are unchanged. The engine rechecks access when subscribing.
+
+### Folded agent conversations
+
+The fold control shows overlapping portraits and names of distinct participating agents, using their configured avatars. At most three portraits are shown, with a +N count for additional agents.
+
+Runs of three or more consecutive agent messages show only the latest reply by default, with a keyboard-accessible control to reveal earlier messages. Human/system messages, day changes and detached-history boundaries split runs. Activity does not count toward the threshold and follows its message. Message links automatically reveal their target; active work remains visible. Folding is local presentation state, resets on channel changes, and does not alter stored events, exports or membership rules.
+
+### Project entry and navigation
+
+Explicit workspace views on legacy `/onboarding` URLs take precedence over setup and normalize to `/`, preserving project, tab and message parameters. Bare onboarding URLs and setup OAuth returns retain their existing behavior. Chat/Files navigation belongs beneath the project title, outside the details sidebar. The sidebar no longer duplicates Sharing, and long descriptions can be expanded without moving project navigation. Project membership and permission rules are unchanged.
+
+Google login preserves workspace destinations in tab-local session storage for up to ten minutes. After authentication (and any required password change), a root callback restores the original project/channel, section and focused message. Explicit new destinations take precedence; only local workspace paths are accepted. Password login retains its current URL. Membership checks still apply after restoration.
+
+Delegated agent creation identifies the configured manager to OrgOps and requires
+an operator-granted SYSTEM agent role. Missing/revoked authority returns 403;
+Nest does not automatically promote an agent during upstream synchronization.
+
+## Native deployment disk safety
+
+Nest's native controller bounds artifact downloads and checks non-root disk
+headroom before download. The installer checks expanded release and paired DB/WAL
+snapshot/migration capacity before extraction and immediately before downtime.
+Successful activation retains the active, three newest and recent snapshot-linked
+release directories; it never prunes runtime data or database backups. The
+watchdog is restored on installer exit even if coherent rollback fails its health
+check. Incomplete DB/configuration recovery blocks automatic restarts with a
+persistent operator-recovery marker. See `deploy/native/README.md` for the exact
+budgets and restoration procedure. This is Nest deployment infrastructure only;
+OrgOps remains untouched.

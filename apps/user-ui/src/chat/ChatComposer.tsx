@@ -1,6 +1,9 @@
 // The Nest composer (spec 6.8 to 6.12, 7.4), moved out of App.tsx unchanged in behaviour: drafts, the idempotent
 // send path, uploads and the mention picker. Both chats render it; App.tsx drives it through ChatComposerHandle.
 import {
+  createContext,
+  useContext,
+  type ReactNode,
   forwardRef,
   type ChangeEvent,
   type ClipboardEvent,
@@ -16,7 +19,7 @@ import {useAttachments,restoreAttachments,type UploadedAttachment} from '../atta
 import {ChatAttachments} from '../components/ChatAttachments';
 import {useMentionPicker} from "../components/useMentionPicker";
 import {loadChatDraft,saveChatDraft,clearSentDraft,type ChatDraft} from '../drafts';
-import {reconcileMentions,type MentionCandidate} from "../mentions";
+import {joiningOnSend,reconcileMentions,type MentionCandidate} from "../mentions";
 import {CornerUpLeftIcon,XIcon} from 'lucide-react';
 import {apiFetch,getApiHeaders} from "../api";
 import type {Channel} from "../types";
@@ -52,7 +55,7 @@ function stripQuote(text:string,author:string):string{
 }
 export type ComposerSession=ReturnType<typeof useComposerSession>;
 export type ChatComposerProps={
-  session:ComposerSession;conversationName:string;isConversationEmpty:boolean;
+  conversationName:string;isConversationEmpty:boolean;
   // inProject, openInvite and openFiles reach the picker's slash commands through session.bindCommands. mentionCandidates,
   // canInvite, onInvite and onAskAssistant drive the picker through the session (ComposerSessionOptions); the form does not read them.
   inProject:boolean;mentionCandidates:MentionCandidate[];canInvite:boolean;
@@ -60,6 +63,8 @@ export type ChatComposerProps={
   openInvite():void;openFiles():void;
   /** Voice notes (Phase 2, canvas flag). Off: no mic and no voice status. */
   voice?:boolean;
+  // While agents are working in this chat: Stop takes Send's place, or sits beside it once something is typed.
+  stop?:{agents:string[];stopping:boolean;onStop():void};
 };
 
 /**
@@ -134,7 +139,7 @@ export function useComposerSession(options:ComposerSessionOptions){
   async function send() {
     setAutoSend(null);
     if (!activeChannelId || activeChannel?.archivedAt || !activeChannelCanPost) return;
-    if (uploadingAttachmentCount > 0 || hasAttachmentErrors || mentions.inviting || sending) return;
+    if (uploadingAttachmentCount > 0 || hasAttachmentErrors || sending) return;
     const trimmedText = draft.trim();
     if (!trimmedText && readyAttachments.length === 0) return;
 
@@ -153,6 +158,11 @@ export function useComposerSession(options:ComposerSessionOptions){
       // The request armed when this send began: one armed while it was under way waits for the next message.
       const asked=changeRequestRef.current;
       if(userId)setDraftStored(saveChatDraft(userId,activeChannelId,saved));
+      // People picked from outside the chat join now, just before the message; if one can't be added, nothing is sent.
+      for(const candidate of joiningOnSend(draftState.mentions,options.mentionCandidates)){
+        try{await options.onInvite(candidate);}
+        catch{options.onError(`Couldn’t add ${candidate.name}. Your message wasn’t sent. Try again.`);return;}
+      }
       await apiFetch('/api/messages',{method:'POST',headers:getApiHeaders(),body:JSON.stringify({id:request.id,...message})});
       if(userId)clearSentDraft(userId,activeChannelId,saved);
       if(activeChannelIdRef.current!==activeChannelId)return;
@@ -187,7 +197,7 @@ export function useComposerSession(options:ComposerSessionOptions){
   useEffect(()=>{
     if(!autoSend||autoSend!==activeChannelId||sending)return;
     if(hasAttachmentErrors){setAutoSend(null);return;}
-    if(uploadingAttachmentCount===0&&readyAttachments.length>0&&!mentions.inviting)void send();
+    if(uploadingAttachmentCount===0&&readyAttachments.length>0)void send();
   },[autoSend,sending,hasAttachmentErrors,uploadingAttachmentCount,readyAttachments.length]);
 
   // Appended after a blank line when the draft has text (the demo panel's "Request changes").
@@ -216,8 +226,24 @@ export function useComposerSession(options:ComposerSessionOptions){
   };
 }
 
+const ComposerSessionContext=createContext<ComposerSession|null>(null);
+
+/** Keep the session alive across project tabs without making App own every keystroke.
+ * Children come from App: draft updates only notify the composer consumer, leaving
+ * the shell, thread runtime and message Markdown outside the update path.
+ */
+export function ComposerSessionProvider({options,children}:{options:ComposerSessionOptions;children:ReactNode}){
+  const session=useComposerSession(options);
+  return <ComposerSessionContext.Provider value={session}>{children}</ComposerSessionContext.Provider>;
+}
+
+/** The provider's session, for helpers that live beside the composer (null outside a provider). */
+export function useComposerSessionContext(){return useContext(ComposerSessionContext);}
+
 export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(function ChatComposer(props,ref){
-  const {session,conversationName:activeConversationName,isConversationEmpty}=props;
+  const session=useContext(ComposerSessionContext);
+  if(!session)throw new Error('ChatComposer requires ComposerSessionProvider');
+  const {conversationName:activeConversationName,isConversationEmpty}=props;
   const {channel:activeChannel,channelId:activeChannelId,canPost:activeChannelCanPost,composerTextareaRef,draft,draftState,draftStored,setDraft,sending,
     pendingAttachments,setPendingAttachments,attachmentError,uploadingAttachmentCount,readyAttachments,hasAttachmentErrors,uploadFiles,mentions}=session;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -244,7 +270,9 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
   useEffect(()=>{voice.cancel();},[activeChannelId]);
 
   useLayoutEffect(()=>{session.bindCommands({inProject:props.inProject,openInvite:props.openInvite,openFiles:props.openFiles});});
+  const showSend=!props.stop||Boolean(draft.trim())||pendingAttachments.length>0||sending;
   const draftRecipients=[...new Map(draftState.mentions.map(m=>[m.kind+':'+m.name,m])).values()];
+  const joining=new Set(joiningOnSend(draftState.mentions,props.mentionCandidates).map(candidate=>(candidate.kind==='Agent'?'AGENT':'HUMAN')+':'+candidate.name));
 
   function handlePickFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
@@ -361,7 +389,7 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
             rows={1}
           />
           </div>
-          {draftRecipients.length>0&&<div className="mention-delivery" aria-label="Message recipients">{draftRecipients.map(m=><span key={m.kind+':'+m.name}>{m.kind==='AGENT'?'Ask':'Notify'} @{m.name}<button type="button" aria-label={'Remove mention @'+m.name} onClick={()=>{const spans=draftState.mentions.filter(x=>x.kind===m.kind&&x.name===m.name).sort((a,b)=>b.start-a.start);let next=draft;for(const span of spans)next=next.slice(0,span.start)+next.slice(span.end);setDraft(next);}}>×</button></span>)}</div>}
+          {draftRecipients.length>0&&<div className="mention-delivery" aria-label="Message recipients">{draftRecipients.map(m=><span key={m.kind+':'+m.name}>{m.kind==='AGENT'?'Ask':'Notify'} @{m.name}{joining.has(m.kind+':'+m.name)?' · joins on send':''}<button type="button" aria-label={'Remove mention @'+m.name} onClick={()=>{const spans=draftState.mentions.filter(x=>x.kind===m.kind&&x.name===m.name).sort((a,b)=>b.start-a.start);let next=draft;for(const span of spans)next=next.slice(0,span.start)+next.slice(span.end);setDraft(next);}}>×</button></span>)}</div>}
           <p className="mention-delivery-hint"><span>{draftRecipients.some(m=>m.kind==='AGENT')?'The selected agents receive this request.':'Select an @mention to direct a request or notify a person.'}</span>{draft.trim()&&<span className="draft-storage-status" role="status">{draftStored?'Draft saved on this device':'Draft storage is unavailable. Keep this tab open until you send.'}</span>}</p>
           <div className="composer-actions">
             <button
@@ -374,13 +402,25 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
               Attach files
             </button>
             {props.voice&&<VoiceButton voice={voice} variant="composer" disabled={!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending}/>}
-            <button
+            <span className="composer-submit">
+            {props.stop&&<button
+              type="button"
+              className={`composer-stop${showSend?' composer-stop-compact':''}`}
+              disabled={props.stop.stopping}
+              aria-label={props.stop.stopping?'Stopping':`Stop ${props.stop.agents.join(', ')}`}
+              title={props.stop.stopping?'Stopping…':`Stop ${props.stop.agents.join(', ')}`}
+              onClick={props.stop.onStop}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2.5" fill="currentColor"/></svg>
+              {!showSend&&(props.stop.stopping?'Stopping…':'Stop')}
+            </button>}
+            {showSend&&<button
               className="composer-send"
               disabled={
                 !activeChannel ||
                 Boolean(activeChannel.archivedAt) ||
                 !activeChannelCanPost ||
-                sending || Boolean(mentions.inviting) || hasAttachmentErrors ||
+                sending || hasAttachmentErrors ||
                 uploadingAttachmentCount > 0 ||
                 (!draft.trim() && readyAttachments.length === 0)
               }
@@ -391,7 +431,8 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
                   ? "Sending..."
                   : "Send"}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>
-            </button>
+            </button>}
+            </span>
           </div>
           {hasAttachmentErrors ? (
             <p className="composer-attachment-error">

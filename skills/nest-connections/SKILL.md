@@ -3,11 +3,28 @@ name: nest-connections
 description: Discover and execute tools from accounts the owner connected and explicitly granted to this agent in Nest. Use for tasks involving those connected apps; linking accounts and changing grants require the owner's Nest settings.
 ---
 
-Resolve `scripts/connections.mjs` relative to this skill directory, not the agent workspace.
-Use `node scripts/connections.mjs list` to see granted connection IDs and tools.
-Inspect inputs with `node scripts/connections.mjs schema CONNECTION_ID TOOL`.
-Execute with `node scripts/connections.mjs execute CONNECTION_ID TOOL < arguments.json`.
-The JSON on stdin must be the tool arguments object; keep credentials out of arguments.
+Run the helper by its full path from your workspace, for example
+`node SKILL_DIR/scripts/connections.mjs list`, where SKILL_DIR is this skill's
+directory. Do not `cd` into the skill directory; saved files belong in your workspace.
+
+- `list` shows each granted connection, its app, its actions and their argument
+  names (`*` marks a required one). That is usually enough to call an action.
+- `schema CONNECTION_ID TOOL` gives argument types and descriptions. Use it only
+  when the names in `list` are not clear enough.
+- `execute CONNECTION_ID TOOL < arguments.json` runs an action. The JSON on stdin
+  is the tool arguments object; keep credentials out of arguments.
+- Add `--out FILE` to save a large result to a file instead of printing it.
+- Add `--all --out FILE` to read every page of a list action (boards, items,
+  messages, files). The helper asks for the largest page size the action allows,
+  follows the provider's cursor, retries a failed page once, saves the merged
+  `items` to FILE and prints only a summary. Leave out `limit`/page-size
+  arguments so it can choose. It refuses actions without a cursor. Run it
+  directly with `shell_run`; do not write your own pager.
+
+Work in few steps. Write and run a script in one `shell_run`, for example
+`cat > report.mjs <<'EOF' ... EOF` followed by `&& node report.mjs`. Read saved
+files with a script that prints only what you need, not the whole file. Once you
+have enough to answer, answer; do not fetch the same data again.
 
 The helper reads `NEST_CONNECTION_TOKEN` from the agent's private engine secret
 and `NEST_CONNECTIONS_URL` (or `NEST_API_URL`) from instance configuration. Never

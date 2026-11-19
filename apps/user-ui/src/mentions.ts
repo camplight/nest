@@ -57,3 +57,13 @@ export function reconcileMentions(before:string,after:string,mentions:import('@n
   return next&&after.slice(next.start,next.end)==='@'+next.name?[next]:[];
  });
 }
+
+/** The picked people and agents who are not in the chat yet, once each, in draft order: the composer adds them on send. */
+export function joiningOnSend(mentions:readonly import('@nest/schemas').SelectedMention[],candidates:readonly MentionCandidate[]):MentionCandidate[]{
+  const joining=new Map<string,MentionCandidate>();
+  for(const mention of mentions){
+    const candidate=candidates.find(item=>item.name===mention.name&&(item.kind==='Agent')===(mention.kind==='AGENT'));
+    if(candidate&&!candidate.inConversation&&!candidate.inviteBlockedReason)joining.set(mention.kind+':'+mention.name,candidate);
+  }
+  return [...joining.values()];
+}

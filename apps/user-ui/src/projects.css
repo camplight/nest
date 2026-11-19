@@ -147,6 +147,8 @@
 .project-context-team-heading h3 { margin:0; }
 .project-context-team-heading>span { font-size:12px; color:var(--nest-muted); }
 .project-assignee>span:last-child { min-width:0; overflow-wrap:anywhere; font-size:13px; }
+.project-assignee-link { color:inherit; text-decoration:none; }
+.project-assignee-link:hover,.project-assignee-link:focus-visible { text-decoration:underline; text-underline-offset:2px; }
 .project-assignee small { display:block; color:var(--nest-muted); font-size:11px; margin-top:3px; }
 .project-invite { width:100%; justify-content:center; margin:20px 0 12px; }
 .project-inline-details { padding:14px 0 0; }
@@ -196,22 +198,47 @@
 .projects-page .dashboard-search:focus-within { border-color: color-mix(in srgb, var(--nest-text) 28%, var(--nest-border)); }
 
 /* Chat / Files switch at the top of the project panel. */
-.project-about .project-sections { display:grid; grid-template-columns:1fr 1fr; gap:4px; margin:12px 12px 0; padding:4px; border-radius:10px; background:var(--nest-muted-surface); }
-.project-about .project-sections button { min-height:34px; padding:6px 10px; border:0; border-radius:7px; background:transparent; color:var(--nest-muted); font:inherit; font-size:14px; font-weight:500; cursor:pointer; }
-.project-about .project-sections button[aria-current="page"] { background:var(--nest-surface); color:var(--nest-text); font-weight:600; box-shadow:0 1px 2px color-mix(in srgb,var(--nest-text) 10%,transparent); }
-.project-about .project-sections button:focus-visible { outline:2px solid var(--nest-lime); outline-offset:2px; }
-/* The chat page: no title or tab row, so the content starts right under the topbar. */
+.project-sections { display:grid; grid-template-columns:1fr 1fr; gap:4px; margin:12px 12px 0; padding:4px; border-radius:10px; background:var(--nest-muted-surface); }
+.project-sections button { min-height:34px; padding:6px 10px; border:0; border-radius:7px; background:transparent; color:var(--nest-muted); font:inherit; font-size:14px; font-weight:500; cursor:pointer; }
+.project-sections button[aria-current="page"] { background:var(--nest-surface); color:var(--nest-text); font-weight:600; box-shadow:0 1px 2px color-mix(in srgb,var(--nest-text) 10%,transparent); }
+.project-sections button:focus-visible { outline:2px solid var(--nest-lime); outline-offset:2px; }
+/* Project-wide navigation stays below the title on both Chat and Files. */
 .project-chat-page .dashboard-content { gap:12px; padding-top:12px; }
 @media(max-width:760px) {
-  /* One compact row on phones: Project details on the left, the Chat/Files switch on the right; the opened details
-     overlay the page below the row, as on the chat page at tablet width. */
+  /* Project details overlay the page below their compact disclosure on phones. */
   .projects-page .project-about { position:relative; display:flex; align-items:center; gap:8px; padding:4px 4px 4px 0; overflow:visible; max-height:none; z-index:5; }
-  .projects-page .project-about .project-sections { order:2; flex:0 0 auto; gap:2px; margin:0; padding:3px; border-radius:9px; }
-  .projects-page .project-about .project-sections button { min-height:28px; padding:2px 12px; border-radius:6px; font-size:13px; }
   .projects-page .project-context-disclosure { flex:1; min-width:0; }
   .projects-page .project-context-disclosure>summary { padding:8px 4px 8px 12px; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .projects-page .project-context-disclosure>summary span { margin-left:6px; }
   .projects-page .project-context-body { position:absolute; top:100%; left:-1px; right:-1px; max-height:min(55dvh,440px); overflow-y:auto; background:var(--nest-surface); border:1px solid var(--nest-border); border-radius:0 0 10px 10px; box-shadow:0 12px 24px #0002; }
 }
-/* Too narrow for the people and agent counts beside the switch; they stay in the opened details. */
+/* Keep the disclosure compact on narrow phones; the roster remains in its expanded content. */
 @media(max-width:480px) { .projects-page .project-context-disclosure>summary span { display:none; } }
+
+.project-sections {display:flex; align-self:flex-start; flex-shrink:0; margin:0; gap:4px; padding:4px;}
+.project-sections button {min-height:44px; min-width:80px;}
+.project-detail-page {display:flex; flex-direction:column; overflow:hidden;}
+.project-detail-page .dashboard-topbar {flex-shrink:0;}
+.project-detail-page .dashboard-content {flex:1; min-height:0; width:100%; box-sizing:border-box; display:flex; flex-direction:column; gap:12px; padding-top:12px;}
+.project-detail-page .project-workspace {flex:1; min-height:0; align-items:stretch; grid-template-rows:minmax(0,1fr);}
+.project-detail-page .project-about {max-height:100%; overflow-y:auto; box-sizing:border-box;}
+.project-detail-page:not(.project-chat-page) .project-main {overflow-y:auto; min-height:0; align-content:start;}
+.project-brief-clamped {display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:4; overflow:hidden;}
+.project-brief-toggle {margin-bottom:12px;}
+@media(max-width:1100px) {
+ .project-detail-page .project-workspace {grid-template-rows:auto minmax(0,1fr); gap:12px;}
+ .project-detail-page .project-about {position:relative; overflow:visible; max-height:none; z-index:5;}
+ .project-detail-page .project-context-body {position:absolute; top:100%; left:-1px; right:-1px; max-height:min(55dvh,440px); overflow-y:auto; background:var(--nest-surface); border:1px solid var(--nest-border); border-radius:0 0 10px 10px; box-shadow:0 12px 24px #0002;}
+}
+.project-assignee-avatar-link { display:inline-flex; flex-shrink:0; border-radius:999px; }
+.project-assignee-avatar-link:hover { opacity:.85; }
+/* The owner's remove control sits at the end of each member row; a confirmation replaces the row until answered. */
+.project-member-remove { margin-left:auto; display:grid; place-items:center; flex-shrink:0; width:32px; height:32px; padding:0; border:0; border-radius:8px; background:transparent; color:var(--nest-muted); cursor:pointer; opacity:.55; }
+.project-assignee:hover .project-member-remove,.project-member-remove:focus-visible { opacity:1; }
+.project-member-remove:hover { background:var(--nest-muted-surface); color:var(--nest-text); }
+.project-member-remove:focus-visible { outline:2px solid var(--nest-lime); outline-offset:1px; }
+@media (hover:none) { .project-member-remove { opacity:1; width:44px; height:44px; } }
+.project-member-remove-confirm { display:block; padding:10px 12px; border:1px solid var(--nest-border); border-radius:10px; }
+.project-member-remove-confirm p { margin:0; font-size:13px; }
+.project-member-remove-confirm .project-actions { margin-top:10px; gap:8px; }
+.project-member-remove-confirm .project-danger { background:#b42332; border-color:#b42332; color:#fff; }

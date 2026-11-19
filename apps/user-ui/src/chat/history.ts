@@ -14,6 +14,7 @@ export const CHAT_EVENT_QUERIES:ReadonlyArray<ChatEventQuery>=[
  {key:'telemetry',type:'telemetry.context.window.updated'},
  {key:'wrapper',typePrefix:'wrapper.turn.'},
  {key:'process',typePrefix:'process.'},
+ {key:'connections',type:'telemetry.nest.connection.action'},
 ];
 // Phase 3 (canvas flag only, R20): scheduled runs, shown as `↳ Scheduled run · …` and `↳ Run started by …` lines.
 export const SCHEDULED_QUERY:ChatEventQuery={key:'scheduled',type:'agent.scheduled.trigger'};

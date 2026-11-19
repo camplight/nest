@@ -52,3 +52,17 @@
 }
 
 .agent-immutable-name{display:block;padding:6px 0;font-size:1.1rem;overflow-wrap:anywhere}
+/* On agent pages the tab labels line up with the page's left edge; the chat view keeps its padded bar. */
+.dashboard-content .agent-workspace-tabs { padding-left: 0; padding-right: 0; }
+@media (min-width: 601px) { .dashboard-content .agent-workspace-tabs button:first-child { margin-left: -14px; } }
+
+.agent-memory { display: grid; gap: 10px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.agent-memory legend { padding: 0; margin-bottom: 10px; font-weight: 600; }
+.agent-settings .agent-memory-option { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border: 1px solid var(--nest-border); border-radius: 10px; background: var(--nest-surface); font-weight: 400; cursor: pointer; }
+.agent-memory-option:has(input:checked) { border-color: var(--instance-primary); box-shadow: inset 3px 0 var(--instance-primary); }
+.agent-memory-option:has(input:focus-visible) { outline: 2px solid var(--instance-primary); outline-offset: 2px; }
+.agent-settings .agent-memory-option input { width: auto; margin: 3px 0 0; padding: 0; accent-color: var(--instance-primary); flex: none; }
+.agent-memory-option > span { display: grid; gap: 4px; min-width: 0; }
+.agent-memory-option strong { font-weight: 600; }
+.agent-memory-option small { line-height: 1.5; }
+.agent-memory:disabled .agent-memory-option { cursor: default; opacity: .7; }

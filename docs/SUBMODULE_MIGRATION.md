@@ -688,3 +688,65 @@ and https://openrouter.ai/z-ai/glm-5.3 .
 ### Trusted invitations for visible agents
 
 Project owners may invite agents already visible through their human-scoped engine session, including private agents owned by teammates outside the onboarding directory. The mention picker applies the same rule. Project/channel management checks remain required; agent ownership, private history, credentials and settings are unchanged. The engine rechecks access when subscribing.
+
+### Folded agent conversations
+
+The fold control shows overlapping portraits and names of distinct participating agents, using their configured avatars. At most three portraits are shown, with a +N count for additional agents.
+
+Runs of three or more consecutive agent messages show only the latest reply by default, with a keyboard-accessible control to reveal earlier messages. Human/system messages, day changes and detached-history boundaries split runs. Activity does not count toward the threshold and follows its message. Message links automatically reveal their target; active work remains visible. Folding is local presentation state, resets on channel changes, and does not alter stored events, exports or membership rules.
+
+### Project entry and navigation
+
+Explicit workspace views on legacy `/onboarding` URLs take precedence over setup and normalize to `/`, preserving project, tab and message parameters. Bare onboarding URLs and setup OAuth returns retain their existing behavior. Chat/Files navigation belongs beneath the project title, outside the details sidebar. The sidebar no longer duplicates Sharing, and long descriptions can be expanded without moving project navigation. Project membership and permission rules are unchanged.
+
+Google login preserves workspace destinations in tab-local session storage for up to ten minutes. After authentication (and any required password change), a root callback restores the original project/channel, section and focused message. Explicit new destinations take precedence; only local workspace paths are accepted. Password login retains its current URL. Membership checks still apply after restoration.
+
+### November upstream synchronization
+
+The pin advances from `7406b6a` to upstream main `e64fc064` without vendor
+source changes. This brings OrgOps #74 (explicit human/agent roles and
+ownership/path checks), #90 (persist Slack intake before acknowledgement),
+#91/#92 (reasoning styles, channel billing and isolated price refresh), and
+#93 (bounded visible summaries for human tool-only turns).
+
+Engine migrations 051–053 add agent roles, human roles and reasoning style.
+Existing agents default to STANDARD except the upstream agent named `system`;
+the earliest human becomes OWNER and other humans default to MEMBER. Existing
+agents default to the DO reasoning style. Nest does not promote additional
+identities or change configured credentials/models during synchronization.
+Keep the normal stopped-database snapshots and persistent engine files; activation
+failure restores the previous release/database pair. No Nest product migration
+or new Nest settings UI is introduced. Native CI includes the upstream role,
+billing, path-access and LLM tests in addition to existing turn-executor coverage.
+
+Delegated creation now sends the configured manager identity with the runner
+credential and requires that agent to have an operator-granted SYSTEM role.
+The helper returns a clear 403 when the role is absent or revoked. This sync
+does not grant roles automatically; an instance owner/admin must grant the
+manager role explicitly if delegated creation should remain enabled. Existing
+request-bound capabilities and project-owner invitation checks remain in force.
+
+## Deployment capacity and rollback recovery
+
+No engine pin, schema, credentials or runtime paths change for deployment storage
+safety. Install the updated host controller to activate pre-download space checks;
+the installer independently checks extraction and paired snapshot headroom. Old
+immutable release directories are retained according to the documented native
+policy; data backups remain untouched. Rollback health failure no longer skips
+watchdog restoration. Partial DB/configuration restoration requires operator
+recovery before any automatic restart; preserve the recovery marker until the
+matching DB/release pair is restored.
+
+### Nest-side chat compaction
+
+"Full history, summarized when long" runs in Nest on the current upstream pin, with
+no engine mode or vendor change. Nest stores `FULL_CHANNEL_EVENTS` in the engine and
+records the choice in its own `product_agent_memory`. Its worker uses the
+`NEST_RUNNER_TOKEN` service credential to read `telemetry.context.window.updated`,
+the latest `agent.context.*` boundary and chat events. It then posts summaries
+through the existing `POST /api/agents/:name/context/compact` (OrgOps #94). Product
+migration `017_context_compaction.sql` adds the setting and job tables, and needs no
+engine migration. Agents that were set to `FULL_CHANNEL_EVENTS_AUTO_COMPACT` on an
+engine carrying the unmerged OrgOps #101 must be switched back to a supported engine
+mode before running upstream main. Saving the option again in Settings after the
+upgrade enables Nest compaction.

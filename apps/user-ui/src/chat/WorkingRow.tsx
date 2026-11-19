@@ -1,12 +1,33 @@
 // The working row of one active agent turn (spec 7.5.1): the agent's portrait and name with its latest progress text.
 // The look follows thread.aui.tsx's assistant message with its running indicator at @assistant-ui/react@0.15.31.
+import {forwardRef,type HTMLAttributes} from 'react';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {CircleAlertIcon} from 'lucide-react';
+import {HoverCard} from 'radix-ui';
+import type {EventRow} from '../types';
 import type {WorkingTurn} from './working';
+import {WorkingRing} from './WorkingRing';
+import {useChatPortal} from './ui/portal';
 
-export function WorkingRow({turn,activityUnavailable,onReview}:{turn:WorkingTurn;activityUnavailable?:boolean;onReview():void}):JSX.Element|null{
+export function WorkingRow({turn,activityUnavailable,onReview,events=[]}:{turn:WorkingTurn;activityUnavailable?:boolean;onReview():void;events?:readonly EventRow[]}):JSX.Element|null{
+ const container=useChatPortal();
+ const row=<Row turn={turn} activityUnavailable={activityUnavailable} onReview={onReview} focusable={!turn.interrupted&&!activityUnavailable&&Boolean(container)}/>;
+ // Hovering or focusing a live row opens the working ring (action names only, never tool data).
+ if(turn.interrupted||activityUnavailable||!container)return row;
+ return <HoverCard.Root openDelay={150} closeDelay={100}>
+  <HoverCard.Trigger asChild>{row}</HoverCard.Trigger>
+  <HoverCard.Portal container={container}>
+   <HoverCard.Content side="top" align="start" sideOffset={6} collisionPadding={16}
+    className="z-50 rounded-xl border border-border bg-popover p-4 pb-3 text-popover-foreground shadow-lg animate-in fade-in-0 zoom-in-95">
+    <WorkingRing agent={turn.agent} since={turn.since} events={events}/>
+   </HoverCard.Content>
+  </HoverCard.Portal>
+ </HoverCard.Root>;
+}
+
+const Row=forwardRef<HTMLDivElement,{turn:WorkingTurn;activityUnavailable?:boolean;onReview():void;focusable:boolean}&HTMLAttributes<HTMLDivElement>>(({turn,activityUnavailable,onReview,focusable,...rest},ref)=>{
  // Only the whitelisted progress text reaches the page, never tool data (anti-goal 5.6).
- return <div role="status" data-aui-quote-selectable="false" data-agent={turn.agent} data-turn-state={turn.interrupted?'interrupted':activityUnavailable?'unavailable':'working'}
+ return <div ref={ref} {...rest} tabIndex={focusable?0:undefined} role="status" data-aui-quote-selectable="false" data-agent={turn.agent} data-turn-state={turn.interrupted?'interrupted':activityUnavailable?'unavailable':'working'}
   className="working-row mb-2 flex w-full max-w-3xl min-w-0 gap-3 self-start rounded-xl px-2 py-1 animate-in fade-in slide-in-from-bottom-1 duration-200">
   <div className="w-8 shrink-0 pt-0.5"><AgentAvatar name={turn.agent} size={32}/></div>
   <div className="min-w-0 flex-1">
@@ -19,9 +40,12 @@ export function WorkingRow({turn,activityUnavailable,onReview}:{turn:WorkingTurn
    </div>
    {turn.interrupted?<p className="m-0 mt-0.5 text-sm leading-6 text-muted-foreground">Interrupted · outcome unknown. <button type="button" onClick={onReview} className="text-foreground underline underline-offset-2">Review request</button></p>
     :activityUnavailable?<p className="m-0 mt-0.5 text-sm leading-6 text-muted-foreground">Activity unavailable</p>
+    :turn.stopping
+    ?<p className="working-row-placeholder m-0 mt-0.5 text-sm leading-6 text-muted-foreground">Stopping…</p>
     :turn.progressText
     ?<p className="trace-progress m-0 mt-0.5 text-sm leading-6 text-muted-foreground whitespace-pre-wrap [overflow-wrap:anywhere]">{turn.progressText}</p>
     :<p className="working-row-placeholder m-0 mt-0.5 text-sm leading-6 text-muted-foreground">Working…</p>}
   </div>
  </div>;
-}
+});
+Row.displayName='WorkingRowContent';

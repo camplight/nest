@@ -1,9 +1,10 @@
 // The channel thread on assistant-ui (spec 6.2 to 6.5, 6.13 to 6.17, 7.1.2, 7.1.3, 8.1 to 8.5). Our store and converter
 // stay the source of truth: assistant-ui gets one message per timeline item and never owns, edits or sends anything.
 import {createContext,useCallback,useContext,useEffect,useImperativeHandle,useLayoutEffect,useMemo,useRef,useState,type ReactNode,type Ref} from 'react';
-import {ArrowDownIcon} from 'lucide-react';
+import {foldAgentTimeline} from './agent-folds';
+import {ArrowDownIcon,ChevronRightIcon} from 'lucide-react';
 import {appRedaction,type AppRedaction} from '../activity';
-import {AgentActivity} from '../components/AgentActivity';
+import {TurnActivity} from '../components/TurnActivity';
 import {AgentAvatar} from '../components/AgentAvatar';
 import type {Agent,EventRow} from '../types';
 import {createPortal} from 'react-dom';
@@ -18,7 +19,7 @@ import {MessageActions} from './MessageActions';
 import {MessageBody} from './MessageBody';
 import type {ReplyTarget} from './quote-types';
 import {SelectionQuote} from './SelectionQuote';
-import {buildTimeline,dayKey,isContinuation,newestTimelineAt,toThreadMessage,type ChatMeta,type TimelineItem} from './timeline';
+import {attachesTo,buildTimeline,dayKey,isContinuation,isTraceEvent,newestTimelineAt,toThreadMessage,type ChatMeta,type TimelineItem} from './timeline';
 import {Button} from './ui/button';
 import {DaySeparator} from './ui/day-separator';
 import {cn} from './ui/lib/utils';
@@ -27,6 +28,7 @@ import {activeTurns,type WorkingTurn} from './working';
 import {WorkingRow} from './WorkingRow';
 import {useServiceAgent} from '../canvas/useFlows';
 import {ForkIcon} from '../canvas/Links';
+import {ReplyRing} from './ReplyRing';
 import './chat.css';
 
 export type ChatThreadProps={
@@ -48,7 +50,7 @@ export type ChatMessageItem=Extract<TimelineItem,{kind:'message'}>;
 export type ChatThreadHandle={scrollToBottom():void};
 type MessageItem=Extract<TimelineItem,{kind:'message'}>;
 type ActivityItem=Extract<TimelineItem,{kind:'activity'}>;
-type ThreadView={byId:ReadonlyMap<string,TimelineItem>;turns:readonly WorkingTurn[];props:ChatThreadProps;apps:AppRedaction|null;focused(eventId:string):void};
+type ThreadView={folding:ReturnType<typeof foldAgentTimeline>;toggleFold(id:string):void;byId:ReadonlyMap<string,TimelineItem>;turns:readonly WorkingTurn[];props:ChatThreadProps;apps:AppRedaction|null;focused(eventId:string):void};
 
 // Ported from classic isMessagesPanelNearBottom.
 const NEAR_BOTTOM_PX=80;
@@ -89,11 +91,6 @@ const ThreadContext=createContext<ThreadView|null>(null);
 // Messages carry no bottom padding, so these margins are the whole gap: a small one between authors, tight within a run.
 const spaceAfter=(item:TimelineItem,next:TimelineItem|undefined)=>
  !next?'mb-0':item.kind!=='message'||next.kind!=='message'?'mb-3':isContinuation(item,next)?'mb-0.5':'mb-3';
-// An activity group directly after a message (same day, both in the loaded window) is shown inside that message,
-// under its text; any other group stands on its own in the avatar-gutter column.
-const attachesTo=(previous:TimelineItem|undefined,item:TimelineItem|undefined):boolean=>
- item?.kind==='activity'&&previous?.kind==='message'&&!previous.meta.detached&&!item.meta.detached&&
- dayKey(previous.meta.displayAt)===dayKey(item.meta.displayAt);
 // The classic rgba backgrounds of .trace-group-agent and -system read as a grey bar in dark mode; token-themed here.
 // Chips line up with the message text: no box or inset around the group (the classic .trace-group padding is reset).
 const ACTIVITY_RESET='[&>article]:bg-transparent [&>article]:p-0 [&>article]:rounded-none [&>article]:max-w-none';
@@ -152,7 +149,8 @@ function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;pr
  </article>;
  return <article ref={ref} id={`message-${item.id}`} data-message-id={item.id} tabIndex={highlighted?-1:undefined}
   className={cn('message',`message-${meta.authorKind}`,SHELL,spacing,highlighted&&'message-highlight bg-accent/40 ring-2 ring-ring')}>
-  {!mine&&<div className="w-8 shrink-0 pt-0.5">{author?authorAvatar(meta):time}</div>}
+  {!mine&&<div className="w-8 shrink-0 pt-0.5">{author?(activity&&meta.authorKind==='agent'
+   ?<ReplyRing agent={meta.authorName} events={activity.events}>{authorAvatar(meta)}</ReplyRing>:authorAvatar(meta)):time}</div>}
   <div data-slot="message-focus" tabIndex={0} role="group" aria-label={`${meta.authorName}, ${formatTime(meta.displayAt)}`} className={cn(COLUMN,mine&&MINE_COLUMN)}>
    {mine?(author?<div className="flex items-center justify-end gap-2">{actions('')}{time}</div>:actions(cn('absolute top-0 z-10',fork?'start-34':'start-0'))):author?<div className="flex min-w-0 items-center gap-2">
     <strong className="message-author min-w-0 text-sm font-semibold leading-5 text-foreground [overflow-wrap:anywhere]">{meta.authorName}</strong>
@@ -163,7 +161,7 @@ function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;pr
    <MessageBody item={item} channelId={props.snapshot.channelId??''} core={props.core} onPreviewDemo={props.onPreviewDemo}
     onFocusMessage={props.onFocusMessage} onQuote={quote} fileTiles={props.appActivity}
     activity={activity&&<div data-aui-quote-selectable="false" className={ACTIVITY_IN_MESSAGE}>
-     <AgentActivity events={activity.events} tone={activity.tone} formatTime={formatTime} apps={view.apps}/>
+     <TurnActivity events={activity.events} tone={activity.tone} formatTime={formatTime} apps={view.apps}/>
     </div>}/>
    {forked&&<button type="button" className={FORKED} title={`Open the fork ${forked.title}`} onClick={()=>flows!.onOpenChat(forked.channelId)}><ForkIcon/>{forked.title}</button>}
   </div>
@@ -184,19 +182,34 @@ function ThreadItem(){
  const item=view?.byId.get(id);
  if(!view||!item)return null;
  const previous=previousId?view.byId.get(previousId):undefined,next=nextId?view.byId.get(nextId):undefined;
+ const foldControl=view.folding.controls.get(id);
  const newDay=!previous||dayKey(previous.meta.displayAt)!==dayKey(item.meta.displayAt);
  return <>
   {newDay&&<DaySeparator className="my-4 px-2" label={dayLabel(item.meta.displayAt)}/>}
+  {foldControl&&<Button variant="ghost" size="sm" className="agent-message-fold mb-3 h-auto min-h-11 self-start max-w-full gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2 whitespace-normal text-start text-muted-foreground"
+   aria-label={`${foldControl.expanded?'Hide':'Show'} ${foldControl.fold.messageIds.length-1} earlier agent messages`}
+   aria-describedby={`fold-participants-${foldControl.fold.id}`} title={`Participants: ${foldControl.fold.agentNames.join(', ')}`} aria-expanded={foldControl.expanded} onClick={()=>view.toggleFold(foldControl.fold.id)}>
+   <span className="flex shrink-0 -space-x-2" aria-hidden="true">
+    {foldControl.fold.agentNames.slice(0,3).map(name=><span key={name} title={name} className="rounded-full ring-2 ring-background"><AgentAvatar name={name} size={24}/></span>)}
+    {foldControl.fold.agentNames.length>3&&<span className="grid size-6 place-items-center rounded-full bg-muted text-[10px] font-semibold ring-2 ring-background">+{foldControl.fold.agentNames.length-3}</span>}
+   </span>
+   <span className="min-w-0 flex-1">
+    <span className="block truncate text-xs font-medium text-foreground" title={foldControl.fold.agentNames.join(', ')}>{foldControl.fold.agentNames.slice(0,3).join(', ')}{foldControl.fold.agentNames.length>3?` +${foldControl.fold.agentNames.length-3}`:''}</span>
+    <span className="block text-xs">{foldControl.expanded?'Hide': 'Show'} {foldControl.fold.messageIds.length-1} earlier agent messages</span>
+   </span>
+   <span id={`fold-participants-${foldControl.fold.id}`} className="sr-only">Participants: {foldControl.fold.agentNames.join(', ')}</span>
+   <ChevronRightIcon aria-hidden="true" className={cn('size-4 shrink-0',foldControl.expanded&&'rotate-90')}/>
+  </Button>}
   {item.kind==='message'?(attachesTo(item,next)?
     <MessageShell item={item} previous={previous} view={view} activity={next as ActivityItem}
      spacing={spaceAfter(next as ActivityItem,afterNextId?view.byId.get(afterNextId):undefined)}/>:
     <MessageShell item={item} previous={previous} view={view} spacing={spaceAfter(item,next)}/>):
    attachesTo(previous,item)?null:
    <div data-aui-quote-selectable="false" className={cn(ACTIVITY_SLOT,spaceAfter(item,next))}>
-    <AgentActivity events={item.events} tone={item.tone} formatTime={formatTime} apps={view.apps}/>
+    <TurnActivity events={item.events} tone={item.tone} formatTime={formatTime} standalone apps={view.apps}/>
    </div>}
-  {view.turns.filter(turn=>turn.triggerEventId===item.id||(!next&&!view.byId.has(turn.triggerEventId))).map(turn=>
-   <WorkingRow key={turn.agent} turn={turn} activityUnavailable={view.props.snapshot.activityUnavailable}
+  {view.turns.filter(turn=>(view.folding.redirects.get(turn.triggerEventId)??turn.triggerEventId)===item.id||(!next&&!view.byId.has(turn.triggerEventId)&&!view.folding.redirects.has(turn.triggerEventId))).map(turn=>
+   <WorkingRow key={turn.agent} turn={turn} activityUnavailable={view.props.snapshot.activityUnavailable} events={view.props.snapshot.events}
     onReview={()=>view.props.onFocusMessage(turn.triggerEventId)}/>)}
   {item.meta.detached&&next&&!next.meta.detached&&<div data-slot="detached-marker" className="my-3 self-center rounded-full bg-muted/70 px-3 py-1 text-xs text-muted-foreground">Earlier messages not loaded</div>}
  </>;
@@ -256,9 +269,17 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  const [tick,setTick]=useState(0);
  const apps=useMemo(()=>props.appActivity?appRedaction(snapshot.events,serverClock.serverNow()):null,[props.appActivity,snapshot.events,tick]);
  useServerTick(!!apps&&[...apps.lines.values()].some(call=>call.state==='running'),serverClock,setTick);
- const view=useMemo<ThreadView>(()=>({byId:new Map(items.map(item=>[item.id,item])),turns,props,apps,focused}),[items,turns,props,apps,focused]);
+ const [expandedFolds,setExpandedFolds]=useState<ReadonlySet<string>>(new Set());
+ useEffect(()=>setExpandedFolds(new Set()),[snapshot.channelId]);
+ const folding=useMemo(()=>foldAgentTimeline(items,expandedFolds,focusedMessageId),[items,expandedFolds,focusedMessageId]);
+ const toggleFold=useCallback((id:string)=>{
+  const control=[...folding.controls.values()].find(value=>value.fold.id===id);
+  if(control?.expanded&&focusedMessageId&&control.fold.hiddenIds.includes(focusedMessageId))props.onFocusMessage(control.fold.latestId);
+  setExpandedFolds(previous=>{const next=new Set(previous);if(control?.expanded)next.delete(id);else next.add(id);return next;});
+ },[folding,focusedMessageId,props.onFocusMessage]);
+ const view=useMemo<ThreadView>(()=>({byId:new Map(folding.items.map(item=>[item.id,item])),turns,props,apps,focused,folding,toggleFold}),[folding,turns,props,apps,focused,toggleFold]);
  const runtime=useExternalStoreRuntime({
-  messages:items,convertMessage:toThreadMessage,isRunning:false,onNew:NO_ERROR,
+  messages:folding.items,convertMessage:toThreadMessage,isRunning:false,onNew:NO_ERROR,
   hasEarlier:snapshot.hasOlder,onLoadEarlier:()=>core.loadOlder(),
  });
 
@@ -266,6 +287,8 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  const snapshotRef=useRef(snapshot);snapshotRef.current=snapshot;
  const nearBottomRef=useRef(true);
  const [farFromBottom,setFarFromBottom]=useState(false);
+ // Messages scrolled under the header actions: show where the toolbar ends.
+ const [scrolled,setScrolled]=useState(false);
  const [hasNew,setHasNew]=useState(false);
  const [focusPending,setFocusPending]=useState(focusedMessageId!==null);
  const focusPendingRef=useRef(focusPending);focusPendingRef.current=focusPending;
@@ -294,6 +317,7 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
   nearBottomRef.current=distance<NEAR_BOTTOM_PX;
   if(nearBottomRef.current)setHasNew(false);
   setFarFromBottom(distance>=FAR_FROM_BOTTOM_PX);
+  setScrolled(panel.scrollTop>2);
   if(panel.scrollTop<AUTO_LOAD_PX&&!focusPendingRef.current)loadOlder();
  },[loadOlder]);
 
@@ -329,7 +353,7 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  // No channel selected yet (the shell is still loading): no conversation, so no empty state either.
  const empty=snapshot.channelId!==null&&!snapshot.loading&&items.length===0;
  return <AssistantRuntimeProvider runtime={runtime}><ChatPortalProvider><ThreadContext.Provider value={view}>
-  <div className="nest-chat relative flex min-h-0 flex-1 flex-col">
+  <div className={cn('nest-chat relative flex min-h-0 flex-1 flex-col',scrolled&&'is-scrolled')}>
    {/* Keep Sharing and Huddle reachable on mobile. Export stays hidden at the existing mobile breakpoint. */}
    {slots
     ? <>{slots.actions&&createPortal(props.headerActions,slots.actions)}{slots.more&&createPortal(<>{props.headerMore}<ExportButton items={items} channelLabel={props.channelLabel} menuItem/></>,slots.more)}</>

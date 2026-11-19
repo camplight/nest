@@ -65,10 +65,13 @@ export function AgentNavigation({agents, chats, activeAgent, activeChannelId, in
 }
 
 export type AgentTab = 'settings' | 'connections';
-export function AgentWorkspaceTabs({name,tab,onChat,onTab}:{name:string;tab:AgentTab|'chat';onChat:()=>void;onTab:(tab:AgentTab)=>void}) {
+/** Only the owner of a private agent Nest runs itself can connect apps; for anyone else the tab would offer nothing. */
+export const canConnectApps=(agent:Pick<Agent,'mode'|'visibility'|'ownerHumanId'>|undefined,userId:string|null|undefined)=>
+  Boolean(agent&&userId&&agent.mode!=='WRAPPED'&&agent.visibility==='PRIVATE'&&agent.ownerHumanId===userId);
+export function AgentWorkspaceTabs({name,tab,connections,onChat,onTab}:{name:string;tab:AgentTab|'chat';connections:boolean;onChat:()=>void;onTab:(tab:AgentTab)=>void}) {
   return <nav className="agent-workspace-tabs" aria-label={`${name} workspace`}>
     <button aria-current={tab==='chat'?'page':undefined} onClick={onChat}>Chat</button>
     <button aria-current={tab==='settings'?'page':undefined} onClick={()=>onTab('settings')}>Settings</button>
-    <button aria-current={tab==='connections'?'page':undefined} onClick={()=>onTab('connections')}>Connected apps</button>
+    {connections&&<button aria-current={tab==='connections'?'page':undefined} onClick={()=>onTab('connections')}>Connected apps</button>}
   </nav>;
 }

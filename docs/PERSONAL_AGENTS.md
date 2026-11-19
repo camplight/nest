@@ -37,8 +37,11 @@ settings can edit the description and instructions afterward.
 
 ## Operator configuration
 
-Create an enabled native engine model (provider `openrouter` is supported), and
-register a runner. Configure these values in the private server environment:
+Create an enabled native engine model, and register a runner. Supported
+providers are `openrouter`, `openai`, `anthropic` and `openai-compatible`. An
+OpenAI-compatible provider such as Fireworks uses provider `openai-compatible`
+with the provider's model name, e.g. `accounts/fireworks/models/glm-5p3`
+(reference `openai-compatible:accounts/fireworks/models/glm-5p3`). Configure these values in the private server environment:
 
 ```dotenv
 NEST_DEFAULT_AGENT_MODEL_ID=<existing-engine-model-id>
@@ -46,17 +49,33 @@ NEST_PERSONAL_AGENT_RUNNER_ID=<registered-runner-id>
 NEST_PERSONAL_AGENT_WORKSPACE_ROOT=/app/.nest-data/workspaces/personal
 ```
 
-Store `OPENROUTER_API_KEY` in the engine's encrypted secret store with `public`
-scope for the shared model, using the operator's authenticated secrets API/admin
-flow. Merely setting a process environment key is insufficient: the native
+Store the model provider's keys in the engine's encrypted secret store with
+`public` scope for the shared model, using the operator's authenticated secrets
+API/admin flow: `OPENROUTER_API_KEY` for OpenRouter, or **both**
+`OPENAI_COMPATIBLE_API_KEY` and `OPENAI_COMPATIBLE_BASE_URL` for
+`openai-compatible` (Fireworks: `https://api.fireworks.ai/inference/v1`). Without
+the base URL the engine refuses the model call. Merely setting a process environment key is insufficient: the native
 runner resolves provider credentials through its engine secret context. Never
 put the value in source, browser onboarding forms, or screenshots.
 
 Nest resolves the model registry ID to the runner's `provider:model` reference
 and snapshots that reference for recovery. Nest checks the configured model is enabled and the runner is online before
 initial provisioning. It creates a PRIVATE CLASSIC agent with a unique workspace,
-12 model steps maximum, no enabled skills, `allowOutsideWorkspace=false` and
-no owner-secret delegation. The workspace flag controls file-tool paths; it is
+25 model steps maximum, no enabled skills, `allowOutsideWorkspace=false` and
+no owner-secret delegation. Personal agents start with OrgOps's `FULL_CHANNEL_EVENTS`
+memory mode: each turn sees that chat's own messages, so a follow-up such as
+"put that in a table" works from the agent's previous reply. The engine default,
+`PER_CHANNEL_CROSS_CHANNEL`, replaces summarized messages with model-written notes
+and runs four summary jobs on the agent's model after its turns. "Full history,
+summarized when long" (`FULL_CHANNEL_EVENTS_AUTO_COMPACT`) is a Nest mode. The engine
+reads full history, and once a chat reaches three quarters of the agent's history
+budget, Nest summarizes its older part in the background through the engine's
+context-compaction API instead of letting the oldest messages drop off (see SPEC,
+"Chat compaction for long agent chats"). Owners can switch
+between these modes under Settings → Advanced → Conversation memory (an agent
+already set to `OFF` also shows "No memory"). Nest sends `memoryContextMode`
+through the existing engine agent PATCH and translates the Nest mode at that
+boundary. Existing agents keep their mode. The workspace flag controls file-tool paths; it is
 not an OS sandbox for shell commands. The shared model key is available to native agents through the engine secret
 context (including their shell environment); this is a trusted-team deployment,
 not per-user provider-key isolation. Users do not enter a model key into onboarding. A valid model record is not proof
@@ -103,6 +122,20 @@ Changed ownership or visibility fails closed. Ambiguous requests can be retried;
 a manually deleted/renamed resource requires operator inspection. This is not a
 cross-database transaction, and partial resources are retained for recovery.
 
+## What owners see when agents change their accounts
+
+When an agent changes something through a connected app (creates, updates or
+deletes, judged from the provider's tool hints), a short line appears under the
+agent's reply in the chat the agent was working in, for example "Miro · Create
+image item from URL". Reads never produce a line. A refused change says
+"failed"; a lost or timed-out request says the change may not have finished and
+asks the owner to check the app before trying again. Lines carry no arguments,
+results or account details. An engine that tells each agent shell its chat
+(`ORGOPS_CHANNEL_ID`; not yet upstream OrgOps main) lets the `nest-connections`
+helper forward it, and Nest posts the line only when the agent is a participant
+of that unarchived chat. Without it no line is posted. Recording
+a line is best effort and never changes the result the agent receives.
+
 ## Connection adapter and skill boundary
 
 `apps/api/src/integrations/provider.ts` defines a small provider interface. The
@@ -123,6 +156,9 @@ by default and does not fetch the action catalog until opened. Give all access
 fetches every provider page and saves the exact current catalog in one explicit
 click, regardless of an advanced search. It reports success only after saving.
 This is a snapshot of available tools, not permission for future additions.
+Once an account has saved actions it shows how many of the app's actions are
+allowed and adds Remove access, which clears that account's grant in one click.
+Give all access stays until every available action is allowed.
 
 Advanced options use compact rows with full descriptions and exact references
 under About this action. Search, pagination and Selected view retain off-page
@@ -135,6 +171,9 @@ not a grant until Save access succeeds. Enable/Renew rejects zero saved
 permissions with 409, and the UI refreshes the count after saves/disconnects.
 The count excludes locally revoked accounts and reflects saved choices, not live
 provider availability or current private-context eligibility.
+While actions are saved but app access is off, the App access card is highlighted
+and a hint above "Find an app" offers its own Enable app access button, so the
+second step is visible right after the first grant. Both disappear once access is on.
 
 Enabling installs a random 30-day token in the existing engine private-agent
 secret store and enables `nest-connections`. It also adds the skill to OrgOps's existing
@@ -182,7 +221,9 @@ Nest never reads engine SQLite. Remote runners also need
 `NEST_API_URL`. These values locate the product API, not the engine API.
 
 The launcher seeds `skills/nest-connections` into writable engine runtime skills
-on first use without overwriting existing installations. An external engine needs
+on first use and replaces that runtime copy whenever the bundled `skill.json`
+version changes, so helper fixes reach running installs; local edits to the
+runtime copy are not preserved across a version change. An external engine needs
 the same skill installed in its configured skill root. The source includes a
 `skill.json` manifest, so it can be packaged with
 `node scripts/community.mjs pack skills/nest-connections --out /tmp/nest-connections.json`
@@ -238,7 +279,10 @@ onboarding and `POST /api/agents` when no model is specified. The legacy
 onboarding attempts retain their stored model reference. Wrapped agents choose
 models in their external runtime.
 
-User agent settings use the OpenRouter explorer as the single model picker;
+User agent settings use one model picker that offers only the providers whose keys
+the agent has: the OpenRouter explorer, Fireworks (OpenAI-compatible) model cards
+with Browse all and an exact model ID, or a switch between them when both are
+configured;
 admin creation retains its preset catalog. The built-in default is now
 `openrouter:z-ai/glm-5.3`. This direct reference needs no registry preset. Set
 `NEST_DEFAULT_AGENT_MODEL_ID=openrouter:z-ai/glm-5.3` on deployments with an older

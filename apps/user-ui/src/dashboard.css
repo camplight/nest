@@ -1,9 +1,43 @@
 /* Product shell and dashboard: Figma 923:417, with instance-owned colors. */
 .product-shell {
-  grid-template-columns: 248px minmax(0, 1fr) 280px;
+  position: relative;
+  grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr) 280px;
 }
 .product-shell.dashboard-shell {
-  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr);
+}
+/* The sidebar's right edge; the width is chosen per browser (SidebarResizer). */
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--sidebar-width, 248px) - 4px);
+  z-index: 20;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+.sidebar-resizer:hover::after,
+.sidebar-resizer:focus-visible::after,
+body.sidebar-resizing .sidebar-resizer::after {
+  background: var(--nest-lime, #9be15d);
+}
+.sidebar-resizer:focus-visible {
+  outline: none;
+}
+body.sidebar-resizing {
+  cursor: col-resize;
+  user-select: none;
 }
 .product-shell > .sidebar {
   padding: 24px 16px;
@@ -725,13 +759,16 @@
 }
 @media (max-width: 900px) {
   .product-shell {
-    grid-template-columns: 248px minmax(0, 1fr);
+    grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr);
   }
 }
 @media (max-width: 760px) {
   .product-shell,
   .product-shell.dashboard-shell {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .sidebar-resizer {
+    display: none;
   }
   .dashboard-topbar {
     display: flex;
