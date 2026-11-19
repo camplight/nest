@@ -1,6 +1,6 @@
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {ActiveWindowBody,PassiveWindow,passiveActivation} from './PassiveWindow';
+import {ActiveWindowBody,PassiveWindow,conversationEmpty,passiveActivation,pressOnScrollbar} from './PassiveWindow';
 import type {ChannelEventsCore,ChannelEventsSnapshot} from '../chat/channel-events';
 import type {EventRow} from '../types';
 
@@ -30,6 +30,8 @@ describe('PassiveWindow',()=>{
     expect(html).toContain('Click to reply');
     expect(html).not.toContain('textarea');
     expect(html).not.toContain('aria-modal');
+    // In the Tab order, so the keyboard can reach it and activate it with Enter or Space.
+    expect(html).toContain('tabindex="0"');
   });
 });
 
@@ -48,12 +50,8 @@ describe('ActiveWindowBody',()=>{
 describe('passiveActivation',()=>{
   const section={};
   const fake=(target:object,key?:string)=>({target,currentTarget:section,key,preventDefault:vi.fn()}) as never;
-  it('activates when the window itself takes focus, not when Tab lands on something inside',()=>{
-    const onActivate=vi.fn(),{onFocus}=passiveActivation(onActivate);
-    onFocus(fake({}));
-    expect(onActivate).not.toHaveBeenCalled();
-    onFocus(fake(section));
-    expect(onActivate).toHaveBeenCalledTimes(1);
+  it('never activates on focus, so Tab passes through without swapping windows',()=>{
+    expect(passiveActivation(vi.fn())).not.toHaveProperty('onFocus');
   });
   it('activates on Enter or Space while the window itself is focused only',()=>{
     const onActivate=vi.fn(),{onKeyDown}=passiveActivation(onActivate);
@@ -63,5 +61,33 @@ describe('passiveActivation',()=>{
     onKeyDown(fake(section,'Enter'));
     onKeyDown(fake(section,' '));
     expect(onActivate).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('conversationEmpty',()=>{
+  const at=(events:EventRow[],loading=false)=>({...snapshot,events,loading});
+  it('is empty once loaded with no message or agent activity',()=>{
+    expect(conversationEmpty(at([]))).toBe(true);
+    expect(conversationEmpty(at([{...message,id:'j',type:'channel.participant.added'}]))).toBe(true);
+  });
+  it('is not empty while loading, or with a message or a trace event',()=>{
+    expect(conversationEmpty(at([],true))).toBe(false);
+    expect(conversationEmpty(at([message]))).toBe(false);
+    expect(conversationEmpty(at([{...message,id:'t',type:'agent.turn.started'}]))).toBe(false);
+  });
+});
+
+describe('pressOnScrollbar',()=>{
+  // A 300 x 400 thread at (100, 50) with a 12 px scrollbar on the right: its client box is 288 px wide.
+  const thread=(scrollHeight=1200)=>({clientLeft:0,clientTop:0,clientWidth:288,clientHeight:400,scrollWidth:288,scrollHeight,getBoundingClientRect:()=>({left:100,top:50})});
+  it('is a scrollbar press only outside the client box of something that scrolls',()=>{
+    expect(pressOnScrollbar(thread(),100+294,200)).toBe(true);
+    expect(pressOnScrollbar(thread(),100+200,200)).toBe(false);
+    expect(pressOnScrollbar(thread(400),100+294,200)).toBe(false);
+  });
+  it('counts a scrollbar on the left (right-to-left) by the client box offset',()=>{
+    const rtl={...thread(),clientLeft:12};
+    expect(pressOnScrollbar(rtl,100+6,200)).toBe(true);
+    expect(pressOnScrollbar(rtl,100+20,200)).toBe(false);
   });
 });

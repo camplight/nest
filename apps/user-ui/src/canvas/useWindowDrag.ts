@@ -11,17 +11,18 @@ export const NOT_A_HANDLE = 'button, a, input, select, textarea, label, [content
 type Drag = {id: number; x: number; y: number; from: Point; to: Point | null};
 
 /**
- * `win` is where the window is drawn (the dragged spot while a drag runs). `onEnd` follows every press that started a
+ * `win` is where the window is drawn (the dragged spot while a drag runs). `onStart` runs when a press starts a drag
+ * (a passive window comes to the front then). `onEnd` follows every press that started a
  * drag, moved or not, after `onMove`. `focusOnStart` moves focus into the panel when a drag starts (the press's own focus
  * change is prevented, so no text gets selected), so Escape then reaches the window that was just dragged.
  */
-export function useWindowDrag({win, bounds, panel, onMove, onEnd, focusOnStart = false}: {
+export function useWindowDrag({win, bounds, panel, onMove, onStart, onEnd, focusOnStart = false}: {
   win?: ChatWindow; bounds?: Bounds; panel: RefObject<HTMLElement>;
-  onMove?(at: Point): void; onEnd?(): void; focusOnStart?: boolean;
+  onMove?(at: Point): void; onStart?(): void; onEnd?(): void; focusOnStart?: boolean;
 }) {
   const drag = useRef<Drag | null>(null);
   const [at, setAt] = useState<Point | null>(null);
-  const latest = useRef({win, onMove, onEnd}); latest.current = {win, onMove, onEnd};
+  const latest = useRef({win, onMove, onStart, onEnd}); latest.current = {win, onMove, onStart, onEnd};
   const shown = win && bounds && at ? clampWindow({...win, ...at}, bounds) : win;
   const end = (event: ReactPointerEvent<HTMLElement>) => {
     const d = drag.current;
@@ -40,6 +41,7 @@ export function useWindowDrag({win, bounds, panel, onMove, onEnd, focusOnStart =
       if (focusOnStart && !panel.current?.contains(document.activeElement)) panel.current?.focus({preventScroll: true});
       drag.current = {id: event.pointerId, x: event.clientX, y: event.clientY, from: {x: from.x, y: from.y}, to: null};
       try { event.currentTarget.setPointerCapture(event.pointerId); } catch {}
+      latest.current.onStart?.();
     },
     onPointerMove(event: ReactPointerEvent<HTMLElement>) {
       const d = drag.current;

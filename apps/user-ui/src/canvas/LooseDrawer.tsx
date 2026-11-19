@@ -23,6 +23,16 @@ const CHIPS: {value: LooseStateFilter; label: string}[] = [
  * picker, the Needs you list and an armed Area tool.
  */
 const DRAWER_YIELDS = '[aria-modal="true"]:not(.canvas-chat), .dialog-backdrop, .canvas-context, .canvas-chat-menu:not([hidden]), .canvas-menu, .canvas-picker, .canvas-needs-panel, .canvas-tool[aria-pressed="true"]';
+/**
+ * Whether the open chat takes this Escape before the drawer: a phone's full-screen chat always; a desktop chat window
+ * only while focus is in it or on the page body (or nowhere), the same rule the window closes by. Otherwise Escape with
+ * focus on the canvas would reach neither.
+ */
+export function chatTakesEscape(chat: {matches(selector: string): boolean; contains(node: unknown): boolean} | null, active: unknown, body: unknown): boolean {
+  if (!chat) return false;
+  if (!chat.matches('[data-window="true"]')) return true;
+  return !active || active === body || chat.contains(active);
+}
 const typing = (element: Element) => element instanceof HTMLElement && (element.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName));
 
 /**
@@ -203,8 +213,9 @@ export function LooseDrawer({id, open, chats, count, hidden, showHidden, onShowH
   }, [highlight, open, layout, viewport, query, state, agent]);
 
   // Escape closes the drawer and nothing else in the same press. With focus in the drawer (or on its toggle) it goes
-  // first, before an open chat's sheet; elsewhere the sheet, popovers, menus and fields keep Escape, and the drawer
-  // closes only once they are gone and focus is on the canvas or nowhere. Captured, so it runs before the sheet's own.
+  // first, before an open chat; elsewhere popovers, menus, fields and an active chat window that would take it (focus in
+  // it or on the page body) keep Escape, and the drawer closes once focus is on the canvas or nowhere. Captured, so it
+  // runs before the window's own.
   const closeRef = useRef(onClose); closeRef.current = onClose;
   useEffect(() => {
     if (!open) return;
@@ -213,7 +224,7 @@ export function LooseDrawer({id, open, chats, count, hidden, showHidden, onShowH
       const active = document.activeElement;
       const inside = Boolean(active && (root.current?.contains(active) || active.closest(`[aria-controls="${CSS.escape(id)}"]`)));
       if (!inside) {
-        if (document.querySelector('.canvas-chat[data-mode="focus"]:not(.is-passive)')) return;
+        if (chatTakesEscape(document.querySelector('.canvas-chat[data-mode="focus"]:not(.is-passive)'), active, document.body)) return;
         if (active && active !== document.body && (!active.closest('.canvas-main') || typing(active))) return;
       }
       event.preventDefault();

@@ -1385,6 +1385,12 @@
  */
 .canvas-view .dashboard-topbar.workspace-topbar {
   container: canvas-bar / inline-size;
+  /*
+   * Its menus (Needs you, the canvas switcher, the account menu) open down over the body, so the bar sits above the chat
+   * windows (z 3-6) there. The body is no stacking context, so App's dialogs (20) and the canvas's modals and popovers
+   * (60, rendered in the body) still cover the bar.
+   */
+  z-index: 10;
 }
 .canvas-search-button,
 .canvas-share-button,
@@ -1576,7 +1582,9 @@
   /* Until it is placed (the frame before its first measure), at the stage's top-left. */
   left: 16px;
   top: 16px;
-  z-index: 21;
+  /* The window layer (CanvasView's WINDOW_Z, front windows a step higher): over the canvas side and the drawer, under the
+     top bar's menus. A phone's full-screen chat sets its own below. */
+  z-index: 3;
   width: min(440px, calc(100% - 32px));
   max-height: min(720px, calc(100% - 32px));
   /* Room for the header, a few messages and the composer even while the thread loads. */
@@ -1609,10 +1617,15 @@
 }
 /*
  * A passive window (several chats open, one message box): its own live thread, read-only, and "Click to reply" where the
- * box would be. A press anywhere in it makes it the active window.
+ * box would be. A press anywhere in it (or Enter or Space on the window itself) makes it the active window.
  */
 .canvas-chat.is-passive {
   cursor: pointer;
+}
+/* It is in the Tab order: a keyboard focus on the window itself rings it. */
+.canvas-chat.is-passive:focus-visible {
+  outline: 2px solid var(--nest-lime);
+  outline-offset: 2px;
 }
 .canvas-chat-passive {
   flex: 1;
@@ -1631,7 +1644,7 @@
   font: 400 13px/1.4 Inter, sans-serif;
   text-align: center;
 }
-.canvas-chat.is-passive:hover .canvas-chat-reply {
+.canvas-chat.is-passive:is(:hover, :focus-visible) .canvas-chat-reply {
   color: var(--nest-text);
 }
 @media (prefers-reduced-motion: no-preference) {

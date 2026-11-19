@@ -112,7 +112,8 @@ export type SurfaceControls = {
 };
 /** A reveal reads at a comfortable size: never smaller than this. */
 const REVEAL_MIN_ZOOM = 0.8;
-const REVEAL_MS = 320;
+/** How long a reveal's move of the view takes. */
+export const REVEAL_MS = 320;
 /** How long a pressed link chip keeps its dotted line drawn after framing the two areas. */
 const LINK_FLASH_MS = 2600;
 const prefersReducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;

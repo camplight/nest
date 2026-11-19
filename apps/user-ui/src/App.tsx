@@ -1280,6 +1280,8 @@ export default function App() {
     if (!authenticated || mustChangePassword || wsConnected) return;
     const interval = window.setInterval(() => {
       void refreshChannelEvents();
+      // Passive canvas chat windows poll with the open chat, so none goes stale while the socket is down.
+      windowCoresRef.current.refreshAll();
       void loadMessageNotifications();
     }, 10000);
     return () => window.clearInterval(interval);
