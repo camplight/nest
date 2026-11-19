@@ -1,7 +1,7 @@
-import {DEFAULT_AGENT_MODEL_ID,defaultModelReference} from '@nest/orgops-client';
+import {DEFAULT_AGENT_MODEL_ID,defaultModelReference,ProjectNamingModelUnavailableError} from '@nest/orgops-client';
 import {registerDashboardActivityRoutes} from './dashboard-activity';
 import {registerModelPickerRoutes} from './model-picker';
-import {createProjectNamingWorker} from './project-naming-worker';
+import {createProjectNamingWorker,NamingStepError} from './project-naming-worker';
 import {registerCollaborationRoutes} from './collaboration';
 import { registerDemoRoutes } from './demos';
 import type {ProjectNamer} from './project-naming';
@@ -38,7 +38,7 @@ import { registerAgentMemoryRoutes } from './agent-memory';
 import { createContextCompactionWorker } from './context-compaction-worker';
 import type { HistorySummarizer } from './context-compaction';
 
-export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string; canvasEnabled?: boolean; compaction?: {engineToken?:string; summarize?:HistorySummarizer; now?:()=>number}; contextFilesDir?: string; contextSetupWaitMs?: number; switchyardName?: string; switchyardCreator?: string; switchyardWorkspaceRoot?: string; summarize?: Summarize; flowsNow?: () => number } = {}) {
+export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string; canvasEnabled?: boolean; compaction?: {engineToken?:string; summarize?:HistorySummarizer; now?:()=>number}; contextFilesDir?: string; contextSetupWaitMs?: number; switchyardName?: string; projectNamingLog?: (line: string) => void; switchyardCreator?: string; switchyardWorkspaceRoot?: string; summarize?: Summarize; flowsNow?: () => number } = {}) {
   const store = config.store ?? openProductDb(config.dbPath ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_PRODUCT_DB_PATH ?? '.nest-product/nest.sqlite'));
   const orgops = config.orgops ?? createOrgOpsClient(config.orgopsUrl ?? process.env.ORGOPS_URL ?? 'http://127.0.0.1:8788');
   const app = new Hono();
@@ -102,7 +102,8 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   registerMessageRoutes(app, {store,orgops});
   registerCollaborationRoutes(app,{store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
   registerAgentRequestRoutes(app,{store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
-  const namingSource=process.env.NEST_PROJECT_NAMING_AGENT_NAME??managementName;
+  // Without a naming or management agent, naming and summaries read the Switchyard agent's provider env (read-only; it is never started).
+  const namingSource=process.env.NEST_PROJECT_NAMING_AGENT_NAME||managementName||switchyard.name;
   registerProjectRoutes(app, {
     store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN,
   });
@@ -114,7 +115,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   contextAgents.registerRoutes(app, {enabled: canvasEnabled, files: contextFiles});
   // Summaries reuse the project-naming model path: the default model and its provider keys only.
   const summarize = config.summarize ?? createSummarizer({store, model: async () => {
-    if (!managementKey || !namingSource) return null;
+    if (!managementKey) return null;
     const response = await orgops.request('/api/models', {headers: {'x-orgops-runner-token': managementKey}});
     if (!response.ok) return null;
     const reference = defaultModelReference(defaultAgentModelId, orgops.nativeModels(await response.json()));
@@ -153,14 +154,14 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   registerAgentMemoryRoutes(app, {store, orgops, forward, now: config.compaction?.now});
   app.all('/api/*', proxy);
   app.all('/v1/*', proxy);
-  const projectNaming=createProjectNamingWorker({store,namer:config.projectNamer,context:async(projectId,requestId)=>{
+  const projectNaming=createProjectNamingWorker({store,namer:config.projectNamer,log:config.projectNamingLog,context:async(projectId,requestId)=>{
     const project=store.projects.project(projectId);
     if(!project)return null;
     const receipt=store.db.prepare('SELECT event_id,sender_name FROM product_message_requests WHERE id=? AND channel_id=? AND sender_id=? AND delivered_at IS NOT NULL').get(requestId,project.channelId,project.ownerId) as {event_id:string;sender_name:string}|undefined;
     if(!receipt)return null;
-    const input=await orgops.projectNamingContext({token:managementKey,modelId:config.projectNamingModelId??process.env.NEST_PROJECT_NAMING_MODEL_ID??defaultAgentModelId,preferFastModel:!config.projectNamingModelId&&!process.env.NEST_PROJECT_NAMING_MODEL_ID,eventId:receipt.event_id,channelId:project.channelId,ownerId:project.ownerId,senderName:receipt.sender_name});
+    const input=await orgops.projectNamingContext({token:managementKey,modelId:config.projectNamingModelId??process.env.NEST_PROJECT_NAMING_MODEL_ID??defaultAgentModelId,preferFastModel:!config.projectNamingModelId&&!process.env.NEST_PROJECT_NAMING_MODEL_ID,eventId:receipt.event_id,channelId:project.channelId,ownerId:project.ownerId,senderName:receipt.sender_name}).catch(error=>{throw error instanceof ProjectNamingModelUnavailableError?new NamingStepError('model unavailable'):error;});
     if(!input)return null;
-    const env=config.projectNamer?undefined:await orgops.projectNamingEnv({model:input.model,token:managementKey,agentName:namingSource,agentId:namingSource===managementName?managementId:undefined});
+    const env=config.projectNamer?undefined:await orgops.projectNamingEnv({model:input.model,token:managementKey,agentName:namingSource,agentId:namingSource===managementName?managementId:undefined}).catch(()=>{throw new NamingStepError('provider unavailable');});
     return {...input,env};
   }});
   const compactionToken = config.compaction ? config.compaction.engineToken : managementKey;

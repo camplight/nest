@@ -55,6 +55,11 @@ export function productHeaders(input: Headers): Headers {
   return headers;
 }
 
+/** The configured naming model is not an enabled native model; lets callers categorise the failure without reading messages. */
+export class ProjectNamingModelUnavailableError extends Error {
+  constructor(){super('Project naming model unavailable');this.name='ProjectNamingModelUnavailableError';}
+}
+
 export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fetch) {
   const base = new URL(baseUrl);
   if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password || base.pathname !== '/' || base.search || base.hash) throw new Error('ORGOPS_URL must be an HTTP origin');
@@ -186,7 +191,7 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     const available=nativeModels(models??[]);
     const fast=input.preferFastModel?available.find(m=>m.reference==='openrouter:google/gemini-2.5-flash'):undefined;
     const model=fast??available.find(m=>m.id===input.modelId||m.reference===input.modelId);
-    if(!model)throw Error('Project naming model unavailable');
+    if(!model)throw new ProjectNamingModelUnavailableError();
     return {text:event.payload.text,model:model.reference};
   }
   function agentManagement(serviceToken: string, sourceAgentName?: string) {

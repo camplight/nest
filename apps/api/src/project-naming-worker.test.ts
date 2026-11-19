@@ -1,6 +1,6 @@
 import {afterEach,describe,it,expect,vi} from 'vitest';
 import {openProductDb} from '@nest/db';
-import {createProjectNamingWorker} from './project-naming-worker';
+import {createProjectNamingWorker,NamingStepError} from './project-naming-worker';
 const stores:ReturnType<typeof openProductDb>[]=[];
 afterEach(()=>{for(const store of stores.splice(0))store.close();});
 function setup(){
@@ -56,5 +56,21 @@ describe('durable project naming',()=>{
     await createProjectNamingWorker({store,context,namer:async()=>({name:'',description:''})}).tick();
     expect(store.db.prepare('SELECT status FROM product_project_naming').get()).toEqual({status:'pending'});
     expect(store.projects.project('p')?.name).toBe('Can you build a shop?');
+  });
+  it('logs one fixed category per failed attempt and never the raw error',async()=>{
+    const secret='private-diagnostic sk-secret prompt text';
+    const failing=async()=>{throw Error(secret);};
+    const cases:[string,Parameters<typeof createProjectNamingWorker>[0]['context'],Parameters<typeof createProjectNamingWorker>[0]['namer']][]=[
+      ['project naming: generation failed',context,failing],
+      ['project naming: provider unavailable',async()=>{throw new NamingStepError('provider unavailable',{cause:Error(secret)});},async()=>details],
+      ['project naming: model unavailable',async()=>{throw new NamingStepError('model unavailable');},async()=>details],
+      ['project naming: context unavailable',failing as never,async()=>details],
+    ];
+    for(const [line,ctx,namer] of cases){
+      const store=setup(),log=vi.fn();
+      await createProjectNamingWorker({store,context:ctx,namer,log}).tick();
+      expect(log).toHaveBeenCalledTimes(1);expect(log).toHaveBeenCalledWith(line);
+      expect(JSON.stringify(log.mock.calls)).not.toMatch(/private-diagnostic|sk-secret|prompt text/);
+    }
   });
 });

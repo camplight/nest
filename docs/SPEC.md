@@ -1602,7 +1602,7 @@ deviations; item 16 the checks.
      all, with the results' attachments (at most 20);
    - `summary`: the turn's results summarised (`summarize.ts`, through the project
      naming path: `defaultAgentModelId` resolved by `/api/models`, with the provider
-     keys of the project-naming or management agent). The input is the last 12,000
+     keys of the project-naming agent, else the management agent, else the Switchyard agent). The input is the last 12,000
      characters, the output at most 400 tokens, and one 20 s deadline covers the
      model lookup and the call. It reads `Summary (by {model}):` and the text, and is
      audited to the link's creator as `audit.flows.summary` (purpose, ids, model and
@@ -3078,7 +3078,13 @@ The worker uses the existing enabled `NEST_PROJECT_NAMING_MODEL_ID` override or
 instance default model. Select an OpenRouter registry entry to use the existing
 OpenRouter key. Keys resolve from the API environment or the configured system
 agent's encrypted environment via HTTP; no agent turn or online runner is needed.
-The source agent record must still exist with owner-human secret delegation off.
+The source agent is `NEST_PROJECT_NAMING_AGENT_NAME`, else `NEST_MANAGEMENT_AGENT_NAME`,
+else the Switchyard service agent (the `switchyard.agent` name, default `Switchyard`), so
+installs without a management agent still name chats and summarise; Switchyard is only read
+via `/api/secrets/env`, never started or modified. The source agent record must still exist
+with owner-human secret delegation off. A failed attempt logs one fixed category
+(`project naming: provider unavailable`, `model unavailable`, `context unavailable` or
+`generation failed`), never the raw error, prompt or keys.
 `NEST_RUNNER_TOKEN` is required for the worker's engine metadata reads. Missing
 configuration, disabled models, timeouts, rate limits and invalid output retry
 up to five attempts with 30/60/120/240-second backoff, then keep fallback metadata.
