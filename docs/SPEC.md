@@ -3,8 +3,7 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The engine pin is OrgOps `10ab0fa` (camplight/orgops#101, on top of upstream
-main `59867614`, which adds OrgOps #94–98), including OrgOps #76
+The reviewed engine pin is upstream main `e64fc064`, including OrgOps #76
 voice/realtime support, #79 restart metadata, #80 byte-budget compatibility,
 the merged security fixes and #82 realtime maintenance environment handling.
 It also includes #83 runner socket wakeups with HTTP catch-up, #84 private invite

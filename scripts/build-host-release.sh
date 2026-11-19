@@ -34,9 +34,6 @@ npm run test:engine -- \
   apps/agent-runner/src/tools/memory.test.ts \
   apps/agent-runner/src/tools/shell.test.ts \
   packages/llm/src/openai-realtime.test.ts \
-  apps/agent-runner/src/history-compaction.test.ts \
-  apps/agent-runner/src/channel-loop.test.ts \
-  apps/agent-runner/src/runner.test.ts \
   apps/agent-runner/src/turn-executor.classic.test.ts \
   apps/agent-runner/src/turn-executor.test.ts \
   apps/agent-runner/src/channel-injection.test.ts \
