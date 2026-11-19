@@ -115,7 +115,7 @@ function AgentDetails({ tab,name, userId, onSaved, setup, onChat, onResume }: { 
           <dt>Runner</dt><dd>{agent.assignedRunnerId || "Unassigned"}</dd>
           <dt>Skills</dt><dd>{wrapped ? "Managed by external runtime" : agent.enabledSkills?.join(", ") || "None enabled"}</dd>
         </dl></section>
-        
+
           </div>
         </details>
         {!editable && <p>These settings are read-only. Only this private agent’s owner can edit them.</p>}
