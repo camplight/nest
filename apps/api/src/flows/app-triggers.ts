@@ -136,9 +136,8 @@ export function createAppTriggers({ store, hooks, switchyard, provider, secret, 
       const instance = event.metadata?.trigger_id;
       const t = typeof instance === 'string' ? triggers.triggerByComposioId(instance) : null;
       if (!t || !t.on) return ok();
-      // An event for another account than the one Nest made the instance on is not this trigger's.
-      const account = event.metadata?.connected_account_id;
-      if (typeof account === 'string' && account !== t.connectedAccountId) return ok();
+      // An event that does not name the account Nest made the instance on is not this trigger's.
+      if (event.metadata?.connected_account_id !== t.connectedAccountId) return ok();
       id = t.id;
       const given = typeof event.id === 'string' && event.id ? event.id : header('webhook-id');
       const eventId = given.length <= MAX_EVENT_ID ? given : sha256(given);
@@ -155,6 +154,8 @@ export function createAppTriggers({ store, hooks, switchyard, provider, secret, 
         }
         return ok();
       }
+      // Concurrent deliveries of one event can all get here; they post with the same idempotency key, which the engine
+      // keeps unique, so they are one message.
       await hooks.postRun(t, verdict.username, {
         kind: 'app-event', heading: 'App event', payload: eventPayload(t, event.data), key: `nest:app:${t.id}:${eventId}`,
       });
@@ -250,8 +251,14 @@ export function registerAppTriggerRoutes(routes: Hono<{ Variables: { human: Huma
       if (error instanceof ProviderRequestError && (error.status === 400 || error.status === 422)) throw fail(400, 'Composio refused these settings');
       throw unavailable();
     }
-    // Composio upserts: the same event on the same account with the same settings is one instance, already another trigger's.
-    if (triggers.triggerByComposioId(triggerId)) throw fail(409, 'This app event is already set up');
+    // Composio upserts: the same event on the same account with the same settings is one instance. When it is already
+    // stored, it is this request's trigger (a retry that raced the original: the same answer) or another trigger's (409).
+    const holder = triggers.triggerByComposioId(triggerId);
+    if (holder) {
+      if (holder.id !== input.id || holder.createdBy !== human.id || !same(holder, input)) throw fail(409, 'This app event is already set up');
+      const answer: CreatedAppTrigger = { trigger: triggerView(triggers.trigger(holder.id)!, channel, human) };
+      return c.json(answer, 200);
+    }
     let t: Trigger;
     try {
       t = triggers.createAppTrigger({

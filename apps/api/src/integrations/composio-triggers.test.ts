@@ -33,10 +33,10 @@ const type = (slug: string, toolkit = 'github') => ({
 });
 
 describe('Composio triggers client', () => {
-  it('lists a toolkit\'s trigger types across pages, keeping only that toolkit\'s', async () => {
+  it('lists a toolkit\'s trigger types across pages, keeping only those that name that toolkit', async () => {
     const { seen, triggers } = fake(({ query }) => Response.json(query.cursor
       ? { items: [type('GITHUB_STAR_ADDED_EVENT')], next_cursor: null }
-      : { items: [type('GITHUB_COMMIT_EVENT'), type('SLACK_RECEIVE_MESSAGE', 'slack')], next_cursor: 'page-2' }));
+      : { items: [type('GITHUB_COMMIT_EVENT'), type('SLACK_RECEIVE_MESSAGE', 'slack'), { ...type('NO_TOOLKIT_EVENT'), toolkit: undefined }], next_cursor: 'page-2' }));
     expect(await triggers.types('github')).toEqual([
       { slug: 'GITHUB_COMMIT_EVENT', name: 'Name GITHUB_COMMIT_EVENT', description: 'About GITHUB_COMMIT_EVENT', config: { type: 'object', properties: { repo: { type: 'string' } } } },
       { slug: 'GITHUB_STAR_ADDED_EVENT', name: 'Name GITHUB_STAR_ADDED_EVENT', description: 'About GITHUB_STAR_ADDED_EVENT', config: { type: 'object', properties: { repo: { type: 'string' } } } },

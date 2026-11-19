@@ -64,13 +64,22 @@ describe('app-event triggers through Composio', () => {
   // Composio as the fake sees it: every call, the next instance id, and a status to fail trigger-instance calls with.
   const composio: { method: string; path: string; body: unknown }[] = [];
   let nextInstance = 0, instanceStatus: number | null = null;
+  // Composio upserts: one instance per (event, account, settings); and each instance's state as Composio last set it.
+  const upserted = new Map<string, string>(), enabledAt = new Map<string, boolean>();
+  // Holds calls whose path matches until `count` of them have arrived, so concurrent requests interleave there.
+  let barrier: { path: RegExp; count: number; waiting: (() => void)[] } | null = null;
 
   const provider = () => createComposioProvider({
     apiKey: 'service-key', instanceId: 'test', callbackUrl: 'https://nest.example/onboarding', authConfigs: { github: 'ac_1' },
     fetch: async (url, init) => {
       const u = new URL(String(url));
       const path = u.pathname.replace('/api/v3.1', ''), method = init?.method ?? 'GET';
-      composio.push({ method, path, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      composio.push({ method, path, body });
+      if (barrier?.path.test(path)) {
+        const held = barrier;
+        await new Promise<void>(release => { held.waiting.push(release); if (held.waiting.length >= held.count) held.waiting.forEach(r => r()); });
+      }
       if (path === '/connected_accounts') {
         // Each person has GitHub connected (and an unfinished Slack sign-in); nobody has Linear.
         const subject = u.searchParams.get('user_ids')!;
@@ -86,8 +95,18 @@ describe('app-event triggers through Composio', () => {
         ], next_cursor: null });
       }
       if (instanceStatus !== null && path.startsWith('/trigger_instances')) return Response.json({ error: { message: 'secret-provider-detail' } }, { status: instanceStatus });
-      if (path === `/trigger_instances/${COMMIT}/upsert`) return Response.json({ trigger_id: `ti_${++nextInstance}` }, { status: 201 });
-      if (path.startsWith('/trigger_instances/manage/')) return method === 'DELETE' ? new Response(null, { status: 204 }) : Response.json({ status: 'success' });
+      if (path === `/trigger_instances/${COMMIT}/upsert`) {
+        const key = JSON.stringify(body);
+        if (!upserted.has(key)) upserted.set(key, `ti_${++nextInstance}`);
+        enabledAt.set(upserted.get(key)!, true);
+        return Response.json({ trigger_id: upserted.get(key) }, { status: 201 });
+      }
+      if (path.startsWith('/trigger_instances/manage/')) {
+        const instance = decodeURIComponent(path.slice('/trigger_instances/manage/'.length));
+        if (method === 'DELETE') { enabledAt.delete(instance); return new Response(null, { status: 204 }); }
+        enabledAt.set(instance, (body as { status: string }).status === 'enable');
+        return Response.json({ status: 'success' });
+      }
       throw Error(`Unexpected provider request ${method} ${path}`);
     },
   });
@@ -139,7 +158,8 @@ describe('app-event triggers through Composio', () => {
     vi.stubEnv('ORGOPS_MASTER_KEY', Buffer.alloc(32, 98).toString('base64'));
     dir = mkdtempSync(join(tmpdir(), 'nest-app-triggers-test-'));
     clock = Date.now();
-    logs.length = 0; composio.length = 0; nextInstance = 0; instanceStatus = null;
+    logs.length = 0; composio.length = 0; nextInstance = 0; instanceStatus = null; barrier = null;
+    upserted.clear(); enabledAt.clear();
     engine = createEngine({ dbPath: join(dir, 'engine.sqlite'), dataDir: dir, projectRoot: dir, adminUser: 'owner', adminPass: 'password', runnerToken: RUNNER });
     client = createOrgOpsClient('http://engine', (async (url, init) => engine.app.fetch(new Request(url, init))) as typeof fetch);
     product = make(SECRET);
@@ -311,6 +331,12 @@ describe('app-event triggers through Composio', () => {
     };
     expect((await receive(event(instanceOf(trigger.id)))).status).toBe(200);
     expect(product.store.schedules.trigger(trigger.id)).toMatchObject({ on: true });
+    // So is an event naming no account at all.
+    const anonymous = event(instanceOf(trigger.id));
+    for (const connected_account_id of [undefined, 42]) {
+      expect((await receive({ ...anonymous, id: `evt_${randomUUID()}`, metadata: { ...anonymous.metadata, connected_account_id } })).status).toBe(200);
+    }
+    expect(product.store.schedules.trigger(trigger.id)).toMatchObject({ on: true });
     expect((await receive(forMate())).status).toBe(200);
     expect(product.store.schedules.trigger(trigger.id)).toMatchObject({ on: false, pausedReason: 'access' });
     expect(instanceCalls()).toEqual([{ method: 'PATCH', path: '/trigger_instances/manage/ti_1', body: { status: 'disable' } }]);
@@ -347,5 +373,46 @@ describe('app-event triggers through Composio', () => {
     // Events for the deleted trigger are acknowledged and dropped.
     expect((await receive(event('ti_1'))).status).toBe(200);
     expect(await appMessages(a)).toEqual([]);
+  });
+
+  it('keeps Composio in step with Nest when two toggles race on one version', async () => {
+    const { trigger } = await create(owner);
+    // Both requests pass the version check and reach Composio before either writes; one wins, one gets 409.
+    barrier = { path: /^\/trigger_instances\/manage\//, count: 2, waiting: [] };
+    const answers = await Promise.all([
+      call(owner, 'PATCH', `/api/flows/triggers/${trigger.id}`, { on: false, version: 0 }),
+      call(mate, 'PATCH', `/api/flows/triggers/${trigger.id}`, { on: false, version: 0 }),
+    ]);
+    barrier = null;
+    expect(answers.map(r => r.status).sort()).toEqual([200, 409]);
+    const stored = product.store.schedules.trigger(trigger.id)!;
+    expect(stored).toMatchObject({ on: false, version: 1 });
+    expect(enabledAt.get(instanceOf(trigger.id))).toBe(stored.on);
+  });
+
+  it('posts concurrent deliveries of one event once (the engine keeps one message per key)', async () => {
+    const { trigger } = await create(owner);
+    const body = event(instanceOf(trigger.id));
+    const answers = await Promise.all([receive(body), receive(body), receive(body)]);
+    for (const r of answers) expect([200, 202]).toContain(r.status);
+    expect(await appMessages(a)).toHaveLength(1);
+    expect(product.store.schedules.seenAppEvent(body.id)).toBe(true);
+  });
+
+  it('a retried create racing the original is the same trigger, not a conflict', async () => {
+    const id = randomUUID();
+    const input = { kind: 'app', id, channelId: a, agent: 'Pip', prompt: 'Summarise the commit', label: 'GitHub', app: 'github', triggerSlug: COMMIT, config: { owner: 'acme', repo: 'web' } };
+    // Both reach Composio's upsert (one instance) before either stores the trigger.
+    barrier = { path: /\/upsert$/, count: 2, waiting: [] };
+    const answers = await Promise.all([call(owner, 'POST', '/api/flows/triggers', input), call(owner, 'POST', '/api/flows/triggers', input)]);
+    barrier = null;
+    expect(answers.map(r => r.status).sort()).toEqual([200, 201]);
+    const [first, second] = (await Promise.all(answers.map(r => r.json()))) as { trigger: TriggerView }[];
+    expect(first.trigger.id).toBe(id);
+    expect(second.trigger.id).toBe(id);
+    expect(product.store.schedules.triggersIn([a])).toHaveLength(1);
+    expect(instanceOf(id)).toBe('ti_1');
+    // The instance stays: nothing deleted it.
+    expect(instanceCalls().some(c => c.method === 'DELETE')).toBe(false);
   });
 });

@@ -376,8 +376,12 @@ export function registerTriggerRoutes(routes: Hono<{ Variables: { human: Human }
       const updated = triggers.patchTrigger(t.id, patch, version, human.id);
       return c.json(triggerView(updated, channels.get(updated.channelId), human));
     } catch (error) {
-      // Someone changed it meanwhile: Composio goes back to how the trigger was.
-      if (toggled) await app.setEnabled(t, t.on).catch(() => undefined);
+      // Someone changed it meanwhile (a toggle racing this one, on the same version): Composio follows the trigger as it
+      // is now, not as this request read it. A trigger deleted meanwhile took its instance with it.
+      if (toggled) {
+        const current = triggers.trigger(t.id);
+        if (current && current.on !== patch.on) await app.setEnabled(current, current.on).catch(() => undefined);
+      }
       if (error instanceof CanvasConflictError) return conflict(c, t.id, channels, human);
       throw error;
     }

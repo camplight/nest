@@ -36,9 +36,10 @@ export function createComposioTriggers(client: ComposioClient): AppTriggerProvid
           query: { toolkit_slugs: toolkit, limit: "50", ...(cursor ? { cursor } : {}) },
         });
         for (const item of r?.items ?? []) {
+          // Only types that name this toolkit: the list is what a new trigger may use.
           const slug = item?.toolkit?.slug;
           const t = triggerType(item);
-          if (t && (typeof slug !== "string" || slug.toLowerCase() === toolkit.toLowerCase())) items.push(t);
+          if (t && typeof slug === "string" && slug.toLowerCase() === toolkit.toLowerCase()) items.push(t);
         }
         cursor = typeof r?.next_cursor === "string" && r.next_cursor ? r.next_cursor : undefined;
         if (!cursor) break;
