@@ -570,10 +570,11 @@ schedules and triggers (these arrived with Phase 3), per-chat agent setup,
 sandboxes and repos. Needs you covered unread mentions and tasks waiting for review
 only; approvals and missed runs have since arrived with Phase 3, and picks arrive
 with Phase 4. Inviting agents
-on the canvas works by drag only, with no keyboard or touch route yet. Moving cards
-and areas by keyboard has since arrived: an editor's focused card or area moves with
-the arrow keys (8 px, 40 with Shift), stored once per burst like a drop. Loose chats the person has hidden are not searchable with Ctrl/Cmd+K
-unless Show hidden is on.
+on the canvas first worked by drag only; drag labels and an Add agent picker have
+since arrived (see Phase 2 below). Moving cards and areas by keyboard has also
+arrived: an editor's focused card or area moves with the arrow keys (8 px, 40 with
+Shift), stored once per burst like a drop. Ctrl/Cmd+K now always finds archived loose
+chats, labelled Archived and listed after other matches.
 
 ## Switchyard canvas — Phase 2 implemented on the branch
 
@@ -602,6 +603,22 @@ The canvas was then reworked to match the design mockup
     `013`.
   - Loose chats open in a left drawer from the top bar.
 
+Done since, in the 2026-11-19 overnight batch (local, not pushed or deployed):
+
+- A flat 1.5 px area-tinted card border replaces the 4 px top stripe.
+- The legend (working, waiting on you, gone quiet, plus the tray hint), the summary
+  line (`N chats · X moving · Y quiet`) and share avatars (up to three initials then
+  `+N`; membership, not live presence).
+- Drag labels ("Invite Moss to …") and an Add agent picker in the chat's More menu.
+- The Apps here chips filter an open chat's timeline to one app.
+- New chat buttons: the toolbar's Chat and each area's `+ Chat`.
+- Rename a chat from its window title (owner only).
+- Paste links and files into the context popover, with a Links section; agents read
+  the links through `nest-context`.
+- Chat naming and hand-off summaries fall back to the Switchyard agent's provider keys
+  when no naming or management agent is configured. Jobs that already failed are not
+  re-run.
+
 Smaller differences from the mockup are left as follow-ups:
 
 - **Areas:**
@@ -618,19 +635,15 @@ Smaller differences from the mockup are left as follow-ups:
   - sleepy styling for quiet agents (`z z`)
   - the mockup's compact far-zoom card
 - **Chats:**
-  - Apps here chips filter the timeline to one app
   - changes outside Nest are emphasised in coral
   - a single bottom-centre toast for notices, with "Moved into {area}" wording
   - an icon-only mic with a pulsing recording state
 - **Agents:**
-  - drag-ghost labels ("Invite Moss to …") for tray drags
   - a hint when the Pinned tray is empty
 - **Top bar:**
   - a floating top-bar pill holding New area, Loose chats, Scheduled and Search
   - Needs you cycles through chats
-  - a share pill with presence avatars
-  - the canvas summary line
-- **Canvas:** a legend for working, waiting on you and gone quiet.
+  - live presence on the share pill (Nest has no presence signal)
 
 ## Switchyard canvas — Phase 3 implemented on the branch
 
@@ -662,23 +675,27 @@ routes, thresholds and the deliberate differences from the mockup:
 [SPEC.md, Switchyard canvas (Phase 3)](SPEC.md#switchyard-canvas-phase-3).
 Implemented on `feat/switchyard-canvas`; not pushed or deployed.
 
+Done in the overnight batch (local, not pushed or deployed):
+
+- Team and viewer-share access in flows follows the engine: post is the owner, a
+  human subscription or a team subscription the creator belongs to; read adds public
+  chats and viewer shares. Forking needs post access to the parent.
+- App-event triggers through Composio. The operator sets
+  `NEST_COMPOSIO_WEBHOOK_SECRET` from the Composio project's webhook subscription
+  and the install needs a public origin for events to arrive; the kind is offered
+  only then. Nest never changes the Composio subscription itself.
+
 Follow-ups:
 
-- App-event triggers through Composio. The integrations provider has no trigger
-  subscriptions, webhook endpoint or signature checks yet, so that kind is not
-  offered.
 - Engine recurrence (upstream proposal U3), as an optional simplification of Nest
   booking one run at a time.
 - Fork history (upstream proposal U6), so a fork can carry its parent's history
   rather than a seeded summary.
-- The canvas on phones, as the design mockup shows: implemented on
-  `feat/switchyard-canvas` (2026-11-19 overnight batch). At 760 px and below the
-  canvas shows with the tablet pinch and pan, without the legend or zoom buttons,
-  with the drawer and open chat at screen width; the list (Areas, Needs you, Loose
-  chats) is a `List` toggle remembered per browser; the `+` port is hidden there and
-  never dragged by touch (the chat picker connects). The design spec and SPEC are
-  updated and the canvas browser suite's phone scenarios rewritten; they still need
-  a CI run and a check on a real phone.
+- Re-running naming jobs that failed before the Switchyard fallback.
+- A CI run of the canvas browser suite (including the rewritten phone scenarios) and
+  a check on a real phone. The phone canvas itself is implemented on the branch: at
+  760 px and below it shows with pinch and pan, without the legend or zoom buttons,
+  with a `List` toggle remembered per browser; the `+` port is hidden there.
 
 ## First-visit visual orientation
 

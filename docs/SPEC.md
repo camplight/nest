@@ -1014,6 +1014,19 @@ Phase 1 is built from
    area from these" says "New area with N chats. Rename it, and add context they should
    all share." Double-click and the `⋯` menu still rename.
 
+   New chats. An editor's toolbar has a Chat button next to Area, and each area's title
+   bar a `+ Chat` button (also `New chat here` in its menu; hidden at far zoom). Either
+   creates a team chat named `New chat` with the person's own agent, places its card at
+   the view's centre or in a free spot inside the area (which grows to fit, so the chat
+   shares the area's context), and opens it in the current chat mode (floating by
+   default) with the composer focused. The first message names the chat, as from the
+   bottom box.
+
+   Renaming a chat. The chat's owner clicks its title in the open chat's header, or
+   chooses `Rename chat` in the More menu. Enter or leaving the field saves through
+   `PATCH /api/projects/:id` with the expected old name; Escape keeps the old one. The
+   list and board reload so the card shows the new name. Others cannot rename it.
+
 6. Phones and display. On viewports up to 760 px wide the canvas is shown, as in the
    mockup, with the tablet's pinch zoom and pan (`phone-view.ts`, `canvasChrome`): the
    zoom buttons and Fit and the legend are left out, the navigation rail is already the
@@ -1118,13 +1131,19 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    - `POST /api/canvases/:id/cards/:channelId/home` ("Use this area's context"; chat
      members only)
 
-   The popover pastes: with it focused (outside its fields), editors can paste files,
-   which upload as if dropped, or text with up to 10 web addresses, which become links
-   (the title comes from a single copied anchor). A Links section between Files and Also
-   uses lists each link's title or address, its host, opens it in a new tab with
-   `rel="noopener noreferrer"` and lets editors remove it. A viewer's paste does nothing.
+   The popover pastes. Editors can paste files, which upload as if dropped, or text with
+   up to 10 web addresses, which become links. Paste reaches the popover wherever focus
+   is: a document listener runs while the popover is open and acts when focus is inside
+   the panel (outside its fields) or nowhere (the body, after a press on plain popover
+   text or a removed button). The composer is outside the panel and handles its own
+   images, so no paste is handled twice. The title comes from a single copied anchor;
+   when the plain text carries no address, a copied hyperlink falls back to the
+   anchor's `href`, with its text as the title. A Links section between Files and Also uses lists each link's title or
+   address, its host, opens it in a new tab with `rel="noopener noreferrer"` and lets
+   editors remove it. A viewer's paste does nothing.
    Messages: `Paste a link or a file to add it here.`, `Already in context`,
-   `Context is full: 50 links`.
+   `Context is full: 50 links`. The hint (`Paste a link or a file to add it here.`) is a
+   muted status line, not an alert.
 
    Limits, each rejected with 400: notes 20,000 characters per scope, 20 files per
    upload request, 20 MiB per file, 50 files per scope, 200 MiB of context files per
