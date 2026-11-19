@@ -1001,13 +1001,19 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
   const moveToAreaRef = useRef(moveToArea); moveToAreaRef.current = moveToArea;
   const [searchOpen, setSearchOpen] = useState(false);
   useEffect(() => { setSearchOpen(false); }, [canvasId]);
-  const index = useMemo(() => searchIndex({canvases: canvases ?? [], board, loose}), [canvases, board, loose]);
+  // Archived (hidden) chats are always searchable, whatever the drawer's Show archived says; the drawer's list is unchanged.
+  const index = useMemo(() => {
+    const listed = new Set(loose.map(chat => chat.channelId));
+    return searchIndex({canvases: canvases ?? [], board, archived: hidden, loose: [...loose, ...candidates.filter(chat => hidden.has(chat.channelId) && !listed.has(chat.channelId))]});
+  }, [canvases, board, loose, candidates, hidden]);
   const choose = useCallback((item: SearchItem) => {
     setSearchOpen(false);
     if (item.kind === 'area') controls.current?.reveal({areaId: item.id});
     else if (item.kind === 'canvas') { if (item.id !== canvasId) selectRef.current(item.id); }
+    // An archived chat opens in place; it stays archived and the drawer is not touched.
+    else if (item.archived) openLoose(item.id);
     else jumpTo(item.id);
-  }, [canvasId, jumpTo]);
+  }, [canvasId, jumpTo, openLoose]);
   // Ctrl/Cmd+K opens the search, except while typing in any other field: a composer may use it.
   useEffect(() => {
     if (!canvasId) return;

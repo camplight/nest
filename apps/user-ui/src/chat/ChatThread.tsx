@@ -12,6 +12,7 @@ import {AssistantRuntimeProvider,ThreadPrimitive,useAuiState,useExternalStoreRun
 import type {ChannelEventsCore,ChannelEventsSnapshot} from './channel-events';
 import {serverClock} from '../server-clock';
 import {ChatAppsHere,useServerTick} from './AppsHere';
+import {filterTimelineByApp} from './filter-app';
 import {ExportButton} from './ExportButton';
 import {ChatHeaderSlotsContext} from './header-slots';
 import {formatTime} from './format';
@@ -271,7 +272,11 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  useServerTick(!!apps&&[...apps.lines.values()].some(call=>call.state==='running'),serverClock,setTick);
  const [expandedFolds,setExpandedFolds]=useState<ReadonlySet<string>>(new Set());
  useEffect(()=>setExpandedFolds(new Set()),[snapshot.channelId]);
- const folding=useMemo(()=>foldAgentTimeline(items,expandedFolds,focusedMessageId),[items,expandedFolds,focusedMessageId]);
+ // The Apps here filter (only where that bar shows): one app per open chat, not saved, cleared when the chat changes.
+ const [appFilter,setAppFilter]=useState<string|null>(null);
+ useEffect(()=>setAppFilter(null),[snapshot.channelId]);
+ const shown=useMemo(()=>props.appActivity?filterTimelineByApp(items,appFilter):items,[items,appFilter,props.appActivity]);
+ const folding=useMemo(()=>foldAgentTimeline(shown,expandedFolds,focusedMessageId),[shown,expandedFolds,focusedMessageId]);
  const toggleFold=useCallback((id:string)=>{
   const control=[...folding.controls.values()].find(value=>value.fold.id===id);
   if(control?.expanded&&focusedMessageId&&control.fold.hiddenIds.includes(focusedMessageId))props.onFocusMessage(control.fold.latestId);
@@ -358,7 +363,7 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
    {slots
     ? <>{slots.actions&&createPortal(props.headerActions,slots.actions)}{slots.more&&createPortal(<>{props.headerMore}<ExportButton items={items} channelLabel={props.channelLabel} menuItem/></>,slots.more)}</>
     : <div className="chat-header-actions flex shrink-0 flex-wrap items-center justify-end gap-3 px-3 pb-2 empty:hidden">{props.headerMore}{props.headerActions}<span className="max-[761px]:hidden"><ExportButton items={items} channelLabel={props.channelLabel}/></span></div>}
-   {props.appActivity&&<ChatAppsHere events={snapshot.events} wrappedAgents={props.wrappedAgents??NO_AGENTS}/>}
+   {props.appActivity&&<ChatAppsHere events={snapshot.events} wrappedAgents={props.wrappedAgents??NO_AGENTS} selected={appFilter} onSelect={setAppFilter}/>}
    <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
     <ThreadPrimitive.Viewport ref={panelRef} turnAnchor="bottom" autoScroll={!focusPending} scrollToBottomOnInitialize={!focusedMessageId}
      onScroll={onScroll} className={cn('messages-panel gap-0 px-1 pt-1 pb-4 sm:ps-2 sm:pe-3',(empty||props.isConversationEmpty)&&'messages-panel-empty')}>

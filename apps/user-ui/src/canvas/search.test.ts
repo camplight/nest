@@ -44,6 +44,15 @@ describe('searchIndex',()=>{
     expect(rank(index,'private')).toEqual([]);
     expect(rank(index,'secret')).toEqual([]);
   });
+  it('tags archived loose chats and ranks them after every non-archived match',()=>{
+    const index=searchIndex({canvases:[canvas('k1','Notes canvas')],board:board([]),loose:[loose('l1','Notes old'),loose('l2','My notes')],archived:new Set(['l1'])});
+    expect(index.filter(i=>i.kind==='loose').map(i=>[i.id,i.archived===true])).toEqual([['l1',true],['l2',false]]);
+    expect(rank(index,'notes').map(i=>i.id)).toEqual(['k1','l2','l1']);
+  });
+  it('keeps archived chats last even when they match better',()=>{
+    const index=searchIndex({canvases:[],board:board([open('c1','The launch plan')]),loose:[loose('l1','Launch')],archived:new Set(['l1'])});
+    expect(rank(index,'launch').map(i=>i.id)).toEqual(['c1','l1']);
+  });
   it('works without a board',()=>{
     expect(searchIndex({canvases:[canvas('k1','Launch')],board:null,loose:[]}).map(i=>i.kind)).toEqual(['canvas']);
   });

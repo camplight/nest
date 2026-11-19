@@ -877,7 +877,8 @@ Phase 1 is built from
    every other view (which start expanded) and whether the sidebar's agent list is
    shown are remembered per browser. Phones keep the full slide-in menu. Search (Ctrl/Cmd+K)
    finds cards, areas, loose chats and canvases; loose chats the person has archived
-   are not searchable unless Show archived is on. Needs you lists unread mentions,
+   are always searchable, tagged Archived and listed after every other match, and
+   opening one leaves it archived (the drawer's Show archived is unchanged). Needs you lists unread mentions,
    tasks waiting for review and, with flows set up, the person's flow items (Phase 3:
    hand-offs awaiting their OK, their paused links and missed runs) on chats the person
    can see.
@@ -1254,7 +1255,8 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    list. With the flag off, attachments render as described under Chat attachments.
    Running and failed calls are counted. Cards show the apps used, and the chat's
    "Apps here" bar shows "N reads · M changes outside Nest" (singular for one, "nothing changed outside Nest" for none) for the loaded history
-   only, so long chats under-report until older pages load. A call still running
+   only (the chips are toggles: choosing one shows only that app's tool activity lines, hides messages
+   and shows "Showing only <App> · Show all"; per open chat, not saved), so long chats under-report until older pages load. A call still running
    after 10 minutes counts as failed; that window uses a server clock taken from
    response `Date` headers and realtime events, not the browser clock. Wrapped agents
    report no `tool.*` events, so their app use is not shown, and the chat says so.

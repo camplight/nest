@@ -53,6 +53,7 @@ export function CanvasSearch({items, onClose, onChoose}: CanvasSearchProps) {
           {group.results.map(item => <div key={item.id} id={optionId(item)} role="option" aria-selected={flat[current] === item} className="canvas-search-option"
             onMouseMove={() => setActive(flat.indexOf(item))} onClick={() => onChoose(item)}>
             <span className="canvas-search-label">{item.label}</span>
+            {item.archived ? <span className="canvas-search-tag">Archived</span> : null}
             <span className="canvas-search-detail">{item.detail}</span>
           </div>)}
         </div>)}

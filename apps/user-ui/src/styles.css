@@ -1855,6 +1855,11 @@ button {
 .apps-here-chip .connection-app-logo { display:inline-grid; place-items:center; width:18px; height:18px; }
 .apps-here-chip .connection-app-logo img { width:15px; height:15px; }
 .apps-here-chip .connection-app-logo svg { width:14px; height:14px; }
+.apps-here-toggle { display:inline-flex; align-items:center; gap:6px; margin:-2px -8px -2px -4px; padding:2px 8px 2px 4px; border:0; border-radius:8px; background:transparent; color:inherit; font:inherit; cursor:pointer; }
+.apps-here-toggle:focus-visible { outline:2px solid var(--nest-forest); outline-offset:1px; }
+.apps-here-chip:has(.apps-here-toggle[aria-pressed="true"]) { background:var(--nest-muted-surface); border-color:var(--nest-text); }
+.apps-here-filter { flex-basis:100%; display:flex; align-items:center; gap:8px; margin:0; }
+.apps-here-clear { padding:0; border:0; background:transparent; color:inherit; font:inherit; text-decoration:underline; cursor:pointer; }
 .apps-here-name { font-weight:500; }
 .apps-here-count { min-width:1.2em; text-align:center; font-variant-numeric:tabular-nums; color:var(--nest-muted); }
 .apps-here-chip.is-live { border-color:#1f7f6c; }

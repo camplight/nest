@@ -2624,10 +2624,20 @@
   outline-color: var(--nest-lime);
 }
 .canvas-search-label {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.canvas-search-tag {
+  flex: none;
+  align-self: center;
+  border: 1px solid var(--nest-border);
+  border-radius: 6px;
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--nest-muted);
 }
 .canvas-search-detail {
   flex: none;
