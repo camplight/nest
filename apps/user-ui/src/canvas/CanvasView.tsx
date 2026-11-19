@@ -448,6 +448,9 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
    */
   const [floating, setFloating] = useState<{win: ChatWindow; bounds: Bounds} | null>(null);
   const windowFor = windowed ? chatChannelId : null;
+  // Placed again once the stage is there: a chat opened while the canvas loads (a reload or deep link) first measures the
+  // bare body, with no card and no bottom box to keep clear of.
+  const stageFor = board?.canvas.id ?? null;
   useLayoutEffect(() => {
     const body = viewRoot.current?.querySelector<HTMLElement>('.canvas-body');
     const frame = windowFor && body ? windowFrame(body) : null;
@@ -458,7 +461,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     const at = placeWindow(onScreen ? {x: card.left - frame.body.left, y: card.top - frame.body.top, w: card.width} : null, null,
       clearOfDrawer(frame.bounds, drawer?.width ? drawer.right - frame.body.left : null));
     setFloating({win: {channelId: windowFor, ...at}, bounds: frame.bounds});
-  }, [windowFor]);
+  }, [windowFor, stageFor]);
   useEffect(() => {
     if (!windowFor) return;
     const resize = () => {
