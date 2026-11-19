@@ -169,3 +169,51 @@ describe('webhook trigger store', () => {
     expect(audit).not.toMatch(/h1|h2|wxyz/);
   });
 });
+
+describe('app-event trigger store', () => {
+  const DAY = 86_400_000;
+  const appTrigger = (channelId: string, extra: Record<string, unknown> = {}) => store.schedules.createAppTrigger({
+    id: randomUUID(), channelId, agent: 'Pip', prompt: 'Summarise the commit', label: 'GitHub', app: 'github',
+    triggerSlug: 'GITHUB_COMMIT_EVENT', config: { owner: 'acme', repo: 'web' }, composioTriggerId: `ti_${randomUUID()}`,
+    connectedAccountId: 'ca_private', createdBy: 'u', now: 1000, ...extra,
+  });
+  it('applies 019_app_triggers: the kind and Composio columns, and the event table', () => {
+    const names = (store.db.prepare('SELECT name FROM product_migrations').all() as { name: string }[]).map(r => r.name);
+    expect(names).toContain('019_app_triggers');
+    const columns = (store.db.prepare('PRAGMA table_info(product_triggers)').all() as { name: string }[]).map(c => c.name);
+    expect(columns).toEqual(expect.arrayContaining(['kind', 'app_slug', 'trigger_slug', 'composio_trigger_id', 'connected_account_id', 'trigger_config_json']));
+    expect(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='product_app_trigger_events'").get()).toBeTruthy();
+    // A webhook made the old way is a webhook.
+    const { trigger } = store.schedules.createTrigger({ id: randomUUID(), channelId: 'c1', agent: 'Pip', prompt: 'x', label: 'y', tokenHash: 'h1', tokenHint: 'abcd', createdBy: 'u', now: 1 });
+    expect(trigger).toMatchObject({ kind: 'webhook', app: null, triggerSlug: null, config: null });
+  });
+  it('keeps the Composio ids out of the trigger, finds it by its Composio id only, and shares the per-chat cap', () => {
+    const t = appTrigger('c1', { composioTriggerId: 'ti_1' });
+    expect(t).toMatchObject({ kind: 'app', app: 'github', triggerSlug: 'GITHUB_COMMIT_EVENT', config: { owner: 'acme', repo: 'web' }, on: true, tokenHint: '', lastAt: null, version: 0 });
+    expect(JSON.stringify(t)).not.toMatch(/ti_1|ca_private/);
+    expect(store.schedules.appTrigger(t.id)).toMatchObject({ id: t.id, composioTriggerId: 'ti_1', connectedAccountId: 'ca_private' });
+    expect(store.schedules.triggerByComposioId('ti_1')).toMatchObject({ id: t.id, composioTriggerId: 'ti_1' });
+    expect(store.schedules.triggerByComposioId('ti_2')).toBeNull();
+    // No token hash a webhook call can produce (64 hex characters) finds it.
+    const row = store.db.prepare('SELECT token_hash FROM product_triggers WHERE id=?').get(t.id) as { token_hash: string };
+    expect(row.token_hash).not.toMatch(/^[0-9a-f]{64}$/);
+    // One Composio instance belongs to one Nest trigger.
+    expect(() => appTrigger('c2', { composioTriggerId: 'ti_1' })).toThrow(CanvasConflictError);
+    store.schedules.createTrigger({ id: randomUUID(), channelId: 'c1', agent: 'Pip', prompt: 'x', label: 'y', tokenHash: 'h1', tokenHint: 'abcd', createdBy: 'u', now: 1 });
+    for (let i = 0; i < 3; i++) appTrigger('c1');
+    expect(() => appTrigger('c1')).toThrow(CanvasLimitError);
+  });
+  it('marks an event with the delivery in one write, once, and forgets it after 7 days', () => {
+    const t = appTrigger('c1');
+    expect(store.schedules.seenAppEvent('evt_1')).toBe(false);
+    expect(store.schedules.markAppEvent(t.id, 'evt_1', 5_000)).toBe(true);
+    expect(store.schedules.seenAppEvent('evt_1')).toBe(true);
+    expect(store.schedules.trigger(t.id)?.lastAt).toBe(5_000);
+    expect(store.schedules.markAppEvent(t.id, 'evt_1', 6_000)).toBe(false);
+    expect(store.schedules.trigger(t.id)?.lastAt).toBe(5_000);
+    // A later delivery prunes events older than 7 days.
+    expect(store.schedules.markAppEvent(t.id, 'evt_2', 5_000 + 7 * DAY + 1)).toBe(true);
+    expect(store.schedules.seenAppEvent('evt_1')).toBe(false);
+    expect(store.schedules.seenAppEvent('evt_2')).toBe(true);
+  });
+});

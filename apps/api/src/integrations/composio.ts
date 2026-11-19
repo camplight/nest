@@ -6,6 +6,7 @@ import {
   type ConnectedAccount,
   type IntegrationTool,
 } from "./provider";
+import { createComposioTriggers } from "./composio-triggers";
 // Extracted from the locally deployed skills/composio REST helpers. Service
 // credentials stay in the API; callers cannot override the origin or auth headers.
 export type ComposioConfig = {
@@ -89,7 +90,9 @@ export function createComposioClient(config: ComposioConfig) {
         typeof slug === "string" && /^[A-Za-z0-9_]{1,80}$/.test(slug) ? slug : undefined,
       );
     }
-    return (await response.json()) as any;
+    // Some calls (a delete) answer with no body.
+    const text = await response.text();
+    return (text ? JSON.parse(text) : null) as any;
   }
   return {
     request,
@@ -246,5 +249,6 @@ export function createComposioProvider(
         },
       });
     },
+    triggers: createComposioTriggers(client),
   };
 }

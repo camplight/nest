@@ -24,8 +24,8 @@ export const ScheduleRuleSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('interval'), mins: z.number().int().min(5).max(1440) }).strict(),
 ]);
 export type ScheduleRule = z.infer<typeof ScheduleRuleSchema>;
-/** Task 13's webhook triggers read like a rule in lists (S5). */
-export type RuleLike = ScheduleRule | { kind: 'webhook' };
+/** Task 13's webhook triggers and app-event triggers read like a rule in lists (S5). */
+export type RuleLike = ScheduleRule | { kind: 'webhook' } | { kind: 'app' };
 
 /** An IANA time zone this runtime knows. `supportedValuesOf` is not used: it leaves out 'UTC' (S3). */
 export function isTimeZone(timeZone: string): boolean {
@@ -93,6 +93,7 @@ export const HOOK_TOKEN_PATTERN = /^nest_hook_[A-Za-z0-9_-]{43}$/;
 
 const triggerLabel = z.string().trim().min(1).max(MAX_TRIGGER_LABEL);
 export const NewTriggerSchema = z.object({
+  kind: z.literal('webhook').optional(),
   id: z.string().uuid(),
   channelId: z.string().min(1).max(200),
   agent,
@@ -111,8 +112,12 @@ export type TriggerPatch = z.infer<typeof TriggerPatchSchema>;
 
 export type Trigger = {
   id: string; channelId: string; agent: string; prompt: string; label: string;
+  /** `webhook`: a call to its URL runs it. `app`: an event from a connected app (through Composio) runs it. */
+  kind: TriggerKind;
+  /** An app trigger's toolkit (`github`), its Composio trigger type (`GITHUB_COMMIT_EVENT`) and that type's config; null for a webhook. */
+  app: string | null; triggerSlug: string | null; config: Record<string, unknown> | null;
   on: boolean; pausedReason: SchedulePausedReason;
-  /** The last 4 characters of the token, for the masked URL. */
+  /** The last 4 characters of the token, for the masked URL; '' for an app trigger, which has no URL. */
   tokenHint: string;
   /** When a call last posted; null before the first. */
   lastAt: number | null;
@@ -122,6 +127,37 @@ export type Trigger = {
 export type TriggerView = Trigger & { canEdit: boolean; canManage: boolean };
 /** POST /api/flows/triggers: the URL is in this answer (and a rotation's) only; afterwards only its hint is known. */
 export type CreatedTrigger = { trigger: TriggerView; url: string };
+
+// ---------------------------------------------------------------------------------------------------------------------
+// App-event triggers: Composio delivers a connected app's event to POST /api/hooks/composio, signed with the project's
+// webhook secret, and it wakes the trigger's agent in its chat exactly as a webhook call does.
+
+export type TriggerKind = 'webhook' | 'app';
+/** The longest trigger config, in JSON characters, Nest passes on to Composio. */
+export const MAX_APP_TRIGGER_CONFIG_CHARS = 8_000;
+/** Seconds a Composio delivery's `webhook-timestamp` may be from now, either way. */
+export const APP_EVENT_TOLERANCE_S = 300;
+/** Event ids are remembered this long, so a redelivery within it posts nothing. */
+export const APP_EVENT_DEDUPE_MS = 7 * 86_400_000;
+const slug = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/, 'Unknown app or event');
+export const NewAppTriggerSchema = z.object({
+  kind: z.literal('app'),
+  id: z.string().uuid(),
+  channelId: z.string().min(1).max(200),
+  agent,
+  prompt,
+  label: triggerLabel,
+  /** The toolkit slug of an app the creator has connected. */
+  app: slug,
+  /** A trigger type Composio offers for that app. */
+  triggerSlug: slug,
+  config: z.record(z.unknown()).refine(c => JSON.stringify(c).length <= MAX_APP_TRIGGER_CONFIG_CHARS, { message: 'The event settings are too large' }),
+}).strict();
+export type NewAppTrigger = z.infer<typeof NewAppTriggerSchema>;
+/** POST /api/flows/triggers with `kind: 'app'`: no URL, since Composio delivers to Nest. */
+export type CreatedAppTrigger = { trigger: TriggerView };
+/** A trigger type Composio offers for an app (GET /api/flows/app-triggers/types?app=): `config` is its JSON schema. */
+export type AppTriggerType = { slug: string; name: string; description: string; config: unknown };
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Time zones. Pure: the only clock is the `after` argument.
@@ -286,6 +322,7 @@ function valid(rule: ScheduleRule): ScheduleRule | null {
 export function ruleText(rule: RuleLike, at?: string): string {
   switch (rule.kind) {
     case 'webhook': return 'When the webhook is called';
+    case 'app': return 'When the app event happens';
     case 'interval': return `Every ${rule.mins} min`;
     case 'daily': return `Every day at ${rule.time}`;
     case 'weekdays': return `Weekdays at ${rule.time}`;
@@ -298,6 +335,7 @@ export function ruleText(rule: RuleLike, at?: string): string {
 export function shortRule(rule: RuleLike, at?: string): string {
   switch (rule.kind) {
     case 'webhook': return 'webhook';
+    case 'app': return 'app event';
     case 'interval': return `${rule.mins} min`;
     case 'daily': return `Daily ${rule.time}`;
     case 'weekdays': return `Weekdays ${rule.time}`;

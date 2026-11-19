@@ -70,7 +70,7 @@ describe('scheduled jobs',()=>{
     expect(changed.get('c2')).toBe(first.get('c2'));
   });
   it('a webhook waits for its call: `On event`, `last …`, listed under Starts when something happens, never Set by agents',()=>{
-    const hook=(over:Partial<TriggerView>={}):TriggerView=>({id:'t1',channelId:'c1',agent:'Pip',prompt:'Triage it',label:'Sentry',on:true,pausedReason:null,tokenHint:'abcd',
+    const hook=(over:Partial<TriggerView>={}):TriggerView=>({id:'t1',channelId:'c1',agent:'Pip',prompt:'Triage it',label:'Sentry',kind:'webhook',app:null,triggerSlug:null,config:null,on:true,pausedReason:null,tokenHint:'abcd',
       lastAt:null,createdBy:'me',createdAt:1,rotatedAt:1,updatedAt:1,version:0,canEdit:true,canManage:true,...over});
     const all=scheduleJobs({schedules:[view()],agentMade:[pom],triggers:[hook(),hook({id:'t2',createdBy:'mate',lastAt:MON_0900-H})],viewerId:'me',names:new Map([['mate','mate']]),tz:'UTC'});
     const [,waiting,called]=all;

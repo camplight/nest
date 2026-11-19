@@ -12,6 +12,7 @@ import { FlowActionError, NOTHING_TO_SEND, pausedWhy, type HandoffWorker } from 
 import { registerForkRoutes } from './forks';
 import { missedNeeds, registerScheduleRoutes, type Scheduler } from './scheduler';
 import { registerTriggerRoutes, triggerNeeds, triggerViews, type Hooks } from './hooks';
+import { registerAppTriggerRoutes, type AppTriggers } from './app-triggers';
 import type { Summarize } from './summarize';
 
 const NOT_SET_UP = 'Hand-offs are not set up on this server';
@@ -25,14 +26,17 @@ const DecisionSchema = z.object({ decision: z.enum(['approve', 'decline']) }).st
 export type Availability = {
   enabled: boolean; reason?: string; serviceAgent: string | null;
   summaries: 'model' | 'fallback'; webhooks: boolean;
+  /** App-event triggers (Composio): flows are set up, the webhook secret is set and the provider can make triggers. */
+  appEvents: boolean;
 };
 
 /**
  * Links between chats. Engine chats, participants and events are read through the viewer's own
  * session; Switchyard joins and posts with the service token. Flag off: every route answers 404.
  */
-export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchyard, worker, summarize, scheduler, hooks }: {
+export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchyard, worker, summarize, scheduler, hooks, appTriggers }: {
   store: ProductDb; orgops: OrgOpsClient; enabled: boolean; switchyard: Switchyard; worker: HandoffWorker; summarize: Summarize; scheduler: Scheduler; hooks: Hooks;
+  appTriggers: AppTriggers;
 }) {
   const routes = new Hono<{ Variables: { human: Human } }>();
   routes.onError((error, c) => {
@@ -129,6 +133,8 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
       summaries: 'fallback',
       // POST /api/hooks/<token> posts as the service agent, so webhooks work exactly when flows do.
       webhooks: state.ok,
+      // Composio delivers to POST /api/hooks/composio, which posts as the service agent too.
+      appEvents: state.ok && appTriggers.available,
     };
     return c.json(availability);
   });
@@ -278,7 +284,8 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
   const tools = { fail, parse, body, viewerChannels, viewerAccess, titles, join: joinBoth };
   registerForkRoutes(routes, { store, orgops, switchyard, summarize, tools });
   registerScheduleRoutes(routes, { store, orgops, switchyard, scheduler, tools, triggers: (channels, viewer) => triggerViews(store, channels, viewer) });
-  registerTriggerRoutes(routes, { store, switchyard, hooks, tools });
+  const appRoutes = registerAppTriggerRoutes(routes, { store, switchyard, appTriggers, tools, now: hooks.now });
+  registerTriggerRoutes(routes, { store, switchyard, hooks, tools, app: appRoutes });
 
   // Unknown flow endpoints never fall through to the engine proxy.
   routes.all('/api/flows', () => { throw notFound(); });

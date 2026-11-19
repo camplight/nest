@@ -1,7 +1,7 @@
 // Schedules and their runs. Rules and ids only; each run is one engine agent.scheduled.trigger, never mirrored here.
 import type Database from 'better-sqlite3';
 import {
-  MAX_SCHEDULES_PER_CHAT, MAX_SCHEDULES_PER_CREATOR, MAX_TRIGGERS_PER_CHAT,
+  APP_EVENT_DEDUPE_MS, MAX_SCHEDULES_PER_CHAT, MAX_SCHEDULES_PER_CREATOR, MAX_TRIGGERS_PER_CHAT,
   type MissedReason, type Schedule, type SchedulePausedReason, type ScheduleRule, type ScheduleRun, type Trigger,
 } from '../../schemas/src/schedules';
 import { CanvasConflictError, CanvasLimitError } from './canvases';
@@ -32,16 +32,31 @@ export type NewTriggerRecord = {
   id: string; channelId: string; agent: string; prompt: string; label: string;
   tokenHash: string; tokenHint: string; createdBy: string; now: number;
 };
+/** A new app-event trigger: the Composio instance made for it and the creator's connected account it runs on. */
+export type NewAppTriggerRecord = {
+  id: string; channelId: string; agent: string; prompt: string; label: string;
+  app: string; triggerSlug: string; config: Record<string, unknown>;
+  composioTriggerId: string; connectedAccountId: string; createdBy: string; now: number;
+};
+/** An app trigger with its Composio ids, which stay on the server (a Trigger never carries them). */
+export type AppTriggerRecord = Trigger & { kind: 'app'; composioTriggerId: string; connectedAccountId: string };
 type TriggerRow = {
   id: string; channel_id: string; agent_name: string; prompt: string; label: string; token_hash: string; token_hint: string;
   on_flag: number; created_by: string; version: number; last_at: number | null; created_at: number; rotated_at: number;
   paused_reason: SchedulePausedReason; updated_at: number;
+  kind: 'webhook' | 'app'; app_slug: string | null; trigger_slug: string | null; composio_trigger_id: string | null;
+  connected_account_id: string | null; trigger_config_json: string | null;
 };
 const toTrigger = (r: TriggerRow): Trigger => ({
-  id: r.id, channelId: r.channel_id, agent: r.agent_name, prompt: r.prompt, label: r.label, on: r.on_flag === 1,
-  pausedReason: r.paused_reason, tokenHint: r.token_hint, lastAt: r.last_at, createdBy: r.created_by,
+  id: r.id, channelId: r.channel_id, agent: r.agent_name, prompt: r.prompt, label: r.label,
+  kind: r.kind, app: r.app_slug, triggerSlug: r.trigger_slug,
+  config: r.trigger_config_json === null ? null : JSON.parse(r.trigger_config_json) as Record<string, unknown>,
+  on: r.on_flag === 1, pausedReason: r.paused_reason, tokenHint: r.token_hint, lastAt: r.last_at, createdBy: r.created_by,
   createdAt: r.created_at, rotatedAt: r.rotated_at, updatedAt: r.updated_at || r.created_at, version: r.version,
 });
+const toAppTrigger = (r: TriggerRow): AppTriggerRecord | null => r.kind === 'app' && r.composio_trigger_id && r.connected_account_id
+  ? { ...toTrigger(r), kind: 'app', composioTriggerId: r.composio_trigger_id, connectedAccountId: r.connected_account_id }
+  : null;
 const toRun = (r: RunRow): ScheduleRun => ({
   id: r.id, scheduleId: r.schedule_id, dueAt: r.due_at, eventId: r.event_id, kind: r.kind, status: r.status, reason: r.reason, createdAt: r.created_at,
 });
@@ -219,7 +234,7 @@ export function createScheduleStore(db: Database.Database, clock: () => number =
   const rawTrigger = (id: string) => db.prepare('SELECT * FROM product_triggers WHERE id=?').get(id) as TriggerRow | undefined;
   const trigger = (id: string): Trigger | null => { const r = rawTrigger(id); return r ? toTrigger(r) : null; };
 
-  /** Throws CanvasLimitError when the chat already has 5 webhook triggers. */
+  /** Throws CanvasLimitError when the chat already has 5 triggers (webhooks and app events together). */
   function checkTriggerLimit(channelId: string): void {
     const n = (db.prepare('SELECT COUNT(*) n FROM product_triggers WHERE channel_id=?').get(channelId) as { n: number }).n;
     if (n >= MAX_TRIGGERS_PER_CHAT) throw new CanvasLimitError(`A chat can have at most ${MAX_TRIGGERS_PER_CHAT} webhooks`);
@@ -245,6 +260,46 @@ export function createScheduleStore(db: Database.Database, clock: () => number =
         .run(input.id, input.channelId, input.agent, input.prompt, input.label, input.tokenHash, input.tokenHint, input.createdBy, input.now, input.now, input.now);
       audit('trigger-created', input.createdBy, { triggerId: input.id, channelId: input.channelId });
       return { trigger: trigger(input.id)!, rotated: false };
+    })();
+  }
+
+  /**
+   * A new app-event trigger for the Composio instance already made for it. Throws CanvasLimitError without room in the
+   * chat, and CanvasConflictError when the id or the Composio instance is taken (the route answers a retry itself).
+   */
+  function createAppTrigger(input: NewAppTriggerRecord): Trigger {
+    return db.transaction(() => {
+      if (rawTrigger(input.id) || db.prepare('SELECT 1 FROM product_triggers WHERE composio_trigger_id=?').get(input.composioTriggerId)) {
+        throw new CanvasConflictError(null);
+      }
+      checkTriggerLimit(input.channelId);
+      db.prepare(`INSERT INTO product_triggers(id,channel_id,agent_name,prompt,label,token_hash,token_hint,on_flag,created_by,version,last_at,created_at,rotated_at,paused_reason,updated_at,
+          kind,app_slug,trigger_slug,composio_trigger_id,connected_account_id,trigger_config_json) VALUES (?,?,?,?,?,?,'',1,?,0,NULL,?,?,NULL,?,'app',?,?,?,?,?)`)
+        .run(input.id, input.channelId, input.agent, input.prompt, input.label, `app:${input.id}`, input.createdBy, input.now, input.now, input.now,
+          input.app, input.triggerSlug, input.composioTriggerId, input.connectedAccountId, JSON.stringify(input.config));
+      audit('trigger-created', input.createdBy, { triggerId: input.id, channelId: input.channelId, kind: 'app' });
+      return trigger(input.id)!;
+    })();
+  }
+  /** An app trigger with its Composio ids; null for none or a webhook. */
+  const appTrigger = (id: string): AppTriggerRecord | null => { const r = rawTrigger(id); return r ? toAppTrigger(r) : null; };
+  /** The app trigger made for this Composio instance, on or off; null for none. */
+  const triggerByComposioId = (composioTriggerId: string): AppTriggerRecord | null => {
+    const r = db.prepare("SELECT * FROM product_triggers WHERE kind='app' AND composio_trigger_id=?").get(composioTriggerId) as TriggerRow | undefined;
+    return r ? toAppTrigger(r) : null;
+  };
+  /** Whether this Composio event was already delivered (within the last 7 days). */
+  const seenAppEvent = (eventId: string): boolean => Boolean(db.prepare('SELECT 1 FROM product_app_trigger_events WHERE event_id=?').get(eventId));
+  /**
+   * Records a delivered event and the trigger's last run in one write, pruning events over 7 days old. False when the
+   * event was already recorded (a redelivery raced this one; the engine's idempotency key kept it to one message).
+   */
+  function markAppEvent(triggerId: string, eventId: string, at: number): boolean {
+    return db.transaction(() => {
+      db.prepare('DELETE FROM product_app_trigger_events WHERE received_at<?').run(at - APP_EVENT_DEDUPE_MS);
+      const inserted = db.prepare('INSERT OR IGNORE INTO product_app_trigger_events(event_id,received_at) VALUES (?,?)').run(eventId, at).changes > 0;
+      if (inserted) touchTrigger(triggerId, at);
+      return inserted;
     })();
   }
 
@@ -301,7 +356,7 @@ export function createScheduleStore(db: Database.Database, clock: () => number =
   return {
     createSchedule, checkLimits, schedule, schedulesIn, unbooked, bookedDue, bookedBetween, pausedFor, markBooked, moveOn, unbook, patchSchedule, pause, removeSchedule,
     run, insertRun, setRunEvent, deleteRun, runsDue, missedSince, runAfter, settleRun, supersedeMissed, lastRun, missedFor,
-    trigger, checkTriggerLimit, createTrigger, triggerByHash, triggersIn, pausedTriggersFor, rotateTrigger, patchTrigger, pauseTrigger, touchTrigger, removeTrigger,
+    trigger, checkTriggerLimit, createTrigger, triggerByHash, createAppTrigger, appTrigger, triggerByComposioId, seenAppEvent, markAppEvent, triggersIn, pausedTriggersFor, rotateTrigger, patchTrigger, pauseTrigger, touchTrigger, removeTrigger,
   };
 }
 export type ScheduleStore = ReturnType<typeof createScheduleStore>;

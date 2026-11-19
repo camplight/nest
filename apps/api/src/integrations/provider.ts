@@ -1,3 +1,4 @@
+import type { AppTriggerType } from "@nest/schemas";
 /** A provider answered with an error status; `code` is its short error slug, never its message. */
 export class ProviderRequestError extends Error {
   constructor(readonly status: number, readonly code?: string) {
@@ -38,6 +39,17 @@ export type IntegrationTool = {
   /** Provider hints such as readOnlyHint, createHint, updateHint and destructiveHint. */
   tags: string[];
 };
+/** App-event triggers: instances that deliver a connected account's events to Nest's receiver. */
+export interface AppTriggerProvider {
+  /** The trigger types the provider offers for a toolkit. */
+  types(toolkit: string): Promise<AppTriggerType[]>;
+  /** Makes (or returns the matching) instance on the account; its events go to `egressUrl`. */
+  create(input: { slug: string; accountId: string; config: Record<string, unknown>; egressUrl: string }): Promise<{ triggerId: string }>;
+  /** Already in that state is success. */
+  setEnabled(triggerId: string, enabled: boolean): Promise<void>;
+  /** Already gone is success. */
+  remove(triggerId: string): Promise<void>;
+}
 /** Only provider-specific transport, payloads and identity namespacing live here. */
 export interface ConnectionProvider {
   id: string;
@@ -59,4 +71,6 @@ export interface ConnectionProvider {
     tool: string,
     args: Record<string, unknown>,
   ): Promise<unknown>;
+  /** Present when the provider can deliver app events (app-event triggers). */
+  triggers?: AppTriggerProvider;
 }

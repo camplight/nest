@@ -23,8 +23,9 @@ const MAX_FENCE = 16;
 /** Seconds a sender is asked to wait after a transient failure (503). */
 const RETRY_AFTER_S = 30;
 
-const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
-const describe = (error: unknown) =>
+export const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
+/** An error as the log may show it: an engine status or an error name, never a message. */
+export const describe = (error: unknown) =>
   error instanceof EngineError ? `engine status ${error.status}` : error instanceof Error ? error.name : 'unknown error';
 
 /** The payload could not be attached; the call is answered 503 and the sender's retry (same delivery id) is safe. */
@@ -32,7 +33,7 @@ class HookUploadError extends Error {
   constructor(readonly status: string) { super('The webhook payload could not be attached'); this.name = 'HookUploadError'; }
 }
 /** A failure the sender should retry: the engine unreachable or 5xx, the service agent unusable, or the attachment upload. */
-const isTransient = (error: unknown) =>
+export const isTransient = (error: unknown) =>
   isEngineOutage(error) || error instanceof SwitchyardUnavailableError || error instanceof HookUploadError;
 
 /** The first `n` UTF-16 units of `s`, backing off one so a surrogate pair is never split. */
@@ -75,15 +76,18 @@ export function requestOrigin(request: Request): string {
 }
 
 
-/** The creator's webhook triggers that Nest paused, for Needs you, until resumed or deleted. */
+/** The creator's webhook and app-event triggers that Nest paused, for Needs you, until resumed or deleted. */
 export function triggerNeeds(store: ProductDb, creatorId: string): FlowNeed[] {
   return store.schedules.pausedTriggersFor(creatorId).map((t): FlowNeed => {
     // The same reasons as a paused schedule (ruling T10-R2).
     const why = schedulePausedWhy(t.pausedReason as PauseReason, t.agent);
+    const app = t.kind === 'app';
     return {
       key: `trigger-paused:${t.id}`, kind: 'paused', channelId: t.channelId, at: t.updatedAt, from: null,
-      short: `Webhook paused · ${why}`, reason: why,
-      detail: `Webhook · ${t.label} · ${t.agent}. Calls to its URL do nothing until you resume it.`,
+      short: `${app ? 'App event' : 'Webhook'} paused · ${why}`, reason: why,
+      detail: app
+        ? `App event · ${t.label} · ${t.agent}. Events from ${t.app} do nothing until you resume it.`
+        : `Webhook · ${t.label} · ${t.agent}. Calls to its URL do nothing until you resume it.`,
       gate: { kind: 'trigger-paused', triggerId: t.id },
     };
   });
@@ -99,7 +103,7 @@ export function triggerView(t: Trigger, channel: AccessChannel | undefined, view
  * Reads a body, counting bytes as they arrive; null as soon as it passes `max` (the rest is never read). A missing or
  * wrong content-length changes nothing.
  */
-async function readCapped(body: ReadableStream<Uint8Array> | null, max: number): Promise<Uint8Array | null> {
+export async function readCapped(body: ReadableStream<Uint8Array> | null, max: number): Promise<Uint8Array | null> {
   if (!body) return new Uint8Array(0);
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
@@ -159,6 +163,22 @@ export function createHooks({ store, orgops, token, switchyard, now = Date.now, 
     return { username: creator.username };
   }
 
+  /**
+   * Posts a run as the service agent to the trigger's agent: `{heading} · {label} · set up by {creator}`, the prompt
+   * and the payload text, with `payload.nestSwitchyard {kind, setBy, triggerId}`.
+   */
+  async function postRun(t: Trigger, username: string, run: {
+    kind: 'webhook' | 'app-event'; heading: string; payload: string; key: string;
+    attachments?: { fileId: string; name: string; mime: string; size: number }[];
+  }): Promise<void> {
+    await switchyard.post({
+      channelId: t.channelId, target: t.agent, kind: run.kind, setBy: t.createdBy,
+      text: `${run.heading} · ${t.label} · set up by ${username}\n\n${t.prompt}\n\n${run.payload}`,
+      idempotencyKey: run.key, meta: { triggerId: t.id },
+      ...(run.attachments?.length ? { attachments: run.attachments } : {}),
+    });
+  }
+
   async function deliver(c: Context, t: Trigger, bytes: Uint8Array, username: string): Promise<void> {
     const header = (name: string) => c.req.header(name)?.trim() ?? '';
     const given = [header('idempotency-key'), header('x-github-delivery')].find(v => v.length > 0);
@@ -181,12 +201,7 @@ export function createHooks({ store, orgops, token, switchyard, now = Date.now, 
     const payload = whole ? `${data}:\n${inline.fenced}`
       : inline.fenced === null ? `${data}: attached as ${HOOK_PAYLOAD_FILE}.`
       : `${data}; the first ${inline.chars.toLocaleString('en-US')} characters, all of it attached as ${HOOK_PAYLOAD_FILE}:\n${inline.fenced}`;
-    await switchyard.post({
-      channelId: t.channelId, target: t.agent, kind: 'webhook', setBy: t.createdBy,
-      text: `Webhook · ${t.label} · set up by ${username}\n\n${t.prompt}\n\n${payload}`,
-      idempotencyKey: `nest:hook:${t.id}:${deliveryId}`, meta: { triggerId: t.id },
-      ...(attachments.length ? { attachments } : {}),
-    });
+    await postRun(t, username, { kind: 'webhook', heading: 'Webhook', payload, key: `nest:hook:${t.id}:${deliveryId}`, attachments });
   }
 
   /** The public endpoint. Its answers are `{error:'Not found'}` (404), 413, 429, 503 or 202 `{ok:true}`, with no detail. */
@@ -199,7 +214,7 @@ export function createHooks({ store, orgops, token, switchyard, now = Date.now, 
       const raw = c.req.param('token') ?? '';
       if (!HOOK_TOKEN_PATTERN.test(raw)) return notFound();
       const t = triggers.triggerByHash(sha256(raw));
-      if (!t || !t.on) return notFound();
+      if (!t || !t.on || t.kind !== 'webhook') return notFound();
       id = t.id;
       const at = now();
       const wait = admit(t.id, at);
@@ -222,18 +237,23 @@ export function createHooks({ store, orgops, token, switchyard, now = Date.now, 
     }
   }
 
-  return { call, now };
+  /** `ready`: a service token is configured, so runs can be checked and posted. */
+  return { call, now, check, admit, postRun, ready: Boolean(token) };
 }
 export type Hooks = ReturnType<typeof createHooks>;
 
 /**
- * The public webhook endpoint, registered before every cookie-auth route and the engine proxy. Every method and path
- * under /api/hooks is answered here: only `POST /api/hooks/<token>` can succeed. With the canvas flag off it answers
- * 404 exactly as an unknown token does. No CORS headers are set.
+ * The public webhook endpoints, registered before every cookie-auth route and the engine proxy. Every method and path
+ * under /api/hooks is answered here: only `POST /api/hooks/<token>` and Composio's signed `POST /api/hooks/composio`
+ * can succeed. With the canvas flag off they answer 404 exactly as an unknown token does. No CORS headers are set.
  */
-export function registerHookEndpoint(app: Hono, { hooks, enabled }: { hooks: Hooks; enabled: boolean }) {
-  app.all('/api/hooks/:token', c => hooks.call(c, enabled));
+export function registerHookEndpoint(app: Hono, { hooks, enabled, appEvents }: {
+  hooks: Hooks; enabled: boolean; appEvents?: { receive(c: Context, enabled: boolean): Promise<Response> };
+}) {
   const notFound = (c: Context) => { c.header('Cache-Control', 'no-store'); return c.json({ error: 'Not found' }, 404); };
+  // Before /api/hooks/:token, which would take `composio` as a (malformed) token.
+  app.all('/api/hooks/composio', c => appEvents ? appEvents.receive(c, enabled) : notFound(c));
+  app.all('/api/hooks/:token', c => hooks.call(c, enabled));
   app.all('/api/hooks', notFound);
   app.all('/api/hooks/*', notFound);
   // Spellings the router does not take as /api/hooks (`/api//hooks/…`, `/API/hooks/…`, `/api/hooks%2F…`), or any path
@@ -247,13 +267,32 @@ export function registerHookEndpoint(app: Hono, { hooks, enabled }: { hooks: Hoo
   });
 }
 
+/** What the trigger routes ask of app-event triggers (`app-triggers.ts`): creating one, and Composio's side of on/off and delete. */
+export type AppTriggerRoutes = {
+  /** Answers POST /api/flows/triggers for a body with `kind: 'app'`. */
+  create(c: Context, raw: unknown): Promise<Response>;
+  /** Turns the Composio instance on or off before Nest's row changes; throws (502) when Composio fails. */
+  setEnabled(t: Trigger, on: boolean): Promise<void>;
+  /** Deletes the Composio instance before Nest's row goes; throws (502) when Composio fails. */
+  remove(t: Trigger): Promise<void>;
+};
+
+/** Refuses the service agent and an agent not in the chat, for a new trigger or a changed agent. */
+export function triggerAgentCheck(switchyard: Switchyard, fail: ForkRouteTools['fail']) {
+  return (channel: Channel | undefined, agent: string) => {
+    if (agent === switchyard.name) throw fail(400, `${agent} cannot answer webhooks`);
+    if (!isAgentIn(channel, agent)) throw fail(409, `Add ${agent} to the chat first`);
+  };
+}
+
 /**
  * Trigger routes under /api/flows (cookie auth, the flag and the body limit come from the flow routes). Creating needs
  * post access to the chat (the flows rule), an agent in it other than Switchyard, and room (5 per chat). Settings
  * (prompt, agent, label) and rotation are the creator's; on/off and delete are open to the creator and the chat's members.
+ * An app-event trigger (`kind: 'app'`) is created by `app`, has no URL to rotate, and changes at Composio before here.
  */
-export function registerTriggerRoutes(routes: Hono<{ Variables: { human: Human } }>, { store, switchyard, hooks, tools }: {
-  store: ProductDb; switchyard: Switchyard; hooks: Hooks; tools: ForkRouteTools;
+export function registerTriggerRoutes(routes: Hono<{ Variables: { human: Human } }>, { store, switchyard, hooks, tools, app }: {
+  store: ProductDb; switchyard: Switchyard; hooks: Hooks; tools: ForkRouteTools; app?: AppTriggerRoutes;
 }) {
   const { fail, parse, body, viewerChannels, viewerAccess, join } = tools;
   const triggers = store.schedules;
@@ -270,24 +309,23 @@ export function registerTriggerRoutes(routes: Hono<{ Variables: { human: Human }
     if (!t || (t.createdBy !== human.id && !channels.has(t.channelId))) throw notFound();
     return { t, human, channels, view: triggerView(t, channels.get(t.channelId), human) };
   }
-  const requireAgent = (channel: Channel | undefined, agent: string) => {
-    if (agent === switchyard.name) throw fail(400, `${agent} cannot answer webhooks`);
-    if (!isAgentIn(channel, agent)) throw fail(409, `Add ${agent} to the chat first`);
-  };
+  const requireAgent = triggerAgentCheck(switchyard, fail);
   const conflict = (c: Context, id: string, channels: Map<string, Channel>, human: Human) => {
     const current = triggers.trigger(id);
     return c.json({ error: 'Webhook changed', current: current && triggerView(current, channels.get(current.channelId), human) }, 409);
   };
 
   routes.post('/api/flows/triggers', async c => {
-    const input = parse(NewTriggerSchema, await body(c));
+    const raw = await body(c);
+    if (app && (raw as { kind?: unknown } | null)?.kind === 'app') return app.create(c, raw);
+    const input = parse(NewTriggerSchema, raw);
     const human = c.get('human');
     const channels = await viewerChannels(c.req.raw.headers);
     const channel = channels.get(input.channelId);
     if (!(await viewerAccess(c.req.raw.headers, human)(channel)).post) throw fail(403, 'You need to be able to post in this chat');
     requireAgent(channel, input.agent);
     const existing = triggers.trigger(input.id);
-    if (existing && existing.createdBy !== human.id) throw fail(409, 'Webhook ID already used');
+    if (existing && (existing.createdBy !== human.id || existing.kind !== 'webhook')) throw fail(409, 'Webhook ID already used');
     // The limit comes before Switchyard joins, so a refused webhook changes nothing in the engine.
     if (!existing) triggers.checkTriggerLimit(input.channelId);
     await join([input.channelId]);
@@ -316,6 +354,7 @@ export function registerTriggerRoutes(routes: Hono<{ Variables: { human: Human }
   // A new URL; the old one stops working in the same write. Creator only.
   routes.post('/api/flows/triggers/:id/rotate', async c => {
     const { t, human, view } = await triggerFor(c);
+    if (t.kind !== 'webhook') throw fail(400, 'An app event has no URL');
     if (!view.canEdit) throw fail(403, 'Only the person who set up this webhook can change its URL');
     const minted = mintHookToken();
     if (!triggers.rotateTrigger(t.id, minted.hash, minted.hint, hooks.now(), human.id)) throw notFound();
@@ -330,10 +369,15 @@ export function registerTriggerRoutes(routes: Hono<{ Variables: { human: Human }
     if (!view.canManage) throw fail(403, 'Only the person who set up this webhook or a member of the chat can pause it');
     if (patch.agent !== undefined && patch.agent !== t.agent) requireAgent(channels.get(t.channelId), patch.agent);
     if (t.version !== version) return conflict(c, t.id, channels, human);
+    // An app event turns on or off at Composio first: a failure there (502) leaves Nest's trigger as it was.
+    const toggled = app && t.kind === 'app' && patch.on !== undefined && patch.on !== t.on;
+    if (toggled) await app.setEnabled(t, patch.on!);
     try {
       const updated = triggers.patchTrigger(t.id, patch, version, human.id);
       return c.json(triggerView(updated, channels.get(updated.channelId), human));
     } catch (error) {
+      // Someone changed it meanwhile: Composio goes back to how the trigger was.
+      if (toggled) await app.setEnabled(t, t.on).catch(() => undefined);
       if (error instanceof CanvasConflictError) return conflict(c, t.id, channels, human);
       throw error;
     }
@@ -347,6 +391,8 @@ export function registerTriggerRoutes(routes: Hono<{ Variables: { human: Human }
     const { t, human, channels, view } = await triggerFor(c);
     if (!view.canManage) throw fail(403, 'Only the person who set up this webhook or a member of the chat can delete it');
     if (t.version !== version) return conflict(c, t.id, channels, human);
+    // An app event's Composio instance goes first; a failure there (502) keeps the trigger.
+    if (app && t.kind === 'app') await app.remove(t);
     triggers.removeTrigger(t.id, human.id);
     return c.body(null, 204);
   });

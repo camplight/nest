@@ -264,13 +264,13 @@ describe('the link API against the unchanged engine', () => {
 
   it('reports availability and refuses links without a service token', async () => {
     expect(await (await call(owner, 'GET', '/api/flows/availability')).json())
-      .toEqual({ enabled: true, serviceAgent: 'Switchyard', summaries: 'fallback', webhooks: true });
+      .toEqual({ enabled: true, serviceAgent: 'Switchyard', summaries: 'fallback', webhooks: true, appEvents: false });
     product.store.close();
     vi.stubEnv('NEST_CONNECTION_METADATA_TOKEN', '');
     vi.stubEnv('NEST_RUNNER_TOKEN', '');
     product = boot({ connectionEngineToken: '' });
     expect(await (await call(owner, 'GET', '/api/flows/availability')).json())
-      .toEqual({ enabled: false, reason: 'no-service-token', serviceAgent: null, summaries: 'fallback', webhooks: false });
+      .toEqual({ enabled: false, reason: 'no-service-token', serviceAgent: null, summaries: 'fallback', webhooks: false, appEvents: false });
     const res = await link(owner, { from: a, to: b });
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: 'Hand-offs are not set up on this server' });

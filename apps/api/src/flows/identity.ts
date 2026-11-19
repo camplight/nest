@@ -8,7 +8,7 @@ export const SWITCHYARD_MARKER = 'Nest service identity for hand-offs, scheduled
 export const SWITCHYARD_SETTING = 'switchyard.agent';
 const CACHE_MS = 60_000;
 
-export type SwitchyardKind = 'handoff' | 'run' | 'webhook' | 'fork-seed' | 'note';
+export type SwitchyardKind = 'handoff' | 'run' | 'webhook' | 'app-event' | 'fork-seed' | 'note';
 export type SwitchyardState = { ok: true; name: string } | { ok: false; reason: 'no-service-token' | 'name-taken' | 'engine-unavailable' };
 export type SwitchyardPost = {
   channelId: string; text: string;

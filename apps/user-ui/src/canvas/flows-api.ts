@@ -3,7 +3,7 @@
 import type {AgentMadeSchedule,CreatedTrigger,FlowNeed,ForkView,Link,LinkPatch,NewFork,NewLink,NewSchedule,NewTrigger,ProjectDetail,SchedulePatch,ScheduleView,Task,TriggerPatch,TriggerView} from '@nest/schemas';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 
-export type FlowsAvailability = {enabled: boolean; reason?: string; serviceAgent: string | null; summaries: 'model' | 'fallback'; webhooks: boolean};
+export type FlowsAvailability = {enabled: boolean; reason?: string; serviceAgent: string | null; summaries: 'model' | 'fallback'; webhooks: boolean; appEvents: boolean};
 /** A link as GET /api/flows/links lists it: the stored link, both titles as the viewer may see them, and their rights. */
 export type LinkView = Link & {fromTitle: string; toTitle: string; canManage: boolean; canEdit: boolean};
 

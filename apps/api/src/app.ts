@@ -25,6 +25,7 @@ import { registerFlowRoutes } from './flows/routes';
 import { createHandoffWorker } from './flows/handoff';
 import { createScheduler } from './flows/scheduler';
 import { createHooks, registerHookEndpoint } from './flows/hooks';
+import { createAppTriggers } from './flows/app-triggers';
 import { randomUUID } from 'node:crypto';
 import { watchEngine } from './flows/engine-watch';
 import { fileURLToPath } from 'node:url';
@@ -38,7 +39,7 @@ import { registerAgentMemoryRoutes } from './agent-memory';
 import { createContextCompactionWorker } from './context-compaction-worker';
 import type { HistorySummarizer } from './context-compaction';
 
-export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string; canvasEnabled?: boolean; compaction?: {engineToken?:string; summarize?:HistorySummarizer; now?:()=>number}; contextFilesDir?: string; contextSetupWaitMs?: number; switchyardName?: string; projectNamingLog?: (line: string) => void; switchyardCreator?: string; switchyardWorkspaceRoot?: string; summarize?: Summarize; flowsNow?: () => number } = {}) {
+export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string; canvasEnabled?: boolean; compaction?: {engineToken?:string; summarize?:HistorySummarizer; now?:()=>number}; contextFilesDir?: string; contextSetupWaitMs?: number; switchyardName?: string; projectNamingLog?: (line: string) => void; switchyardCreator?: string; switchyardWorkspaceRoot?: string; summarize?: Summarize; flowsNow?: () => number; composioWebhookSecret?: string } = {}) {
   const store = config.store ?? openProductDb(config.dbPath ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_PRODUCT_DB_PATH ?? '.nest-product/nest.sqlite'));
   const orgops = config.orgops ?? createOrgOpsClient(config.orgopsUrl ?? process.env.ORGOPS_URL ?? 'http://127.0.0.1:8788');
   const app = new Hono();
@@ -58,7 +59,12 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     workspaceRoot: config.switchyardWorkspaceRoot ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_ENGINE_DATA_DIR ?? '.nest-data', 'workspaces/managed'),
   });
   const hooks = createHooks({store, orgops, token: serviceToken, switchyard, now: config.flowsNow});
-  registerHookEndpoint(app, {hooks, enabled: canvasEnabled});
+  const providerConfig=composioConfigFromEnv();
+  const provider=config.connections===null?undefined:config.connections??(providerConfig?createComposioProvider(providerConfig):undefined);
+  // App events: the secret of the Composio project's webhook subscription, which the operator sets up (never Nest).
+  const composioWebhookSecret = ('composioWebhookSecret' in config ? config.composioWebhookSecret : process.env.NEST_COMPOSIO_WEBHOOK_SECRET) || undefined;
+  const appTriggers = createAppTriggers({store, hooks, switchyard, provider, secret: composioWebhookSecret});
+  registerHookEndpoint(app, {hooks, enabled: canvasEnabled, appEvents: appTriggers});
   registerDemoRoutes(app, {orgops, root: config.demoRoot ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_DEMO_ROOT ?? '.nest-data/demos')});
   app.get('/health', async c => {
     try {
@@ -81,8 +87,6 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     if (!value.success) return c.json({error: 'Invalid branding'}, 400);
     return c.json(store.saveBranding(value.data, user.id));
   });
-  const providerConfig=composioConfigFromEnv();
-  const provider=config.connections===null?undefined:config.connections??(providerConfig?createComposioProvider(providerConfig):undefined);
   registerIntegrationRoutes(app,{store,orgops,provider,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
   registerAgentModelRoutes(app, orgops, defaultAgentModelId);
   registerDashboardActivityRoutes(app,orgops);
@@ -127,7 +131,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   const flowsHolder = randomUUID();
   const handoff = createHandoffWorker({store, orgops, token: serviceToken, switchyard, summarize, now: config.flowsNow, holder: flowsHolder});
   const scheduler = createScheduler({store, orgops, token: serviceToken, switchyard, now: config.flowsNow, holder: flowsHolder});
-  registerFlowRoutes(app, {store, orgops, enabled: canvasEnabled, switchyard, worker: handoff, summarize, scheduler, hooks});
+  registerFlowRoutes(app, {store, orgops, enabled: canvasEnabled, switchyard, worker: handoff, summarize, scheduler, hooks, appTriggers});
   const flows = {
     enabled: canvasEnabled,
     /** One flows tick: hand-offs, then scheduled runs. */
