@@ -28,7 +28,7 @@ import {NeedsYou,useReviews} from './NeedsYou';
 import {needsByChannel,needsYouItems,type NeedsItem} from './needs';
 import {CanvasSearch} from './CanvasSearch';
 import {PhoneList,PhoneViewToggle,usePhoneLayout} from './PhoneList';
-import {canvasChrome,readPhoneView,writePhoneView,type PhoneView} from './phone-view';
+import {canvasChrome,readPhoneView,shownChatMode,writePhoneView,type PhoneView} from './phone-view';
 import {searchIndex,type SearchItem} from './search';
 import {canvasSummary,type CardPulse} from './pulse';
 import {summaryText} from './area-summary';
@@ -412,6 +412,11 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
 
   // One chat at a time, and only one this person can read: never a locked or unavailable card's.
   const chatShown = Boolean(chat && chatChannelId && chatMode && channels.some(channel => channel.id === chatChannelId));
+  // A phone has room for one full-screen chat: a split chat (a `mode=split` URL, or a tablet rotated to phone width) shows in focus.
+  const shownMode = shownChatMode(phone, chatMode);
+  // On a phone the drawer closes whenever a chat opens over it (a row, search, Needs you, a card, the URL), before paint.
+  const phoneChatKey = phone && chatShown ? chatChannelId : null;
+  useLayoutEffect(() => { if (phoneChatKey) setDrawerOpen(false); }, [phoneChatKey]);
   const openCard = cards?.find(card => card.channelId === chatChannelId);
   /**
    * A focus chat on the desktop is a window: fixed to the screen beside its card (or cascaded), dragged by its header, over
@@ -469,7 +474,7 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
       } catch { say('Could not change the context. Try again.'); }
     }
     : undefined;
-  const modeRef = useRef(chatMode); modeRef.current = chatShown ? chatMode : null;
+  const modeRef = useRef(shownMode); modeRef.current = chatShown ? shownMode : null;
   /** Moves the view so a card sits where a sheet of the open chat's height, centred, would fit above the bottom box. */
   const viewRoot = useRef<HTMLElement>(null);
   const presentCard = useCallback((channelId: string) => {
@@ -864,8 +869,8 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
     if (card?.access === 'open') setSelectedId(channelId);
     else {
       setHighlight({id: channelId, n: ++highlightCount.current});
-      // The phone list has no drawer: it lists loose chats in its own segment.
-      if (!phoneListRef.current) showDrawer(true);
+      // A phone's chat covers the screen, so its drawer stays closed (the list lists loose chats in its own segment).
+      if (!phoneRef.current) showDrawer(true);
     }
     openRef.current(channelId, 'focus');
   }, [store, showDrawer]);
@@ -938,7 +943,7 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
   }, [store, place, jumpTo, scheduleTyped]);
   /** The chat mode last used on the canvas (a card click's floating sheet until one is opened), for chats started without one open. */
   const lastModeRef = useRef<CanvasChatMode>('focus');
-  if (chatShown && chatMode) lastModeRef.current = chatMode;
+  if (chatShown && shownMode) lastModeRef.current = shownMode;
   const startingChat = useRef(false);
   /**
    * The toolbar's `Chat` and an area's `+ Chat` (editors): a new team chat named "New chat" (the first message names it,
@@ -1535,7 +1540,7 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
   // (already decided, the link paused, not theirs to decide) is a toast, and the items are read again.
   const chatNeeds = chatShown && chatChannelId ? cardNeeds.get(chatChannelId) : undefined;
   const {approve: approveNeed, requestChanges, runNow, canDecide} = useDigestActions({say, refreshFlows: flows.refresh, rereadReviews, changeRequests,
-    links: setupLinks, projects, humanId, chatNeeds, chatKey: chatShown ? `${chatChannelId}:${chatMode}` : ''});
+    links: setupLinks, projects, humanId, chatNeeds, chatKey: chatShown ? `${chatChannelId}:${shownMode}` : ''});
   const chatDigest = chatNeeds ? <ChatDigest key={`digest:${chatChannelId}`} items={chatNeeds} onApprove={approveNeed} onRequestChanges={requestChanges} onRunNow={runNow} canDecide={canDecide}
     agentLine={agentLine(participantRows({participants: chatPeople, pulse: pulses.get(chatChannelId!), needs: [], viewer: username, service}).find(row => row.kind === 'agent'))}/> : null;
   const flowCards = flowPop?.view && board ? {from: board.cards.find(c => c.channelId === flowPop.view!.from), to: board.cards.find(c => c.channelId === flowPop.view!.to)} : null;
@@ -1577,7 +1582,7 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
   const activeEntry = windowed ? shownWindows.find(win => win.channelId === chatChannelId) : undefined;
   const activeWin = activeEntry && bounds ? clampWindow(activeEntry, bounds) : undefined;
   const activeCore = activeWindowId ? cores.get(activeWindowId) : undefined;
-  const chrome = canvasChrome(phone, phoneView, chatShown && chatMode === 'split');
+  const chrome = canvasChrome(phone, phoneView, chatShown ? shownMode : null);
   let body: ReactNode;
   if (!canvasId) {
     body = listFailed ? <CanvasMessage text="Could not load your canvases." action="Try again" onAction={() => setListAttempt(n => n + 1)}/>
@@ -1656,10 +1661,10 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
       {ownerName ? <span className="canvas-shared-by">Shared by {ownerName}</span> : null}
     </div> : undefined}/>
     {searchOpen && canvasId ? <CanvasSearch items={index} onClose={() => setSearchOpen(false)} onChoose={choose}/> : null}
-    <div className={`canvas-body${chatShown ? ` has-chat is-${chatMode}` : ''}`}>
+    <div className={`canvas-body${chatShown ? ` has-chat is-${shownMode}` : ''}`}>
       {sharing && board && board.canvas.role === 'owner' ? <ShareDialog canvasId={board.canvas.id} ownerId={board.canvas.ownerId} humans={humans}
         version={canvasVersion} freshVersion={freshVersion} onSaved={() => { loadMembers(board.canvas.id); void store.refresh({force: true}); void reloadList().catch(() => {}); }} onClose={() => setSharing(false)}/> : null}
-      <CanvasMain inert={chatShown && chatMode === 'focus' && phone}>
+      <CanvasMain inert={chatShown && phone}>
         <div className="canvas-notices">
           {state.notice && state.canvasId === canvasId ? <div className="canvas-notice" role="status">
             <span>{state.notice}</span>
@@ -1679,14 +1684,14 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
         {body}
       </CanvasMain>
       {/*
-        * Over the left of the canvas, which keeps its full width. Outside the canvas side, so a phone's full-screen chat
-        * does not make it inert with it; chat windows sit above it. A press on the canvas leaves it open: it is not a
-        * popover.
+        * Over the left of the canvas, which keeps its full width; chat windows sit above it. A press on the canvas leaves
+        * it open: it is not a popover. A phone's full-screen chat closes it and it is not drawn while that chat is open
+        * (chrome.drawer), so nothing behind the chat is left to Tab to or read.
         */}
       {board && chrome.drawer ? <LooseDrawer id={drawerId} open={drawerOpen} chats={loose} count={shownLoose.length} hidden={hidden} showHidden={showHidden} onShowHidden={setShowHidden}
         canPlace={board.canvas.role !== 'view'} draggable onNewArea={newArea} onArchive={hide} onClose={closeDrawer} now={Date.now}
         onOpenChat={openLoose} highlight={highlight} focusKey={drawerFocus}/> : null}
-      {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!}
+      {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={shownMode!} canSplit={chrome.splitScreen}
         win={activeWin} bounds={bounds ?? undefined} zIndex={activeWin ? windowZ(activeWin.channelId) : undefined} onMove={at => moveWin(chatChannelId!, at)}
         // Until App's chat is ready its drop zone takes none (appDropAccept), so these handlers do; after, that zone takes them.
         onFiles={windowed && !chatReady ? (files, folders) => { if (folders) say(FOLDER_NOTICE); if (files.length) chatFilesRef.current(chatChannelId!, files, false); } : undefined}
@@ -1806,8 +1811,10 @@ function ChatSubline({sub}: {sub: ChatSub}) {
   </p>;
 }
 
-function CanvasChat({channelId, mode, win, bounds, onMove, onFiles, zIndex, title, onRename, sub, area, onPlace, onUseHere, onAddAgent, digest, setup, announce, onConnect, onSchedule, onMode, onClose, onOpenRegular, children}: {
+function CanvasChat({channelId, mode, canSplit = true, win, bounds, onMove, onFiles, zIndex, title, onRename, sub, area, onPlace, onUseHere, onAddAgent, digest, setup, announce, onConnect, onSchedule, onMode, onClose, onOpenRegular, children}: {
   channelId: string; mode: CanvasChatMode;
+  /** Offers Split screen (not on a phone, which shows one full-screen chat). */
+  canSplit?: boolean;
   /** A desktop focus chat: a window at this top-left (relative to `.canvas-body`), sized from `bounds`. Phones and split screen have none. */
   win?: ChatWindow; bounds?: Bounds;
   /** Dragging the window's header asks for this top-left on release; the owner clamps and saves it. */
@@ -1992,9 +1999,9 @@ function CanvasChat({channelId, mode, win, bounds, onMove, onFiles, zIndex, titl
         {sub ? <ChatSubline sub={sub}/> : null}
       </div>
       <div className="canvas-chat-actions">
-        <button type="button" className="canvas-chat-icon" aria-label="Split screen" aria-pressed={!focus}
+        {canSplit ? <button type="button" className="canvas-chat-icon" aria-label="Split screen" aria-pressed={!focus}
           title={focus ? 'Split screen: the chat on the right, the canvas stays usable' : 'Float over the canvas instead'}
-          onClick={() => onMode(focus ? 'split' : 'focus')}><Columns2 size={16} aria-hidden="true"/></button>
+          onClick={() => onMode(focus ? 'split' : 'focus')}><Columns2 size={16} aria-hidden="true"/></button> : null}
         {onSchedule ? <button type="button" className="canvas-chat-icon canvas-chat-clock" aria-label={SCHEDULE_TITLE} title={SCHEDULE_TITLE}
           aria-haspopup="dialog" onClick={event => onSchedule(event.currentTarget)}><ClockIcon/></button> : null}
         {onConnect ? <button type="button" className="canvas-chat-icon canvas-chat-connect" aria-label={CHAT_CONNECT_TITLE} title={CHAT_CONNECT_TITLE}

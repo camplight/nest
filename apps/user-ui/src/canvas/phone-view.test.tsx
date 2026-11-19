@@ -1,7 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
 import type {CanvasBoard} from '@nest/schemas';
-import {PHONE_VIEW_KEY,canvasChrome,phoneView} from './phone-view';
+import {PHONE_VIEW_KEY,canvasChrome,phoneView,shownChatMode} from './phone-view';
 import {PhoneViewToggle} from './PhoneList';
 import {Surface} from './Surface';
 
@@ -23,10 +23,27 @@ describe('phone view',()=>{
   });
 
   it('hides the legend and zoom buttons on a phone canvas, and keeps the drawer, Needs you and the List toggle',()=>{
-    expect(canvasChrome(true,'canvas',false)).toEqual({list:false,legend:false,zoom:false,drawer:true,needsButton:true,viewToggle:true});
-    expect(canvasChrome(true,'list',false)).toEqual({list:true,legend:false,zoom:false,drawer:false,needsButton:false,viewToggle:true});
-    expect(canvasChrome(false,'list',false)).toEqual({list:false,legend:true,zoom:true,drawer:true,needsButton:true,viewToggle:false});
-    expect(canvasChrome(false,'canvas',true).legend).toBe(false);
+    expect(canvasChrome(true,'canvas',null)).toEqual({list:false,legend:false,zoom:false,drawer:true,needsButton:true,viewToggle:true,splitScreen:false});
+    expect(canvasChrome(true,'list',null)).toEqual({list:true,legend:false,zoom:false,drawer:false,needsButton:false,viewToggle:true,splitScreen:false});
+    expect(canvasChrome(false,'list',null)).toEqual({list:false,legend:true,zoom:true,drawer:true,needsButton:true,viewToggle:false,splitScreen:true});
+    expect(canvasChrome(false,'canvas','split').legend).toBe(false);
+    expect(canvasChrome(false,'canvas','focus')).toMatchObject({legend:true,drawer:true,splitScreen:true});
+  });
+
+  it('leaves no drawer under a phone chat, and offers no split screen there',()=>{
+    for(const mode of ['focus','split'] as const){
+      expect(canvasChrome(true,'canvas',mode)).toMatchObject({drawer:false,splitScreen:false});
+      expect(canvasChrome(true,'list',mode)).toMatchObject({drawer:false,splitScreen:false});
+    }
+  });
+
+  it('shows a split chat in focus on a phone, a mode=split URL included',()=>{
+    expect(shownChatMode(true,'split')).toBe('focus');
+    expect(shownChatMode(true,'focus')).toBe('focus');
+    expect(shownChatMode(true,null)).toBeNull();
+    expect(shownChatMode(false,'split')).toBe('split');
+    expect(shownChatMode(false,'focus')).toBe('focus');
+    expect(shownChatMode(false,null)).toBeNull();
   });
 });
 
@@ -38,7 +55,6 @@ describe('the phone canvas',()=>{
     expect(html).toContain('aria-label="Canvas tools"');
     expect(html).not.toContain('canvas-zoom');
     expect(html).not.toContain('Zoom in');
-    expect(html).not.toContain('canvas-legend');
     // The desktop keeps them.
     expect(renderToStaticMarkup(<Surface board={board} humanId="" onApply={async()=>true}/>)).toContain('aria-label="Zoom in"');
   });

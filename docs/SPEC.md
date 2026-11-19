@@ -829,8 +829,10 @@ Phase 1 is built from
    still send themselves, and when card and window drops wait for the same chat at
    once they all attach without sending. A drop on empty canvas still goes to the
    bottom box. This is a deliberate departure from the mockup at the owner's
-   request. On a phone there is room for one chat at a time: a chat in either mode fills the body
-   over the canvas (or the list). A focus chat there makes the canvas behind it inert, keeps Tab in the chat
+   request. On a phone there is room for one chat at a time: it fills the body over the canvas (or the
+   list) in focus, with no Split screen button; a split chat (a `mode=split` URL, or a tablet rotated to
+   phone width) shows in focus too. The chat makes the canvas behind it inert, closes and leaves out the
+   Loose chats drawer while it is open, keeps Tab in the chat
    (focus in another dialog, such as the Huddle, is left alone) and closes on Escape
    (after any popover, menu or picker). The chat's header is one row, as in the mock: title, faces and
    `in <area> · sees N contexts` (plus Archived or Read-only), then icon buttons
@@ -1017,8 +1019,10 @@ Phase 1 is built from
    zoom buttons and Fit and the legend are left out, the navigation rail is already the
    slide-in menu, and the Loose chats drawer and the agent tray's row take the screen
    width (16 px gutters). Tapping a card opens its chat in focus over the whole body, one
-   chat at a time (no floating windows; split screen fills the body too). The top bar's
-   Loose chats toggle closes an open chat, then opens the drawer. The `+` port is not
+   chat at a time (no floating windows and no split screen). Opening a chat closes the
+   drawer, and the drawer is not drawn while a chat is open (nothing behind the chat can
+   be tabbed to or read); search and Needs you open loose chats without opening it. The
+   top bar's Loose chats toggle closes an open chat, then opens the drawer. The `+` port is not
    shown and a touch never drags it (a finger on it pans); the card's connect button and
    the chat picker connect chats instead. Dragging from the drawer or tray needs a mouse;
    the chat header's Area picker and Place on canvas, and the More menu's Add agent…,

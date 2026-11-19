@@ -23,20 +23,31 @@ export type CanvasChrome = {
   legend: boolean;
   /** The zoom buttons and Fit (phones pinch instead). */
   zoom: boolean;
-  /** The Loose chats drawer (the list has its own Loose chats segment instead). */
+  /**
+   * The Loose chats drawer: never in the list (it has its own Loose chats segment), and never under a phone's
+   * full-screen chat, which must leave nothing else to Tab to or read behind it.
+   */
   drawer: boolean;
   /** The top bar's Needs you button (the list has its own Needs you segment instead). */
   needsButton: boolean;
   /** The top bar's `List` toggle. */
   viewToggle: boolean;
+  /** The open chat's Split screen button: a phone has room for one full-screen chat, so a split chat shows in focus there. */
+  splitScreen: boolean;
 };
 
+/** The mode an open chat is shown in: a phone shows every chat in focus (a `mode=split` URL included). */
+export function shownChatMode<Mode extends 'focus' | 'split'>(phone: boolean, mode: Mode | null): Mode | 'focus' | null {
+  return mode && phone ? 'focus' : mode;
+}
+
 /**
- * What the canvas shows: on a phone, the list or the canvas without the legend and zoom buttons (the mock's phone rule;
- * Nest's navigation rail is already a slide-in menu there); on a wider screen, everything, the legend except in split screen.
+ * What the canvas shows, given the open chat's mode (null without one): on a phone, the list or the canvas without the
+ * legend and zoom buttons (the mock's phone rule; Nest's navigation rail is already a slide-in menu there); on a wider
+ * screen, everything, the legend except beside a split chat.
  */
-export function canvasChrome(phone: boolean, view: PhoneView, split: boolean): CanvasChrome {
-  if (!phone) return {list: false, legend: !split, zoom: true, drawer: true, needsButton: true, viewToggle: false};
+export function canvasChrome(phone: boolean, view: PhoneView, chat: 'focus' | 'split' | null): CanvasChrome {
+  if (!phone) return {list: false, legend: chat !== 'split', zoom: true, drawer: true, needsButton: true, viewToggle: false, splitScreen: true};
   const list = view === 'list';
-  return {list, legend: false, zoom: false, drawer: !list, needsButton: !list, viewToggle: true};
+  return {list, legend: false, zoom: false, drawer: !list && !chat, needsButton: !list, viewToggle: true, splitScreen: false};
 }

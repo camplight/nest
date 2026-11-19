@@ -125,6 +125,7 @@ await runChatTest('canvas devices: a phone shows the canvas without zoom buttons
   const chatBox=(await chat.boundingBox())!,bodyBox=(await page.locator('.canvas-body').boundingBox())!;
   assert.ok(Math.abs(chatBox.width-bodyBox.width)<=1&&Math.abs(chatBox.height-bodyBox.height)<=1,`the chat fills the body: ${JSON.stringify(chatBox)} vs ${JSON.stringify(bodyBox)}`);
   assert.equal(await page.locator('.canvas-chat').count(),1,'one chat at a time');
+  assert.equal(await chat.getByRole('button',{name:'Split screen',exact:true}).count(),0,'no split screen on a phone');
 
   // The Loose chats toggle closes the chat, then opens the drawer across the screen.
   const toggle=page.locator('.canvas-loose-button');
@@ -166,6 +167,7 @@ await runChatTest('canvas devices: a phone shows the canvas without zoom buttons
   for(let i=0;i<50&&await scale()===before;i++)await page.waitForTimeout(100);
   const after=await scale();
   assert.ok(Math.abs(after-before*1.8)<=before*0.2,`pinch zoom: ${before} -> ${after}`);
+  assert.equal(await page.locator('.canvas-chat').count(),0,'a pinch opens no chat');
 },{canvas:true,viewport:{width:390,height:844},hasTouch:true});
 
 await runChatTest('canvas devices: a phone\'s List toggle shows the list with areas, needs you and loose chats, and opens chats full screen',async h=>{
