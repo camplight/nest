@@ -1723,6 +1723,38 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The owner renames a chat from its title: a plain-looking button with a dashed underline on hover, then an input. */
+.canvas-chat-rename {
+  max-width: 100%;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 4px;
+  margin-left: -4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: text;
+}
+.canvas-chat-rename:hover,
+.canvas-chat-rename:focus-visible {
+  background: var(--nest-muted-surface);
+  text-decoration: underline dashed var(--nest-muted);
+  text-underline-offset: 4px;
+}
+.canvas-chat-title-input {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  border: 1px solid var(--nest-border);
+  border-radius: 8px;
+  padding: 0 8px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+  font: 500 16px Unbounded, sans-serif;
+}
 /* The mock's `.ch-acts`: 30 px icon buttons, then Close. */
 .canvas-chat-actions {
   position: relative;

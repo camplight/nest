@@ -414,6 +414,8 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
   const personOf = (p: {subscriberType: string; subscriberId: string}): ChatPerson =>
     ({agent: p.subscriberType === 'AGENT', name: p.subscriberId, service: p.subscriberType === 'AGENT' && isServiceAgent(p.subscriberId, service)});
   const chatTitle = titleFor(chatChannelId);
+  /** The open chat's project when this person owns it: only the owner may rename it (PATCH /api/projects/:id). */
+  const chatProject = projects.find(project => project.channelId === chatChannelId && project.ownerId === humanId) ?? null;
   // A loose chat this person may place: an editor's, on desktop (phones have no free canvas to place it on).
   const canPlaceLoose = Boolean(board && chatShown && !openCard && !phone && board.canvas.role !== 'view' && candidates.some(c => c.channelId === chatChannelId));
   // The header's Area picker: editors only, for a card on a canvas with areas, or a loose chat (which can also go on the
@@ -854,6 +856,20 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
    */
   const [dockKey, setDockKey] = useState(0);
   const refreshRef = useRef(refreshChannels); refreshRef.current = refreshChannels;
+  /** Renames the open chat's project (owner only), then reloads the chat list and the board so card and window show it. */
+  const renameChat = useCallback(async (name: string) => {
+    if (!chatProject) return false;
+    try {
+      await apiJson<Project>(`/api/projects/${encodeURIComponent(chatProject.id)}`, {method: 'PATCH', headers: getApiHeaders(),
+        body: JSON.stringify({name, description: chatProject.description, expected: {name: chatProject.name, description: chatProject.description}})});
+    } catch (error) {
+      say(error instanceof ApiError && error.status === 409 ? 'This chat was renamed meanwhile. Try again.' : 'Could not rename this chat. Try again.');
+      return false;
+    }
+    await refreshRef.current().catch(() => {});
+    void store.refresh({force: true});
+    return true;
+  }, [chatProject, say, store]);
   /**
    * A typed repeat from the bottom box, saved once its chat exists and the message is sent. A failure keeps the chat and
    * the message and only says why; the lead agent is the chat's, so the engine has it as a member already.
@@ -1625,7 +1641,7 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
         win={activeWin} bounds={bounds ?? undefined} zIndex={activeWin ? windowZ(activeWin.channelId) : undefined} onMove={at => moveWin(chatChannelId!, at)}
         // Until App's chat is ready its drop zone takes none (appDropAccept), so these handlers do; after, that zone takes them.
         onFiles={windowed && !chatReady ? (files, folders) => { if (folders) say(FOLDER_NOTICE); if (files.length) chatFilesRef.current(chatChannelId!, files, false); } : undefined}
-        title={chatTitle} sub={chatSub} area={chatArea} onPlace={placeHere} onUseHere={useHere}
+        title={chatTitle} onRename={chatProject ? renameChat : undefined} sub={chatSub} area={chatArea} onPlace={placeHere} onUseHere={useHere}
         digest={chatDigest} setup={chatSetup} onConnect={chatConnect} onSchedule={chatSchedule}
         announce={memberNotice && board ? {id: memberNotice.id, text: memberNotice.text} : state.notice && state.canvasId === canvasId ? {id: `store:${state.notice}`, text: state.notice} : null}
         onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => windowed ? closeWin(chatChannelId!) : onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
@@ -1739,7 +1755,7 @@ function ChatSubline({sub}: {sub: ChatSub}) {
   </p>;
 }
 
-function CanvasChat({channelId, mode, win, bounds, onMove, onFiles, zIndex, title, sub, area, onPlace, onUseHere, digest, setup, announce, onConnect, onSchedule, onMode, onClose, onOpenRegular, children}: {
+function CanvasChat({channelId, mode, win, bounds, onMove, onFiles, zIndex, title, onRename, sub, area, onPlace, onUseHere, digest, setup, announce, onConnect, onSchedule, onMode, onClose, onOpenRegular, children}: {
   channelId: string; mode: CanvasChatMode;
   /** A desktop focus chat: a window at this top-left (relative to `.canvas-body`), sized from `bounds`. Phones and split screen have none. */
   win?: ChatWindow; bounds?: Bounds;
@@ -1748,6 +1764,8 @@ function CanvasChat({channelId, mode, win, bounds, onMove, onFiles, zIndex, titl
   /** Files dropped on the window while App's chat is not ready to take them itself (App's drop zone takes them after). */
   onFiles?(files: File[], folders: boolean): void;
   zIndex?: number;
+  /** The chat's owner may rename it (a project chat): the title opens for typing, as does Rename chat in the More menu. False keeps the editor open. */
+  onRename?(name: string): Promise<boolean>;
   title: string; sub?: ChatSub; area?: ChatArea; onPlace?(): void; onUseHere?(): Promise<void>;
   /** Where it stands, above the Setup line (the mock's digest before cfgBlock). */
   digest?: ReactNode;
@@ -1765,6 +1783,17 @@ function CanvasChat({channelId, mode, win, bounds, onMove, onFiles, zIndex, titl
   onMode(mode: CanvasChatMode): void; onClose(): void; onOpenRegular(): void; children: ReactNode;
 }) {
   const panel = useRef<HTMLElement>(null);
+  // Renaming: the title becomes an input; Enter or leaving it saves, Escape keeps the old name.
+  const [renaming, setRenaming] = useState(false);
+  const renameDone = useRef(false);
+  const startRename = () => { renameDone.current = false; setRenaming(true); };
+  const commitRename = async (value: string) => {
+    if (renameDone.current) return;
+    renameDone.current = true;
+    const name = value.trim().slice(0, 120);
+    if (!name || name === title || !onRename) { setRenaming(false); return; }
+    if (await onRename(name)) setRenaming(false); else renameDone.current = false;
+  };
   const [split, setSplit] = useState(readSplit);
   const splitRef = useRef(split); splitRef.current = split;
   const resizing = useRef<number | null>(null);
@@ -1894,7 +1923,17 @@ function CanvasChat({channelId, mode, win, bounds, onMove, onFiles, zIndex, titl
     {/* The mock's `.ch-head`: title and sub-line, then `.ch-acts` of 30 px icon buttons and Close. */}
     <header className="canvas-chat-bar" {...(windowed ? drag.handlers : {})}>
       <div className="canvas-chat-heading">
-        <h2 className="canvas-chat-title">{title}</h2>
+        {renaming
+          ? <input className="canvas-chat-title-input" aria-label="Chat name" defaultValue={title} maxLength={120} autoFocus
+              onFocus={event => event.currentTarget.select()}
+              onKeyDown={event => {
+                if (event.key === 'Enter') { event.preventDefault(); void commitRename(event.currentTarget.value); }
+                else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); renameDone.current = true; setRenaming(false); }
+              }}
+              onBlur={event => void commitRename(event.currentTarget.value)}/>
+          : <h2 className="canvas-chat-title">{onRename
+            ? <button type="button" className="canvas-chat-rename" title="Rename chat" onClick={startRename}>{title}</button>
+            : title}</h2>}
         {sub ? <ChatSubline sub={sub}/> : null}
       </div>
       <div className="canvas-chat-actions">
@@ -1924,6 +1963,7 @@ function CanvasChat({channelId, mode, win, bounds, onMove, onFiles, zIndex, titl
             {onPlace ? <button type="button" className="canvas-chat-menu-item" title="Put this chat on the canvas at the centre of the view"
               onClick={() => { setMenu(false); menuButton.current?.focus({preventScroll: true}); onPlace(); }}>Place on canvas</button> : null}
             {onUseHere ? <button type="button" className="canvas-chat-menu-item" onClick={() => void onUseHere()}>Use this area's context</button> : null}
+            {onRename ? <button type="button" className="canvas-chat-menu-item" onClick={() => { setMenu(false); startRename(); }}>Rename chat</button> : null}
             <span ref={setMoreSlot} className="canvas-chat-slot"/>
           </div>
         </div>
