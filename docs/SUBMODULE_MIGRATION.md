@@ -745,7 +745,7 @@ records the choice in its own `product_agent_memory`. Its worker uses the
 `NEST_RUNNER_TOKEN` service credential to read `telemetry.context.window.updated`,
 the latest `agent.context.*` boundary and chat events. It then posts summaries
 through the existing `POST /api/agents/:name/context/compact` (OrgOps #94). Product
-migration `011_context_compaction.sql` adds the setting and job tables, and needs no
+migration `017_context_compaction.sql` adds the setting and job tables, and needs no
 engine migration. Agents that were set to `FULL_CHANNEL_EVENTS_AUTO_COMPACT` on an
 engine carrying the unmerged OrgOps #101 must be switched back to a supported engine
 mode before running upstream main. Saving the option again in Settings after the

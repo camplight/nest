@@ -638,7 +638,8 @@ include owner, engine channel IDs and the collaboration policy added by migratio
 project foreign key; deliverables and reviews have immutable typed columns,
 foreign keys and uniqueness per task attempt/deliverable. Public types in
 `packages/schemas/src/projects.ts` and the store in `packages/db/src/projects.ts`
-are kept in agreement with this schema. `011_context_compaction.sql` adds
+are kept in agreement with this schema. `017_context_compaction.sql` (numbered after
+the unreleased canvas branch's 011–016) adds
 `product_agent_memory` (an agent's Nest memory choice) and
 `product_context_compactions` (the chat compaction queue); see
 [Chat compaction for long agent chats](#chat-compaction-for-long-agent-chats). Both databases already participate in
