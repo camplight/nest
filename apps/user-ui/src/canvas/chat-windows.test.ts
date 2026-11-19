@@ -1,5 +1,5 @@
 import {afterEach,beforeEach,describe,expect,it} from 'vitest';
-import {MAX_WINDOWS,bringToFront,clampWindow,closeWindow,moveWindow,openWindow,placeWindow,pruneWindows,readWindows,windowHeight,windowWidth,writeWindows,type ChatWindow} from './chat-windows';
+import {MAX_WINDOWS,bringToFront,clampWindow,closeWindow,moveWindow,openWindow,placeWindow,pruneWindows,readWindows,windowHeight,windowVars,windowWidth,writeWindows,type ChatWindow} from './chat-windows';
 
 const bounds={left:0,top:0,right:1600,bottom:900};
 const win=(channelId:string,x=0,y=0):ChatWindow=>({channelId,x,y});
@@ -49,6 +49,11 @@ describe('chat window list',()=>{
     expect(placeWindow(null,null,bounds)).toEqual({x:16,y:16});
     const low=placeWindow({x:100,y:5000,w:280},null,bounds);
     expect(low.y).toBe(900-windowHeight(bounds));
+  });
+  it('windowVars positions the window in whole pixels and sizes it from the bounds',()=>{
+    expect(windowVars(win('a',100.4,50.6),bounds)).toEqual({'--win-x':'100px','--win-y':'51px','--win-w':'440px','--win-max-h':'720px'});
+    expect(windowVars(win('a'),{left:0,top:0,right:360,bottom:400})).toEqual({'--win-x':'0px','--win-y':'0px','--win-w':'360px','--win-max-h':'400px'});
+    expect(windowVars(win('a'),{left:0,top:300,right:360,bottom:200})['--win-max-h']).toBe('0px');
   });
   it('pruneWindows drops ids not allowed and keeps order',()=>{
     expect(ids(pruneWindows([win('a'),win('b'),win('c')],new Set(['c','a'])))).toEqual(['a','c']);

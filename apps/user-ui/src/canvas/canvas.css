@@ -1551,21 +1551,10 @@
 }
 
 /*
- * Focus: the chat opens in place (the mock's `.card.open`). A placed card's chat is a 560 px sheet over the card itself,
- * its top-left on the card's (CanvasView keeps --sheet-x/--sheet-y on it as the view moves), with every other card, area
- * and link dimmed to .28 and no scrim. A chat that is not on the canvas is the mock's `.qchat`: a plain chat over the
- * bottom box, with the whole canvas at .3.
+ * Focus, on the desktop: the chat is a window over the canvas, which stays fully visible and usable (no dimming, no
+ * scrim). It is fixed to the screen (pan and zoom leave it where it is): CanvasView keeps --win-x/--win-y on it, beside
+ * its card when it opened or where its header was dragged, and sizes it with --win-w/--win-max-h from the stage.
  */
-.canvas-world,
-.canvas-world > :is(.canvas-area, .canvas-card, .canvas-context-lines, .canvas-links, .lab) {
-  transition: opacity .2s;
-}
-.canvas-body.is-in-place .canvas-world > :is(.canvas-area, .canvas-card:not(.is-open), .canvas-context-lines, .canvas-links, .lab) {
-  opacity: .28;
-}
-.canvas-body.is-plain .canvas-world {
-  opacity: .3;
-}
 .canvas-chat {
   min-width: 0;
   min-height: 0;
@@ -1579,45 +1568,50 @@
 }
 .canvas-chat[data-mode="focus"] {
   position: absolute;
-  /* Until it is measured (a canvas still loading), centred at the top. */
-  left: var(--sheet-x, calc(50% - min(280px, 50% - 16px)));
-  top: var(--sheet-y, 16px);
+  /* Until it is placed (the frame before its first measure), at the stage's top-left. */
+  left: 16px;
+  top: 16px;
   z-index: 21;
-  width: var(--sheet-w, min(560px, calc(100% - 32px)));
-  max-height: var(--sheet-max-h, min(720px, calc(100% - 32px)));
+  width: min(440px, calc(100% - 32px));
+  max-height: min(720px, calc(100% - 32px));
   /* Room for the header, a few messages and the composer even while the thread loads. */
-  min-height: min(440px, var(--sheet-max-h, 440px));
+  min-height: min(440px, var(--win-max-h, 440px));
   border: 1px solid var(--nest-border);
   border-radius: 16px;
   box-shadow: 0 2px 6px color-mix(in srgb, var(--nest-forest) 10%, transparent), 0 24px 60px color-mix(in srgb, var(--nest-forest) 22%, transparent);
   overflow: hidden;
 }
-.canvas-chat[data-place="loose"] {
-  top: auto;
-  bottom: var(--sheet-bottom, 84px);
+.canvas-chat[data-window="true"] {
+  left: var(--win-x);
+  top: var(--win-y);
+  width: var(--win-w);
+  max-height: var(--win-max-h);
+}
+/* The header drags the window; its buttons and fields keep their own cursor and never start a drag. */
+.canvas-chat[data-window="true"] .canvas-chat-bar {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.canvas-chat[data-window="true"] .canvas-chat-bar:active {
+  cursor: grabbing;
+}
+.canvas-chat[data-window="true"] .canvas-chat-bar :is(button, a, input, select, textarea, label, .canvas-chat-menu) {
+  cursor: auto;
+}
+.canvas-chat[data-window="true"] .canvas-chat-bar :is(button, a, label) {
+  cursor: pointer;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .canvas-chat[data-place="loose"] {
-    animation: canvas-chat-rise .25s cubic-bezier(.2, .9, .3, 1);
-  }
   .canvas-card[data-flash] {
     animation: canvas-card-flash 1.2s ease-out;
   }
-}
-@keyframes canvas-chat-rise {
-  from { opacity: 0; transform: translateY(16px); }
 }
 @keyframes canvas-card-flash {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--nest-lime) 70%, transparent); }
   100% { box-shadow: 0 0 0 22px transparent; }
 }
-/* The open card lies under its sheet: its ring, border and tinted top edge would show around the sheet's corners. */
-.canvas-body.is-in-place .canvas-card.is-open {
-  outline-color: transparent;
-  border-color: transparent;
-  box-shadow: none;
-}
-/* At 560 px a demo preview stacks with the chat (its narrow layout) instead of squeezing two columns. */
+/* At 440 px a demo preview stacks with the chat (its narrow layout) instead of squeezing two columns. */
 .canvas-chat[data-mode="focus"] .artifact-chat-layout.has-preview {
   flex-direction: column;
   overflow: auto;

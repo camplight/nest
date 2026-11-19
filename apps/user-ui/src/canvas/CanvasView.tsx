@@ -35,7 +35,8 @@ import type {AreaContext} from './Area';
 import {CONTEXT_WARNING,ContextPanel} from './ContextPanel';
 import {errorText,getContextSummary,uploadContextFile,type PanelScope} from './context-api';
 import {chatSees,contextLabel,joinNames,type ChatSees} from './context-label';
-import {cardSheet,clearOfDrawer,looseSheet,samePlace,stageBounds,type SheetPlace} from './sheet';
+import {clearOfDrawer,stageBounds,type Bounds} from './sheet';
+import {clampWindow,moveWindow,placeWindow,windowVars,type ChatWindow} from './chat-windows';
 import {isServiceAgent,useFlows} from './useFlows';
 import {LinkConflict,createLink,createSchedule,createTrigger,deleteLink,deleteSchedule,deleteTrigger,flowError,getLinks,patchLatest,patchSchedule,patchTrigger,rotateTrigger,runScheduleNow,sendNow,type LinkView} from './flows-api';
 import {useDigestActions,type ChangeRequests} from './useDigestActions';
@@ -380,10 +381,10 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const chatShown = Boolean(chat && chatChannelId && chatMode && channels.some(channel => channel.id === chatChannelId));
   const openCard = cards?.find(card => card.channelId === chatChannelId);
   /**
-   * A focus chat opens in place (the mock's openCard): over its card when it is on this canvas, else as a plain chat over
-   * the bottom box. Phones have no free canvas, so their chat fills the body instead.
+   * A focus chat on the desktop is a window: fixed to the screen beside its card (or cascaded), dragged by its header, over
+   * a canvas that stays fully usable (no dimming, nothing hidden). Phones have no free canvas, so their chat fills the body.
    */
-  const sheetAnchor: SheetAnchor | null = chatShown && chatMode === 'focus' && !phone && board ? openCard?.access === 'open' ? 'card' : 'loose' : null;
+  const windowed = chatShown && chatMode === 'focus' && !phone;
   const chatTitle = (openCard?.access === 'open' ? cardTitle(openCard) : null) ?? candidates.find(c => c.channelId === chatChannelId)?.title ?? 'Chat';
   // A loose chat this person may place: an editor's, on desktop (phones have no free canvas to place it on).
   const canPlaceLoose = Boolean(board && chatShown && !openCard && !phone && board.canvas.role !== 'view' && candidates.some(c => c.channelId === chatChannelId));
@@ -422,7 +423,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     }
     : undefined;
   const modeRef = useRef(chatMode); modeRef.current = chatShown ? chatMode : null;
-  /** Moves the view so a card opened in place sits where its sheet (at its current height) fits above the bottom box. */
+  /** Moves the view so a card sits where a sheet of the open chat's height, centred, would fit above the bottom box. */
   const viewRoot = useRef<HTMLElement>(null);
   const presentCard = useCallback((channelId: string) => {
     const root = viewRoot.current, surface = root?.querySelector('.canvas-surface')?.getBoundingClientRect();
@@ -439,34 +440,37 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     if (modeRef.current === 'focus' && !phoneRef.current) presentCard(channelId);
     else controls.current?.reveal({channelId});
   }, [presentCard]);
-  // The open chat's sheet follows its card as the view moves: the surface reports each change to the sheet.
-  const viewListeners = useRef(new Set<() => void>());
-  const viewChanged = useCallback(() => { for (const listener of viewListeners.current) listener(); }, []);
-  const watchView = useCallback((listener: () => void) => {
-    viewListeners.current.add(listener);
-    return () => { viewListeners.current.delete(listener); };
-  }, []);
-  // Opening in place moves the camera so the card (and the sheet over it) is in view, once per open; a surface still
-  // mounting (a deep link) is retried for a few frames.
-  const inPlace = sheetAnchor === 'card' ? chatChannelId : null;
+  /**
+   * The window's top-left, relative to `.canvas-body` (where the chat is positioned), and the bounds it was clamped to: the
+   * stage clear of the bottom box. Placed when a chat opens as a window (beside its card when the card is on screen, else at
+   * the bounds' top-left; clear of an open Loose chats drawer when it fits), kept where it is dragged, pulled back inside on
+   * a resize and dropped when the chat closes or goes to split screen. The view never moves it: it is fixed to the screen.
+   */
+  const [floating, setFloating] = useState<{win: ChatWindow; bounds: Bounds} | null>(null);
+  const windowFor = windowed ? chatChannelId : null;
+  useLayoutEffect(() => {
+    const body = viewRoot.current?.querySelector<HTMLElement>('.canvas-body');
+    const frame = windowFor && body ? windowFrame(body) : null;
+    if (!windowFor || !body || !frame) { setFloating(null); return; }
+    const card = body.querySelector<HTMLElement>(`.canvas-card[data-channel-id="${CSS.escape(windowFor)}"]`)?.getBoundingClientRect();
+    const onScreen = card && card.right > frame.stage.left && card.left < frame.stage.right && card.bottom > frame.stage.top && card.top < frame.stage.bottom;
+    const drawer = body.querySelector('.canvas-drawer')?.getBoundingClientRect();
+    const at = placeWindow(onScreen ? {x: card.left - frame.body.left, y: card.top - frame.body.top, w: card.width} : null, null,
+      clearOfDrawer(frame.bounds, drawer?.width ? drawer.right - frame.body.left : null));
+    setFloating({win: {channelId: windowFor, ...at}, bounds: frame.bounds});
+  }, [windowFor]);
   useEffect(() => {
-    if (!inPlace) return;
-    let frame = 0, tries = 0;
-    const go = () => { if (!presentCard(inPlace) && ++tries < 60) frame = requestAnimationFrame(go); };
-    go();
-    return () => cancelAnimationFrame(frame);
-  }, [inPlace, presentCard]);
-  // The canvas stays live behind a sheet (the mock): a press on empty canvas closes it, unless that press was closing a
-  // popover over it (the context popover, the sheet's More menu), which it does alone. Read on the window's capture
-  // phase, registered before any popover's own outside-press listener, so the popover is still there.
-  const pressHadPopover = useRef(false);
-  useEffect(() => {
-    const down = () => { pressHadPopover.current = Boolean(document.querySelector(CANVAS_POPOVER)); };
-    window.addEventListener('pointerdown', down, true);
-    return () => window.removeEventListener('pointerdown', down, true);
+    if (!windowFor) return;
+    const resize = () => {
+      const body = viewRoot.current?.querySelector<HTMLElement>('.canvas-body'), frame = body ? windowFrame(body) : null;
+      if (frame) setFloating(current => current && {win: clampWindow(current.win, frame.bounds), bounds: frame.bounds});
+    };
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, [windowFor]);
+  const moveFloating = useCallback((at: Point) => {
+    setFloating(current => current && {...current, win: moveWindow([current.win], current.win.channelId, at, current.bounds)[0]});
   }, []);
-  const emptyPress = useCallback(() => { if (!pressHadPopover.current) closeRef.current(); }, []);
-  const fitCloses = useCallback(() => closeRef.current(), []);
   // Only chats in App's visible list open: a UI-hidden chat is never loaded or marked seen behind the canvas.
   const visibleRef = useRef(channels); visibleRef.current = channels;
   const openRef = useRef(onOpenChat);
@@ -549,11 +553,10 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   const openAreaContext = useCallback((areaId: string, opener: HTMLElement) => openPanel({kind: 'area', areaId}, opener), [openPanel]);
   // Empty canvas: files always go to the bottom box (even with a split chat open), which says so and takes focus.
   const dockFiles = useCallback((count: number) => say(`Attached ${count} file${s(count)}. Say what you want done with ${them(count)}, then press Send.`), [say]);
-  // The banner during any file drag over the canvas (not over a focus chat, which takes every drop itself).
+  // The banner during any file drag over the canvas, chat windows open or not (a window takes the drops on itself).
   const [fileDrag, setFileDrag] = useState(false);
-  const focusChat = chatShown && chatMode === 'focus';
   useEffect(() => {
-    if (!canvasId || phone || focusChat) { setFileDrag(false); return; }
+    if (!canvasId || phone) { setFileDrag(false); return; }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stop = () => { clearTimeout(timer); setFileDrag(false); };
     const over = (event: DragEvent) => {
@@ -575,7 +578,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       window.removeEventListener('dragend', stop, true);
       window.removeEventListener('keydown', key);
     };
-  }, [canvasId, phone, focusChat]);
+  }, [canvasId, phone]);
   // A card opens in focus, or replaces the split-screen chat beside the canvas.
   const openFromCard = useCallback((channelId: string) => { setSelectedId(channelId); openRef.current(channelId, modeRef.current ?? 'focus'); }, []);
   // Agents on cards: the selected card leads the tray's suggestions; membership goes through the engine.
@@ -684,19 +687,17 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     const timer = setTimeout(() => setHighlight(null), 4000);
     return () => clearTimeout(timer);
   }, [highlight, chatShown]);
-  /** A chat on this canvas is shown and opened in place; any other opens as a plain chat and the drawer points at it. */
+  /** A chat on this canvas is selected and opened (its window beside the card when it is on screen); any other opens as a plain chat and the drawer points at it. */
   const jumpTo = useCallback((channelId: string) => {
     const card = store.snapshot().board?.cards.find(c => c.channelId === channelId);
-    if (card?.access === 'open') {
-      presentCard(channelId);
-      setSelectedId(channelId);
-    } else {
+    if (card?.access === 'open') setSelectedId(channelId);
+    else {
       setHighlight({id: channelId, n: ++highlightCount.current});
       // Phones have no drawer: they list loose chats in their own segment.
       if (!phoneRef.current) showDrawer(true);
     }
     openRef.current(channelId, 'focus');
-  }, [store, presentCard, showDrawer]);
+  }, [store, showDrawer]);
   const openLoose = useCallback((channelId: string) => openRef.current(channelId, 'focus'), []);
   /**
    * A sent bottom-box chat stays in sight: on a canvas this person can edit it is placed at the
@@ -746,7 +747,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     setSelectedId(channelId);
     const mode = modeRef.current ?? 'split';
     openRef.current(channelId, mode);
-    // Centre the card once the chat beside it has taken its room; a focus chat moves the view itself as it opens in place.
+    // Centre the card once the chat beside it has taken its room; it was placed at the view's centre, so a window opens beside it.
     if (mode === 'split') requestAnimationFrame(() => requestAnimationFrame(() => controls.current?.reveal({channelId})));
   }, [store, place, jumpTo, scheduleTyped]);
   /** The chat mode last used on the canvas (a card click's floating sheet until one is opened), for chats started without one open. */
@@ -794,8 +795,8 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
   /**
    * The open chat's header moves its card into an area (a free spot under the title bar; the area
    * grows to fit) or, with no area, just outside the one it is in. A loose chat is placed straight
-   * into the area, or with no area at the viewport centre (clear of other cards, as Place on canvas),
-   * where its sheet then opens in place over the new card. The view follows the card.
+   * into the area, or with no area at the viewport centre (clear of other cards, as Place on canvas).
+   * The view follows the card; an open window stays where it is.
    */
   const moveToArea = useCallback(async (channelId: string, areaId: string | null) => {
     const current = store.snapshot().board;
@@ -1383,18 +1384,17 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     body = <>
       <div className="canvas-stage">
         <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={applyTracked} pulses={pulses} onNudge={sendNudge}
-          onDropChat={canPlace && !focusChat ? dropChat : undefined} controls={controls} onOpenChat={openFromCard} openChannelId={chatShown ? chatChannelId : null}
+          onDropChat={canPlace ? dropChat : undefined} controls={controls} onOpenChat={openFromCard} openChannelId={chatShown ? chatChannelId : null}
           onDropAgent={dropAgent} onRemoveAgent={removeAgent} canManageCard={manageable} onSelectCard={setSelectedId} selectedChannelId={selected?.channelId ?? null}
-          areaContext={areaContext} onAreaContext={openAreaContext} contextAreaId={panel?.kind === 'area' ? panel.areaId : null} onOpenCanvas={id => onSelectCanvas(id)} onDropFiles={focusChat ? undefined : dropFiles}
+          areaContext={areaContext} onAreaContext={openAreaContext} contextAreaId={panel?.kind === 'area' ? panel.areaId : null} onOpenCanvas={id => onSelectCanvas(id)} onDropFiles={dropFiles}
           needs={cardNeeds} viewer={username} onNotice={say} onAreaCreated={setRenameAreaId} renameAreaId={renameAreaId} onRenameStarted={renameStarted}
-          onViewChange={viewChanged} onEmptyPress={focusChat ? emptyPress : undefined} onFit={focusChat ? fitCloses : undefined}
           links={shownLinks} onOpenLink={openFlowLink} onToggleFork={toggleFork}
           onNewChat={canPlace ? newChatHere : undefined} onNewChatInArea={canPlace ? newChatInArea : undefined}
           canConnect={canConnect} onConnect={connectCards} onNewStep={canPlace ? dropNewStep : undefined} onLinkPick={openLinkPick} schedules={flowsOn ? cardJobs : undefined}/>
         <AgentTray suggested={tray.suggested} pinned={tray.pinned} pins={shownPins} pinsReady={pins !== null} onTogglePin={toggle}
           agents={roster} humanId={humanId} owners={owners} busy={busy} cards={board.cards} areas={board.areas} open={pickerOpen} onOpenChange={showPicker}/>
-        {/* Files dropped on empty canvas start a chat here, even beside a split chat; a focus chat takes every drop itself. */}
-        {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice schedules={flowsOn} onCreated={created} fileDrop={!focusChat}
+        {/* Files dropped on empty canvas start a chat here, beside a split chat or chat windows too; a window takes the drops on itself. */}
+        {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice schedules={flowsOn} onCreated={created} fileDrop
           fileDropAccept={outsideCanvasChat} fileDropOverlay={false} onFilesDropped={dockFiles}/></div> : null}
         {fileDrag ? <p className="canvas-file-hint" role="status">{board.canvas.role === 'view' ? FILE_DRAG_HINT_VIEW : FILE_DRAG_HINT}</p> : null}
       </div>
@@ -1432,10 +1432,10 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       {ownerName ? <span className="canvas-shared-by">Shared by {ownerName}</span> : null}
     </div> : undefined}/>
     {searchOpen && canvasId ? <CanvasSearch items={index} onClose={() => setSearchOpen(false)} onChoose={choose}/> : null}
-    <div className={`canvas-body${chatShown ? ` has-chat is-${chatMode}` : ''}${sheetAnchor ? ` is-${sheetAnchor === 'card' ? 'in-place' : 'plain'}` : ''}`}>
+    <div className={`canvas-body${chatShown ? ` has-chat is-${chatMode}` : ''}`}>
       {sharing && board && board.canvas.role === 'owner' ? <ShareDialog canvasId={board.canvas.id} ownerId={board.canvas.ownerId} humans={humans}
         version={canvasVersion} freshVersion={freshVersion} onSaved={() => { void store.refresh({force: true}); void reloadList().catch(() => {}); }} onClose={() => setSharing(false)}/> : null}
-      <CanvasMain behind={focusChat ? phone ? 'inert' : 'hidden' : null}>
+      <CanvasMain inert={chatShown && chatMode === 'focus' && phone}>
         <div className="canvas-notices">
           {state.notice && state.canvasId === canvasId ? <div className="canvas-notice" role="status">
             <span>{state.notice}</span>
@@ -1455,15 +1455,15 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
         {body}
       </CanvasMain>
       {/*
-        * Over the left of the canvas, which keeps its full width. Outside the canvas side, so it is not hidden with it: a
-        * pointer can still use it beside an open sheet (which sits above it), though the focus sheet's Tab trap and
-        * aria-modal keep keyboard and screen-reader users in the chat until it closes. A press on the canvas leaves it
-        * open: it is not a popover.
+        * Over the left of the canvas, which keeps its full width. Outside the canvas side, so a phone's full-screen chat
+        * does not make it inert with it; chat windows sit above it. A press on the canvas leaves it open: it is not a
+        * popover.
         */}
       {board && !phone ? <LooseDrawer id={drawerId} open={drawerOpen} chats={loose} count={shownLoose.length} hidden={hidden} showHidden={showHidden} onShowHidden={setShowHidden}
         canPlace={board.canvas.role !== 'view'} draggable onNewArea={newArea} onArchive={hide} onClose={closeDrawer} now={Date.now}
         onOpenChat={openLoose} highlight={highlight} focusKey={drawerFocus}/> : null}
-      {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!} anchor={sheetAnchor} drawerOpen={drawerOpen} watchView={watchView} title={chatTitle} sub={chatSub} area={chatArea} onPlace={placeHere} onUseHere={useHere}
+      {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!}
+        win={windowed && floating?.win.channelId === chatChannelId ? floating.win : undefined} bounds={floating?.bounds} onMove={moveFloating} title={chatTitle} sub={chatSub} area={chatArea} onPlace={placeHere} onUseHere={useHere}
         digest={chatDigest} setup={chatSetup} onConnect={chatConnect} onSchedule={chatSchedule}
         announce={memberNotice && board ? {id: memberNotice.id, text: memberNotice.text} : state.notice && state.canvasId === canvasId ? {id: `store:${state.notice}`, text: state.notice} : null}
         onMode={mode => onOpenChat(chatChannelId!, mode)} onClose={() => onCloseChat()} onOpenRegular={() => onOpenRegular(chatChannelId!)}>
@@ -1493,38 +1493,38 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
 }
 
 /**
- * The canvas side of the body. Behind a sheet opened in place it stays live for the pointer (pan, zoom, the tray and the
- * bottom box, as in the mock) but is hidden from screen readers, and the sheet keeps Tab inside itself. Behind a phone's
- * full-screen chat it is inert. A layout effect, so both are gone before the closing chat's passive cleanup moves focus
+ * The canvas side of the body. Chat windows leave it fully live (pointer, keyboard and screen readers). Behind a phone's
+ * full-screen chat it is inert. A layout effect, so that is gone before the closing chat's passive cleanup moves focus
  * back here.
  */
-function CanvasMain({behind, children}: {behind: 'hidden' | 'inert' | null; children: ReactNode}) {
+function CanvasMain({inert, children}: {inert: boolean; children: ReactNode}) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const element = ref.current;
     if (!element) return;
-    if (behind === 'inert') element.setAttribute('inert', ''); else element.removeAttribute('inert');
-    if (behind === 'hidden') element.setAttribute('aria-hidden', 'true'); else element.removeAttribute('aria-hidden');
-  }, [behind]);
+    if (inert) element.setAttribute('inert', ''); else element.removeAttribute('inert');
+  }, [inert]);
   return <div ref={ref} className="canvas-main">{children}</div>;
+}
+
+/** Where chat windows may sit, relative to `.canvas-body` (the chat's positioned parent): the stage with 16 px gutters, above the bottom box. */
+function windowFrame(body: HTMLElement) {
+  const b = body.getBoundingClientRect(), stage = body.querySelector('.canvas-stage')?.getBoundingClientRect() ?? b;
+  const dock = body.querySelector('.canvas-dock')?.getBoundingClientRect();
+  return {body: b, stage, bounds: stageBounds({w: stage.width, h: stage.height}, dock?.height ? dock.top - stage.top : null, {x: stage.left - b.left, y: stage.top - b.top})};
 }
 
 const SPLIT_STEP = 2;
 /** Another dialog above the chat (manage channel, the tour) takes Escape and Tab for itself, and so does an open context popover. */
 const OTHER_DIALOG = '[aria-modal="true"]:not(.canvas-chat), .dialog-backdrop, .canvas-context, .canvas-flow-pop';
-/**
- * An open popover a press on the canvas closes first: the sheet stays open under it (the mock's anyPop). The Loose chats
- * drawer is not one: it stays open through canvas presses (as in the mock), so a press with it open still closes the sheet.
- */
-export const CANVAS_POPOVER = '.canvas-context, .canvas-flow-pop, .canvas-chat-menu:not([hidden]), .canvas-menu, .canvas-picker';
+/** What a press on a window's header may start a drag from: anything but its controls. */
+const NOT_A_HANDLE = 'button, a, input, select, textarea, label, [contenteditable="true"], .canvas-chat-menu';
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
 
-/** Where a focus chat's sheet is anchored: over its card, or as a plain chat over the bottom box. */
-type SheetAnchor = 'card' | 'loose';
 /** A sheet's height while it opens (its CSS min-height): the camera centres at least this much. */
 const SHEET_OPEN_HEIGHT = 440;
 /**
- * The open chat: opened in place over the canvas (focus), or on the right with a draggable divider (split).
+ * The open chat: a window over the canvas (focus; a phone's fills the body), or on the right with a draggable divider (split).
  * The header holds Split screen, Open in the regular chat view and Close; the chat itself is App's chat workspace.
  */
 /** `onCanvas`: a loose chat that can also be placed outside any area (`No area (on the canvas)`). */
@@ -1573,16 +1573,23 @@ function ChatSubline({sub}: {sub: ChatSub}) {
   </p>;
 }
 
-function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub, area, onPlace, onUseHere, digest, setup, announce, onConnect, onSchedule, onMode, onClose, onOpenRegular, children}: {
-  channelId: string; mode: CanvasChatMode; anchor: SheetAnchor | null; drawerOpen: boolean; watchView(listener: () => void): () => void;
+function CanvasChat({channelId, mode, win, bounds, onMove, onActivate, zIndex, title, sub, area, onPlace, onUseHere, digest, setup, announce, onConnect, onSchedule, onMode, onClose, onOpenRegular, children}: {
+  channelId: string; mode: CanvasChatMode;
+  /** A desktop focus chat: a window at this top-left (relative to `.canvas-body`), sized from `bounds`. Phones and split screen have none. */
+  win?: ChatWindow; bounds?: Bounds;
+  /** Dragging the window's header asks for this top-left; the owner clamps it to the bounds. */
+  onMove?(at: Point): void;
+  /** A press anywhere in the window. */
+  onActivate?(): void;
+  zIndex?: number;
   title: string; sub?: ChatSub; area?: ChatArea; onPlace?(): void; onUseHere?(): Promise<void>;
   /** Where it stands, above the Setup line (the mock's digest before cfgBlock). */
   digest?: ReactNode;
   /** The Setup line, at the top of the chat body. */
   setup?: ReactNode;
   /**
-   * The canvas's newest notice. A focus sheet hides the canvas behind it (aria-hidden, or inert on phones), notices
-   * included, so the sheet carries its own live region that says it too.
+   * The canvas's newest notice. A phone's full-screen chat makes the canvas behind it inert, notices included, so it
+   * carries its own live region that says it too (a window leaves the canvas's own notices readable).
    */
   announce?: {id: number | string; text: string} | null;
   /** A chat on this canvas, with hand-offs set up: the header's connect button opens the chat picker under it. */
@@ -1597,42 +1604,17 @@ function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub,
   const resizing = useRef<number | null>(null);
   const closeRef = useRef(onClose); closeRef.current = onClose;
   const modeRef = useRef(mode); modeRef.current = mode;
+  const windowed = Boolean(win);
+  const winRef = useRef(win); winRef.current = win;
+  const moveRef = useRef(onMove); moveRef.current = onMove;
+  // The header drags a window: the pointer's travel since the press, from where the window was, clamped by the owner.
+  const drag = useRef<{id: number; x: number; y: number; from: Point} | null>(null);
 
-  // In place: the sheet's top-left stays on its card's on-screen top-left as the view moves (or centred over the bottom
-  // box for a plain chat). Read before paint, and again after every view change, resize or card move.
-  const [place, setPlace] = useState<SheetPlace | null>(null);
-  useLayoutEffect(() => {
-    if (mode !== 'focus' || !anchor) { setPlace(null); return; }
-    const update = () => {
-      const body = panel.current?.closest<HTMLElement>('.canvas-body');
-      if (!body) return;
-      // Within the stage and above the bottom box.
-      const b = body.getBoundingClientRect(), stage = body.querySelector('.canvas-stage')?.getBoundingClientRect() ?? b;
-      const dock = body.querySelector('.canvas-dock')?.getBoundingClientRect();
-      const bounds = stageBounds({w: stage.width, h: stage.height}, dock?.height ? dock.top - stage.top : null, {x: stage.left - b.left, y: stage.top - b.top});
-      let next: SheetPlace;
-      if (anchor === 'card') {
-        const card = body.querySelector<HTMLElement>(`.canvas-card[data-channel-id="${CSS.escape(channelId)}"]`)?.getBoundingClientRect();
-        next = cardSheet(card ? {x: card.left - b.left, y: card.top - b.top} : null, bounds);
-      } else {
-        // A plain chat keeps clear of an open Loose chats drawer when it fits beside it; else it overlaps it, above it.
-        // A card's sheet stays on its card (opening it moved the card clear of the drawer when there was room).
-        const drawer = body.querySelector('.canvas-drawer')?.getBoundingClientRect();
-        next = looseSheet(clearOfDrawer(bounds, drawer?.width ? drawer.right - b.left : null), b.height, window.innerHeight);
-      }
-      setPlace(current => samePlace(current, next) ? current : next);
-    };
-    update();
-    const unwatch = watchView(update);
-    window.addEventListener('resize', update);
-    return () => { unwatch(); window.removeEventListener('resize', update); };
-  }, [mode, anchor, channelId, watchView, drawerOpen]);
-
-  // Tab stays inside a focus chat (the canvas behind it is hidden from screen readers). It acts only when focus is in the
-  // sheet, on the page body or in the hidden canvas: focus in any other dialog or portal (the Huddle, Manage channel, a
-  // popover) is that dialog's to move, and is never pulled back here.
+  // Tab stays inside a phone's full-screen chat (the canvas behind it is inert). It acts only when focus is in the chat,
+  // on the page body or in the canvas: focus in any other dialog or portal (the Huddle, Manage channel, a popover) is that
+  // dialog's to move, and is never pulled back here. A desktop window traps nothing: the canvas stays usable.
   useEffect(() => {
-    if (mode !== 'focus') return;
+    if (mode !== 'focus' || windowed) return;
     const key = (event: KeyboardEvent) => {
       const sheet = panel.current;
       if (event.key !== 'Tab' || event.defaultPrevented || !sheet || document.querySelector(OTHER_DIALOG)) return;
@@ -1648,7 +1630,7 @@ function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub,
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [mode]);
+  }, [mode, windowed]);
 
   // The More menu (⋯): Move to area, Use this area's context, Sharing and Export chat. Escape and an outside press close
   // it before anything else, and choosing an action closes it.
@@ -1701,17 +1683,20 @@ function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub,
     };
   }, []);
 
-  // Escape closes a focus chat, after any inner popup (the mention picker) has had it.
+  // Escape closes a focus chat, after any inner popup (the mention picker) has had it. A window closes only while focus is
+  // in it or on the page body: Escape elsewhere on the live canvas (a card, the tray, the drawer) is theirs.
   useEffect(() => {
     if (mode !== 'focus') return;
     const key = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector(OTHER_DIALOG)) return;
+      const active = document.activeElement;
+      if (windowed && active && active !== document.body && !panel.current?.contains(active)) return;
       event.preventDefault();
       closeRef.current();
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [mode]);
+  }, [mode, windowed]);
 
   const resizeTo = (clientX: number) => {
     const body = panel.current?.parentElement?.getBoundingClientRect();
@@ -1720,13 +1705,13 @@ function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub,
   const finish = () => { if (resizing.current === null) return; resizing.current = null; writeSplit(splitRef.current); };
   const nudge = (delta: number) => { const next = clampSplit(splitRef.current + delta); setSplit(next); writeSplit(next); };
 
+  const endDrag = () => { drag.current = null; };
+
   const focus = mode === 'focus';
-  const vars: Record<string, string> | undefined = focus && place ? {'--sheet-x': `${place.x}px`, '--sheet-w': `${place.w}px`, '--sheet-max-h': `${place.maxH}px`,
-    ...(place.kind === 'card' ? {'--sheet-y': `${place.y}px`} : {'--sheet-bottom': `${place.bottom}px`})} : undefined;
-  const sheet = vars as CSSProperties | undefined;
-  return <section ref={panel} className="canvas-chat" data-mode={mode} data-place={focus ? place?.kind : undefined} tabIndex={-1}
-    role={focus ? 'dialog' : 'region'} aria-modal={focus ? true : undefined} aria-label={`Open chat ${title}`}
-    style={focus ? sheet : {width: `${split}%`}}>
+  const sheet = focus && win && bounds ? {...windowVars(win, bounds), ...(zIndex === undefined ? {} : {zIndex})} as CSSProperties : undefined;
+  return <section ref={panel} className="canvas-chat" data-mode={mode} data-window={windowed ? 'true' : undefined} tabIndex={-1}
+    role={focus ? 'dialog' : 'region'} aria-modal={focus && !windowed ? true : undefined} aria-label={`Open chat ${title}`}
+    style={focus ? sheet : {width: `${split}%`}} onPointerDownCapture={windowed ? onActivate : undefined}>
     {focus ? null : <div className="canvas-chat-divider" role="separator" aria-label="Resize chat" aria-orientation="vertical"
       aria-valuenow={split} aria-valuemin={SPLIT_MIN} aria-valuemax={SPLIT_MAX} aria-valuetext={`Chat ${Math.round(split)}% wide`} tabIndex={0}
       onPointerDown={event => {
@@ -1742,7 +1727,22 @@ function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub,
         else if (event.key === 'ArrowRight') { event.preventDefault(); nudge(-SPLIT_STEP); }
       }}/>}
     {/* The mock's `.ch-head`: title and sub-line, then `.ch-acts` of 30 px icon buttons and Close. */}
-    <header className="canvas-chat-bar">
+    <header className="canvas-chat-bar" onPointerDown={windowed ? event => {
+      // Only presses on the header's own DOM: a dialog portaled from its slots (the Huddle) bubbles here through React too.
+      const at = winRef.current, target = event.target;
+      if (event.button !== 0 || !at || !moveRef.current || !(target instanceof Element) || !event.currentTarget.contains(target) || target.closest(NOT_A_HANDLE)) return;
+      // No text selection while dragging. That also skips the press's own focus change, so focus moves into the window
+      // here (unless it is already inside), and Escape then closes the window that was just dragged.
+      event.preventDefault();
+      if (!panel.current?.contains(document.activeElement)) panel.current?.focus({preventScroll: true});
+      drag.current = {id: event.pointerId, x: event.clientX, y: event.clientY, from: {x: at.x, y: at.y}};
+      try { event.currentTarget.setPointerCapture(event.pointerId); } catch {}
+    } : undefined}
+      onPointerMove={windowed ? event => {
+        const d = drag.current;
+        if (d?.id === event.pointerId) moveRef.current?.({x: d.from.x + event.clientX - d.x, y: d.from.y + event.clientY - d.y});
+      } : undefined}
+      onPointerUp={windowed ? endDrag : undefined} onPointerCancel={windowed ? endDrag : undefined} onLostPointerCapture={windowed ? endDrag : undefined}>
       <div className="canvas-chat-heading">
         <h2 className="canvas-chat-title">{title}</h2>
         {sub ? <ChatSubline sub={sub}/> : null}
@@ -1782,7 +1782,7 @@ function CanvasChat({channelId, mode, anchor, drawerOpen, watchView, title, sub,
     </header>
     <ChatHeaderSlotsContext.Provider value={slots}>
       <div className="canvas-chat-body">{digest}{setup}{children}</div>
-      {focus ? <div className="canvas-visually-hidden canvas-chat-announce" role="status">{announce ? <span key={announce.id}>{announce.text}</span> : null}</div> : null}
+      {focus && !windowed ? <div className="canvas-visually-hidden canvas-chat-announce" role="status">{announce ? <span key={announce.id}>{announce.text}</span> : null}</div> : null}
     </ChatHeaderSlotsContext.Provider>
   </section>;
 }

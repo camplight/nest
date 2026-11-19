@@ -12,8 +12,8 @@ import {areaAgentNames,busyLabel,pickerGroups,type PickerFilter} from './tray';
 const FILTERS: {value: PickerFilter; label: string}[] = [
   {value: 'all', label: 'All'}, {value: 'yours', label: 'Yours'}, {value: 'free', label: 'Free now'}, {value: 'working', label: 'Working'},
 ];
-/** Another dialog above the canvas (manage channel, the tour) or a focus chat takes Escape for itself. */
-const OTHER_DIALOG = '[aria-modal="true"], .dialog-backdrop, .canvas-chat[data-mode="focus"]';
+/** Another dialog above the canvas (manage channel, the tour) or a phone's full-screen chat takes Escape for itself; a desktop chat window does not. */
+const OTHER_DIALOG = '[aria-modal="true"], .dialog-backdrop, .canvas-chat[data-mode="focus"]:not([data-window])';
 
 function startDrag(event: ReactDragEvent, name: string) {
   event.dataTransfer.setData(AGENT_DRAG_TYPE, name);

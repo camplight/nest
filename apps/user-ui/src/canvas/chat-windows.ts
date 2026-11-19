@@ -28,6 +28,12 @@ export function clampWindow(win: ChatWindow, bounds: Bounds): ChatWindow {
   };
 }
 
+/** A window's CSS position and size (`--win-x/--win-y/--win-w/--win-max-h`), in the coordinates of the bounds. */
+export function windowVars(win: ChatWindow, bounds: Bounds): Record<string, string> {
+  return {'--win-x': `${Math.round(win.x)}px`, '--win-y': `${Math.round(win.y)}px`,
+    '--win-w': `${Math.round(windowWidth(bounds))}px`, '--win-max-h': `${Math.round(Math.max(0, windowHeight(bounds)))}px`};
+}
+
 /** Beside the card (right, else left), cascaded from the front window, else the bounds' top-left. Always inside the bounds. */
 export function placeWindow(card: {x: number; y: number; w: number} | null, front: ChatWindow | null, bounds: Bounds): Point {
   const width = windowWidth(bounds);
