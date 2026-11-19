@@ -604,8 +604,8 @@ The canvas was then reworked to match the design mockup
   - Loose chats open in a left drawer from the top bar.
   - New chat buttons: the toolbar's Chat and each area's `+ Chat`.
   - Rename a chat from its window title (owner only).
-- Paste links and files into the context popover, with a Links section; agents read
-  the links through `nest-context`.
+- **Context:** paste links and files into the context popover, which has a Links
+  section; agents read the links through `nest-context`.
 
 Done since, in the 2026-11-19 overnight batch (local, not pushed or deployed):
 
