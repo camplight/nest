@@ -102,7 +102,7 @@ await page.getByLabel('About this agent',{exact:true}).waitFor();
 assert.equal(new URL(page.url()).searchParams.get('agent'),'Research & Design');
 await page.reload();await page.getByLabel('About this agent',{exact:true}).waitFor();
 assert.equal(fullHealthRequests,0);
-assert.equal(await page.getByLabel('Personality and instructions').isVisible(),false);
+assert.equal(await page.getByLabel('Personality and instructions').isVisible(),true);
 assert.equal(await page.getByText('Runtime details',{exact:true}).isVisible(),false);
 // Connected apps load only when that workspace tab is selected.
 assert.equal(connectionRequests,0);
