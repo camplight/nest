@@ -2890,6 +2890,32 @@ li.canvas-phone-row[data-access] {
 .canvas-area-ctx.has-context {
   color: var(--nest-text);
 }
+/* `+ Chat` in the title bar (editors, not at far zoom): a new chat placed in this area, opened in the last chat mode. */
+.canvas-area-new {
+  flex: none;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px dashed var(--nest-border);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--nest-muted);
+  font: 500 13px/1 Inter, sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.canvas-area-new > span { font-size: 15px; }
+.canvas-area-new:hover,
+.canvas-area-new:focus-visible {
+  border-style: solid;
+  border-color: var(--nest-forest);
+  background: var(--nest-surface);
+  color: var(--nest-text);
+}
+:root[data-theme="dark"] .canvas-area-new:hover,
+:root[data-theme="dark"] .canvas-area-new:focus-visible { border-color: var(--nest-lime); }
 /* An area with no chats shows its files on the canvas: 72 px tiles under the title bar. */
 .canvas-area-shelf {
   position: absolute;

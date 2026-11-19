@@ -64,6 +64,10 @@ export type SurfaceProps = {
   /** The new area whose title opens for typing once it is shown. */
   renameAreaId?: string | null;
   onRenameStarted?(areaId: string): void;
+  /** Editors: the toolbar's `Chat` was pressed (a new chat at the view's centre). */
+  onNewChat?(): void;
+  /** Editors: an area's `+ Chat` (or New chat here) was pressed. */
+  onNewChatInArea?(areaId: string): void;
   /** After any render that moved the view, resized the surface or moved or measured a card: an open sheet re-reads its card. */
   onViewChange?(): void;
   /** A press on empty canvas (not a card, a control or a drag past the drag threshold): an open sheet closes. */
@@ -175,7 +179,7 @@ const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + 
 
 export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null,
   onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onOpenCanvas, onDropFiles,
-  needs = NO_NEEDS, viewer = '', onNotice, onAreaCreated, renameAreaId = null, onRenameStarted, onViewChange, onEmptyPress, onFit,
+  needs = NO_NEEDS, viewer = '', onNotice, onAreaCreated, renameAreaId = null, onRenameStarted, onNewChat, onNewChatInArea, onViewChange, onEmptyPress, onFit,
   links, onOpenLink, onToggleFork, canConnect, onConnect, onNewStep, onLinkPick, schedules}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
   // Without a known human the view is not remembered, so it can never land under another person's key.
@@ -771,7 +775,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
           canEdit={canEdit} compact={compact} summary={summaries?.get(area.id)} dropTarget={dropArea?.id === area.id ? dropArea.kind : null} onRename={rename} onDelete={remove}
           empty={!occupied.has(area.id)} contextOpen={area.id === contextAreaId}
           context={areaContext?.get(area.id)} onContext={onAreaContext ? openAreaContext : undefined} onLinkOpen={openLink} onLinkHover={hoverLink}
-          renaming={area.id === renameAreaId} onRenameStarted={renameStarted}/>;
+          renaming={area.id === renameAreaId} onRenameStarted={renameStarted} onNewChat={onNewChatInArea}/>;
       })}
       {lines.map(line => <ContextLine key={line.key} from={line.from} to={line.to}/>)}
       {links?.length ? <Links links={links} rects={linkRects} selected={selectedChannelId} onOpen={openFlow} onToggleFork={toggleFork}/> : null}
@@ -804,6 +808,7 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       <button type="button" className="canvas-tool" aria-pressed={tool === 'area'} disabled={!canEdit}
         title={canEdit ? 'Drag on the canvas to draw an area' : 'You can view this canvas but not change it.'}
         onClick={() => { const arming = toolRef.current !== 'area'; setTool(arming ? 'area' : 'select'); if (arming) onNotice?.(DRAW_HINT); }}>Area</button>
+      {onNewChat ? <button type="button" className="canvas-tool" title="Start a new chat at the centre of the view" onClick={() => { setTool('select'); onNewChat(); }}>Chat</button> : null}
     </div>
     <div className="canvas-chrome canvas-zoom" role="group" aria-label="Zoom">
       <button type="button" aria-label="Zoom out" onClick={() => zoomBy(1 / ZOOM_STEP)}><span aria-hidden="true">−</span></button>

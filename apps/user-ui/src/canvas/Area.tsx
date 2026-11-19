@@ -41,10 +41,12 @@ export type AreaProps = {
   renaming?: boolean;
   /** The title opened for typing; the owner stops asking. */
   onRenameStarted?(areaId: string): void;
+  /** Editors: start a new chat in this area (`+ Chat`, or New chat here in the menu); it opens straight away. */
+  onNewChat?(areaId: string): void;
 };
 
 export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, summary, dropTarget = null, empty = false, contextOpen = false, onRename, onDelete, context, onContext, onLinkOpen, onLinkHover,
-  renaming = false, onRenameStarted}: AreaProps) {
+  renaming = false, onRenameStarted, onNewChat}: AreaProps) {
   const [editing, setEditing] = useState(false);
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -123,6 +125,10 @@ export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, su
           </button>;
         })}
       </div> : null}
+      {canEdit && onNewChat && !compact ? <button type="button" className="canvas-area-new" aria-label={`New chat in ${title}`}
+        title="Start a new chat here: it sees this area's notes and files" onClick={() => onNewChat(area.id)}>
+        <span aria-hidden="true">+</span> Chat
+      </button> : null}
       {canEdit ? <div className="canvas-area-menu" ref={menuRef}
         onBlur={event => { if (!menuRef.current?.contains(event.relatedTarget as Node | null)) setMenu(false); }}>
         <button ref={triggerRef} type="button" className="canvas-area-more" aria-label="Area options" aria-expanded={menu} aria-controls={menu ? menuId : undefined}
@@ -130,6 +136,7 @@ export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, su
           <span aria-hidden="true">⋯</span>
         </button>
         {menu ? <div id={menuId} className="canvas-menu">
+          {onNewChat ? <button type="button" onClick={() => { setMenu(false); onNewChat(area.id); }}>New chat here</button> : null}
           <button type="button" onClick={() => { setMenu(false); edit(); }}>Rename area</button>
           <button type="button" onClick={() => { setMenu(false); onDelete(area.id); }}>Delete area</button>
         </div> : null}

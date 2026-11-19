@@ -1,7 +1,7 @@
 // Canvas view: top bar, first-canvas prompt, notices and the board surface.
 import {useCallback,useEffect,useId,useLayoutEffect,useMemo,useReducer,useRef,useState,useSyncExternalStore,type CSSProperties,type FormEvent,type MutableRefObject,type ReactNode} from 'react';
 import {Columns2,Ellipsis,FileText,Search,Share2,SquareArrowOutUpRight,X} from 'lucide-react';
-import {AGENT_PIN_LIMIT_MESSAGE,CanvasTint,relTime,ruleText,type AgentPins,type TriggerView,type BoardLink,type Link,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type ContextSummary,type NewArea,type Project,type ScheduleView} from '@nest/schemas';
+import {AGENT_PIN_LIMIT_MESSAGE,CanvasTint,relTime,ruleText,type AgentPins,type TriggerView,type BoardLink,type Link,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type CanvasArea,type ContextSummary,type NewArea,type Project,type ScheduleView} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
@@ -123,6 +123,8 @@ export const scheduledToast = (rule: Parameters<typeof ruleText>[0], nextAt: num
   rule.kind === 'webhook' ? `${ruleText(rule)}. Runs each time it happens.`
     : nextAt === null ? `${ruleText(rule)}.` : `${ruleText(rule)}. Next run ${relTime(nextAt, now)}.`;
 export const SCHEDULE_DELETED = 'Schedule deleted. Past runs stay in the chat.';
+/** A chat started from the toolbar or an area before its first message names it. */
+const NEW_CHAT_NAME = 'New chat';
 /** The mock's toast after a bottom-box send that repeats (Task 12); the notices when it is not saved are in dock-schedule.ts. */
 export const typedScheduledToast = (rule: Parameters<typeof ruleText>[0]) => `Scheduled: ${ruleText(rule)}. First run now, then on schedule.`;
 const SCHEDULE_TITLE = 'Schedule or trigger: run this on a timer or when something happens';
@@ -715,6 +717,17 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
       say(notScheduledText(error));
     } finally { flows.refresh(); }
   }, [say, flows.refresh]);
+  /** A new chat into an area: a free spot under the title bar; the area grows to hold it. */
+  const placeInArea = useCallback(async (channelId: string, area: CanvasArea) => {
+    const current = store.snapshot().board;
+    if (!current) return false;
+    const w = DEFAULT_CARD_WIDTH, h = CARD_PLACE_HEIGHT;
+    const spot = clampPoint(slotInArea(area, measured(current.cards), w, h));
+    if (!await applyTracked({kind: 'placeCards', cards: [{channelId, ...spot}]})) return false;
+    const grown = growToFit(area, [{...spot, w, h}]);
+    if (grown) void store.apply({kind: 'patchArea', areaId: area.id, patch: grown});
+    return true;
+  }, [store, applyTracked, measured]);
   const created = useCallback(async (project: Project, typed?: {schedule?: TypedSchedule}) => {
     setDockKey(n => n + 1);
     if (typed?.schedule && project.channelId) void scheduleTyped(project.channelId, typed.schedule);
@@ -734,6 +747,48 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
     // Centre the card once the chat beside it has taken its room; a focus chat moves the view itself as it opens in place.
     if (mode === 'split') requestAnimationFrame(() => requestAnimationFrame(() => controls.current?.reveal({channelId})));
   }, [store, place, jumpTo, scheduleTyped]);
+  /** The chat mode last used on the canvas (a card click's floating sheet until one is opened), for chats started without one open. */
+  const lastModeRef = useRef<CanvasChatMode>('focus');
+  if (chatShown && chatMode) lastModeRef.current = chatMode;
+  const startingChat = useRef(false);
+  /**
+   * The toolbar's `Chat` and an area's `+ Chat` (editors): a new team chat named "New chat" (the first message names it,
+   * as from the bottom box) with the person's own agent, if they have one, placed at the view's centre or inside the area
+   * (which grows to hold it), then opened in the current or last chat mode with its composer focused.
+   */
+  const newChat = useCallback(async (areaId?: string) => {
+    const current = store.snapshot().board;
+    if (!current || current.canvas.role === 'view' || phoneRef.current || startingChat.current) return;
+    startingChat.current = true;
+    try {
+      let project: Project;
+      try {
+        const roster = await apiJson<{personalAgent: {subscriberId: string} | null}>('/api/projects/members').catch(() => null);
+        const members = roster?.personalAgent ? [{subscriberType: 'AGENT', subscriberId: roster.personalAgent.subscriberId}] : [];
+        project = await apiJson<Project>('/api/projects', {method: 'POST', headers: getApiHeaders(),
+          body: JSON.stringify({id: crypto.randomUUID(), name: NEW_CHAT_NAME, members, collaboration: 'team'})});
+      } catch { say('Could not start a new chat. Try again.'); return; }
+      await refreshRef.current().catch(() => {});
+      const now = store.snapshot().board;
+      if (!now || now.canvas.id !== current.canvas.id) return;
+      const area = areaId ? now.areas.find(a => a.id === areaId) : undefined;
+      if (!await (area ? placeInArea(project.channelId, area) : place([project.channelId], false))) { say('Could not put the new chat on the canvas. Try again.'); return; }
+      // Let App's refreshed chat list reach the canvas before opening the chat from it.
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      setSelectedId(project.channelId);
+      const mode = modeRef.current ?? lastModeRef.current;
+      openRef.current(project.channelId, mode);
+      if (mode === 'split') requestAnimationFrame(() => requestAnimationFrame(() => controls.current?.reveal({channelId: project.channelId})));
+      let tries = 0;
+      const focus = () => {
+        const box = viewRoot.current?.querySelector<HTMLTextAreaElement>('.canvas-chat textarea');
+        if (box) box.focus({preventScroll: true}); else if (++tries < 60) requestAnimationFrame(focus);
+      };
+      requestAnimationFrame(focus);
+    } finally { startingChat.current = false; }
+  }, [store, say, place, placeInArea]);
+  const newChatHere = useCallback(() => void newChat(), [newChat]);
+  const newChatInArea = useCallback((areaId: string) => void newChat(areaId), [newChat]);
   /**
    * The open chat's header moves its card into an area (a free spot under the title bar; the area
    * grows to fit) or, with no area, just outside the one it is in. A loose chat is placed straight
@@ -1332,6 +1387,7 @@ export function CanvasView({canvasId, humanId, username, humans, channels, proje
           needs={cardNeeds} viewer={username} onNotice={say} onAreaCreated={setRenameAreaId} renameAreaId={renameAreaId} onRenameStarted={renameStarted}
           onViewChange={viewChanged} onEmptyPress={focusChat ? emptyPress : undefined} onFit={focusChat ? fitCloses : undefined}
           links={shownLinks} onOpenLink={openFlowLink} onToggleFork={toggleFork}
+          onNewChat={canPlace ? newChatHere : undefined} onNewChatInArea={canPlace ? newChatInArea : undefined}
           canConnect={canConnect} onConnect={connectCards} onNewStep={canPlace ? dropNewStep : undefined} onLinkPick={openLinkPick} schedules={flowsOn ? cardJobs : undefined}/>
         <AgentTray suggested={tray.suggested} pinned={tray.pinned} pins={shownPins} pinsReady={pins !== null} onTogglePin={toggle}
           agents={roster} humanId={humanId} owners={owners} busy={busy} cards={board.cards} areas={board.areas} open={pickerOpen} onOpenChange={showPicker}/>
