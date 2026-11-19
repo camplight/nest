@@ -69,6 +69,12 @@ describe('scheduled jobs',()=>{
     expect(changed.get('c1')).not.toBe(first.get('c1'));
     expect(changed.get('c2')).toBe(first.get('c2'));
   });
+  it('an app event is a job of its own kind: its rule, and the app and event named after its label',()=>{
+    const app:TriggerView={id:'t9',channelId:'c1',agent:'Pip',prompt:'Triage it',label:'New commits',kind:'app',app:'github',triggerSlug:'GITHUB_COMMIT_EVENT',config:{repo:'a/b'},on:true,pausedReason:null,tokenHint:'',
+      lastAt:null,createdBy:'me',createdAt:1,rotatedAt:1,updatedAt:1,version:0,canEdit:true,canManage:true};
+    const [job]=scheduleJobs({schedules:[],agentMade:[],triggers:[app],viewerId:'me',names:new Map(),tz:'UTC'});
+    expect(job).toMatchObject({key:'hook:t9',text:'When the app event happens',short:'app event',label:'New commits · github Commit event',next:null});
+  });
   it('a webhook waits for its call: `On event`, `last …`, listed under Starts when something happens, never Set by agents',()=>{
     const hook=(over:Partial<TriggerView>={}):TriggerView=>({id:'t1',channelId:'c1',agent:'Pip',prompt:'Triage it',label:'Sentry',kind:'webhook',app:null,triggerSlug:null,config:null,on:true,pausedReason:null,tokenHint:'abcd',
       lastAt:null,createdBy:'me',createdAt:1,rotatedAt:1,updatedAt:1,version:0,canEdit:true,canManage:true,...over});

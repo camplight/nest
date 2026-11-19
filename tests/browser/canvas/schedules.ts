@@ -80,7 +80,7 @@ await runChatTest('canvas schedules: the clock, the badge and strip, Run now, a 
   await clock.click();
   await pop.waitFor();
   assert.equal(await pop.locator('h2').innerText(),`Schedule · ${CHAT}`);
-  assert.deepEqual(await pop.locator('.optrow').nth(1).locator('button').allInnerTexts(),['Once','Every day','Weekdays','Every week','Every month','Every few minutes','Webhook'],'the mock\'s kinds, Webhook last, no app events');
+  assert.deepEqual(await pop.locator('.optrow').nth(1).locator('button').allInnerTexts(),['Once','Every day','Weekdays','Every week','Every month','Every few minutes','Webhook'],'the mock\'s kinds, Webhook last; App event follows it only when app events are available (this env has no Composio secret)');
   await pop.locator('.pick',{hasText:'Pip'}).click();
   await pop.getByLabel('What should happen').fill('Post the weekly recap.');
   await pop.getByRole('button',{name:'Every week',exact:true}).click();

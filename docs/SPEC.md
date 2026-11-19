@@ -1949,8 +1949,17 @@ deviations; item 16 the checks.
      opens the Schedule popover (the mock's `renderSchedPop`): `What should happen`,
      `Who does it` (the chat's agents, then the person's pinned agents; one not yet in
      the chat is added to it on save, when the person may add agents), `When` (Once,
-     Every day, Weekdays, Every week, Every month, Every few minutes and, last, Webhook,
-     shown while availability reports `webhooks`; app events are not offered yet) with day
+     Every day, Weekdays, Every week, Every month, Every few minutes, Webhook, shown
+     while availability reports `webhooks`, and last App event, shown while it reports
+     `appEvents`: a new one picks one of the person's connected apps (active accounts from
+     `GET /api/integrations/connections`), then one of the app's trigger types
+     (`GET /api/flows/app-triggers/types?app=`), then that type's settings, built from its JSON
+     schema in `trigger-config.ts` (string, number, integer, boolean and enum fields, required
+     ones marked, anything nested as a JSON textarea), and saves with
+     `POST /api/flows/triggers` `kind:'app'`; the name defaults to `{app} {event}`, a refusal
+     shows inline in the popover, and there is no URL to show or rotate. An existing app event
+     opens as that kind only (name, agent and prompt editable, Pause/Resume/Delete) and its
+     Scheduled row reads `When the app event happens · {name} · {app} {event}`) with day
      buttons, a time or an interval, and a summary `{agent} will {prompt} · {rule}. Next run: {Mon 09:00} (in 4 days). If a
      run can't start, it shows up in Needs you. Times are in {zone}.`. A new schedule
      uses the browser's time zone; an existing one keeps its own. `Schedule it` toasts

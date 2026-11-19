@@ -1,6 +1,6 @@
 // Typed helpers for the product /api/flows routes (apps/api/src/flows/routes.ts and scheduler.ts): availability, links,
 // needs, schedules and the decisions taken from Needs you (a hand-off's OK, a project task's review, Run now).
-import type {AgentMadeSchedule,CreatedTrigger,FlowNeed,ForkView,Link,LinkPatch,NewFork,NewLink,NewSchedule,NewTrigger,ProjectDetail,SchedulePatch,ScheduleView,Task,TriggerPatch,TriggerView} from '@nest/schemas';
+import type {AgentMadeSchedule,AppTriggerType,CreatedAppTrigger,CreatedTrigger,NewAppTrigger,FlowNeed,ForkView,Link,LinkPatch,NewFork,NewLink,NewSchedule,NewTrigger,ProjectDetail,SchedulePatch,ScheduleView,Task,TriggerPatch,TriggerView} from '@nest/schemas';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 
 export type FlowsAvailability = {enabled: boolean; reason?: string; serviceAgent: string | null; summaries: 'model' | 'fallback'; webhooks: boolean; appEvents: boolean};
@@ -166,3 +166,23 @@ export async function deleteTrigger(id: string, version: number): Promise<void> 
     if (error.current) await once(error.current.version);
   }
 }
+
+// App-event triggers (Composio): the person's connected apps, an app's trigger types, and creating one. It has no URL.
+/** The toolkit slugs of the person's active connected apps (GET /api/integrations/connections, every page), each once. */
+export async function getConnectedApps(): Promise<string[]> {
+  const apps = new Set<string>();
+  let cursor: string | null = null;
+  for (let page = 0; page < 10; page++) {
+    const r: {items: {toolkit: string; status: string}[]; nextCursor: string | null} =
+      await apiJson('/api/integrations/connections' + (cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''));
+    for (const a of r.items) if (a.status === 'ACTIVE') apps.add(a.toolkit);
+    cursor = r.nextCursor;
+    if (!cursor) break;
+  }
+  return [...apps].sort();
+}
+/** The trigger types Composio offers for an app the person has connected. */
+export const getAppTriggerTypes = async (app: string) =>
+  (await apiJson<{items: AppTriggerType[]}>(`/api/flows/app-triggers/types?app=${encodeURIComponent(app)}`)).items;
+/** A new app-event trigger. A repeat with the same id and settings answers the trigger already made. */
+export const createAppTrigger = (input: NewAppTrigger) => apiJson<CreatedAppTrigger>('/api/flows/triggers', write('POST', input));

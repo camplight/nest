@@ -43,7 +43,7 @@ import {bringToFront,closeWindow,moveWindow,openWindow,placeWindow,pruneWindows,
 import {ActiveWindowBody,ChatFaces,PassiveThread,PassiveWindow,windowFileDrop,type ChatPerson} from './PassiveWindow';
 import {useWindowDrag} from './useWindowDrag';
 import {isServiceAgent,useFlows} from './useFlows';
-import {LinkConflict,createLink,createSchedule,createTrigger,deleteLink,deleteSchedule,deleteTrigger,flowError,getLinks,patchLatest,patchSchedule,patchTrigger,rotateTrigger,runScheduleNow,sendNow,type LinkView} from './flows-api';
+import {LinkConflict,createAppTrigger,getAppTriggerTypes,getConnectedApps,createLink,createSchedule,createTrigger,deleteLink,deleteSchedule,deleteTrigger,flowError,getLinks,patchLatest,patchSchedule,patchTrigger,rotateTrigger,runScheduleNow,sendNow,type LinkView} from './flows-api';
 import {useDigestActions,type ChangeRequests} from './useDigestActions';
 import {ChatDigest,agentLine} from './ChatDigest';
 import {participantRows} from './rows';
@@ -52,7 +52,7 @@ import {LinkPicker} from './LinkPicker';
 import {ChatSetup} from './ChatSetup';
 import {LinkIcon} from './Links';
 import {startFork,type ForkResult,type ForkSource} from './fork';
-import {SchedulePopover,type ScheduleDraft,type WebhookDraft} from './SchedulePopover';
+import {SchedulePopover,type AppDraft,type ScheduleDraft,type WebhookDraft} from './SchedulePopover';
 import {ClockIcon,ScheduledList,scheduleStrip} from './ScheduledList';
 import {jobsByChannel,scheduleJobs,scheduledCount,setupChip,type ScheduleJob} from './schedule-jobs';
 import type {WindowCores} from '../chat/window-cores';
@@ -143,7 +143,7 @@ type SchedPop = {
 };
 /** The mock's toasts after a schedule is saved and deleted. */
 export const scheduledToast = (rule: Parameters<typeof ruleText>[0], nextAt: number | null, now: number) =>
-  rule.kind === 'webhook' ? `${ruleText(rule)}. Runs each time it happens.`
+  rule.kind === 'webhook' || rule.kind === 'app' ? `${ruleText(rule)}. Runs each time it happens.`
     : nextAt === null ? `${ruleText(rule)}.` : `${ruleText(rule)}. Next run ${relTime(nextAt, now)}.`;
 export const SCHEDULE_DELETED = 'Schedule deleted. Past runs stay in the chat.';
 /** A chat started from the toolbar or an area before its first message names it. */
@@ -1448,6 +1448,21 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
       return false;
     }
   }, [ensureAgent, say, flows.refresh]);
+  /** The App event kind's save: closes on success; a refusal (not connected, Composio unavailable) is returned for the popover to show. */
+  const saveAppEvent = useCallback(async (draft: AppDraft): Promise<string | null> => {
+    const pop = schedPopRef.current;
+    if (!pop || pop.triggerId) return null;
+    if (!await ensureAgent(pop.channelId, draft.agent)) return 'Could not add this agent to the chat. Try again.';
+    try {
+      await createAppTrigger({kind: 'app', id: pop.newId, channelId: pop.channelId, ...draft});
+      if (schedPopRef.current === pop) setSchedPop(null);
+      say(scheduledToast({kind: 'app'}, null, Date.now()));
+      flows.refresh();
+      return null;
+    } catch (error) {
+      return flowError(error, 'Could not save the app event. Try again.');
+    }
+  }, [ensureAgent, say, flows.refresh]);
   /** Rotate URL: the new URL replaces the masked one, shown once. */
   const rotateWebhook = useCallback(async () => {
     const pop = schedPopRef.current;
@@ -1695,7 +1710,8 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
         pinned={shownPins} anchor={flowPop.anchor} editable={flowPop.view.canEdit && board.canvas.role !== 'view'}
         onChange={changeFlow} onLabelDraft={draftFlowLabel} onDisconnect={disconnectFlow} onSendNow={sendFlow} onClose={closeFlowPop}/> : null}
       {schedPop && !schedPopStale && board ? <SchedulePopover key={`${schedPop.channelId}:${schedPop.key}`} chat={{channelId: schedPop.channelId, title: chatTitle}}
-        schedule={popSchedule} trigger={popTrigger} webhooks={flows.availability?.webhooks === true} url={schedPop.url}
+        schedule={popSchedule} trigger={popTrigger} webhooks={flows.availability?.webhooks === true} appEvents={flows.availability?.appEvents === true}
+        loadApps={getConnectedApps} loadTypes={getAppTriggerTypes} onSaveApp={saveAppEvent} url={schedPop.url}
         agents={chatAgents} pinned={shownPins.filter(name => !isServiceAgent(name, service))} timezone={browserZone()} anchor={schedPop.anchor} now={Date.now}
         onSave={saveSchedule} onSaveWebhook={saveWebhook} onRotate={rotateWebhook}
         onPause={(popSchedule ?? popTrigger)?.canManage ? pauseSchedule : undefined} onDelete={(popSchedule ?? popTrigger)?.canManage ? removeSchedule : undefined} onClose={closeSchedPop}/> : null}

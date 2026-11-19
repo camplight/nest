@@ -1,6 +1,7 @@
 // Scheduled jobs as the canvas shows them (the mock's SCHED rows, read by schedBadge, schedStrip, the Setup chip, the
 // top-bar count and renderSchedList): the viewer's schedules and webhooks from GET /api/flows/schedules and the runs agents
 // booked themselves, in one shape. Pure: the clock is an argument.
+import {appEventName} from './trigger-config';
 import {atText,relTime,ruleText,shortRule,type AgentMadeSchedule,type ScheduleView,type TriggerView} from '@nest/schemas';
 
 export type ScheduleJob = {
@@ -51,10 +52,12 @@ export function scheduleJobs({schedules, agentMade, triggers = [], viewerId, nam
     };
   });
   const hooks = triggers.map((t): ScheduleJob => ({
-    key: `hook:${t.id}`, channelId: t.channelId, agent: t.agent, text: ruleText({kind: 'webhook'}), short: shortRule({kind: 'webhook'}),
+    key: `hook:${t.id}`, channelId: t.channelId, agent: t.agent, text: ruleText({kind: t.kind}), short: shortRule({kind: t.kind}),
     setBy: t.createdBy === viewerId ? null : names.get(t.createdBy) ?? 'someone else',
     on: t.on, next: null, tz, missed: null, lastOk: t.lastAt === null ? null : atText(t.lastAt, tz),
-    schedule: null, trigger: t, label: t.label,
+    schedule: null, trigger: t,
+    // An app event's row says which app and event too, so two in a chat can be told apart.
+    label: t.kind === 'app' && t.app ? `${t.label} · ${t.app} ${appEventName(t.app, t.triggerSlug ?? '')}` : t.label,
   }));
   const agents = [...agentMade].sort((a, b) => a.at - b.at).map((e): ScheduleJob => {
     const at = atText(e.at, tz);
