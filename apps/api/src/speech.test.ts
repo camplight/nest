@@ -12,7 +12,7 @@ const speech=vi.fn<SpeechProvider>();
 const settings={enabled:true,voiceId:'fixture-voice',style:'calm',speed:1.25};
 const call=(path:string,method='GET',body?:unknown,headers=owner)=>product.app.request(path,{method,headers,...(body===undefined?{}:{body:JSON.stringify(body)})});
 async function emit(text:string,source='agent:Puff',type='message.created') {
-  const r=await engine.app.request('/api/events',{method:'POST',headers:{'content-type':'application/json','x-orgops-runner-token':'runner'},body:JSON.stringify({type,source,channelId:channel,payload:{text}})});
+  const r=await engine.app.request('/api/events',{method:'POST',headers:{'content-type':'application/json','x-orgops-runner-token':'runner'},body:JSON.stringify({type,source,channelId:channel,payload:type==='agent.turn.started'?{triggerEventId:message}:{text}})});
   expect(r.status).toBe(201);return (await r.json()).id as string;
 }
 beforeEach(async()=>{
