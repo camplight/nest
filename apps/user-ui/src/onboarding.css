@@ -316,6 +316,7 @@
   padding: 16px 20px;
 }
 .connection-quick-access > div { flex: 1; min-width: min(240px, 100%); }
+.connection-quick-access > .connection-quick-buttons { flex: 0 0 auto; min-width: 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .connection-quick-access strong { font-size: 13px; }
 .connection-access-status { margin-left: 10px; color: var(--nest-muted); font-size: 12px; }
 .connection-quick-access p { margin: 6px 0 0; color: var(--nest-muted); font-size: 13px; line-height: 1.6; }
@@ -381,7 +382,8 @@
   .onboarding-connection > header { padding: 18px; gap: 12px; }
   .onboarding-connection > header h3 { font-size: 15px; }
   .connection-quick-access { padding: 14px 18px; }
-  .connection-quick-access > button { width: 100%; }
+  .connection-quick-access > .connection-quick-buttons { width: 100%; }
+  .connection-quick-buttons > button { flex: 1; }
   .onboarding-connection .connection-advanced > summary { padding: 12px 18px; }
   .connection-picker { padding: 0 18px 18px; }
   .connection-action-search { max-width: none; width: 100%; }
@@ -401,3 +403,9 @@
 .connection-project-access p { color: var(--nest-muted); line-height: 1.6; overflow-wrap: anywhere; }
 .connection-project-access section { display: grid; gap: 10px; padding-top: 16px; border-top: 1px solid var(--nest-border); min-width: 0; }
 .connection-project-access button { justify-self: start; max-width: 100%; white-space: normal; }
+/* "Your connections" belongs to the accounts below it: more room above, less below. */
+.onboarding-connections > .dashboard-section-title { margin: 24px 0 -10px; }
+/* Actions are allowed but app access is off: the card and a hint under the accounts point to the last step. */
+.connection-access-control.is-pending { border-color: var(--instance-primary); box-shadow: inset 3px 0 var(--instance-primary); }
+.connection-access-control.is-pending .connection-access-overview p { color: var(--nest-text); }
+.connection-access-hint { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 0; padding: 12px 16px; border-radius: 10px; background: color-mix(in srgb, var(--instance-primary) 8%, var(--nest-surface)); border: 1px solid color-mix(in srgb, var(--instance-primary) 30%, transparent); font-size: 13px; line-height: 1.5; }

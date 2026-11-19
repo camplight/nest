@@ -5,7 +5,9 @@ import type {ThreadMessageLike} from './aui';
 export type AuthorKind='human'|'agent'|'system'|'activity';
 export type MessageAttachment={fileId:string;name:string;mime?:string;size?:number};
 export type ChatMeta={eventId:string;authorKind:AuthorKind;authorName:string;isMine:boolean;
- displayAt:number;targetAgents:string[];inReplyTo?:string;detached?:boolean};
+ displayAt:number;targetAgents:string[];inReplyTo?:string;detached?:boolean;
+ /** Activity only: the reply this group belongs to, shown inside that reply. */
+ belongsTo?:string};
 export type TimelineItem=
  |{kind:'message';id:string;meta:ChatMeta;text:string;markdown:boolean;attachments:MessageAttachment[];event:EventRow}
  |{kind:'activity';id:string;meta:ChatMeta;tone:'agent'|'system';events:EventRow[]};
@@ -21,7 +23,22 @@ const TRACE_TYPES=new Set([
  'process.started','process.output','process.exited',
  'tool.started','tool.executed','tool.failed',
  'telemetry.context.window.updated',
+ 'agent.turn.cancel_requested','agent.context.compacted',
+ 'telemetry.nest.connection.action',
 ]);
+const TURN_STARTS=new Set(['agent.turn.started','wrapper.turn.started']);
+const TURN_ENDS=new Set(['agent.turn.completed','agent.turn.failed','wrapper.turn.completed','wrapper.turn.failed']);
+const isTurnEvent=(event:EventRow)=>event.type.startsWith('agent.turn.')||event.type.startsWith('wrapper.turn.');
+// Events that say only that an agent woke up and went back to sleep. Every message in a chat wakes each agent in
+// it; a turn made of nothing else, with no reply, has nothing to show (spec: agent activity lines).
+const QUIET_TYPES=new Set(['agent.turn.started','agent.turn.phase','agent.turn.completed','wrapper.turn.started','wrapper.turn.completed',
+ 'telemetry.context.window.updated','agent.context.compacted']);
+const quiet=(event:EventRow)=>{
+ if(QUIET_TYPES.has(event.type))return event.type!=='agent.turn.completed'||record(event.payload)?.cancelled!==true;
+ if(event.type!=='process.exited')return false;
+ const payload=record(event.payload);
+ return payload?.exitCode===0&&payload.timedOut!==true;
+};
 const CONTINUATION_MS=5*60_000;
 
 const record=(payload:unknown):Record<string,unknown>|undefined=>
@@ -98,7 +115,7 @@ export function upsertEvents(current:EventRow[],incoming:EventRow[]):EventRow[]{
  });
 }
 
-function messageItem(event:EventRow,opts:BuildOptions):TimelineItem{
+function messageItem(event:EventRow,opts:BuildOptions,previousMessageId?:string):TimelineItem{
  const kind=authorKind(event.source);
  const authorName=sourceLabel(event.source);
  const payload=record(event.payload);
@@ -106,15 +123,19 @@ function messageItem(event:EventRow,opts:BuildOptions):TimelineItem{
  const meta:ChatMeta={eventId:event.id,authorKind:kind,authorName,isMine:kind==='human'&&authorName===opts.currentUsername,
   displayAt:displayTime(event),targetAgents:targetAgents(payload)};
  if(typeof payload?.inReplyTo==='string')meta.inReplyTo=payload.inReplyTo;
+ // An agent's reply names the message that started its turn. When other messages came in between, the reply
+ // shows which one it answers; directly after its question it needs no link.
+ else if(kind==='agent'&&event.parentEventId&&event.parentEventId!==previousMessageId)meta.inReplyTo=event.parentEventId;
  if(opts.detachedIds?.has(event.id))meta.detached=true;
  return {kind:'message',id:event.id,meta,text,markdown:shouldRenderMarkdown(text),attachments:parseMessageAttachments(payload),event};
 }
 
-function activityItem(events:EventRow[],id:string,opts:BuildOptions):TimelineItem{
+function activityItem(events:EventRow[],id:string,opts:BuildOptions,belongsTo?:string):TimelineItem{
  const first=events[0]!;
  const tone=events.some(event=>event.type==='agent.turn.failed'||event.type==='tool.failed')?'system':'agent';
  const meta:ChatMeta={eventId:first.id,authorKind:'activity',authorName:sourceLabel(first.source),isMine:false,
   displayAt:displayTime(first),targetAgents:[]};
+ if(belongsTo)meta.belongsTo=belongsTo;
  if(events.some(event=>opts.detachedIds?.has(event.id)))meta.detached=true;
  return {kind:'activity',id,meta,tone,events};
 }
@@ -137,7 +158,7 @@ const sameEvent=(left:EventRow,right:EventRow)=>left===right&&left.id===right.id
 
 function sameMeta(left:ChatMeta,right:ChatMeta){
  return left.eventId===right.eventId&&left.authorKind===right.authorKind&&left.authorName===right.authorName&&
-  left.isMine===right.isMine&&left.displayAt===right.displayAt&&left.inReplyTo===right.inReplyTo&&
+  left.isMine===right.isMine&&left.displayAt===right.displayAt&&left.inReplyTo===right.inReplyTo&&left.belongsTo===right.belongsTo&&
   Boolean(left.detached)===Boolean(right.detached)&&left.targetAgents.length===right.targetAgents.length&&
   left.targetAgents.every((name,index)=>name===right.targetAgents[index]);
 }
@@ -160,20 +181,109 @@ export function buildTimeline(events:EventRow[],opts:BuildOptions,previous?:read
   taken.add(item.id);
   items.push(prev&&unchanged(prev,item)?prev:item);
  };
- let trace:EventRow[]=[];
- const flush=()=>{
-  if(trace.length===0)return;
-  reuse(activityItem(trace,groupId(trace,previousActivity,taken),opts));
-  trace=[];
+ // A turn's events go with the agent's reply in that turn (spec: agent activity lines). Slots keep the
+ // display order; a group sits directly after the reply it belongs to and records it, so ChatThread shows it inside.
+ type Group={events:EventRow[]};
+ type Slot={message:EventRow}|{group:Group;reply?:string};
+ // A wrapped agent's turn is reported twice, by the engine (agent.turn.*) and by its wrapper (wrapper.turn.*), for
+ // the same trigger. Both layers make one turn; it ends when every layer that started has ended.
+ type Turn={group:Group;reply?:EventRow;slotted?:boolean;trigger?:unknown;layers:Set<string>};
+ const slots:Slot[]=[];
+ const open=new Map<string,Turn>();
+ const replyGroups=new Map<string,Group>(); // reply event id → its group
+ const lastReply=new Map<string,EventRow>(); // agent → most recent reply
+ let loose:Group|undefined; // consecutive events with no known agent and no earlier reply
+ // History loads each event type in its own pages, so older tool and action events can arrive without their
+ // turn's boundaries. Before the oldest loaded turn event, an agent's events are taken as a turn whose start
+ // is not loaded: they go with that agent's next reply, or stay where they are when it has none.
+ const turnsFrom=Math.min(...events.filter(isTurnEvent).map(event=>event.createdAt??0));
+ const placeAfter=(reply:EventRow,group:Group)=>{
+  const index=slots.findIndex(slot=>'message' in slot&&slot.message===reply);
+  slots.splice(index+1,0,{group,reply:reply.id});
+  replyGroups.set(reply.id,group);
+ };
+ const finish=(agent:string)=>{
+  const turn=open.get(agent);
+  if(!turn)return;
+  open.delete(agent);
+  if(turn.slotted&&turn.reply)slots.splice(slots.findIndex(slot=>'group' in slot&&slot.group===turn.group),1);
+  const existing=turn.reply&&replyGroups.get(turn.reply.id);
+  if(existing)existing.events.push(...turn.group.events);
+  else if(turn.reply)placeAfter(turn.reply,turn.group);
+  else if(!turn.slotted)slots.push({group:turn.group});
+ };
+ const agentOf=(event:EventRow):string|undefined=>{
+  const payload=record(event.payload);
+  // Actions name the agent; process, Stop and wrapped-turn events name it as owner or target.
+  for(const key of ['agentName','ownerAgentName','targetAgentName']){
+   const named=payload?.[key];
+   if(typeof named==='string'&&named)return named;
+  }
+  if(event.source.startsWith('agent:'))return event.source.slice(6);
+  // Runner events that name no agent belong to the most recently started open turn.
+  return [...open.keys()].at(-1);
  };
  for(const event of events){
   if(event.type==='message.created'){
-   flush();
-   reuse(messageItem(event,opts));
-  }else if(isTraceEvent(event))trace.push(event);
+   loose=undefined;
+   slots.push({message:event});
+   const agent=event.source.startsWith('agent:')?event.source.slice(6):undefined;
+   if(agent){lastReply.set(agent,event);const turn=open.get(agent);if(turn)turn.reply=event;}
+   continue;
+  }
+  if(!isTraceEvent(event))continue;
+  const agent=agentOf(event);
+  const layer=event.type.split('.')[0]!;
+  if(TURN_STARTS.has(event.type)&&agent){
+   const trigger=record(event.payload)?.triggerEventId;
+   const current=open.get(agent);
+   if(current&&trigger!==undefined&&current.trigger===trigger&&!current.layers.has(layer)){
+    current.layers.add(layer);
+    current.group.events.push(event);
+    continue;
+   }
+   finish(agent);
+   loose=undefined;
+   open.set(agent,{group:{events:[event]},trigger,layers:new Set([layer])});
+   continue;
+  }
+  const turn=agent?open.get(agent):undefined;
+  if(turn){
+   turn.group.events.push(event);
+   if(TURN_ENDS.has(event.type)){
+    turn.layers.delete(layer);
+    if(turn.layers.size===0)finish(agent!);
+   }
+   continue;
+  }
+  if(agent&&(event.createdAt??0)<turnsFrom){
+   const group={events:[event]};
+   slots.push({group});
+   open.set(agent,{group,slotted:true,layers:new Set()});
+   continue;
+  }
+  const reply=agent?lastReply.get(agent):undefined;
+  if(reply){
+   const group=replyGroups.get(reply.id);
+   if(group)group.events.push(event);else placeAfter(reply,{events:[event]});
+   continue;
+  }
+  if(!loose){loose={events:[]};slots.push({group:loose});}
+  loose.events.push(event);
  }
- flush();
+ for(const agent of [...open.keys()])finish(agent);
+ let previousMessageId:string|undefined;
+ for(const slot of slots){
+  if('message' in slot){reuse(messageItem(slot.message,opts,previousMessageId));previousMessageId=slot.message.id;}
+  else if(slot.group.events.length&&(slot.reply||!slot.group.events.every(quiet)))reuse(activityItem(slot.group.events,groupId(slot.group.events,previousActivity,taken),opts,slot.reply));
+ }
  return items;
+}
+
+/** A group is shown inside the message it belongs to when it follows it directly, both loaded, same day. */
+export function attachesTo(previous:TimelineItem|undefined,item:TimelineItem|undefined):boolean{
+ return item?.kind==='activity'&&previous?.kind==='message'&&item.meta.belongsTo===previous.id&&
+  !previous.meta.detached&&!item.meta.detached&&dayKey(previous.meta.displayAt)===dayKey(item.meta.displayAt);
 }
 
 export function dayKey(ts:number):string{

@@ -203,6 +203,22 @@ export function registerProjectRoutes(app: Hono, {store, orgops, engineToken}: {
     }
     return c.json({status:'joined'});
   });
+  // The owner removes a person or agent from the project chat. Removing someone already gone succeeds; the owner stays.
+  routes.delete('/api/projects/:projectId/members',async c=>{
+    const human=c.get('human'),headers=c.req.raw.headers;
+    const project=owned(c.req.param('projectId'),human,c.get('channels'));
+    const member=parse(ProjectMemberSchema,await c.req.json().catch(()=>null));
+    if(member.subscriberType==='HUMAN'&&member.subscriberId===human.username)return c.json({error:'The project owner stays in the project'},400);
+    const channels=await orgops.humanJson<Channel[]>('/api/channels',headers);owned(project.id,human,channels);
+    const present=(list:Channel[])=>list.find(ch=>ch.id===project.channelId)?.participants?.some(m=>m.subscriberType===member.subscriberType&&m.subscriberId===member.subscriberId);
+    if(present(channels)){
+      try{await orgops.humanJson(`/api/channels/${encodeURIComponent(project.channelId)}/unsubscribe`,headers,member);}catch{/* Reconcile an uncertain removal before reporting failure. */}
+      const confirmed=await orgops.humanJson<Channel[]>('/api/channels',headers);owned(project.id,human,confirmed);
+      if(present(confirmed))return c.json({error:'Removal is unconfirmed. Retry to finish safely.'},502);
+      store.db.prepare('INSERT INTO product_audit(type,actor_id,payload_json,created_at) VALUES(?,?,?,?)').run('audit.project.member.removed',human.id,JSON.stringify({projectId:project.id,...member}),Date.now());
+    }
+    return c.json({status:'removed'});
+  });
   // Compatibility for older clients: status only; the core worker owns inference.
   routes.post('/api/projects/:projectId/suggest-details',async c=>{
     const project=owned(c.req.param('projectId'),c.get('human'),c.get('channels'));

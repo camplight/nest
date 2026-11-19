@@ -14,6 +14,7 @@ export const CHAT_EVENT_QUERIES:ReadonlyArray<ChatEventQuery>=[
  {key:'telemetry',type:'telemetry.context.window.updated'},
  {key:'wrapper',typePrefix:'wrapper.turn.'},
  {key:'process',typePrefix:'process.'},
+ {key:'connections',type:'telemetry.nest.connection.action'},
 ];
 // Per query key: oldest createdAt in the contiguous window, null = exhausted. A missing key is not started yet.
 export type Cursors=Readonly<Record<string,number|null>>;

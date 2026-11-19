@@ -1,8 +1,10 @@
+import {rosterChange} from './chat/members';
 import {rememberWorkspaceLoginReturn, consumeWorkspaceLoginReturn} from './workspace-login-return';
 import {canonicalWorkspaceEntry, isOnboardingEntry} from './workspace-entry';
-import {AgentNavigation, AgentWorkspaceTabs, type AgentTab} from './components/AgentNavigation';
+import {AgentNavigation, AgentWorkspaceTabs, canConnectApps, type AgentTab} from './components/AgentNavigation';
 import {conversationAgent, recentAgentChat, rememberAgentChat} from './agent-conversations';
 import {QuickTour, tourSeen, rememberTour} from './components/QuickTour';
+import {SidebarResizer, readSidebarWidth, sidebarWidthStyle} from './components/SidebarResizer';
 import {demoReturnTo, pendingDemoReturnTo, rememberDemoReturnTo, clearDemoReturnTo} from './demo-return';
 
 import {DemoArtifact} from './components/DemoArtifact';
@@ -12,6 +14,8 @@ import {fetchAgentStarts} from './chat/lifecycles';
 import {useChannelEvents} from './chat/useChannelEvents';
 import {adaptiveMessageBatchSize} from './chat/history';
 import {ChatThread, type ChatThreadHandle} from './chat/ChatThread';
+import {activeTurns as workingTurns} from './chat/working';
+import {useEngineCapabilities} from './engine-capabilities';
 import {ChatComposer,ComposerSessionProvider,type ComposerSessionOptions,type ChatComposerHandle} from './chat/ChatComposer';
 import {Share2} from 'lucide-react';
 import {HuddleButton} from './huddle/HuddleButton';
@@ -116,7 +120,10 @@ function isTraceEvent(event: EventRow) {
     event.type === "tool.started" ||
     event.type === "tool.executed" ||
     event.type === "tool.failed" ||
-    event.type === "telemetry.context.window.updated"
+    event.type === "telemetry.context.window.updated" ||
+    event.type === "agent.turn.cancel_requested" ||
+    event.type === "agent.context.compacted" ||
+    event.type === "telemetry.nest.connection.action"
   );
 }
 
@@ -302,6 +309,7 @@ export default function App() {
   const activeChannelIdRef = useRef<string | null>(null);
   const lastSeenByChannelRef = useRef<Record<string, number>>({});
   const channelsRef = useRef<Channel[]>([]);
+  const rosterReloadsRef = useRef<Set<string>>(new Set());
   const usernameRef = useRef("");
   const userIdRef = useRef<string | null>(null);
   const viewerTeamIdsRef = useRef<Set<string>>(new Set());
@@ -359,6 +367,10 @@ export default function App() {
   const [showConversationDialog, setShowConversationDialog] = useState(false);
   const [showParticipantsDialog, setShowParticipantsDialog] = useState(false);
   const [showChannelManageDialog, setShowChannelManageDialog] = useState(false);
+  const [confirmingChannelDelete, setConfirmingChannelDelete] = useState(false);
+  useEffect(() => {
+    if (!showChannelManageDialog) setConfirmingChannelDelete(false);
+  }, [showChannelManageDialog, activeChannelId]);
   const [focusedMessage,setFocusedMessage]=useState<string|null>(()=>new URL(window.location.href).searchParams.get('message'));
   const [username, setUsername] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
@@ -388,6 +400,7 @@ export default function App() {
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState<number | null>(readSidebarWidth);
   const [tourOpen,setTourOpen]=useState(false);
   const tourSidebarWasOpen=useRef(false);
   function startTour(){tourSidebarWasOpen.current=mobileSidebarOpen;setMobileSidebarOpen(true);setTourOpen(true);}
@@ -531,6 +544,12 @@ export default function App() {
   const isSearchingChannels = Boolean(channelQuery.trim());
   const activeChannelManageable = canManageUserChannel(activeChannel, userId);
   const activeChannelCanPost = activeChannel ? activeChannel.canPost !== false : false;
+  // Native agent turns running in the open chat; the composer's Stop asks the engine to end them.
+  // Only engines that declare turn cancellation get a Stop button.
+  const engineCapabilities = useEngineCapabilities(authenticated);
+  const stoppableTurns = useMemo(() => activeChannelCanPost && engineCapabilities.cancelTurn
+    ? workingTurns(threadSnapshot.events, agents, threadSnapshot.agentStarts).filter(turn => !turn.wrapped && !turn.interrupted)
+    : [], [activeChannelCanPost, engineCapabilities.cancelTurn, threadSnapshot.events, threadSnapshot.agentStarts, agents]);
   const activeConversationName = activeChannel ? projectIndex.find(project => project.channelId === activeChannel.id)?.name ?? channelLabel(activeChannel, username) : "";
   const mentionProject=projectIndex.find(project=>project.channelId===activeChannelId);
   const canInviteMention=activeChannelManageable&&(!mentionProject||mentionProject.ownerId===userId);
@@ -676,6 +695,23 @@ export default function App() {
       url.searchParams.set("message", eventId);
       window.history.replaceState(null, "", url);
     });
+  }
+
+  // Asks the engine to stop each agent still working here. A turn that just finished answers 409; nothing to report.
+  function stopTurns() {
+    const channelId = activeChannelId;
+    if (!channelId) return;
+    for (const agent of new Set(stoppableTurns.filter(turn => !turn.stopping).map(turn => turn.agent))) {
+      void apiFetch(`/api/agents/${encodeURIComponent(agent)}/turns/cancel`, {
+        method: "POST",
+        headers: getApiHeaders(),
+        body: JSON.stringify({ channelId }),
+      }).catch((reason: unknown) => {
+        if (!String(reason instanceof Error ? reason.message : reason).includes("no running turn")) {
+          setError(`Could not stop ${agent}. Try again.`);
+        }
+      });
+    }
   }
 
   async function loadSession() {
@@ -847,6 +883,23 @@ export default function App() {
     const result = await core.refresh();
     if (channelId !== activeChannelIdRef.current || core.snapshot().channelId !== channelId) return;
     markChannelSeen(channelId, result.newestMessageAt);
+    noticeRosterChanges(core.snapshot().events);
+  }
+
+  // The engine announces no joins, so member lists reload when an agent's add/remove tool succeeds or someone the chat
+  // does not list posts. Each add/remove counts once, and each new sender once per chat, so a member reached through a
+  // team never reloads on every message; several changes at once share one reload.
+  function noticeRosterChanges(events: readonly EventRow[]) {
+    let changed = false;
+    for (const event of events) {
+      const channelId = rosterChange(event, channelsRef.current);
+      if (!channelId) continue;
+      const key = event.type === "message.created" ? `${channelId}|${event.source}` : event.id;
+      if (rosterReloadsRef.current.has(key)) continue;
+      rosterReloadsRef.current.add(key);
+      changed = true;
+    }
+    if (changed) void apiJson<Channel[]>("/api/channels?includeArchived=1").then(setChannels).catch(() => {});
   }
 
   async function loadMessageNotifications(options?: { initialize?: boolean }) {
@@ -901,6 +954,7 @@ export default function App() {
       return;
     }
     if(event.type==='message.created')window.dispatchEvent(new Event('nest-message'));
+    noticeRosterChanges([event]);
     if (!eventChannelId) return;
 
     if (activeTimelineEvent) {
@@ -1362,11 +1416,11 @@ export default function App() {
   }
 
   async function handleDeleteChannel(channel: Channel) {
-    if (!window.confirm(`Permanently delete ${channelLabel(channel, username)}?`)) return;
     setError(null);
     setLoading(true);
     try {
       await apiFetch(`/api/channels/${encodeURIComponent(channel.id)}`, { method: "DELETE" });
+      setShowChannelManageDialog(false);
       await refreshChannels(activeChannelId === channel.id ? null : undefined);
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Unable to delete channel");
@@ -1633,7 +1687,7 @@ export default function App() {
             onChange={event => setChannelQuery(event.target.value)}
           /></label>}
         />}
-        {activeChatAgent&&<AgentWorkspaceTabs name={activeChatAgent} tab="chat" onChat={()=>{}} onTab={tab=>selectAgent(activeChatAgent,{tab})}/>}
+        {activeChatAgent&&<AgentWorkspaceTabs name={activeChatAgent} tab="chat" connections={canConnectApps(agents.find(agent=>agent.name===activeChatAgent),userId)} onChat={()=>{}} onTab={tab=>selectAgent(activeChatAgent,{tab})}/>}
         <header className="workspace-header">
           <div>
             <span>Workspace</span>
@@ -1683,6 +1737,11 @@ export default function App() {
           />
           <ChatComposer
             ref={composerRef}
+            stop={stoppableTurns.length ? {
+              agents: [...new Set(stoppableTurns.map(turn => turn.agent))],
+              stopping: stoppableTurns.every(turn => turn.stopping),
+              onStop: stopTurns,
+            } : undefined}
             conversationName={activeConversationName}
             isConversationEmpty={isConversationEmpty}
             inProject={Boolean(mentionProject)}
@@ -1752,7 +1811,7 @@ export default function App() {
       </aside>;
 
   return (
-    <ComposerSessionProvider options={composerOptions}><AgentAvatarChoices value={Object.fromEntries(agents.map(agent=>[agent.name, agent.icon]))}><WorkspaceHeaderProvider onTour={startTour} tourNew={!tourSeen(userId??username)} channelLabel={(id,fallback)=>projectIndex.find(project=>project.channelId===id)?.name ?? fallback} username={username} onAgents={()=>selectAgent(null)} onSignOut={()=>void handleLogout()} onMention={(channelId,eventId)=>{selectChannel(channelId);setFocusedMessage(eventId);const url=new URL(window.location.href);url.searchParams.set('message',eventId);window.history.replaceState(null,'',url);}}><main className={`app-shell product-shell ${view !== "workspace" ? "dashboard-shell" : ""}`}>
+    <ComposerSessionProvider options={composerOptions}><AgentAvatarChoices value={Object.fromEntries(agents.map(agent=>[agent.name, agent.icon]))}><WorkspaceHeaderProvider onTour={startTour} tourNew={!tourSeen(userId??username)} channelLabel={(id,fallback)=>projectIndex.find(project=>project.channelId===id)?.name ?? fallback} username={username} onAgents={()=>selectAgent(null)} onSignOut={()=>void handleLogout()} onMention={(channelId,eventId)=>{selectChannel(channelId);setFocusedMessage(eventId);const url=new URL(window.location.href);url.searchParams.set('message',eventId);window.history.replaceState(null,'',url);}}><main className={`app-shell product-shell ${view !== "workspace" ? "dashboard-shell" : ""}`} style={sidebarWidthStyle(sidebarWidth)}>
       <aside className={`sidebar ${mobileSidebarOpen ? "sidebar-mobile-open" : ""} ${tourOpen ? "tour-navigation" : ""}`}>
         <button
           type="button"
@@ -1849,6 +1908,7 @@ export default function App() {
 
         <div className="instance-sidebar-footer dashboard-attribution"><span>Powered by</span><DesignIcon name="nest-mark" /><img src={`${import.meta.env.BASE_URL}design/nest-wordmark.svg`} alt="Nest" /></div>
       </aside>
+      <SidebarResizer width={sidebarWidth} onChange={setSidebarWidth} />
       {mobileSidebarOpen ? (
         <button
           type="button"
@@ -1858,7 +1918,7 @@ export default function App() {
         />
       ) : null}
 
-      {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} /> : view === "agents" ? <Agents tab={agentTab} onTab={tab=>selectAgent(selectedAgent,{tab})} onOpenChat={name=>void openAgentChat(name)} requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
+      {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} onOpenAgent={name=>selectAgent(name)} username={username} /> : view === "agents" ? <Agents tab={agentTab} onTab={tab=>selectAgent(selectedAgent,{tab})} onOpenChat={name=>void openAgentChat(name)} requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
         resumeProject={userId?projectIndex.find(p=>p.id===recentProject(userId)):undefined} channels={visibleChannels} projects={projectIndex} onProject={selectProject} unreadCounts={unreadCounts} onCommunity={selectCommunity}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}
         onSelect={selectChannel} onCreate={() => selectProject(null, null, "new")}
@@ -2208,14 +2268,42 @@ export default function App() {
               {updatingChannelVisibility ? "Saving..." : "Save"}
             </button>
 
-            <button
-              className="channel-manage-delete-button"
-              type="button"
-              onClick={() => void handleDeleteChannel(activeChannel)}
-              disabled={updatingChannelVisibility}
-            >
-              Delete channel
-            </button>
+            {confirmingChannelDelete ? (
+              <div className="channel-manage-delete-confirm" role="group" aria-label="Confirm channel deletion">
+                <p>
+                  <strong>Permanently delete {channelLabel(activeChannel, username)}?</strong> Its messages are
+                  removed for everyone and can’t be restored. To hide it instead, archive it.
+                </p>
+                <div>
+                  <button
+                    autoFocus
+                    className="channel-manage-secondary-button"
+                    type="button"
+                    onClick={() => setConfirmingChannelDelete(false)}
+                    disabled={loading}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="channel-manage-delete-button"
+                    type="button"
+                    onClick={() => void handleDeleteChannel(activeChannel)}
+                    disabled={loading}
+                  >
+                    {loading ? "Deleting…" : "Delete permanently"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                className="channel-manage-delete-button"
+                type="button"
+                onClick={() => setConfirmingChannelDelete(true)}
+                disabled={updatingChannelVisibility}
+              >
+                Delete channel
+              </button>
+            )}
           </section>
         </div>
       ) : null}

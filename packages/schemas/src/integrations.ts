@@ -32,3 +32,15 @@ export type ConnectionSkillStatus = {
   /** Whether the enabled skill is configured for preloading on the next turn. */
   preloadConfigured: boolean;
 };
+
+/** A provider action's name for people: drops the app prefix and shouting case. Grants use the exact slug. */
+export function friendlyActionName(name: string, slug: string, toolkit: string): string {
+  const words = (name?.trim() || slug).replaceAll("_", " ").trim();
+  const prefix = toolkit.replace(/[^a-z0-9]/gi, "");
+  const first = words.split(" ")[0] ?? "";
+  const title = first.replace(/[^a-z0-9]/gi, "").toLowerCase() === prefix.toLowerCase()
+    ? words.slice(first.length).trim() : words;
+  const friendly = title || words;
+  return friendly === friendly.toUpperCase()
+    ? friendly.toLowerCase().replace(/^./, char => char.toUpperCase()) : friendly;
+}

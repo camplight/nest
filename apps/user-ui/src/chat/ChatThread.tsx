@@ -3,7 +3,7 @@
 import {createContext,useCallback,useContext,useEffect,useImperativeHandle,useLayoutEffect,useMemo,useRef,useState,type ReactNode,type Ref} from 'react';
 import {foldAgentTimeline} from './agent-folds';
 import {ArrowDownIcon,ChevronRightIcon} from 'lucide-react';
-import {AgentActivity} from '../components/AgentActivity';
+import {TurnActivity} from '../components/TurnActivity';
 import {AgentAvatar} from '../components/AgentAvatar';
 import type {Agent,EventRow} from '../types';
 import {AssistantRuntimeProvider,ThreadPrimitive,useAuiState,useExternalStoreRuntime} from './aui';
@@ -14,13 +14,14 @@ import {MessageActions} from './MessageActions';
 import {MessageBody} from './MessageBody';
 import type {ReplyTarget} from './quote-types';
 import {SelectionQuote} from './SelectionQuote';
-import {buildTimeline,dayKey,isContinuation,isTraceEvent,toThreadMessage,type ChatMeta,type TimelineItem} from './timeline';
+import {attachesTo,buildTimeline,dayKey,isContinuation,isTraceEvent,toThreadMessage,type ChatMeta,type TimelineItem} from './timeline';
 import {Button} from './ui/button';
 import {DaySeparator} from './ui/day-separator';
 import {cn} from './ui/lib/utils';
 import {ChatPortalProvider} from './ui/portal';
 import {activeTurns,type WorkingTurn} from './working';
 import {WorkingRow} from './WorkingRow';
+import {ReplyRing} from './ReplyRing';
 import './chat.css';
 
 export type ChatThreadProps={
@@ -75,11 +76,6 @@ const ThreadContext=createContext<ThreadView|null>(null);
 // Messages carry no bottom padding, so these margins are the whole gap: a small one between authors, tight within a run.
 const spaceAfter=(item:TimelineItem,next:TimelineItem|undefined)=>
  !next?'mb-0':item.kind!=='message'||next.kind!=='message'?'mb-3':isContinuation(item,next)?'mb-0.5':'mb-3';
-// An activity group directly after a message (same day, both in the loaded window) is shown inside that message,
-// under its text; any other group stands on its own in the avatar-gutter column.
-const attachesTo=(previous:TimelineItem|undefined,item:TimelineItem|undefined):boolean=>
- item?.kind==='activity'&&previous?.kind==='message'&&!previous.meta.detached&&!item.meta.detached&&
- dayKey(previous.meta.displayAt)===dayKey(item.meta.displayAt);
 // The classic rgba backgrounds of .trace-group-agent and -system read as a grey bar in dark mode; token-themed here.
 // Chips line up with the message text: no box or inset around the group (the classic .trace-group padding is reset).
 const ACTIVITY_RESET='[&>article]:bg-transparent [&>article]:p-0 [&>article]:rounded-none [&>article]:max-w-none';
@@ -119,7 +115,8 @@ function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;pr
  },[highlighted]);
  return <article ref={ref} id={`message-${item.id}`} data-message-id={item.id} tabIndex={highlighted?-1:undefined}
   className={cn('message',`message-${meta.authorKind}`,SHELL,spacing,highlighted&&'message-highlight bg-accent/40 ring-2 ring-ring')}>
-  {!mine&&<div className="w-8 shrink-0 pt-0.5">{author?authorAvatar(meta):time}</div>}
+  {!mine&&<div className="w-8 shrink-0 pt-0.5">{author?(activity&&meta.authorKind==='agent'
+   ?<ReplyRing agent={meta.authorName} events={activity.events}>{authorAvatar(meta)}</ReplyRing>:authorAvatar(meta)):time}</div>}
   <div data-slot="message-focus" tabIndex={0} role="group" aria-label={`${meta.authorName}, ${formatTime(meta.displayAt)}`} className={cn(COLUMN,mine&&MINE_COLUMN)}>
    {mine?(author?<div className="flex items-center justify-end gap-2">{actions('')}{time}</div>:actions('absolute top-0 start-0 z-10')):author?<div className="flex min-w-0 items-center gap-2">
     <strong className="message-author min-w-0 text-sm font-semibold leading-5 text-foreground [overflow-wrap:anywhere]">{meta.authorName}</strong>
@@ -130,7 +127,7 @@ function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;pr
    <MessageBody item={item} channelId={props.snapshot.channelId??''} core={props.core} onPreviewDemo={props.onPreviewDemo}
     onFocusMessage={props.onFocusMessage} onQuote={quote}
     activity={activity&&<div data-aui-quote-selectable="false" className={ACTIVITY_IN_MESSAGE}>
-     <AgentActivity events={activity.events} tone={activity.tone} formatTime={formatTime}/>
+     <TurnActivity events={activity.events} tone={activity.tone} formatTime={formatTime}/>
     </div>}/>
   </div>
  </article>;
@@ -172,10 +169,10 @@ function ThreadItem(){
     <MessageShell item={item} previous={previous} view={view} spacing={spaceAfter(item,next)}/>):
    attachesTo(previous,item)?null:
    <div data-aui-quote-selectable="false" className={cn(ACTIVITY_SLOT,spaceAfter(item,next))}>
-    <AgentActivity events={item.events} tone={item.tone} formatTime={formatTime}/>
+    <TurnActivity events={item.events} tone={item.tone} formatTime={formatTime} standalone/>
    </div>}
   {view.turns.filter(turn=>(view.folding.redirects.get(turn.triggerEventId)??turn.triggerEventId)===item.id||(!next&&!view.byId.has(turn.triggerEventId)&&!view.folding.redirects.has(turn.triggerEventId))).map(turn=>
-   <WorkingRow key={turn.agent} turn={turn} activityUnavailable={view.props.snapshot.activityUnavailable}
+   <WorkingRow key={turn.agent} turn={turn} activityUnavailable={view.props.snapshot.activityUnavailable} events={view.props.snapshot.events}
     onReview={()=>view.props.onFocusMessage(turn.triggerEventId)}/>)}
   {item.meta.detached&&next&&!next.meta.detached&&<div data-slot="detached-marker" className="my-3 self-center rounded-full bg-muted/70 px-3 py-1 text-xs text-muted-foreground">Earlier messages not loaded</div>}
  </>;
@@ -242,6 +239,8 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  const snapshotRef=useRef(snapshot);snapshotRef.current=snapshot;
  const nearBottomRef=useRef(true);
  const [farFromBottom,setFarFromBottom]=useState(false);
+ // Messages scrolled under the header actions: show where the toolbar ends.
+ const [scrolled,setScrolled]=useState(false);
  const [hasNew,setHasNew]=useState(false);
  const [focusPending,setFocusPending]=useState(focusedMessageId!==null);
  const focusPendingRef=useRef(focusPending);focusPendingRef.current=focusPending;
@@ -270,6 +269,7 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
   nearBottomRef.current=distance<NEAR_BOTTOM_PX;
   if(nearBottomRef.current)setHasNew(false);
   setFarFromBottom(distance>=FAR_FROM_BOTTOM_PX);
+  setScrolled(panel.scrollTop>2);
   if(panel.scrollTop<AUTO_LOAD_PX&&!focusPendingRef.current)loadOlder();
  },[loadOlder]);
 
@@ -305,7 +305,7 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  // No channel selected yet (the shell is still loading): no conversation, so no empty state either.
  const empty=snapshot.channelId!==null&&!snapshot.loading&&items.length===0;
  return <AssistantRuntimeProvider runtime={runtime}><ChatPortalProvider><ThreadContext.Provider value={view}>
-  <div className="nest-chat relative flex min-h-0 flex-1 flex-col">
+  <div className={cn('nest-chat relative flex min-h-0 flex-1 flex-col',scrolled&&'is-scrolled')}>
    {/* Keep Sharing and Huddle reachable on mobile. Export stays hidden at the existing mobile breakpoint. */}
    <div className="chat-header-actions flex shrink-0 flex-wrap items-center justify-end gap-3 px-3 pb-2 empty:hidden">{props.headerActions}<span className="max-[761px]:hidden"><ExportButton items={items} channelLabel={props.channelLabel}/></span></div>
    <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
