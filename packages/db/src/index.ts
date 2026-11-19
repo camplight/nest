@@ -55,7 +55,7 @@ export function openProductDb(path = '.nest-product/nest.sqlite') {
 export type ProductDb = ReturnType<typeof openProductDb>;
 
 export { CanvasConflictError, CanvasForbiddenError, CanvasLimitError, type CanvasStore, type PlacedCard } from './canvases';
-export { type CanvasContextStore } from './canvas-context';
+export { ContextWebLinksFullError, type CanvasContextStore } from './canvas-context';
 export { type AgentPinStore } from './agent-pins';
 export { type FlowStore, type Delivery, type Fork } from './flows';
 export { type ScheduleStore, type ScheduleRecord } from './schedules';

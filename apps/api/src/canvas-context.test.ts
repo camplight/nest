@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp as createEngine } from '../../../vendor/orgops/apps/api/src/app';
 import { createOrgOpsClient } from '@nest/orgops-client';
-import { MAX_CONTEXT_BYTES_PER_CANVAS, MAX_CONTEXT_FILE_BYTES } from '@nest/schemas';
+import { MAX_CONTEXT_BYTES_PER_CANVAS, MAX_CONTEXT_FILE_BYTES, MAX_WEB_LINKS_PER_SCOPE } from '@nest/schemas';
 import { createApp } from './app';
 
 describe('canvas context API against the unchanged engine', () => {
@@ -146,6 +146,77 @@ describe('canvas context API against the unchanged engine', () => {
       expect((await call(owner, 'PUT', `/api/canvases/${a}/areas/${a1}/context`, { notes: 'x'.repeat(20_001), version: 1 })).status).toBe(400);
     });
 
+    describe('web links', () => {
+      const add = (h: Record<string, string>, base: string, body: unknown) => call(h, 'POST', `${base}/context/web-links`, body);
+      it('adds a web link to an area and returns it in the context', async () => {
+        const a = await canvas(owner, 'A');
+        const a1 = await area(owner, a, 'A1');
+        const res = await add(owner, `/api/canvases/${a}/areas/${a1}`, { url: 'https://Example.com/docs', title: '  Docs  ' });
+        expect(res.status).toBe(201);
+        const link = await res.json();
+        expect(link).toMatchObject({ url: 'https://example.com/docs', title: 'Docs' });
+        expect((await (await call(owner, 'GET', `/api/canvases/${a}/areas/${a1}/context`)).json()).webLinks).toEqual([link]);
+        const bare = await (await add(owner, `/api/canvases/${a}`, { url: 'https://example.com/', title: '   ' })).json();
+        expect(bare.title).toBeNull();
+        expect((await (await call(owner, 'GET', `/api/canvases/${a}/context`)).json()).webLinks).toEqual([bare]);
+      });
+      it('returns the existing link for a duplicate', async () => {
+        const a = await canvas(owner, 'A');
+        const a1 = await area(owner, a, 'A1');
+        const first = await add(owner, `/api/canvases/${a}/areas/${a1}`, { url: 'https://example.com/x' });
+        expect(first.status).toBe(201);
+        const again = await add(owner, `/api/canvases/${a}/areas/${a1}`, { url: 'https://EXAMPLE.com/x' });
+        expect(again.status).toBe(200);
+        expect((await again.json()).id).toBe((await first.json()).id);
+      });
+      it('rejects a javascript: url, a viewer and a missing scope', async () => {
+        const a = await canvas(owner, 'A');
+        const a1 = await area(owner, a, 'A1');
+        expect((await add(owner, `/api/canvases/${a}/areas/${a1}`, { url: 'javascript:alert(1)' })).status).toBe(400);
+        expect((await add(owner, `/api/canvases/${a}/areas/${a1}`, { url: 'https://example.com', extra: 1 })).status).toBe(400);
+        expect((await add(owner, `/api/canvases/${a}/areas/${randomUUID()}`, { url: 'https://example.com' })).status).toBe(404);
+        await share(a, 'view');
+        expect((await add(mate, `/api/canvases/${a}/areas/${a1}`, { url: 'https://example.com' })).status).toBe(403);
+      });
+      it('answers 409 when the scope is full', async () => {
+        const a = await canvas(owner, 'A');
+        const a1 = await area(owner, a, 'A1');
+        for (let i = 0; i < MAX_WEB_LINKS_PER_SCOPE; i++) expect((await add(owner, `/api/canvases/${a}/areas/${a1}`, { url: `https://example.com/${i}` })).status).toBe(201);
+        expect((await add(owner, `/api/canvases/${a}/areas/${a1}`, { url: 'https://example.com/over' })).status).toBe(409);
+        // A duplicate of an existing link still answers 200 when full.
+        expect((await add(owner, `/api/canvases/${a}/areas/${a1}`, { url: 'https://example.com/0' })).status).toBe(200);
+      });
+      it('deletes a web link only within its scope', async () => {
+        const a = await canvas(owner, 'A');
+        const a1 = await area(owner, a, 'A1');
+        const a2 = await area(owner, a, 'A2');
+        const b = await canvas(owner, 'B');
+        const link = await (await add(owner, `/api/canvases/${a}/areas/${a1}`, { url: 'https://example.com/x' })).json();
+        expect((await call(owner, 'DELETE', `/api/canvases/${a}/areas/${a2}/context/web-links/${link.id}`)).status).toBe(404);
+        expect((await call(owner, 'DELETE', `/api/canvases/${a}/context/web-links/${link.id}`)).status).toBe(404);
+        expect((await call(owner, 'DELETE', `/api/canvases/${b}/context/web-links/${link.id}`)).status).toBe(404);
+        expect((await call(owner, 'DELETE', `/api/canvases/${a}/areas/${a1}/context/web-links/${randomUUID()}`)).status).toBe(404);
+        await share(a, 'view');
+        expect((await call(mate, 'DELETE', `/api/canvases/${a}/areas/${a1}/context/web-links/${link.id}`)).status).toBe(403);
+        expect((await call(owner, 'DELETE', `/api/canvases/${a}/areas/${a1}/context/web-links/${link.id}`)).status).toBe(204);
+        expect((await (await call(owner, 'GET', `/api/canvases/${a}/areas/${a1}/context`)).json()).webLinks).toEqual([]);
+      });
+      it('counts web links in the summary and sources, and a links-only area has context', async () => {
+        const a = await canvas(owner, 'A');
+        const a1 = await area(owner, a, 'A1');
+        const a2 = await area(owner, a, 'A2');
+        await add(owner, `/api/canvases/${a}/areas/${a1}`, { url: 'https://example.com/x' });
+        await add(owner, `/api/canvases/${a}`, { url: 'https://example.com/c' });
+        const summary = await (await call(owner, 'GET', `/api/canvases/${a}/context/summary`)).json();
+        expect(summary.canvas).toEqual({ hasContext: true, notes: false, fileCount: 0, linkCount: 1 });
+        expect(summary.areas.find((r: any) => r.areaId === a1)).toMatchObject({ hasContext: true, notes: false, fileCount: 0, linkCount: 1 });
+        expect(summary.areas.find((r: any) => r.areaId === a2)).toMatchObject({ hasContext: false, linkCount: 0 });
+        expect((await call(owner, 'POST', `/api/canvases/${a}/areas/${a2}/context/links`, { sourceAreaId: a1 })).status).toBe(200);
+        const sources = await (await call(owner, 'GET', '/api/canvases/context-sources')).json();
+        expect(sources.find((s: any) => s.areaId === a1).counts).toEqual({ notes: false, fileCount: 0, linkCount: 1 });
+      });
+    });
+
     it('404s for areas that are missing or belong to another canvas', async () => {
       const a = await canvas(owner, 'A');
       const b = await canvas(owner, 'B');
@@ -266,15 +337,15 @@ describe('canvas context API against the unchanged engine', () => {
 
       const own = await call(owner, 'POST', linksPath, { sourceAreaId: b1 });
       expect(own.status).toBe(200);
-      expect((await own.json()).links).toEqual([{ sourceAreaId: b1, title: 'B1', canvasId: b, canvasName: 'B', available: true, counts: { notes: false, fileCount: 0 } }]);
+      expect((await own.json()).links).toEqual([{ sourceAreaId: b1, title: 'B1', canvasId: b, canvasName: 'B', available: true, counts: { notes: false, fileCount: 0, linkCount: 0 } }]);
 
       await share(a, 'edit');
       await share(b, 'view');
       const theirs = await call(mate, 'POST', linksPath, { sourceAreaId: b2 });
       expect(theirs.status).toBe(200);
       expect((await theirs.json()).links).toEqual([
-        { sourceAreaId: b1, title: 'B1', canvasId: b, canvasName: 'B', available: true, counts: { notes: false, fileCount: 0 } },
-        { sourceAreaId: b2, title: 'B2', canvasId: b, canvasName: 'B', available: true, counts: { notes: false, fileCount: 0 } },
+        { sourceAreaId: b1, title: 'B1', canvasId: b, canvasName: 'B', available: true, counts: { notes: false, fileCount: 0, linkCount: 0 } },
+        { sourceAreaId: b2, title: 'B2', canvasId: b, canvasName: 'B', available: true, counts: { notes: false, fileCount: 0, linkCount: 0 } },
       ]);
       expect(await (await call(owner, 'GET', `/api/canvases/${b}/areas/${b1}/context`)).json()).toMatchObject({ usedBy: [{ areaId: a1, title: 'A1' }] });
 
@@ -284,7 +355,7 @@ describe('canvas context API against the unchanged engine', () => {
         { sourceAreaId: b2, title: 'Unavailable area', canvasId: null, canvasName: null, available: false, counts: null },
       ]);
       expect((await (await call(owner, 'GET', `/api/canvases/${a}/areas/${a1}/context`)).json()).links).toEqual([
-        { sourceAreaId: b1, title: 'B1', canvasId: b, canvasName: 'B', available: true, counts: { notes: false, fileCount: 0 } },
+        { sourceAreaId: b1, title: 'B1', canvasId: b, canvasName: 'B', available: true, counts: { notes: false, fileCount: 0, linkCount: 0 } },
         // An unavailable link shows no counts: its chats read nothing from it.
         { sourceAreaId: b2, title: 'B2', canvasId: b, canvasName: 'B', available: false, counts: null },
       ]);
@@ -326,12 +397,12 @@ describe('canvas context API against the unchanged engine', () => {
       await share(a, 'view');
       const sort = (rows: any[]) => [...rows].sort((x, y) => x.title.localeCompare(y.title));
       expect(sort(await (await call(owner, 'GET', '/api/canvases/context-sources')).json())).toEqual([
-        { canvasId: a, canvasName: 'A', areaId: a1, title: 'A1', counts: { notes: false, fileCount: 0 } },
-        { canvasId: b, canvasName: 'B', areaId: b1, title: 'B1', counts: { notes: false, fileCount: 0 } },
+        { canvasId: a, canvasName: 'A', areaId: a1, title: 'A1', counts: { notes: false, fileCount: 0, linkCount: 0 } },
+        { canvasId: b, canvasName: 'B', areaId: b1, title: 'B1', counts: { notes: false, fileCount: 0, linkCount: 0 } },
       ]);
       expect(sort(await (await call(mate, 'GET', '/api/canvases/context-sources')).json())).toEqual([
-        { canvasId: a, canvasName: 'A', areaId: a1, title: 'A1', counts: { notes: false, fileCount: 0 } },
-        { canvasId: mine, canvasName: 'Mine', areaId: m1, title: 'M1', counts: { notes: false, fileCount: 0 } },
+        { canvasId: a, canvasName: 'A', areaId: a1, title: 'A1', counts: { notes: false, fileCount: 0, linkCount: 0 } },
+        { canvasId: mine, canvasName: 'Mine', areaId: m1, title: 'M1', counts: { notes: false, fileCount: 0, linkCount: 0 } },
       ]);
     });
 
@@ -371,9 +442,9 @@ describe('canvas context API against the unchanged engine', () => {
         return { ...body, areas: byId(body.areas).map((row: any) => ({ ...row, links: byId(row.links), usedBy: byId(row.usedBy) })) };
       };
       const sorted = <T extends { areaId: string }>(rows: T[]) => [...rows].sort((x, y) => x.areaId.localeCompare(y.areaId));
-      const empty = { hasContext: false, notes: false, fileCount: 0, files: [], links: [], usedBy: [] };
+      const empty = { hasContext: false, notes: false, fileCount: 0, linkCount: 0, files: [], links: [], usedBy: [] };
       expect(await summary(owner)).toEqual({
-        canvas: { hasContext: false, notes: false, fileCount: 0 },
+        canvas: { hasContext: false, notes: false, fileCount: 0, linkCount: 0 },
         areas: sorted([a1, a2, a3].map(areaId => ({ areaId, ...empty }))),
       });
 
@@ -391,28 +462,28 @@ describe('canvas context API against the unchanged engine', () => {
       const files = full.areas.find((row: { areaId: string }) => row.areaId === a2).files as { id: string; name: string; mime: string }[];
       expect(files).toEqual(uploaded.slice(0, 8).map(file => ({ id: file.id, name: file.name, mime: 'text/plain' })));
       expect(full).toEqual({
-        canvas: { hasContext: true, notes: true, fileCount: 0 },
+        canvas: { hasContext: true, notes: true, fileCount: 0, linkCount: 0 },
         areas: sorted([
           { areaId: a1, ...empty, hasContext: true, notes: true, usedBy: [{ areaId: a3, title: 'Linking area' }] },
-          { areaId: a2, ...empty, hasContext: true, fileCount: 10, files, usedBy: [{ areaId: a3, title: 'Linking area' }] },
+          { areaId: a2, ...empty, hasContext: true, fileCount: 10, linkCount: 0, files, usedBy: [{ areaId: a3, title: 'Linking area' }] },
           // A link alone is not this area's own context; each link carries its source's own counts.
           { areaId: a3, ...empty, links: [
-            { sourceAreaId: a1, title: 'Notes area', canvasId: a, canvasName: 'A', available: true, counts: { notes: true, fileCount: 0 } },
-            { sourceAreaId: a2, title: 'Files area', canvasId: a, canvasName: 'A', available: true, counts: { notes: false, fileCount: 10 } },
-            { sourceAreaId: b1, title: 'Brand kit', canvasId: b, canvasName: 'B', available: true, counts: { notes: false, fileCount: 0 } },
+            { sourceAreaId: a1, title: 'Notes area', canvasId: a, canvasName: 'A', available: true, counts: { notes: true, fileCount: 0, linkCount: 0 } },
+            { sourceAreaId: a2, title: 'Files area', canvasId: a, canvasName: 'A', available: true, counts: { notes: false, fileCount: 10, linkCount: 0 } },
+            { sourceAreaId: b1, title: 'Brand kit', canvasId: b, canvasName: 'B', available: true, counts: { notes: false, fileCount: 0, linkCount: 0 } },
           ].sort((x, y) => x.sourceAreaId.localeCompare(y.sourceAreaId)) },
         ]),
       });
       // Emptied notes no longer count.
       expect((await call(owner, 'PUT', `/api/canvases/${a}/context`, { notes: '', version: 1 })).status).toBe(200);
-      expect((await summary(owner)).canvas).toEqual({ hasContext: false, notes: false, fileCount: 0 });
+      expect((await summary(owner)).canvas).toEqual({ hasContext: false, notes: false, fileCount: 0, linkCount: 0 });
 
       // A viewer never learns the title, canvas or counts of an area on a canvas they cannot read.
       expect((await call(mate, 'GET', `/api/canvases/${a}/context/summary`)).status).toBe(404);
       await share(a, 'view');
       expect((await summary(mate)).areas.find((row: { areaId: string }) => row.areaId === a3).links).toEqual([
-        { sourceAreaId: a1, title: 'Notes area', canvasId: a, canvasName: 'A', available: true, counts: { notes: true, fileCount: 0 } },
-        { sourceAreaId: a2, title: 'Files area', canvasId: a, canvasName: 'A', available: true, counts: { notes: false, fileCount: 10 } },
+        { sourceAreaId: a1, title: 'Notes area', canvasId: a, canvasName: 'A', available: true, counts: { notes: true, fileCount: 0, linkCount: 0 } },
+        { sourceAreaId: a2, title: 'Files area', canvasId: a, canvasName: 'A', available: true, counts: { notes: false, fileCount: 10, linkCount: 0 } },
         { sourceAreaId: b1, title: 'Unavailable area', canvasId: null, canvasName: null, available: true, counts: null },
       ].sort((x, y) => x.sourceAreaId.localeCompare(y.sourceAreaId)));
       // On the Brand canvas, the owner sees who uses Brand kit; a viewer of B who cannot read A sees no title.
@@ -425,7 +496,7 @@ describe('canvas context API against the unchanged engine', () => {
       await share(b, 'view');
       expect((await call(mate, 'POST', `/api/canvases/${a}/areas/${a1}/context/links`, { sourceAreaId: b1 })).status).toBe(200);
       const linked = async (h: Record<string, string>) => (await summary(h)).areas.find((row: { areaId: string }) => row.areaId === a1).links;
-      expect(await linked(mate)).toEqual([{ sourceAreaId: b1, title: 'Brand kit', canvasId: b, canvasName: 'B', available: true, counts: { notes: false, fileCount: 0 } }]);
+      expect(await linked(mate)).toEqual([{ sourceAreaId: b1, title: 'Brand kit', canvasId: b, canvasName: 'B', available: true, counts: { notes: false, fileCount: 0, linkCount: 0 } }]);
       await share(b, null);
       expect(await linked(mate)).toEqual([{ sourceAreaId: b1, title: 'Unavailable area', canvasId: null, canvasName: null, available: false, counts: null }]);
       // The owner can still read B and sees the link by name, unavailable and without counts.

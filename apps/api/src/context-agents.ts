@@ -85,7 +85,7 @@ export function createContextAgents({ store, orgops, engineToken, setupWaitMs = 
   function hasContext(channelId: string) {
     const home = homeOf(channelId);
     if (!home) return false;
-    const filled = (scope: ContextScope) => { const saved = context.get(scope); return saved.notes.length > 0 || saved.files.length > 0; };
+    const filled = (scope: ContextScope) => { const saved = context.get(scope); return saved.notes.length > 0 || saved.files.length > 0 || saved.webLinks.length > 0; };
     if (filled({ kind: 'canvas', canvasId: home.canvasId })) return true;
     if (!home.areaId) return false;
     return filled({ kind: 'area', canvasId: home.canvasId, areaId: home.areaId }) || context.links(home.areaId).length > 0;
@@ -201,7 +201,7 @@ export function createContextAgents({ store, orgops, engineToken, setupWaitMs = 
   function homeContext(channelId: string) {
     const home = homeOf(channelId);
     if (!home) return { canvas: null, area: null, linked: [] };
-    const read = (scope: ContextScope) => { const { notes, files } = context.get(scope); return { notes, files }; };
+    const read = (scope: ContextScope) => { const { notes, files, webLinks } = context.get(scope); return { notes, files, webLinks: webLinks.map(({ url, title }) => ({ url, title })) }; };
     const canvasName = (store.db.prepare('SELECT name FROM product_canvases WHERE id=?').get(home.canvasId) as { name: string } | undefined)?.name ?? '';
     const areaTitle = home.areaId ? (store.db.prepare('SELECT title FROM product_canvas_areas WHERE id=?').get(home.areaId) as { title: string } | undefined)?.title ?? '' : '';
     return {

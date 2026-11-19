@@ -31,7 +31,7 @@ export const UseHomeSchema = z.object({ channelId: z.string().min(1).max(200) })
 export type ContextWebLink = { id: string; url: string; title: string | null; addedBy: string; addedAt: number };
 export type ContextFile = { id: string; name: string; mime: string; size: number; uploadedBy: string; uploadedAt: number };
 /** Whether a scope has notes and how many files it holds: what an area's `◱ Notes · 2 files` chip reads. */
-export type ContextCounts = { notes: boolean; fileCount: number };
+export type ContextCounts = { notes: boolean; fileCount: number; linkCount: number };
 /** The most files the board summary lists per area, for the file shelf on an area with no chats. */
 export const SUMMARY_SHELF_FILES = 8;
 /**

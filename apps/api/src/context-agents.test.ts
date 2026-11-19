@@ -334,6 +334,36 @@ describe('agent context keys and reads against the unchanged engine', () => {
       expect((await download(key, launch, linkedFile.id)).status).toBe(404);
     });
 
+    it('the agent payload includes web links for area, canvas and linked areas', async () => {
+      const launch = await chat('Launch', ['Pip']);
+      const x = await canvas('Roadmap');
+      const a = await area(x, 'Alpha');
+      await place(x, launch);
+      const s = await canvas('Research');
+      const l = await area(s, 'Linked');
+      const addLink = async (path: string, url: string, title?: string) =>
+        expect((await call(owner, 'POST', `${path}/web-links`, { url, ...(title ? { title } : {}) })).status).toBe(201);
+      await addLink(`/api/canvases/${x}/areas/${a}/context`, 'https://example.com/area', 'Area page');
+      await addLink(`/api/canvases/${x}/context`, 'https://example.com/canvas');
+      await addLink(`/api/canvases/${s}/areas/${l}/context`, 'https://example.com/linked', 'Linked page');
+      expect((await call(owner, 'POST', `/api/canvases/${x}/areas/${a}/context/links`, { sourceAreaId: l })).status).toBe(200);
+      const key = (await secretOf('Pip'))!;
+      const body = await (await read(key, launch)).json();
+      expect(body.area.webLinks).toEqual([{ url: 'https://example.com/area', title: 'Area page' }]);
+      expect(body.canvas.webLinks).toEqual([{ url: 'https://example.com/canvas', title: null }]);
+      expect(body.linked[0].webLinks).toEqual([{ url: 'https://example.com/linked', title: 'Linked page' }]);
+    });
+
+    it('sets an agent up when a chat has only web links', async () => {
+      const launch = await chat('Launch', ['Pip']);
+      const x = await canvas('Roadmap');
+      await area(x, 'Alpha');
+      await place(x, launch);
+      expect(activeKeys('Pip')).toBe(0);
+      expect((await call(owner, 'POST', `/api/canvases/${x}/context/web-links`, { url: 'https://example.com/only' })).status).toBe(201);
+      expect(activeKeys('Pip')).toBe(1);
+    });
+
     it('gives a wrapped agent no key and reports reader states', async () => {
       const created = await call(owner, 'POST', '/api/agents', { name: 'Wren', modelId: 'wrapped:none', workspacePath: join(dir, 'Wren'), assignedRunnerId: 'fixture-runner', mode: 'WRAPPED', desiredState: 'STOPPED' });
       expect(created.status, await created.clone().text()).toBe(201);

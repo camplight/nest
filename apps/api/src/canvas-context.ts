@@ -4,10 +4,10 @@ import { bodyLimit } from 'hono/body-limit';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { ProductDb } from '@nest/db';
-import { CanvasConflictError, CanvasForbiddenError, CanvasLimitError } from '@nest/db';
+import { CanvasConflictError, CanvasForbiddenError, CanvasLimitError, ContextWebLinksFullError } from '@nest/db';
 import type { Human, OrgOpsClient } from '@nest/orgops-client';
 import {
-  areaFor, CARD_HEIGHT, ContextLinkSchema, ContextNotesSchema, MAX_CONTEXT_BYTES_PER_CANVAS, MAX_CONTEXT_FILE_BYTES, MAX_MESSAGE_ATTACHMENTS,
+  areaFor, CARD_HEIGHT, ContextLinkSchema, ContextNotesSchema, ContextWebLinkSchema, normalizeWebUrl, MAX_CONTEXT_BYTES_PER_CANVAS, MAX_CONTEXT_FILE_BYTES, MAX_MESSAGE_ATTACHMENTS,
   SUMMARY_SHELF_FILES, type Canvas, type ChatHome, type ContextCounts, type ContextFile, type ContextLink, type ContextReader, type ContextScope,
   type ContextSource, type ContextSummary, type ContextUse, type ScopeContext,
 } from '@nest/schemas';
@@ -165,7 +165,10 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     }
   };
 
-  const countsOf = (saved: { notes: string; files: unknown[] }): ContextCounts => ({ notes: saved.notes.length > 0, fileCount: saved.files.length });
+  const countsOf = (saved: { notes: string; files: unknown[]; webLinks: unknown[] }): ContextCounts => ({
+    notes: saved.notes.length > 0, fileCount: saved.files.length, linkCount: saved.webLinks.length,
+  });
+  const hasContext = (counts: ContextCounts) => counts.notes || counts.fileCount > 0 || counts.linkCount > 0;
   const areaScope = (canvasId: string, areaId: string): ContextScope => ({ kind: 'area', canvasId, areaId });
   /** One request's notes-and-files counts by area id, so an area linked from several areas is read once per request. */
   type CountsCache = Map<string, ContextCounts>;
@@ -289,6 +292,36 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     return c.body(null, 204);
   };
 
+  const addWebLink = async (c: Context<Env>) => {
+    const canvas = canvasOf(c);
+    const scope = scopeOf(c, canvas);
+    requireEdit(canvas);
+    const input = parse(ContextWebLinkSchema, await body(c));
+    const human = c.get('human');
+    const url = normalizeWebUrl(input.url);
+    if (!url) throw badRequest('Enter an http or https URL');
+    let result: ReturnType<typeof context.addWebLink>;
+    try {
+      result = context.addWebLink(scope, { id: randomUUID(), url, title: input.title || null }, human.id);
+    } catch (error) {
+      if (error instanceof ContextWebLinksFullError) return c.json({ error: error.message }, 409);
+      throw error;
+    }
+    if (result.created) await setUpAgents(() => chatsUsing(store, scope));
+    return c.json(result.link, result.created ? 201 : 200);
+  };
+  // A link id answers only within its own scope.
+  const deleteWebLink = (c: Context<Env>) => {
+    const canvas = canvasOf(c);
+    const scope = scopeOf(c, canvas);
+    const stored = context.webLink(param(c, 'linkId'));
+    if (!stored || stored.canvasId !== canvas.id || stored.scope.kind !== scope.kind
+      || (scope.kind === 'area' && stored.scope.kind === 'area' && stored.scope.areaId !== scope.areaId)) throw notFound();
+    requireEdit(canvas);
+    context.removeWebLink(c.req.param('linkId')!, c.get('human').id);
+    return c.body(null, 204);
+  };
+
   // Everything the board's chips, shelves and "Used by" footers need, in one request rather than one context read per area.
   routes.get('/api/canvases/:id/context/summary', c => {
     const canvas = canvasOf(c);
@@ -306,14 +339,14 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
         const counts = cache.get(area.id)!;
         return {
           areaId: area.id,
-          hasContext: counts.notes || counts.fileCount > 0,
+          hasContext: hasContext(counts),
           ...counts,
           files: saved.files.slice(0, SUMMARY_SHELF_FILES).map(({ id, name, mime }) => ({ id, name, mime })),
           links: linksFor(area.id, viewerId, cache),
           usedBy: usesOf(area.id, viewerId),
         };
       }),
-      canvas: { hasContext: own.notes.length > 0 || own.files.length > 0, ...countsOf(own) },
+      canvas: { hasContext: hasContext(countsOf(own)), ...countsOf(own) },
     };
     return c.json(summary);
   });
@@ -329,11 +362,15 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     });
   });
   routes.delete('/api/canvases/:id/context/files/:fileId', deleteFile);
+  routes.post('/api/canvases/:id/context/web-links', addWebLink);
+  routes.delete('/api/canvases/:id/context/web-links/:linkId', deleteWebLink);
 
   routes.get('/api/canvases/:id/areas/:areaId/context', read);
   routes.put('/api/canvases/:id/areas/:areaId/context', writeNotes);
   routes.post('/api/canvases/:id/areas/:areaId/context/files', uploadFiles);
   routes.delete('/api/canvases/:id/areas/:areaId/context/files/:fileId', deleteFile);
+  routes.post('/api/canvases/:id/areas/:areaId/context/web-links', addWebLink);
+  routes.delete('/api/canvases/:id/areas/:areaId/context/web-links/:linkId', deleteWebLink);
 
   // Who can read this area's context: the agents in the chats homed here that the viewer can see in the engine.
   routes.get('/api/canvases/:id/areas/:areaId/context/readers', async c => {

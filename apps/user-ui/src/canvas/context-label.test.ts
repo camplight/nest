@@ -2,18 +2,18 @@ import {describe,expect,it} from 'vitest';
 import type {BoardCard,ContextLink} from '@nest/schemas';
 import {chatSees,contextLabel,fileKind,fileTypeLabel,joinNames,linkDetail,linkElsewhere,usedByList} from './context-label';
 
-const link = (over: Partial<ContextLink> = {}): ContextLink => ({sourceAreaId: 's1', title: 'Brand kit', canvasId: 'c1', canvasName: 'Atlas', available: true, counts: {notes: true, fileCount: 1}, ...over});
+const link = (over: Partial<ContextLink> = {}): ContextLink => ({sourceAreaId: 's1', title: 'Brand kit', canvasId: 'c1', canvasName: 'Atlas', available: true, counts: {notes: true, fileCount: 1, linkCount: 0}, ...over});
 const card = (home: Extract<BoardCard, {access: 'open'}>['home']): Extract<BoardCard, {access: 'open'}> => ({
   access: 'open', channelId: 'ch', x: 0, y: 0, w: 264, version: 0, title: 'Chat', projectId: null, participants: [], archived: false, canManage: true, home,
 } as unknown as Extract<BoardCard, {access: 'open'}>);
 
 describe('context labels', () => {
   it('reads like the mock: notes, files, or an invitation', () => {
-    expect(contextLabel({notes: true, fileCount: 1})).toBe('Notes · 1 file');
-    expect(contextLabel({notes: true, fileCount: 0})).toBe('Notes');
-    expect(contextLabel({notes: false, fileCount: 3})).toBe('3 files');
-    expect(contextLabel({notes: false, fileCount: 0})).toBe('Add context');
-    expect(contextLabel({notes: false, fileCount: 0}, 'No context')).toBe('No context');
+    expect(contextLabel({notes: true, fileCount: 1, linkCount: 0})).toBe('Notes · 1 file');
+    expect(contextLabel({notes: true, fileCount: 0, linkCount: 0})).toBe('Notes');
+    expect(contextLabel({notes: false, fileCount: 3, linkCount: 0})).toBe('3 files');
+    expect(contextLabel({notes: false, fileCount: 0, linkCount: 0})).toBe('Add context');
+    expect(contextLabel({notes: false, fileCount: 0, linkCount: 0}, 'No context')).toBe('No context');
   });
 
   it('joins names with "and", and counts areas the viewer cannot open without naming them', () => {
@@ -31,7 +31,7 @@ describe('context labels', () => {
   it('describes a link by its canvas (only when it is another one) and its counts', () => {
     expect(linkDetail(link(), 'c1')).toBe('Notes · 1 file');
     expect(linkDetail(link({canvasId: 'c2', canvasName: 'Support ops'}), 'c1')).toBe('on Support ops · Notes · 1 file');
-    expect(linkDetail(link({counts: {notes: false, fileCount: 0}}), 'c1')).toBe('Nothing yet');
+    expect(linkDetail(link({counts: {notes: false, fileCount: 0, linkCount: 0}}), 'c1')).toBe('Nothing yet');
     expect(linkDetail(link({available: false, counts: null}), 'c1')).toBe('unavailable');
     expect(linkDetail(link({title: 'Unavailable area', canvasId: null, canvasName: null, counts: null}), 'c1')).toBe('');
     expect(linkElsewhere(link(), 'c1')).toBe(false);
