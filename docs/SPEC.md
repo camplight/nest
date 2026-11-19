@@ -796,7 +796,18 @@ Phase 1 is built from
 
 5. Using it. A shared canvas syncs every 5 seconds while visible and on window
    focus. One chat opens at a time, in focus or in split screen beside it, and
-   "Open in the regular chat view" leaves the canvas. Focus opens the chat in place:
+   "Open in the regular chat view" leaves the canvas. On a desktop-width screen focus
+   is floating mode: up to 4 non-modal chat windows ("Chat windows" in
+   `docs/superpowers/specs/2026-11-19-canvas-chat-windows-design.md`). One window is
+   active and holds App's chat with the only message box; the others are live,
+   read-only threads with "Click to reply", and a press on one (or Enter on it
+   while it is focused, but not Tab through it) makes it the active chat. Nothing
+   dims, the canvas stays usable and the windows are not modal. Files dropped on any
+   window attach to that chat's message box without sending; card drops still send
+   themselves. This is a deliberate departure from the mockup at the owner's
+   request. Phones and split screen are unchanged, and the focus description that
+   follows (the dimmed canvas, the single sheet, Tab kept in the chat) applies to
+   phones. Focus on a phone opens the chat in place:
    the view moves to 100% (less only to fit a very tall card) with the card where a
    560 px sheet of its current height fits, 56 px below the top for the area's
    title, and the chat opens as that sheet over the card, its top-left on the

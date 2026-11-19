@@ -114,7 +114,7 @@ These interactions were tried in the spike and accepted. The builder should foll
 
 **The canvas**
 - **Semantic zoom:** below about 50% zoom, cards show only a large title, faces and a needs-you or quiet marker. Areas show a summary such as "2 need you · 3 moving".
-- **Opening a chat** happens in place, enlarged over the canvas. A split-screen mode keeps the canvas usable on the left with the chat on the right. "Open in the regular chat view" leaves the canvas.
+- **Opening a chat** happens in place, enlarged over the canvas. On a desktop-width screen that is up to four floating, non-modal chat windows with one message box in the active one and no dimming (see [chat windows](2026-11-19-canvas-chat-windows-design.md), a deliberate departure from the mockup at the owner's request); phones keep the full-screen focus chat. A split-screen mode keeps the canvas usable on the left with the chat on the right. "Open in the regular chat view" leaves the canvas.
 - **Inside an open chat, from the top:**
   - **Header:** the title and who is in the chat.
   - **"Where it stands" digest:** what is waiting on you, with Approve and Request changes buttons where they apply.

@@ -1,6 +1,6 @@
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {ActiveWindowBody,PassiveWindow} from './PassiveWindow';
+import {ActiveWindowBody,PassiveWindow,passiveActivation} from './PassiveWindow';
 import type {ChannelEventsCore,ChannelEventsSnapshot} from '../chat/channel-events';
 import type {EventRow} from '../types';
 
@@ -13,8 +13,13 @@ const bounds={left:16,top:16,right:1200,bottom:800};
 
 describe('PassiveWindow',()=>{
   // Message bodies read the page origin (demo links); the node test run has no window.
-  beforeEach(()=>{vi.stubGlobal('window',{location:{origin:'http://localhost'}});});
-  afterEach(()=>{vi.unstubAllGlobals();});
+  beforeEach(()=>{
+    vi.stubGlobal('window',{location:{origin:'http://localhost'}});
+    // renderToStaticMarkup warns that layout effects do nothing on the server; that is expected here.
+    const original=console.error;
+    vi.spyOn(console,'error').mockImplementation((...args:unknown[])=>{if(!String(args[0]).includes('useLayoutEffect does nothing on the server'))original(...args);});
+  });
+  afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();});
   it('shows title, close, live thread and "Click to reply", and no composer',()=>{
     const html=renderToStaticMarkup(<PassiveWindow win={{channelId:'c1',x:40,y:60}} bounds={bounds} zIndex={22} title="Launch"
       people={[{agent:true,name:'Pip',service:false}]} core={core} username="mate" agents={[]} onActivate={noop} onClose={noop} onMove={noop}/>);
@@ -37,5 +42,26 @@ describe('ActiveWindowBody',()=>{
     const ready=renderToStaticMarkup(<ActiveWindowBody ready passive={passive}><p>composer</p></ActiveWindowBody>);
     expect(ready).toContain('composer');
     expect(ready).not.toContain('passive-marker');
+  });
+});
+
+describe('passiveActivation',()=>{
+  const section={};
+  const fake=(target:object,key?:string)=>({target,currentTarget:section,key,preventDefault:vi.fn()}) as never;
+  it('activates when the window itself takes focus, not when Tab lands on something inside',()=>{
+    const onActivate=vi.fn(),{onFocus}=passiveActivation(onActivate);
+    onFocus(fake({}));
+    expect(onActivate).not.toHaveBeenCalled();
+    onFocus(fake(section));
+    expect(onActivate).toHaveBeenCalledTimes(1);
+  });
+  it('activates on Enter or Space while the window itself is focused only',()=>{
+    const onActivate=vi.fn(),{onKeyDown}=passiveActivation(onActivate);
+    onKeyDown(fake({},'Enter'));
+    onKeyDown(fake(section,'a'));
+    expect(onActivate).not.toHaveBeenCalled();
+    onKeyDown(fake(section,'Enter'));
+    onKeyDown(fake(section,' '));
+    expect(onActivate).toHaveBeenCalledTimes(2);
   });
 });

@@ -81,7 +81,8 @@ export type CanvasViewProps = {
   onCloseChat(options?: {replace?: boolean}): void;
   onOpenRegular(channelId: string): void;
   /** Files dropped on a card: App queues them in that chat's reply box and sends them once uploaded. The chat is already open. */
-  onChatFiles(channelId: string, files: File[]): void;
+  /** `autoSend`: send the files at once (a card drop) or only attach them to the chat's message box (a window drop). */
+  onChatFiles(channelId: string, files: File[], autoSend: boolean): void;
   live: CanvasLive;
   /** Re-reads App's channel and project lists without navigating, so a chat started here shows in Loose chats. */
   refreshChannels(): Promise<void>;
@@ -671,7 +672,7 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
       if (!visibleRef.current.some(channel => channel.id === target.channelId)) return;
       setSelectedId(target.channelId);
       openRef.current(target.channelId, modeRef.current ?? 'split');
-      chatFilesRef.current(target.channelId, files);
+      chatFilesRef.current(target.channelId, files, true);
       return;
     }
     const open = panelRef.current;
@@ -1604,7 +1605,8 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
         onOpenChat={openLoose} highlight={highlight} focusKey={drawerFocus}/> : null}
       {chatShown ? <CanvasChat key={chatChannelId} channelId={chatChannelId!} mode={chatMode!}
         win={activeWin} bounds={bounds ?? undefined} zIndex={activeWin ? windowZ(activeWin.channelId) : undefined} onMove={at => moveWin(chatChannelId!, at)}
-        onFiles={windowed ? (files, folders) => { if (folders) say(FOLDER_NOTICE); if (files.length) chatFilesRef.current(chatChannelId!, files); } : undefined}
+        // Once App's chat is ready its own drop zone takes the files (and refuses them while sending or read-only).
+        onFiles={windowed && !chatReady ? (files, folders) => { if (folders) say(FOLDER_NOTICE); if (files.length) chatFilesRef.current(chatChannelId!, files, false); } : undefined}
         title={chatTitle} sub={chatSub} area={chatArea} onPlace={placeHere} onUseHere={useHere}
         digest={chatDigest} setup={chatSetup} onConnect={chatConnect} onSchedule={chatSchedule}
         announce={memberNotice && board ? {id: memberNotice.id, text: memberNotice.text} : state.notice && state.canvasId === canvasId ? {id: `store:${state.notice}`, text: state.notice} : null}
@@ -1620,7 +1622,7 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
         const id = win.channelId;
         return <PassiveWindow key={id} win={clampWindow(win, bounds)} bounds={bounds} zIndex={windowZ(id)} title={titleFor(id)} people={participantsOf(id).map(personOf)}
           core={core} username={username} agents={agents} onActivate={() => activateWin(id)} onClose={() => closeWin(id)} onMove={at => moveWin(id, at)}
-          onFiles={(files, folders) => { if (folders) say(FOLDER_NOTICE); if (!files.length) return; activateWin(id); chatFilesRef.current(id, files); }}/>;
+          onFiles={(files, folders) => { if (folders) say(FOLDER_NOTICE); if (!files.length) return; activateWin(id); chatFilesRef.current(id, files, false); }}/>;
       }) : null}
       {panel && board ? <ContextPanel key={`${board.canvas.id}:${panel.kind === 'area' ? panel.areaId : 'canvas'}`} canvasId={board.canvas.id}
         canvasName={board.canvas.name} scope={panel.kind === 'area' ? {kind: 'area', areaId: panel.areaId} : {kind: 'canvas'}} anchor={panel.anchor}

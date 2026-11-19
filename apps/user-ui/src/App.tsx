@@ -18,7 +18,7 @@ import {ChatThread, type ChatFlows, type ChatThreadHandle} from './chat/ChatThre
 import {activeTurns as workingTurns} from './chat/working';
 import {useEngineCapabilities} from './engine-capabilities';
 import {ChatComposer,ComposerSessionProvider,type ComposerSessionOptions,type ChatComposerHandle} from './chat/ChatComposer';
-import {CanvasChatFilesBridge,type CanvasChatFiles} from './canvas/ChatFilesBridge';
+import {CanvasChatFilesBridge,mergeChatFiles,type CanvasChatFiles} from './canvas/ChatFilesBridge';
 import {Share2} from 'lucide-react';
 import {HuddleButton} from './huddle/HuddleButton';
 import './huddle/huddle.css';
@@ -2103,7 +2103,7 @@ export default function App() {
         chatReady={channelSnapshot.channelId === canvasChat.channelId && !channelSnapshot.loading}
         onOpenChat={(channelId, mode, options) => openCanvasChat(channelId, mode, { replace: options?.replace ?? channelId === canvasChat.channelId })} onCloseChat={options => openCanvasChat(null, null, options)}
         onOpenRegular={channelId => selectChannel(channelId)} live={canvasLiveRef.current} windowCores={windowCores}
-        onChatFiles={(channelId, files) => setChatFiles(current => ({ channelId, files: current?.channelId === channelId ? [...current.files, ...files] : files }))}
+        onChatFiles={(channelId, files, autoSend) => setChatFiles(current => mergeChatFiles(current, channelId, files, autoSend))}
         refreshChannels={async () => {
           // Projects first, so a new project chat shows in Loose chats under its project name.
           setProjectIndex(await apiJson<Project[]>("/api/projects"));

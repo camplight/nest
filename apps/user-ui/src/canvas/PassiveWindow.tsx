@@ -1,5 +1,5 @@
 // A chat window on the desktop canvas that is not the active one: its own live thread, read-only, and "Click to reply"
-// where the message box would be. A press or focus in it makes it the active window, which brings the box there.
+// where the message box would be. A press in it (or Enter on the window itself) makes it the active window, which brings the box there.
 import {memo,useCallback,useRef,type CSSProperties,type DragEvent as ReactDragEvent,type ReactNode} from 'react';
 import {X} from 'lucide-react';
 import type {Agent} from '../types';
@@ -75,7 +75,22 @@ export function ActiveWindowBody({ready, passive, children}: {ready: boolean; pa
 }
 
 /**
- * A passive window: title, faces and Close over its live thread. Not modal and not a Tab stop itself (its thread is).
+ * Keyboard and focus activation: only the window itself, never something inside it. Tabbing forward out of the active
+ * window lands on a passive one's inner controls; activating then would swap the DOM order and trap the keyboard.
+ */
+export function passiveActivation(onActivate: () => void) {
+  return {
+    onFocus(event: {target: EventTarget; currentTarget: EventTarget}) { if (event.target === event.currentTarget) onActivate(); },
+    onKeyDown(event: {target: EventTarget; currentTarget: EventTarget; key: string; preventDefault(): void}) {
+      if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
+      event.preventDefault();
+      onActivate();
+    },
+  };
+}
+
+/**
+ * A passive window: title, faces and Close over its live thread. Not modal; Tabbing through it does not activate it.
  * The header drags it; that press activates it on release, so the drag is not lost to the swap.
  */
 export function PassiveWindow({win, bounds, zIndex, title, people, core, username, agents, onActivate, onClose, onMove, onFiles}: {
@@ -91,6 +106,7 @@ export function PassiveWindow({win, bounds, zIndex, title, people, core, usernam
   const activateRef = useRef(onActivate); activateRef.current = onActivate;
   const activate = useCallback(() => activateRef.current(), []);
   const drag = useWindowDrag({win, bounds, panel, onMove, onEnd: activate});
+  const keys = passiveActivation(onActivate);
   const drop = onFiles ? windowFileDrop(onFiles) : undefined;
   return <section ref={panel} className="canvas-chat is-passive" data-mode="focus" data-window="true" data-channel-id={win.channelId}
     role="dialog" aria-label={`Chat ${title}`} tabIndex={-1} style={{...windowVars(drag.win ?? win, bounds), zIndex} as CSSProperties}
@@ -100,7 +116,7 @@ export function PassiveWindow({win, bounds, zIndex, title, people, core, usernam
       if (target instanceof Element && (target.closest('.canvas-chat-close') || (event.button === 0 && header.current?.contains(target)))) return;
       onActivate();
     }}
-    onFocus={event => { if (!(event.target instanceof Element && event.target.closest('.canvas-chat-close'))) onActivate(); }}
+    onFocus={keys.onFocus} onKeyDown={keys.onKeyDown}
     onDragOver={drop?.onDragOver} onDrop={drop?.onDrop}>
     <header ref={header} className="canvas-chat-bar" {...drag.handlers}>
       <div className="canvas-chat-heading">

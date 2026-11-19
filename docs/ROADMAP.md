@@ -691,3 +691,12 @@ personal-agent onboarding; it does not provision an agent or require completion.
 - Project naming reliability: first-send inference moves from a browser request to
   a durable core job, with bounded retry, restart recovery and manual-edit priority.
   The existing chat-first UI and editable project details remain the entry points.
+
+## Canvas chat windows: a full chat session per window
+
+Desktop floating mode shows up to four chat windows with one message box, in the
+active window; the others are live read-only threads (see
+`docs/superpowers/specs/2026-11-19-canvas-chat-windows-design.md`). If one box
+proves limiting (drafts, attachments or a reply in progress in several chats at
+once), the follow-up is option 1 of that design: a full chat session, with its own
+composer, per window.
