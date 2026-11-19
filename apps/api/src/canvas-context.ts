@@ -297,6 +297,9 @@ export function registerCanvasContextRoutes(app: Hono, { store, orgops, enabled,
     const scope = scopeOf(c, canvas);
     requireEdit(canvas);
     const input = parse(ContextWebLinkSchema, await body(c));
+    // The body read may have been slow: the area may be gone or the caller's access changed since the checks above.
+    requireEdit(canvasOf(c));
+    scopeOf(c, canvas);
     const human = c.get('human');
     const url = normalizeWebUrl(input.url);
     if (!url) throw badRequest('Enter an http or https URL');
