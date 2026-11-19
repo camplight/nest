@@ -795,42 +795,44 @@ Phase 1 is built from
    chats.
 
 5. Using it. A shared canvas syncs every 5 seconds while visible and on window
-   focus. One chat opens at a time, in focus or in split screen beside it, and
-   "Open in the regular chat view" leaves the canvas. On a desktop-width screen focus
-   is floating mode: up to 4 non-modal chat windows ("Chat windows" in
-   `docs/superpowers/specs/2026-11-19-canvas-chat-windows-design.md`). One window is
-   active and holds App's chat with the only message box; the others are live,
-   read-only threads with "Click to reply", and a press on one (or Enter on it
-   while it is focused, but not Tab through it) makes it the active chat. Nothing
-   dims, the canvas stays usable and the windows are not modal. Files dropped on any
-   window attach to that chat's message box without sending; card drops still send
-   themselves. This is a deliberate departure from the mockup at the owner's
-   request. Phones and split screen are unchanged, and the focus description that
-   follows (the dimmed canvas, the single sheet, Tab kept in the chat) applies to
-   phones. Focus on a phone opens the chat in place:
-   the view moves to 100% (less only to fit a very tall card) with the card where a
-   560 px sheet of its current height fits, 56 px below the top for the area's
-   title, and the chat opens as that sheet over the card, its top-left on the
-   card's. It follows the card as the view or window changes, stays inside the
-   canvas and ends 8 px above the bottom box (at most 720 px tall). With the Loose
-   chats drawer open, opening a card puts it right of the drawer when a 560 px sheet
-   fits there; otherwise the sheet overlaps the drawer, above it. Every other card, area and link dims to 28%; there is no
-   scrim and the canvas stays live: wheel, pinch and drag pan or zoom it, the zoom
-   bar, agent tray and bottom box work, and Fit closes the chat, then fits. A
-   press on empty canvas without dragging (the canvas's 3 px threshold) closes it,
-   unless it is closing a popover, which then closes alone. While a focus chat is
-   open the canvas is hidden from screen readers and Tab stays in the chat (focus
-   in another dialog, such as the Huddle, is left alone). A pointer can still reach
-   the bottom box, agent tray and an open Loose chats drawer then, though Tab and
-   screen readers do not; file
-   drops on the canvas are ignored and drops on the chat attach. A chat that is not
-   on this canvas opens as a plain 560 px chat centred just above the bottom box (at
-   most min(640 px, 100vh − 190 px) tall), with the canvas at 30%; with the drawer
-   open it is centred in the room right of the drawer when it fits there. Escape
-   (after any popover, menu or picker in the chat) closes it, and the card it closes
-   into flashes once. One Escape closes one thing: the chat's More menu, then a
-   popover, then the sheet; the drawer closes first only when focus is in it (or on
-   its toggle), and otherwise once no sheet is open. The chat's header is one row, as in the mock: title, faces and
+   focus. A chat opens in focus or in split screen (one chat on the right, with a
+   draggable divider), and "Open in the regular chat view" leaves the canvas. On a
+   desktop-width screen focus is floating mode ("Chat windows" in
+   `docs/superpowers/specs/2026-11-19-canvas-chat-windows-design.md`): up to 4
+   non-modal chat windows, fixed to the screen (pan and zoom leave them in place),
+   440 px wide (down to 320 on a narrow stage), at most 720 px tall and kept inside
+   the stage, clear of the bottom box; they re-fit when the window, the sidebar or
+   the bottom box changes size. A new window opens beside its card when that is on
+   screen (right, else left), else 32 px down-right of the front window, else at the
+   stage's top-left clear of an open Loose chats drawer; a 5th closes the back-most
+   window that is not active. A canvas's open windows survive a reload (session
+   storage). One window is active: it holds App's chat with the only message box.
+   The others are live, read-only threads with "Click to reply"; a press on one (not
+   on its scrollbar), or Enter or Space while the window itself has focus, makes it
+   the active chat. Windows are in the Tab order and Tab passes through them without
+   activating any. Dragging a header moves a window; a passive one comes to the front
+   as the drag starts and becomes active on release. Closing the active window makes
+   the next one front to back active (closing the last closes the chat), and the
+   closed chat's card flashes once. Split screen hides the other windows and floating shows them
+   again. Forking from the active window keeps it open, now passive, and opens the
+   fork as the new active window beside its card. Nothing dims and the canvas stays
+   live: wheel, pinch and drag pan or zoom it, the zoom bar, agent tray and bottom
+   box work, and neither Fit nor a press on empty canvas closes a window. Escape
+   (after any popover, menu or picker in it) closes the active window only while
+   focus is in it or on the page body; elsewhere on the canvas Escape belongs to what
+   has focus. One Escape closes one thing: the chat's More menu, then a popover, then
+   the window. With the Loose chats drawer open, Escape closes the drawer first when
+   focus is in it (or on its toggle); an active window that would take Escape (focus
+   in it or on the page body) goes before it; otherwise the drawer closes when focus
+   is on the canvas, not in a field. Files dropped on a window attach to that chat's
+   message box without sending (a passive window becomes active first); card drops
+   still send themselves, and when card and window drops wait for the same chat at
+   once they all attach without sending. A drop on empty canvas still goes to the
+   bottom box. This is a deliberate departure from the mockup at the owner's
+   request. On a phone the canvas is a list and a chat in either mode fills the body
+   over it. A focus chat there makes the list behind it inert, keeps Tab in the chat
+   (focus in another dialog, such as the Huddle, is left alone) and closes on Escape
+   (after any popover, menu or picker). The chat's header is one row, as in the mock: title, faces and
    `in <area> · sees N contexts` (plus Archived or Read-only), then icon buttons
    for Split screen, Huddle, Open in the regular chat view, a More menu (Area,
    Place on canvas, Use this area's context, Sharing, Export chat; hidden when it would be empty)
@@ -1169,8 +1171,8 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    instead. A viewer's area drop only says they cannot add files. A drop on empty
    canvas goes to the bottom box, even beside a split chat, which takes focus
    and says `Attached N files. Say what you want done with them, then press Send.`;
-   an open chat (split or focus) takes only drops on itself, and while a focus chat
-   is open the canvas, its cards and areas and the bottom box take none.
+   an open chat (split screen or a window) takes only drops on itself, and while a
+   phone's chat is open the bottom box takes none.
 
 6. Context edits never create engine events and never wake an agent. The only
    engine writes in Phase 2 are the key setup above, `POST /api/messages` for files
@@ -1813,7 +1815,7 @@ deviations; item 16 the checks.
      opening another chat, changing the chat's mode, closing it or opening the regular
      chat view. Nothing about the reply box changes unless the canvas calls it, so the
      chat outside the canvas is unchanged.
-   - While a focus chat hides the canvas (aria-hidden, or inert on phones), the sheet
+   - While a phone's chat makes the canvas inert, the chat
      carries its own `role=status` region that repeats the canvas's newest notice, so
      toasts from the digest and the Hand-off popover are announced. When the digest
      goes while it holds focus (after Approve), focus moves to the reply box, else the
