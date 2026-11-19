@@ -6,17 +6,14 @@ await runChatTest('message speech: generate on demand, retry errors, close and c
   const {page}=h;
   const target=await h.emit('message.created',{text:'Synthetic speech fixture. Hello team.'});
   let requests=0, fail=true;
-  // A tiny valid PCM waveform exercises the browser player without paid provider calls.
-  const wav=Buffer.alloc(44+1600);
-  wav.write('RIFF',0);wav.writeUInt32LE(wav.length-8,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);
-  wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(8000,24);wav.writeUInt32LE(16000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(1600,40);
+  const mp3=readFileSync(new URL('../fixtures/speech-tone.mp3',import.meta.url));
   await page.route('**/api/speech/messages/*',async route=>{
     requests++;
     assert.equal(route.request().method(),'POST');
     assert.equal(route.request().postData(),null);
     await route.fulfill(fail?{status:502,json:{error:'Synthetic speech failure'}}:{json:{url:'/api/speech/streams/'+'a'.repeat(48)}});
   });
-  await page.route('**/api/speech/streams/*',route=>route.fulfill({contentType:'audio/wav',body:wav}));
+  await page.route('**/api/speech/streams/*',route=>route.fulfill({contentType:'audio/mpeg',body:mp3}));
   await page.goto(`${h.base}/?channel=${h.project.channelId}`);
   const message=page.locator(`#message-${target.id}`);
   await message.getByRole('button',{name:'Listen to message'}).waitFor();
@@ -44,7 +41,7 @@ await runChatTest('message speech: generate on demand, retry errors, close and c
 },{viewport:{width:390,height:844}});
 
 let cancelled=false;
-await runChatTest('message speech: native playback starts while upstream is still open',async h=>{
+await runChatTest('message speech: progressive playback starts while upstream is still open',async h=>{
   const response=await fetch(h.apiUrl+'/api/speech/agents/Pip',{method:'PUT',headers:{cookie:h.cookie,'content-type':'application/json'},body:JSON.stringify({enabled:true,voiceId:'fixture',style:'neutral',speed:1})});
   assert.equal(response.status,200);
   const event=await h.emit('message.created',{text:'Streaming fixture'});

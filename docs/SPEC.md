@@ -1540,7 +1540,9 @@ No caller-supplied text or voice overrides are accepted. Only an explicit Listen
 click prepares playback; no provider request occurs until the player consumes it.
 Fish Audio uses `latency: low` and `chunk_length: 100`. Nest forwards chunks with
 backpressure, no whole-file buffering, no public cache and no proxy buffering.
-The native player can start while synthesis continues; autoplay follows browser
+The player appends MP3 chunks to MediaSource where supported, allowing playback
+before EOF without native decoder file probing. Other browsers use the native
+progressive stream URL. Neither path creates a whole-file audio blob. Autoplay follows browser
 policy, with manual controls available. Closing/unmounting unloads the player and
 cancels the upstream request. Mid-stream failures stop playback and offer retry.
 Streams are single-use and do not support HTTP range seeking or server-side replay;
