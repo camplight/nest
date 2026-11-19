@@ -38,6 +38,7 @@ const chartFixtures=[
  {id:'z-ai/glm-5.3',name:'GLM fixture',score:60,input:1,output:2},
  {id:'deepseek/value-fixture',name:'DeepSeek fixture',score:40,input:0.2,output:0.4},
 ];
+let speechSettings={enabled:false,voiceId:'',style:'neutral',speed:1};
 let malformedDirectory=false;
 let malformedCatalog=false;let failModels=false;let failBenchmarks=false;let failSave=false;const writes=[];
 await page.route('**/api/**',async route=>{
@@ -63,6 +64,7 @@ await page.route('**/api/**',async route=>{
  return route.fulfill(failConnections?{status:503,json:{error:'Unavailable'}}:{json:{configured:false}});
  }
  else if(path==='/api/collaboration/agents')data=malformedDirectory?[]:{items:[]};
+ else if(path.startsWith('/api/speech/agents/')){if(route.request().method()==='PUT')speechSettings=route.request().postDataJSON();data={settings:speechSettings,available:true,canManage:true};}
  else if(path==='/api/agents')data=agents;
  else if(path.startsWith('/api/agents/')){
  const name=decodeURIComponent(path.slice('/api/agents/'.length));const agent=agents.find(a=>a.name===name);
@@ -100,7 +102,7 @@ await page.getByLabel('About this agent',{exact:true}).waitFor();
 assert.equal(new URL(page.url()).searchParams.get('agent'),'Research & Design');
 await page.reload();await page.getByLabel('About this agent',{exact:true}).waitFor();
 assert.equal(fullHealthRequests,0);
-assert.equal(await page.getByLabel('Additional instructions').isVisible(),false);
+assert.equal(await page.getByLabel('Personality and instructions').isVisible(),true);
 assert.equal(await page.getByText('Runtime details',{exact:true}).isVisible(),false);
 // Connected apps load only when that workspace tab is selected.
 assert.equal(connectionRequests,0);
@@ -111,7 +113,22 @@ failConnections=false;await page.getByRole('button',{name:'Retry connections'}).
 await page.getByRole('heading',{name:'App connections are being prepared'}).waitFor();
 await page.getByRole('navigation',{name:'Research & Design workspace'}).getByRole('button',{name:'Settings',exact:true}).click();
 await page.locator('.agent-advanced > summary').focus();await page.keyboard.press('Enter');
-await page.getByLabel('Additional instructions',{exact:true}).waitFor();
+await page.getByLabel('Personality and instructions',{exact:true}).waitFor();
+await page.getByLabel('Enable message speech').check();
+await page.getByRole('button',{name:'Use Rocky voice'}).click();
+assert.equal(await page.getByLabel('Fish Audio voice ID').inputValue(),'6dd07916890445e59c5f019ad0fc7879');
+await page.getByLabel('Fish Audio voice ID').fill('fixture-voice');
+await page.getByLabel('Speaking personality').selectOption('calm');
+await page.getByLabel('Speaking speed').selectOption('1.25');
+await page.getByRole('button',{name:'Save voice',exact:true}).click();
+await page.getByText('Voice settings saved.',{exact:true}).waitFor();
+assert.deepEqual(speechSettings,{enabled:true,voiceId:'fixture-voice',style:'calm',speed:1.25});
+if(process.env.CI)console.log('SPEECH_DESKTOP_JPEG:'+(await page.locator('.agent-speech').screenshot({type:'jpeg',quality:75})).toString('base64'));
+await page.setViewportSize({width:390,height:844});
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+if(process.env.CI)console.log('SPEECH_MOBILE_JPEG:'+(await page.locator('.agent-speech').screenshot({type:'jpeg',quality:75})).toString('base64'));
+await page.setViewportSize({width:1440,height:1100});
+
 assert.equal(await page.getByRole('textbox',{name:'Name',exact:true}).count(),0);
 assert.equal(await page.getByRole('combobox',{name:'Language model',exact:true}).count(),0);
 await page.locator('.model-picker-toggle').click();
@@ -119,7 +136,7 @@ await page.locator('.model-value-chart').getByRole('button',{name:/Gemini fixtur
 await page.getByRole('button',{name:'Connect',exact:true}).click();
 await page.getByRole('status').filter({hasText:'Tool-call check passed'}).waitFor();
 await page.getByLabel('About this agent',{exact:true}).fill('Updated research description');
-await page.getByLabel('Additional instructions',{exact:true}).fill('Deliver sources and evidence.');
+await page.getByLabel('Personality and instructions',{exact:true}).fill('Deliver sources and evidence.');
 await page.getByRole('button',{name:'Save settings'}).click();await page.getByText('Settings saved.',{exact:true}).waitFor();
 assert.deepEqual(writes.at(-1),{description:'Updated research description',systemInstructions:'Deliver sources and evidence.',modelId:'openrouter:google/gemini-2.5-flash'});
 await page.reload();assert.equal(await page.getByLabel('About this agent',{exact:true}).inputValue(),'Updated research description');
@@ -163,7 +180,7 @@ await page.getByRole('button',{name:'Retry scores',exact:true}).waitFor();
 assert(await page.getByLabel('Exact OpenRouter model ID').isEnabled());
 failBenchmarks=false;await page.getByRole('button',{name:'Retry scores',exact:true}).click();await page.locator('.model-value-chart').waitFor();
 await page.locator('.agents-page').getByRole('button',{name:'All agents'}).click();await page.getByRole('button',{name:'Manage NestSystem'}).click();
-await page.locator('.agent-advanced > summary').click();await page.getByText('This wrapped agent manages',{exact:false}).waitFor();assert.equal(await page.getByLabel('Additional instructions').count(),0);
+await page.locator('.agent-advanced > summary').click();await page.getByText('This wrapped agent manages',{exact:false}).waitFor();assert.equal(await page.getByLabel('Personality and instructions').count(),0);
 await page.getByLabel('About this agent',{exact:true}).fill('Wrapped description');
 await page.getByRole('button',{name:'Save settings'}).click();await page.getByText('Settings saved.',{exact:true}).waitFor();
 assert.deepEqual(writes.at(-1),{description:'Wrapped description'});
@@ -194,7 +211,7 @@ await mainNav.getByRole('button',{name:'First conversation',exact:true}).waitFor
 await mainNav.getByRole('button',{name:'# Release planning',exact:true}).waitFor();
 await page.getByRole('navigation',{name:'NestSystem workspace'}).getByRole('button',{name:'Settings',exact:true}).click();
 await page.getByLabel('About this agent',{exact:true}).waitFor();
-assert.equal(await page.getByLabel('Additional instructions').count(),0);
+assert.equal(await page.getByLabel('Personality and instructions').count(),0);
 await page.getByRole('navigation',{name:'NestSystem workspace'}).getByRole('button',{name:'Chat',exact:true}).click();
 await page.waitForURL('**channel=agent-second');
 await page.reload();await page.getByRole('navigation',{name:'NestSystem workspace'}).waitFor();

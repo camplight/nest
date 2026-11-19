@@ -1521,3 +1521,44 @@ check. Incomplete DB/configuration recovery blocks automatic restarts with a
 persistent operator-recovery marker. See `deploy/native/README.md` for the exact
 budgets and restoration procedure. This is Nest deployment infrastructure only;
 OrgOps remains untouched.
+
+## Optional message speech
+
+Nest owns per-agent Fish Audio settings in product migration `011_agent_speech`,
+keyed by the engine agent ID. Agent/instance owners can enable speech, choose a
+Fish voice ID, speaking personality and speed at `PUT /api/speech/agents/:name`;
+visible-agent readers can inspect them with GET. Native agent personality uses
+the existing engine instructions field; wrapped instructions remain externally
+managed. Speech settings apply to both native and wrapped agents.
+
+`POST /api/speech/messages/:id` checks the saved agent message and live human
+access, then returns a random single-use playback URL expiring in 60 seconds.
+The URL also requires the same authenticated human; it is not public. Native
+`GET /api/speech/streams/:token` playback rechecks event, channel, agent access and
+current voice configuration before opening Fish Audio's MP3 response stream.
+No caller-supplied text or voice overrides are accepted. Only an explicit Listen
+click prepares playback; no provider request occurs until the player consumes it.
+Fish Audio uses `latency: low` and `chunk_length: 100`. Nest forwards chunks with
+backpressure, no whole-file buffering, no public cache and no proxy buffering.
+The player appends MP3 chunks to MediaSource where supported, allowing playback
+before EOF without native decoder file probing. Other browsers use the native
+progressive stream URL. Neither path creates a whole-file audio blob. Autoplay follows browser
+policy, with manual controls available. Closing/unmounting unloads the player and
+cancels the upstream request. Mid-stream failures stop playback and offer retry.
+Streams are single-use and do not support HTTP range seeking or server-side replay;
+choose Listen again to generate a fresh stream. At most 1,000 pending tickets are
+retained in process, so restarts invalidate pending playback without storing audio.
+The voice field includes a user-selected Rocky preset (`6dd07916890445e59c5f019ad0fc7879`)
+from [desk-robot v2.1](https://github.com/cgro00/desk-robot/blob/v2.1/server/brain/config.py#L86).
+Markdown noise, code fences and URLs are omitted; empty messages and messages over
+5,000 spoken characters are rejected. Limits are one active generation and ten
+requests per minute per human, four active generations per API process, 60 seconds
+and 10 MiB per response. Provider errors never include credentials or raw bodies.
+
+The Fish key is configured once for the Nest instance, not per agent. There is
+no browser key field. Operators supply server-only `FISH_AUDIO_API_KEY` and optionally `FISH_AUDIO_MODEL`
+(default `s2.1-pro`; `s2.1-pro-free` is also supported). Missing credentials leave
+text chat functional and display a setup message. Settings can be saved before
+credentials are installed. Provider protocol follows
+[Fish Audio TTS](https://docs.fish.audio/api-reference/endpoint/openapi-v1/text-to-speech)
+and [emotion cues](https://docs.fish.audio/developer-guide/core-features/emotions).
