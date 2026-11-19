@@ -667,8 +667,6 @@ Follow-ups:
 - App-event triggers through Composio. The integrations provider has no trigger
   subscriptions, webhook endpoint or signature checks yet, so that kind is not
   offered.
-- Team and viewer-share access in flow checks. Today access that comes only through
-  a team or a viewer share counts as none, so such a link or schedule pauses.
 - Engine recurrence (upstream proposal U3), as an optional simplification of Nest
   booking one run at a time.
 - Fork history (upstream proposal U6), so a fork can carry its parent's history

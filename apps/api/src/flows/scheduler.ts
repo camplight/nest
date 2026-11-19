@@ -8,7 +8,7 @@ import {
   type AgentMadeSchedule, type FlowNeed, type MissedReason, type SchedulePausedReason, type ScheduleView, type TriggerView,
 } from '@nest/schemas';
 import type { Channel } from '../canvases';
-import { channelAccess, isAgentIn } from './access';
+import { accessReader, channelAccess, isAgentIn, serviceTeams } from './access';
 import { SwitchyardUnavailableError, type Switchyard } from './identity';
 import { FlowActionError, holdFlowsLease, type Actor } from './handoff';
 
@@ -48,6 +48,7 @@ export function createScheduler({ store, orgops, token, switchyard, now = Date.n
     const agents = new Map<string, Promise<ServiceAgent | null>>();
     return {
       service,
+      access: accessReader(serviceTeams(service)),
       channels: () => (channels ??= service.channels().then(list => new Map(list.map(ch => [ch.id, ch])))),
       humans: () => (humans ??= service.humans().then(list => new Map(list.map(h => [h.id, { id: h.id, username: h.username }])))),
       runners: () => (runners ??= service.runners().then(list => new Map(list.map(r => [r.id, r.online])))),
@@ -103,7 +104,7 @@ export function createScheduler({ store, orgops, token, switchyard, now = Date.n
     const channel = (await ctx.channels()).get(s.channelId);
     if (!channel) return { reason: 'unavailable' };
     const creator = (await ctx.humans()).get(s.createdBy);
-    if (!creator || !channelAccess(channel, creator).post) return { reason: 'access' };
+    if (!creator || !(await ctx.access(channel, creator)).post) return { reason: 'access' };
     if (!isAgentIn(channel, s.agent)) return { reason: 'agent-left' };
     return { creator };
   }
@@ -421,7 +422,7 @@ export function registerScheduleRoutes(routes: Hono<{ Variables: { human: Human 
   /** The webhook triggers in the viewer's chats, listed with the schedules. */
   triggers?: (channels: Map<string, Channel>, viewer: Human) => TriggerView[];
 }) {
-  const { fail, parse, body, viewerChannels, titles, join } = tools;
+  const { fail, parse, body, viewerChannels, viewerAccess, titles, join } = tools;
   const schedules = store.schedules;
   const notFound = () => fail(404, 'Not found');
   const uuid = z.string().uuid();
@@ -470,7 +471,7 @@ export function registerScheduleRoutes(routes: Hono<{ Variables: { human: Human 
     const human = c.get('human');
     const channels = await viewerChannels(c.req.raw.headers);
     const channel = channels.get(input.channelId);
-    if (!channelAccess(channel, human).post) throw fail(403, 'You need to be able to post in this chat');
+    if (!(await viewerAccess(c.req.raw.headers, human)(channel)).post) throw fail(403, 'You need to be able to post in this chat');
     requireAgent(channel, input.agent);
     const at = scheduler.now();
     const nextAt = nextRunAt(input.rule, input.timezone, at);
@@ -541,7 +542,7 @@ export function registerScheduleRoutes(routes: Hono<{ Variables: { human: Human 
   routes.post('/api/flows/schedules/:id/run', async c => {
     const { s, human, channels, rights } = await scheduleFor(c);
     const channel = channels.get(s.channelId);
-    if (!rights.canManage || !channelAccess(channel, human).post) throw fail(403, 'Only the person who set up this schedule or a member of the chat can start a run');
+    if (!rights.canManage || !(await viewerAccess(c.req.raw.headers, human)(channel)).post) throw fail(403, 'Only the person who set up this schedule or a member of the chat can start a run');
     if (!isAgentIn(channel, s.agent)) throw fail(409, `Add ${s.agent} to the chat first`);
     return c.json(await scheduler.runNow(s.id, human), 201);
   });

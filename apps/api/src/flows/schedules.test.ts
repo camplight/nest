@@ -42,7 +42,7 @@ describe('schedules against the unchanged engine', () => {
     const r = await call(json, 'POST', '/api/auth/login', { username, password: 'password' });
     return { ...json, cookie: r.headers.get('set-cookie')!.split(';')[0] };
   };
-  const chat = async (name: string, members: { type: 'HUMAN' | 'AGENT'; id: string }[]) => {
+  const chat = async (name: string, members: { type: 'HUMAN' | 'AGENT' | 'TEAM'; id: string }[]) => {
     const id = (await (await call(owner, 'POST', '/api/channels', { name, visibility: 'PRIVATE' })).json()).id as string;
     for (const m of members) expect((await call(owner, 'POST', `/api/channels/${id}/subscribe`, { subscriberType: m.type, subscriberId: m.id })).status).toBe(200);
     return id;
@@ -275,6 +275,26 @@ describe('schedules against the unchanged engine', () => {
     expect(resumed.status, await resumed.clone().text()).toBe(200);
     expect((await needs(mate)).filter(n => n.kind === 'paused')).toEqual([]);
     expect((await triggers(a)).map(t => t.deliverAt)).toEqual([MON_0900]);
+  });
+
+  it('counts a team the way the engine does, pauses when the creator leaves it, and refuses a viewer share', async () => {
+    const team = (await (await call(owner, 'POST', '/api/teams', { name: 'Crew' })).json()).id as string;
+    expect((await call(owner, 'POST', `/api/teams/${team}/members`, { memberType: 'HUMAN', memberId: 'mate' })).status).toBeLessThan(300);
+    const t = await chat('T', [{ type: 'AGENT', id: 'Pom' }, { type: 'TEAM', id: team }]);
+    const s = await create(mate, { channelId: t, agent: 'Pom' });
+    // A member of the team is not a member of the chat.
+    expect(s).toMatchObject({ canEdit: true, canManage: true });
+    expect((await call(mate, 'DELETE', `/api/teams/${team}/members/HUMAN/mate`)).status).toBeLessThan(300);
+    at(MON_0900 - 30_000);
+    await tick();
+    expect(await triggers(t)).toEqual([]);
+    expect(product.store.schedules.schedule(s.id)).toMatchObject({ on: false, pausedReason: 'access', nextEventId: null });
+    expect((await needs(mate)).filter(n => n.kind === 'paused').map(n => n.short)).toEqual(["Schedule paused · you can't post here any more"]);
+    // A chat shared with mate to view: mate reads it but may not schedule into it.
+    expect((await call(owner, 'POST', `/api/channels/${c}/share`, { viewerType: 'HUMAN', viewerId: 'mate' })).status).toBe(200);
+    const refused = await call(mate, 'POST', '/api/flows/schedules', { id: randomUUID(), channelId: c, agent: 'Pom', prompt: 'Recap', rule: WEEKLY, timezone: 'UTC' });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ error: 'You need to be able to post in this chat' });
   });
 
   it('pauses a schedule whose chat was deleted and names it in Needs you as a chat that can no longer be opened (final I1)', async () => {

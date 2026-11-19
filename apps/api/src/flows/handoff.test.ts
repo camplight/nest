@@ -47,7 +47,7 @@ describe('the hand-off worker against the unchanged engine', () => {
     const r = await call(json, 'POST', '/api/auth/login', { username, password: 'password' });
     return { ...json, cookie: r.headers.get('set-cookie')!.split(';')[0] };
   };
-  const chat = async (name: string, members: { type: 'HUMAN' | 'AGENT'; id: string }[]) => {
+  const chat = async (name: string, members: { type: 'HUMAN' | 'AGENT' | 'TEAM'; id: string }[]) => {
     const id = (await (await call(owner, 'POST', '/api/channels', { name, visibility: 'PRIVATE' })).json()).id as string;
     for (const m of members) expect((await call(owner, 'POST', `/api/channels/${id}/subscribe`, { subscriberType: m.type, subscriberId: m.id })).status).toBe(200);
     return id;
@@ -475,6 +475,25 @@ describe('the hand-off worker against the unchanged engine', () => {
       kind: 'paused', channelId: a, short: 'Hand-off to a private chat paused · access changed', gate: { kind: 'paused', linkId: l.id },
     })]);
     expect(await needs(owner)).toEqual([]);
+  });
+
+  it('reads a source shared to view, posts into a chat reached through a team, and pauses when the team goes (S9)', async () => {
+    const team = (await (await call(owner, 'POST', '/api/teams', { name: 'Crew' })).json()).id as string;
+    expect((await call(owner, 'POST', `/api/teams/${team}/members`, { memberType: 'HUMAN', memberId: 'mate' })).status).toBeLessThan(300);
+    // S: the owner's own chat, shared with mate to view. T: Pom's chat, reached by mate only through the team.
+    const s = await chat('S', [{ type: 'AGENT', id: 'Pip' }]);
+    const t = await chat('T', [{ type: 'AGENT', id: 'Pom' }, { type: 'TEAM', id: team }]);
+    expect((await call(owner, 'POST', `/api/channels/${s}/share`, { viewerType: 'HUMAN', viewerId: 'mate' })).status).toBe(200);
+    const l = await link(mate, { from: s, to: t, who: 'Pom' });
+    await turn(s, ['Draft ready']);
+    await tick();
+    expect((await handoffs(t)).map(e => e.payload.text)).toEqual(['Hand-off from S · set up by mate\n\nDraft ready']);
+    expect(product.store.flows.link(l.id)).toMatchObject({ on: true, pausedReason: null });
+    expect((await call(owner, 'DELETE', `/api/teams/${team}/members/HUMAN/mate`)).status).toBeLessThan(300);
+    await turn(s, ['Second draft']);
+    await tick();
+    expect(await handoffs(t)).toHaveLength(1);
+    expect(product.store.flows.link(l.id)).toMatchObject({ on: false, pausedReason: 'access' });
   });
 
   it('names the source chat a creator lost in Needs you, so the paused link is not dropped (final I1)', async () => {

@@ -5,7 +5,7 @@ import type { ProductDb } from '@nest/db';
 import type { EngineEvent, Human, OrgOpsClient } from '@nest/orgops-client';
 import { FORK_LINK_LABEL, FORK_QUOTE_CHARS, FORK_SUMMARY_MESSAGES, NewForkSchema, type ForkView } from '@nest/schemas';
 import type { Channel } from '../canvases';
-import { channelAccess } from './access';
+import type { ChannelAccess } from './access';
 import type { Switchyard } from './identity';
 import type { Summarize } from './summarize';
 
@@ -15,6 +15,8 @@ export type ForkRouteTools = {
   parse<T>(schema: { safeParse(value: unknown): { success: true; data: T } | { success: false; error: { issues: { message: string }[] } } }, value: unknown): T;
   body(c: unknown): Promise<unknown>;
   viewerChannels(headers: Headers): Promise<Map<string, Channel>>;
+  /** The flows access rule (S9) for the viewer, with their teams read once for this request. */
+  viewerAccess(headers: Headers, human: Human): (channel: Channel | undefined) => Promise<ChannelAccess>;
   titles(channels: Map<string, Channel>, ids: string[]): (id: string) => string;
   /** Switchyard joins both chats, or the request fails with 503 (an outage is rethrown for the 502 answer). */
   join(channelIds: string[]): Promise<void>;
@@ -40,7 +42,7 @@ export function forkTime(at: number, timeZone = 'UTC'): string {
 export function registerForkRoutes(routes: Hono<{ Variables: { human: Human } }>, { store, orgops, switchyard, summarize, tools }: {
   store: ProductDb; orgops: OrgOpsClient; switchyard: Switchyard; summarize: Summarize; tools: ForkRouteTools;
 }) {
-  const { fail, parse, body, viewerChannels, titles, join } = tools;
+  const { fail, parse, body, viewerChannels, viewerAccess, titles, join } = tools;
   const notFound = () => fail(404, 'Not found');
 
   /** The message, read as the viewer: it must be a message in the parent chat. */
@@ -61,8 +63,8 @@ export function registerForkRoutes(routes: Hono<{ Variables: { human: Human } }>
     const headers = c.req.raw.headers;
     const channels = await viewerChannels(headers);
     const parent = channels.get(input.parentChannelId), child = channels.get(input.childChannelId);
-    // The rule links use (S9): team-only and viewer-share access count as none.
-    if (!channelAccess(parent, human).read) throw fail(403, 'You need to read the chat you fork from');
+    // The rule links use (S9): teams count as the engine counts them, and a viewer share reads.
+    if (!(await viewerAccess(headers, human)(parent)).read) throw fail(403, 'You need to read the chat you fork from');
     const project = store.projects.byChannels([input.childChannelId]).get(input.childChannelId);
     if (!child || !project || store.projects.project(project.id)?.ownerId !== human.id) throw fail(403, 'A fork goes into a chat you started');
 
@@ -114,7 +116,7 @@ export function registerForkRoutes(routes: Hono<{ Variables: { human: Human } }>
     const parentChannelId = c.req.query('parentChannelId');
     if (!parentChannelId) throw fail(400, 'parentChannelId is required');
     const channels = await viewerChannels(c.req.raw.headers);
-    if (!channelAccess(channels.get(parentChannelId), c.get('human')).read) throw notFound();
+    if (!(await viewerAccess(c.req.raw.headers, c.get('human'))(channels.get(parentChannelId))).read) throw notFound();
     const forks = store.flows.forksOf(parentChannelId);
     const title = titles(channels, forks.map(f => f.childChannelId));
     const list: ForkView[] = forks.map(f => ({ childChannelId: f.childChannelId, parentEventId: f.parentEventId, title: title(f.childChannelId) }));

@@ -32,6 +32,8 @@ export type EngineEvent = {
 export type EngineChannel = {
   id: string; name: string; visibility: string; ownerHumanId: string | null; archivedAt?: number | null;
   participants: {subscriberType: string; subscriberId: string}[];
+  /** Viewer shares (read-only access), listed with every chat. */
+  shares?: {viewerType: string; viewerId: string}[];
 };
 export type ServiceAgent = Omit<ManagedEngineAgent, 'description'> & {desiredState: string; description: string | null};
 export type ServicePost = {type: string; source: string; channelId: string; payload: Record<string, unknown>; idempotencyKey: string; deliverAt?: number};
@@ -82,6 +84,8 @@ export function serviceClient(request: EngineRequest, token: string) {
     },
     channels: () => get<EngineChannel[]>('/api/channels?includeArchived=1'),
     humans: () => get<{id: string; username: string; createdAt: number}[]>('/api/humans'),
+    teams: () => get<{id: string; name: string}[]>('/api/teams'),
+    teamMembers: (teamId: string) => get<{memberType: string; memberId: string}[]>(`/api/teams/${name(teamId)}/members`),
     runners: () => get<{id: string; online: boolean}[]>('/api/runners'),
     events: (query: Record<string, string>) => get<EngineEvent[]>(`/api/events?${new URLSearchParams(query)}`),
     event: (id: string) => maybe<EngineEvent>(`/api/events/${name(id)}`),

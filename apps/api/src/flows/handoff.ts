@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Delivery, ProductDb } from '@nest/db';
 import { EngineError, isEngineOutage, type EngineChannel, type EngineEvent, type OrgOpsClient, type ServiceClient } from '@nest/orgops-client';
 import { LINK_HOURLY_CAP, type Link, type PausedReason } from '@nest/schemas';
-import { channelAccess } from './access';
+import { accessReader, channelAccess, serviceTeams } from './access';
 import type { Switchyard } from './identity';
 import type { Summarize } from './summarize';
 
@@ -87,12 +87,13 @@ export function createHandoffWorker({ store, orgops, token, switchyard, summariz
 }) {
   const flows = store.flows;
 
-  /** Engine records read at most once per tick or action: chats (archived included) and people. */
+  /** Engine records read at most once per tick or action: chats (archived included), people and teams. */
   function snapshot(service: ServiceClient) {
     let channels: Promise<Map<string, EngineChannel>> | null = null;
     let humans: Promise<Map<string, Actor>> | null = null;
     return {
       service,
+      access: accessReader(serviceTeams(service)),
       channels: () => (channels ??= service.channels().then(list => new Map(list.map(ch => [ch.id, ch])))),
       humans: () => (humans ??= service.humans().then(list => new Map(list.map(h => [h.id, { id: h.id, username: h.username }])))),
     };
@@ -105,7 +106,7 @@ export function createHandoffWorker({ store, orgops, token, switchyard, summariz
     const from = channels.get(link.from), to = channels.get(link.to);
     if (!from || !to) return 'unavailable';
     const creator = (await ctx.humans()).get(link.createdBy);
-    if (!creator || !channelAccess(from, creator).read || !channelAccess(to, creator).post) return 'access';
+    if (!creator || !(await ctx.access(from, creator)).read || !(await ctx.access(to, creator)).post) return 'access';
     if (link.who && !to.participants.some(p => p.subscriberType === 'AGENT' && p.subscriberId === link.who)) return 'agent-left';
     return null;
   }

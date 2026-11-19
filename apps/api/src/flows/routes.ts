@@ -6,7 +6,7 @@ import { CanvasConflictError, CanvasLimitError, type ProductDb } from '@nest/db'
 import { isEngineOutage, type EngineEvent, type Human, type OrgOpsClient } from '@nest/orgops-client';
 import { LinkPatchSchema, NewLinkSchema, type FlowNeed, type Link } from '@nest/schemas';
 import type { Channel } from '../canvases';
-import { channelAccess, isAgentIn, linkRights } from './access';
+import { accessReader, isAgentIn, linkRights, viewerTeams, type AccessChannel } from './access';
 import { SwitchyardUnavailableError, type Switchyard, type SwitchyardState } from './identity';
 import { FlowActionError, NOTHING_TO_SEND, pausedWhy, type HandoffWorker } from './handoff';
 import { registerForkRoutes } from './forks';
@@ -71,6 +71,14 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
   /** Every chat the engine lists for the viewer, archived ones included. */
   const viewerChannels = async (headers: Headers) =>
     new Map((await orgops.humanJson<Channel[]>('/api/channels?includeArchived=1', headers)).map(ch => [ch.id, ch]));
+  /**
+   * The flows access rule (S9) for the viewer, by the engine's rules: their teams are read through their own session
+   * (`/api/teams/me`) at most once for this request.
+   */
+  const viewerAccess = (headers: Headers, human: Human) => {
+    const access = accessReader(viewerTeams(() => orgops.humanJson<{ id: string }[]>('/api/teams/me', headers), human.username));
+    return (channel: AccessChannel | undefined) => access(channel, human);
+  };
   /** Card titles (project name, else chat name) for chats the viewer can read; anything else is 'a private chat'. */
   function titles(channels: Map<string, Channel>, ids: string[]) {
     const projects = store.projects.byChannels(ids.filter(id => channels.has(id)));
@@ -141,8 +149,9 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
     const human = c.get('human');
     const channels = await viewerChannels(c.req.raw.headers);
     const from = channels.get(input.from), to = channels.get(input.to);
-    // The rule delivery applies (S9): team-only and viewer-share access count as none.
-    if (!channelAccess(from, human).read || !channelAccess(to, human).post) throw fail(403, 'You need to read the first chat and post in the second');
+    // The rule delivery applies (S9): teams count as the engine counts them; a viewer share reads but never posts.
+    const access = viewerAccess(c.req.raw.headers, human);
+    if (!(await access(from)).read || !(await access(to)).post) throw fail(403, 'You need to read the first chat and post in the second');
     requireAgent(to, input.who);
     await joinBoth([input.to, input.from]);
     // Only turns after the newest finished one are handed off. With none, the scan starts at 0: every
@@ -266,7 +275,7 @@ export function registerFlowRoutes(app: Hono, { store, orgops, enabled, switchya
     return c.json({ items: named.sort((a, b) => b.at - a.at) });
   });
 
-  const tools = { fail, parse, body, viewerChannels, titles, join: joinBoth };
+  const tools = { fail, parse, body, viewerChannels, viewerAccess, titles, join: joinBoth };
   registerForkRoutes(routes, { store, orgops, switchyard, summarize, tools });
   registerScheduleRoutes(routes, { store, orgops, switchyard, scheduler, tools, triggers: (channels, viewer) => triggerViews(store, channels, viewer) });
   registerTriggerRoutes(routes, { store, switchyard, hooks, tools });

@@ -1356,17 +1356,26 @@ deviations; item 16 the checks.
      id) joins that chat (an idempotent subscribe). So an agent created again under a
      new name, or after a deletion, joins the old one's chats as it first posts there.
 
-3. Access without a session. Background work decides a person's access from the
-   engine channel record (`apps/api/src/flows/access.ts`, `channelAccess`):
+3. Access without a session. Background work decides a person's access by the
+   engine's own rules (OrgOps `canViewChannel` and `canPostToChannel`), from the
+   engine channel record and the person's teams (`apps/api/src/flows/access.ts`,
+   `channelAccess`):
    - member: the person owns the chat or is a `HUMAN` participant;
-   - read: the chat is `PUBLIC`, or member;
-   - post: read, and the chat is not archived.
+   - post: the chat is `PUBLIC` (anything not `PRIVATE`), member, or a `TEAM`
+     participant is a team the person belongs to; and the chat is not archived;
+   - read: what lets the person post (archived or not), or a viewer share with the
+     person. A viewer share never lets them post.
 
-   Link creation applies the same rule to the viewer's own channel list, so a link
-   never starts out paused. Limitation: access that comes only through a team, or a
-   viewer share, counts as none, although the engine itself grants it. Such a person
-   cannot create the link, and the hand-off worker pauses a link (`access`) once its
-   creator's direct access goes.
+   Workers read teams with the service token (`GET /api/teams`, then
+   `GET /api/teams/:id/members`) and viewer shares from the `shares` the engine's
+   channel list carries; no engine database is read. Teams are read at most once per
+   tick (once per call for a webhook), and only when a private chat the person is not
+   a member of has a `TEAM` participant. Creating a link, schedule, webhook or fork
+   applies the same rule to the viewer's own channel list, with their teams read
+   through their session (`GET /api/teams/me`), so a flow never starts out paused.
+   The hand-off worker, scheduler and webhook endpoint pause (`access`) once the
+   creator's access goes, for example when they leave the team. Who may pause or
+   disconnect (`member`, S10) does not count teams or shares.
 
 4. Routes. Each needs a signed-in person (401, or 403 until the password is set),
    answers `Cache-Control: no-store` and takes at most 64 KB.
@@ -1471,7 +1480,9 @@ deviations; item 16 the checks.
      Titles follow the viewer's own access, as in the links list.
    - `POST /api/flows/forks` takes `{childChannelId, parentChannelId, parentEventId,
      timeZone?}` and makes the child a fork of that message. The viewer must read the
-     parent by the flows rule (403), the event must be a `message.created` in the
+     parent by the flows rule (403; a viewer share is enough, though its findings link
+     then pauses with `access` when it first delivers, as the viewer cannot post in
+     the parent), the event must be a `message.created` in the
      parent read with the viewer's session (404), and the child must be a project chat
      the viewer started (403); a child equal to the parent or an unknown `timeZone`
      answers 400. Switchyard joins both chats and posts the seed into the child with
@@ -1792,8 +1803,7 @@ deviations; item 16 the checks.
      and a press outside close it.
    - Connecting `POST`s `/api/flows/links` and opens the new link's Hand-off popover
      under its label; a pair already linked opens its existing link. A refusal (no
-     read in the first chat or no post in the second, a team-only chat included, or
-     flows not set up) is a toast with the API's text.
+     read in the first chat or no post in the second, or flows not set up) is a toast with the API's text.
    - A new step `POST`s `/api/projects` `{name:'Next step after "{from title, 26
      chars}"', members:[], collaboration:'team'}`, places its card with its top-left
      60 px above the release point (from the picker: 120 px right of the chat's card

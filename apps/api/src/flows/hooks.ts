@@ -7,7 +7,7 @@ import {
   type CreatedTrigger, type FlowNeed, type SchedulePausedReason, type Trigger, type TriggerView,
 } from '@nest/schemas';
 import type { Channel } from '../canvases';
-import { channelAccess, isAgentIn, type AccessChannel } from './access';
+import { accessReader, channelAccess, isAgentIn, serviceTeams, type AccessChannel } from './access';
 import type { ForkRouteTools } from './forks';
 import { SwitchyardUnavailableError, type Switchyard } from './identity';
 import { schedulePausedWhy } from './scheduler';
@@ -154,7 +154,7 @@ export function createHooks({ store, orgops, token, switchyard, now = Date.now, 
     const channel = channels.find(ch => ch.id === t.channelId);
     if (!channel) return { reason: 'unavailable' };
     const creator = humans.find(h => h.id === t.createdBy);
-    if (!creator || !channelAccess(channel, creator).post) return { reason: 'access' };
+    if (!creator || !(await accessReader(serviceTeams(service))(channel, creator)).post) return { reason: 'access' };
     if (!isAgentIn(channel, t.agent)) return { reason: 'agent-left' };
     return { username: creator.username };
   }
@@ -255,7 +255,7 @@ export function registerHookEndpoint(app: Hono, { hooks, enabled }: { hooks: Hoo
 export function registerTriggerRoutes(routes: Hono<{ Variables: { human: Human } }>, { store, switchyard, hooks, tools }: {
   store: ProductDb; switchyard: Switchyard; hooks: Hooks; tools: ForkRouteTools;
 }) {
-  const { fail, parse, body, viewerChannels, join } = tools;
+  const { fail, parse, body, viewerChannels, viewerAccess, join } = tools;
   const triggers = store.schedules;
   const notFound = () => fail(404, 'Not found');
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -284,7 +284,7 @@ export function registerTriggerRoutes(routes: Hono<{ Variables: { human: Human }
     const human = c.get('human');
     const channels = await viewerChannels(c.req.raw.headers);
     const channel = channels.get(input.channelId);
-    if (!channelAccess(channel, human).post) throw fail(403, 'You need to be able to post in this chat');
+    if (!(await viewerAccess(c.req.raw.headers, human)(channel)).post) throw fail(403, 'You need to be able to post in this chat');
     requireAgent(channel, input.agent);
     const existing = triggers.trigger(input.id);
     if (existing && existing.createdBy !== human.id) throw fail(409, 'Webhook ID already used');

@@ -329,6 +329,26 @@ describe('webhook triggers against the unchanged engine', () => {
     expect(await needs(mate)).toEqual([]);
   });
 
+  it('counts a team the way the engine does, pauses when the creator leaves it, and refuses a viewer share', async () => {
+    const team = (await (await call(owner, 'POST', '/api/teams', { name: 'Crew' })).json()).id as string;
+    expect((await call(owner, 'POST', `/api/teams/${team}/members`, { memberType: 'HUMAN', memberId: 'mate' })).status).toBeLessThan(300);
+    const t = (await (await call(owner, 'POST', '/api/channels', { name: 'T', visibility: 'PRIVATE' })).json()).id as string;
+    for (const [type, id] of [['AGENT', 'Pip'], ['TEAM', team]] as const) {
+      expect((await call(owner, 'POST', `/api/channels/${t}/subscribe`, { subscriberType: type, subscriberId: id })).status).toBe(200);
+    }
+    const { trigger, url } = await create(mate, { channelId: t });
+    expect((await hook(url, '{}')).status).toBe(202);
+    expect(await hookMessages(t)).toHaveLength(1);
+    expect((await call(owner, 'DELETE', `/api/teams/${team}/members/HUMAN/mate`)).status).toBeLessThan(300);
+    expect((await hook(url, '{}')).status).toBe(404);
+    expect(product.store.schedules.trigger(trigger.id)).toMatchObject({ on: false, pausedReason: 'access' });
+    // A chat shared with mate to view: no webhook from mate posts into it.
+    const viewOnly = (await (await call(owner, 'POST', '/api/channels', { name: 'V', visibility: 'PRIVATE' })).json()).id as string;
+    expect((await call(owner, 'POST', `/api/channels/${viewOnly}/subscribe`, { subscriberType: 'AGENT', subscriberId: 'Pip' })).status).toBe(200);
+    expect((await call(owner, 'POST', `/api/channels/${viewOnly}/share`, { viewerType: 'HUMAN', viewerId: 'mate' })).status).toBe(200);
+    await create(mate, { channelId: viewOnly }, 403);
+  });
+
   it('pauses when the agent left the chat', async () => {
     const { trigger, url } = await create(owner);
     expect((await unsubscribe('AGENT', 'Pip')).status).toBe(200);

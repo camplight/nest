@@ -113,18 +113,34 @@ describe('the link API against the unchanged engine', () => {
     expect(product.store.flows.linksTouching([a, b])).toEqual([]);
   });
 
-  it('refuses an archived target and access that comes only through a team (S9)', async () => {
+  it('refuses an archived target, and counts access through a team the way the engine does', async () => {
     const archived = await chat('Old', [{ type: 'AGENT', id: 'Pip' }]);
     expect((await call(owner, 'POST', `/api/channels/${archived}/archive`)).status).toBe(200);
     expect((await link(owner, { from: a, to: archived })).status).toBe(403);
-    // The engine lets mate read and post in C through a team; flows count that as no access.
+    // The engine lets mate read and post in C through a team; flows count it the same way.
     const team = (await (await call(owner, 'POST', '/api/teams', { name: 'Crew' })).json()).id as string;
     expect((await call(owner, 'POST', `/api/teams/${team}/members`, { memberType: 'HUMAN', memberId: 'mate' })).status).toBeLessThan(300);
     const c = await chat('Crew-Room', [{ type: 'TEAM', id: team }, { type: 'AGENT', id: 'Pip' }]);
     const seen = ((await (await call(mate, 'GET', '/api/channels')).json()) as { id: string; canPost: boolean }[]).find(ch => ch.id === c);
     expect(seen?.canPost).toBe(true);
-    expect((await link(mate, { from: c, to: b })).status).toBe(403);
-    expect((await link(mate, { from: b, to: c })).status).toBe(403);
+    expect((await link(mate, { from: c, to: b })).status).toBe(201);
+    expect((await link(mate, { from: b, to: c, who: 'Pip' })).status).toBe(201);
+    // A member of the team is not a member of the chat: a link mate did not create is not theirs to manage.
+    const owners = await (await link(owner, { from: a, to: c })).json();
+    expect((await call(mate, 'PATCH', `/api/flows/links/${owners.id}`, { on: false, version: owners.version })).status).toBe(403);
+    // Someone outside the team gets nothing through it.
+    expect((await link(stranger, { from: c, to: b })).status).toBe(403);
+  });
+
+  it('lets a viewer share read a source chat but never post into a target', async () => {
+    // The owner shares A with mate to view: the engine lists it for mate but refuses mate's posts.
+    expect((await call(owner, 'POST', `/api/channels/${a}/share`, { viewerType: 'HUMAN', viewerId: 'mate' })).status).toBe(200);
+    const seen = ((await (await call(mate, 'GET', '/api/channels')).json()) as { id: string; canPost: boolean }[]).find(ch => ch.id === a);
+    expect(seen?.canPost).toBe(false);
+    expect((await link(mate, { from: a, to: b, who: 'Pip' })).status).toBe(201);
+    const refused = await link(mate, { from: b, to: a });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({ error: 'You need to read the first chat and post in the second' });
   });
 
   it('lets a target member pause or disconnect but only the creator change settings', async () => {
