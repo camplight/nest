@@ -1444,7 +1444,7 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
       flows.refresh();
       return true;
     } catch (error) {
-      say(flowError(error, 'Could not save the webhook. Try again.'));
+      say(flowError(error, `Could not save the ${current?.kind === 'app' ? 'app event' : 'webhook'}. Try again.`));
       return false;
     }
   }, [ensureAgent, say, flows.refresh]);

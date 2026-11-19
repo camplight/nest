@@ -192,7 +192,7 @@ export function SchedulePopover({chat, schedule, trigger = null, webhooks = fals
       if (problems.length) { setProblem(problems[0]); return; }
       setProblem(null);
       setBusy(true);
-      void onSaveApp!({agent, prompt: prompt.trim(), label: label.trim() || `${app} ${appEventName(app, slug)}`, app, triggerSlug: slug, config}).then(error => setProblem(error)).finally(() => setBusy(false));
+      void onSaveApp!({agent, prompt: prompt.trim(), label: label.trim() || `${app} ${appEventName(app, slug)}`.slice(0, MAX_TRIGGER_LABEL), app, triggerSlug: slug, config}).then(error => setProblem(error)).finally(() => setBusy(false));
       return;
     }
     if (hook || appKind) {

@@ -47,7 +47,7 @@ export function AppTriggerFields({apps, app, types, typesError, slug, values, di
             <label className="iv-l" htmlFor={id}>{label}</label>
             {f.type === 'enum'
               ? <select className="iv-in" id={id} value={String(value)} disabled={disabled} onChange={event => set(f.key, event.target.value)}>
-                {f.required ? null : <option value="">Any</option>}
+                {f.required ? value === '' ? <option value="" disabled>Choose…</option> : null : <option value="">Any</option>}
                 {f.options.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
               : f.type === 'json'

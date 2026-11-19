@@ -33,6 +33,12 @@ describe('AppTriggerFields',()=>{
     expect(html).toContain('<option value="closed">closed</option>');
     expect(html).toContain('<textarea');
   });
+  it('shows a Choose placeholder while a required enum is unset, so the select matches its state',()=>{
+    const t:AppTriggerType[]=[{slug:'X',name:'X',description:'',config:{required:['state'],properties:{state:{type:'string',enum:['open','closed']}}}}];
+    const unset=render({app:'github',types:t,slug:'X',values:{state:''}});
+    expect(unset).toMatch(/<option value="" disabled[^>]*>Choose…<\/option>/);
+    expect(render({app:'github',types:t,slug:'X',values:{state:'open'}})).not.toContain('Choose…');
+  });
   it('shows a failure to read the types inline',()=>{
     expect(render({app:'github',typesError:'Composio is unavailable'})).toContain('Composio is unavailable');
   });

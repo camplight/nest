@@ -39,6 +39,11 @@ describe('configValue',()=>{
     expect(problems).toEqual([]);
     expect(config).toEqual({repo:'a/b',limit:5,ratio:0.5,branch:'main',draft:true,state:'open',filter:{a:'x'}});
   });
+  it('sends false for an unchecked box whose default is true, and leaves an unchecked plain box out',()=>{
+    const {config}=configValue(fields,{...configInitial(fields),repo:'a',limit:'1',draft:false});
+    expect(config.draft).toBe(false);
+    expect('quiet' in config).toBe(false);
+  });
   it('reports a missing required field, a bad number and bad JSON',()=>{
     const {problems}=configValue(fields,{...configInitial(fields),limit:'1.5',ratio:'x',filter:'{'});
     expect(problems).toEqual(['Repo is required','Limit must be a whole number','Ratio must be a number','Filter must be valid JSON']);

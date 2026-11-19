@@ -44,7 +44,7 @@ export const configInitial = (fields: readonly ConfigField[]): ConfigValues => O
 
 /**
  * The config the values describe, and what is wrong with them: a required field left empty, a number that is not one, JSON
- * that does not parse. An optional field left empty is left out; an unchecked box is sent as false only when required.
+ * that does not parse. An optional field left empty is left out; an unchecked box is sent as false when required or when its default is true.
  */
 export function configValue(fields: readonly ConfigField[], values: ConfigValues): {config: Record<string, unknown>; problems: string[]} {
   const config: Record<string, unknown> = {};
@@ -52,7 +52,8 @@ export function configValue(fields: readonly ConfigField[], values: ConfigValues
   for (const f of fields) {
     const v = values[f.key] ?? f.initial;
     if (f.type === 'boolean') {
-      if (v === true || f.required) config[f.key] = v === true;
+      // A box whose default is true sends false when unchecked, or Composio would apply its default again.
+      if (v === true || f.required || f.initial === true) config[f.key] = v === true;
       continue;
     }
     const text = typeof v === 'string' ? v.trim() : '';
