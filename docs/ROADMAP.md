@@ -552,8 +552,8 @@ resize areas, place chats from the Loose chats pile, start a chat from the botto
 box, open a chat in focus or split screen, add or remove agents by dragging, Nudge a
 quiet agent, search with Ctrl/Cmd+K, see what needs them, and switch, share and
 delete canvases. Shared canvases stay in sync by refreshing every 5 seconds.
-Teammates who are not in a chat see a locked "Private chat" card. Phones get a list
-with Areas, Needs you and Loose chats instead of the free canvas. Light and dark
+Teammates who are not in a chat see a locked "Private chat" card. Phones first got a list
+with Areas, Needs you and Loose chats; they now get the canvas, with a List toggle. Light and dark
 themes keep card text at 4.5:1 contrast or more.
 
 It is off unless `NEST_ENABLE_CANVAS=1` is set. Nest stores only the layout
