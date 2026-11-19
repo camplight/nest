@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {runChatTest} from '../support/chat-harness';
 
@@ -50,16 +51,17 @@ await runChatTest('message speech: native playback starts while upstream is stil
   await h.page.goto(`${h.base}/?channel=${h.project.channelId}`);
   const message=h.page.locator(`#message-${event.id}`);
   await message.getByRole('button',{name:'Listen to message'}).click();
-  await h.page.waitForFunction(()=>{const audio=document.querySelector('audio');return audio&&audio.currentTime>0;},{},{timeout:15000});
+  await message.locator('audio').waitFor();
+  await message.locator('audio').evaluate(node=>{void (node as HTMLAudioElement).play().catch(()=>undefined);});
+  try {await h.page.waitForFunction(()=>{const audio=document.querySelector('audio');return audio&&audio.currentTime>0;},{},{timeout:15000});}
+  catch(error){console.log('STREAM_PLAYER_STATE',await message.locator('audio').evaluate(node=>{const a=node as HTMLAudioElement;return {ready:a.readyState,network:a.networkState,paused:a.paused,error:a.error?.message};}));throw error;}
   assert.equal(cancelled,false,'playback begins before the upstream response ends');
   await message.getByRole('button',{name:'Close audio'}).click();
   for(let i=0;i<50&&!cancelled;i++)await new Promise(resolve=>setTimeout(resolve,100));
   assert(cancelled,'closing playback cancels the upstream stream');
 },{viewport:{width:390,height:844},speech:async()=>{
-  // Serve the first two seconds of a 20-second PCM file, then keep the stream open.
-  // Chromium sniffs the fixture format; the real Fish provider emits MP3 frames.
-  const wav=Buffer.alloc(44+32000);
-  wav.write('RIFF',0);wav.writeUInt32LE(36+320000,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);
-  wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(8000,24);wav.writeUInt32LE(16000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(320000,40);
-  return new ReadableStream({start(c){c.enqueue(wav);},cancel(){cancelled=true;}});
+  // Five seconds of a quiet 440 Hz MP3 tone, encoded with lamejs 1.2.1.
+  // Deliberately withhold EOF: playback must not depend on response completion.
+  const bytes=readFileSync(new URL('../fixtures/speech-tone.mp3',import.meta.url));
+  return new ReadableStream({start(c){c.enqueue(bytes);},cancel(){cancelled=true;}});
 }});
