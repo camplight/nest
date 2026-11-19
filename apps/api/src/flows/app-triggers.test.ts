@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createApp as createEngine } from '../../../../vendor/orgops/apps/api/src/app';
 import { createOrgOpsClient, type EngineEvent } from '@nest/orgops-client';
 import type { AppTriggerType, FlowNeed, TriggerView } from '@nest/schemas';
+import { CanvasConflictError } from '@nest/db';
 import { createApp } from '../app';
 import { createComposioProvider } from '../integrations/composio';
 import { verifyComposioSignature } from './app-triggers';
@@ -414,5 +415,28 @@ describe('app-event triggers through Composio', () => {
     expect(instanceOf(id)).toBe('ti_1');
     // The instance stays: nothing deleted it.
     expect(instanceCalls().some(c => c.method === 'DELETE')).toBe(false);
+  });
+
+  it('a create that fails to store leaves an instance another stored trigger holds', async () => {
+    const real = product.store.schedules.createAppTrigger;
+    const winner = randomUUID();
+    // Another request stores its trigger on the same Composio instance just as this one's insert fails.
+    const spy = vi.spyOn(product.store.schedules, 'createAppTrigger').mockImplementationOnce(input => {
+      real({ ...input, id: winner });
+      throw new CanvasConflictError(null);
+    });
+    await call(owner, 'POST', '/api/flows/triggers', { kind: 'app', id: randomUUID(), channelId: a, agent: 'Pip', prompt: 'Summarise the commit', label: 'GitHub', app: 'github', triggerSlug: COMMIT, config: { owner: 'acme', repo: 'web' } });
+    spy.mockRestore();
+    expect(product.store.schedules.trigger(winner)).toBeTruthy();
+    expect(instanceCalls().some(c => c.method === 'DELETE')).toBe(false);
+    expect(enabledAt.get(instanceOf(winner))).toBe(true);
+  });
+
+  it('a create that fails to store with no other holder deletes the instance it made', async () => {
+    const spy = vi.spyOn(product.store.schedules, 'createAppTrigger').mockImplementationOnce(() => { throw new CanvasConflictError(null); });
+    const res = await call(owner, 'POST', '/api/flows/triggers', { kind: 'app', id: randomUUID(), channelId: a, agent: 'Pip', prompt: 'Summarise the commit', label: 'GitHub', app: 'github', triggerSlug: COMMIT, config: { owner: 'acme', repo: 'web' } });
+    spy.mockRestore();
+    expect(res.status).toBe(409);
+    expect(instanceCalls().filter(c => c.method === 'DELETE')).toHaveLength(1);
   });
 });

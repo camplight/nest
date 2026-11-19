@@ -107,7 +107,13 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   registerCollaborationRoutes(app,{store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
   registerAgentRequestRoutes(app,{store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
   // Without a naming or management agent, naming and summaries read the Switchyard agent's provider env (read-only; it is never started).
-  const namingSource=process.env.NEST_PROJECT_NAMING_AGENT_NAME||managementName||switchyard.name;
+  // The fallback applies only to the adopted agent (pinned by id); a same-named stranger is never read.
+  const namingAgent=async():Promise<{agentName?:string;agentId?:string}>=>{
+    const named=process.env.NEST_PROJECT_NAMING_AGENT_NAME||managementName;
+    if(named)return {agentName:named,agentId:named===managementName?managementId:undefined};
+    const adopted=await switchyard.adopted();
+    return adopted?{agentName:adopted.name,agentId:adopted.id}:{};
+  };
   registerProjectRoutes(app, {
     store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN,
   });
@@ -124,7 +130,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     if (!response.ok) return null;
     const reference = defaultModelReference(defaultAgentModelId, orgops.nativeModels(await response.json()));
     if (!reference) return null;
-    const env = await orgops.projectNamingEnv({model: reference, token: managementKey, agentName: namingSource, agentId: namingSource === managementName ? managementId : undefined});
+    const env = await orgops.projectNamingEnv({model: reference, token: managementKey, ...await namingAgent()});
     return {model: reference, env};
   }});
   // The hand-off worker and the scheduler share one lease holder, so one process does both; config.flowsNow is their clock.
@@ -165,7 +171,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     if(!receipt)return null;
     const input=await orgops.projectNamingContext({token:managementKey,modelId:config.projectNamingModelId??process.env.NEST_PROJECT_NAMING_MODEL_ID??defaultAgentModelId,preferFastModel:!config.projectNamingModelId&&!process.env.NEST_PROJECT_NAMING_MODEL_ID,eventId:receipt.event_id,channelId:project.channelId,ownerId:project.ownerId,senderName:receipt.sender_name}).catch(error=>{throw error instanceof ProjectNamingModelUnavailableError?new NamingStepError('model unavailable'):error;});
     if(!input)return null;
-    const env=config.projectNamer?undefined:await orgops.projectNamingEnv({model:input.model,token:managementKey,agentName:namingSource,agentId:namingSource===managementName?managementId:undefined}).catch(()=>{throw new NamingStepError('provider unavailable');});
+    const env=config.projectNamer?undefined:await orgops.projectNamingEnv({model:input.model,token:managementKey,...await namingAgent()}).catch(()=>{throw new NamingStepError('provider unavailable');});
     return {...input,env};
   }});
   const compactionToken = config.compaction ? config.compaction.engineToken : managementKey;

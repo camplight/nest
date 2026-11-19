@@ -1137,8 +1137,9 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    the panel (outside its fields) or nowhere (the body, after a press on plain popover
    text or a removed button). The composer is outside the panel and handles its own
    images, so no paste is handled twice. The title comes from a single copied anchor;
-   when the plain text carries no address, a copied hyperlink falls back to the
-   anchor's `href`, with its text as the title. A Links section between Files and Also uses lists each link's title or
+   when the plain text carries no address, copied hyperlinks fall back to their
+   anchors' `href`s (up to 10), each titled by its text unless that text is the address.
+   A Links section between Files and Also uses lists each link's title or
    address, its host, opens it in a new tab with `rel="noopener noreferrer"` and lets
    editors remove it. A viewer's paste does nothing.
    Messages: `Paste a link or a file to add it here.`, `Already in context`,
@@ -1990,7 +1991,8 @@ deviations; item 16 the checks.
      the chat is added to it on save, when the person may add agents), `When` (Once,
      Every day, Weekdays, Every week, Every month, Every few minutes, Webhook, shown
      while availability reports `webhooks`, and last App event, shown while it reports
-     `appEvents`: a new one picks one of the person's connected apps (active accounts from
+     `appEvents`, that is whenever the server is set up; with no connected app it shows
+     `Connect an app first` in place of the fields: a new one picks one of the person's connected apps (active accounts from
      `GET /api/integrations/connections`), then one of the app's trigger types
      (`GET /api/flows/app-triggers/types?app=`), then that type's settings, built from its JSON
      schema in `trigger-config.ts` (string, number, integer, boolean and enum fields, required
@@ -3240,8 +3242,10 @@ OpenRouter key. Keys resolve from the API environment or the configured system
 agent's encrypted environment via HTTP; no agent turn or online runner is needed.
 The source agent is `NEST_PROJECT_NAMING_AGENT_NAME`, else `NEST_MANAGEMENT_AGENT_NAME`,
 else the Switchyard service agent (the `switchyard.agent` name, default `Switchyard`), so
-installs without a management agent still name chats and summarise; Switchyard is only read
-via `/api/secrets/env`, never started or modified. The source agent record must still exist
+installs without a management agent still name chats and summarise. The fallback applies only
+while the Switchyard identity is adopted (not `name-taken`), and the adopted agent's id is
+pinned in the request, so a same-named stranger's keys are never read. Switchyard is only
+read via `/api/secrets/env`, never started or modified. The source agent record must still exist
 with owner-human secret delegation off. A failed attempt logs one fixed category
 (`project naming: provider unavailable`, `model unavailable`, `context unavailable` or
 `generation failed`), never the raw error, prompt or keys.

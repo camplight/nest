@@ -1,7 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import type {EventRow} from '../types';
 import {buildTimeline} from './timeline';
-import {filterTimelineByApp} from './filter-app';
+import {appFilterStays,filterTimelineByApp,latestOwnMessageId} from './filter-app';
 
 const tool=(id:string,type:string,command:string,createdAt:number):EventRow=>({id,type,source:'agent:Pip',channelId:'c1',payload:{tool:'shell_run',args:{command}},createdAt});
 const msg=(id:string,source:string,text:string,createdAt:number):EventRow=>({id,type:'message.created',source,channelId:'c1',payload:{text},createdAt});
@@ -27,5 +27,27 @@ describe('filterTimelineByApp',()=>{
   });
   it('drops activity with no event of the app',()=>{
     expect(filterTimelineByApp(items,'notion')).toEqual([]);
+  });
+});
+
+describe('appFilterStays',()=>{
+  it('stays for no filter or an app with calls in the loaded events',()=>{
+    expect(appFilterStays(null,events)).toBe(true);
+    expect(appFilterStays('github',events)).toBe(true);
+  });
+  it('lets go when the chosen app has no calls loaded',()=>{
+    expect(appFilterStays('notion',events)).toBe(false);
+    expect(appFilterStays('github',[msg('m1','human:alek','hi',1)])).toBe(false);
+  });
+});
+
+describe('latestOwnMessageId',()=>{
+  it('is the newest message the person sent, and changes when they send another',()=>{
+    expect(latestOwnMessageId(events,'alek')).toBe('m1');
+    expect(latestOwnMessageId([...events,msg('m3','human:alek','more',2000)],'alek')).toBe('m3');
+  });
+  it('ignores other people and agents; none gives null',()=>{
+    expect(latestOwnMessageId(events,'sam')).toBeNull();
+    expect(latestOwnMessageId([msg('m9','agent:Pip','x',1)],'alek')).toBeNull();
   });
 });

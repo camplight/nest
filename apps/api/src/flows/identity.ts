@@ -173,6 +173,11 @@ export function createSwitchyard({ store, orgops, token, name, creator, workspac
   return {
     name: agentName,
     ensure,
+    /** The adopted agent's name and id when the identity is usable, else null: read-only provider-key use must never reach another agent of the same name. */
+    async adopted(): Promise<{ name: string; id: string } | null> {
+      const state = await ensure().catch(() => null);
+      return state?.ok && cached?.agentId ? { name: agentName, id: cached.agentId } : null;
+    },
     /** Subscribe the service agent to a chat; the engine ignores a repeat. */
     async join(channelId: string): Promise<void> {
       await subscribe(await usable(), channelId);

@@ -82,7 +82,7 @@ unchanged.
   project; a dev install must not hijack production). Each trigger instance Nest creates carries its own `egress_url`
   (`<request origin>/api/hooks/composio`), so installs sharing a Composio project deliver to themselves. The operator
   sets `NEST_COMPOSIO_WEBHOOK_SECRET` from the project's subscription (V3 payloads, `composio.trigger.message`
-  enabled); the kind is offered only when that secret is set and the creator has a connected app with trigger types.
+  enabled); the kind is offered whenever that secret is set (the server is set up); a creator with no connected app sees "Connect an app first" in place of the fields.
 - Composio API facts used are recorded in the plan task, with their source pages.
 
 ### 10. The canvas on phones

@@ -18,9 +18,9 @@ describe('naming and summaries fall back to the Switchyard agent', () => {
   let channelId: string, projectId: string;
   const logs: string[] = [];
   const request = (path: string, body?: unknown, h = headers) => product.app.request(path, { method: body === undefined ? 'GET' : 'POST', headers: h, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
-  const build = () => {
+  const build = (creator: string | undefined = 'NestSystem') => {
     const client = createOrgOpsClient('http://engine', (async (url, init) => engine.app.fetch(new Request(url, init))) as typeof fetch);
-    return createApp({ orgops: client, dbPath: join(dir, 'product.sqlite'), projectNamingModelId: 'naming-model', defaultAgentModelId: 'naming-model', projectNamingLog: line => logs.push(line) });
+    return createApp({ orgops: client, dbPath: join(dir, 'product.sqlite'), projectNamingModelId: 'naming-model', defaultAgentModelId: 'naming-model', projectNamingLog: line => logs.push(line), switchyardCreator: creator });
   };
   beforeEach(async () => {
     logs.length = 0; generate.mockReset();
@@ -34,13 +34,15 @@ describe('naming and summaries fall back to the Switchyard agent', () => {
     channelId = (await (await request('/api/channels', { name: 'Room', visibility: 'PRIVATE' })).json()).id;
     await request('/api/models', { id: 'naming-model', provider: 'openrouter', modelName: 'fixture', enabled: true });
     await request('/api/secrets', { name: 'OPENROUTER_API_KEY', value: 'fixture-provider-key', scopeType: 'public' });
+    expect((await request('/api/agents', { name: 'NestSystem', agentRole: 'SYSTEM', modelId: 'test', workspacePath: join(dir, 'ns'), desiredState: 'STOPPED' })).status).toBe(201);
     projectId = randomUUID();
     expect((await request('/api/projects', { id: projectId, name: 'Launch', description: 'Ship a useful result', channelId })).status).toBe(201);
     expect((await request('/api/messages', { id: randomUUID(), channelId, text: 'Plan an autumn website launch.' })).status).toBe(201);
     await request(`/api/projects/${projectId}/suggest-details`, { messageRequestId: product.store.db.prepare('SELECT id FROM product_message_requests').get() ? (product.store.db.prepare('SELECT id FROM product_message_requests').get() as { id: string }).id : '', expected: { name: 'Launch', description: 'Ship a useful result' } });
   });
   afterEach(() => { vi.unstubAllEnvs(); product.store.close(); engine.db.close(); rmSync(dir, { recursive: true, force: true }); });
-  const addSwitchyard = async () => expect((await request('/api/agents', { name: 'Switchyard', modelId: 'test', workspacePath: join(dir, 'sw') })).status).toBe(201);
+  // Nest makes and adopts the service agent itself; naming reads it only after adoption.
+  const addSwitchyard = async () => expect((await product.switchyard.ensure()).ok).toBe(true);
 
   it('names a chat and summarises using the Switchyard agent keys', async () => {
     await addSwitchyard();
@@ -54,8 +56,20 @@ describe('naming and summaries fall back to the Switchyard agent', () => {
   });
 
   it('logs one sanitized category when the provider is unavailable', async () => {
+    // No Switchyard agent and no creator to make one: nothing to read keys from.
+    product.store.close(); product = build('');
     await product.projectNaming.tick();
     expect(logs).toEqual(['project naming: provider unavailable']);
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it('never reads the provider keys of a stranger agent named Switchyard', async () => {
+    expect((await request('/api/agents', { name: 'Switchyard', modelId: 'test', workspacePath: join(dir, 'sw'), description: 'Not ours' })).status).toBe(201);
+    expect(await product.switchyard.ensure()).toEqual({ ok: false, reason: 'name-taken' });
+    await product.projectNaming.tick();
+    expect(logs).toEqual(['project naming: provider unavailable']);
+    expect(generate).not.toHaveBeenCalled();
+    expect(await product.summarize({ texts: ['done'], purpose: 'handoff', actor: 'a', ref: {} })).toMatchObject({ model: null });
     expect(generate).not.toHaveBeenCalled();
   });
 });

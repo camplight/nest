@@ -602,6 +602,10 @@ The canvas was then reworked to match the design mockup
   - Agents can be pinned to the tray; pins are stored per person in migration
     `013`.
   - Loose chats open in a left drawer from the top bar.
+  - New chat buttons: the toolbar's Chat and each area's `+ Chat`.
+  - Rename a chat from its window title (owner only).
+- Paste links and files into the context popover, with a Links section; agents read
+  the links through `nest-context`.
 
 Done since, in the 2026-11-19 overnight batch (local, not pushed or deployed):
 
@@ -611,10 +615,6 @@ Done since, in the 2026-11-19 overnight batch (local, not pushed or deployed):
   `+N`; membership, not live presence).
 - Drag labels ("Invite Moss to …") and an Add agent picker in the chat's More menu.
 - The Apps here chips filter an open chat's timeline to one app.
-- New chat buttons: the toolbar's Chat and each area's `+ Chat`.
-- Rename a chat from its window title (owner only).
-- Paste links and files into the context popover, with a Links section; agents read
-  the links through `nest-context`.
 - Chat naming and hand-off summaries fall back to the Switchyard agent's provider keys
   when no naming or management agent is configured. Jobs that already failed are not
   re-run.

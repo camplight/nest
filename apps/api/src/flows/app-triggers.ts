@@ -267,8 +267,9 @@ export function registerAppTriggerRoutes(routes: Hono<{ Variables: { human: Huma
         createdBy: human.id, now: now(),
       });
     } catch (error) {
-      // Not stored (a race for the id, or the chat filled up meanwhile): the instance made for it goes too.
-      await appTriggers.provider!.remove(triggerId).catch(() => undefined);
+      // Not stored (a race for the id, or the chat filled up meanwhile): the instance made for it goes too, unless
+      // another stored trigger holds it (Composio upserts, so a concurrent create may share the instance).
+      if (!triggers.triggerByComposioId(triggerId)) await appTriggers.provider!.remove(triggerId).catch(() => undefined);
       if (error instanceof CanvasConflictError) throw fail(409, 'Trigger ID already used');
       throw error;
     }
