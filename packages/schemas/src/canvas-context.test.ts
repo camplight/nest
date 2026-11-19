@@ -23,6 +23,8 @@ describe('context schemas', () => {
 describe('web links', () => {
   it('normalizes http(s) urls and rejects everything else', () => {
     expect(normalizeWebUrl('HTTPS://Example.com')).toBe('https://example.com/');
+    expect(normalizeWebUrl('https://user:secret@example.com/x?y=1')).toBe('https://example.com/x?y=1');
+    expect(normalizeWebUrl('http://token@a.com')).toBe('http://a.com/');
     for (const bad of ['javascript:alert(1)', 'data:text/html,x', 'ftp://x', 'not a url', `https://e.com/${'a'.repeat(2049)}`]) expect(normalizeWebUrl(bad)).toBeNull();
   });
   it('validates a link body strictly', () => {

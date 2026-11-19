@@ -1,5 +1,6 @@
 // The Nest composer (spec 6.8 to 6.12, 7.4), moved out of App.tsx unchanged in behaviour: drafts, the idempotent
 // send path, uploads and the mention picker. Both chats render it; App.tsx drives it through ChatComposerHandle.
+import { pastedImageFile } from "../clipboard-files";
 import {
   createContext,
   useContext,
@@ -304,12 +305,7 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
       .filter((file): file is File => Boolean(file));
     if (imageFiles.length === 0) return;
     event.preventDefault();
-    const filesToUpload = imageFiles.map((image) => {
-      const ext = image.type.includes("/") ? image.type.split("/")[1] : "png";
-      const safeExt = ext.replace(/[^a-zA-Z0-9]/g, "") || "png";
-      const filename = `pasted-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.${safeExt}`;
-      return new File([image], filename, { type: image.type || "image/png" });
-    });
+    const filesToUpload = imageFiles.map(pastedImageFile);
     uploadFiles(filesToUpload);
   }
 

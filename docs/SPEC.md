@@ -1060,13 +1060,13 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    - `POST /api/canvases/:id/areas/:areaId/context/links` and
      `DELETE …/context/links/:sourceAreaId` (use another area's context)
    - `GET /api/canvases/context-sources` (areas the person can link to, each with
-     `counts: {notes, fileCount}` for the picker)
+     `counts: {notes, fileCount, linkCount}` for the picker)
    - `GET /api/canvases/:id/context/summary`: one request per board load for every
-     area's chip, shelf and footer. `canvas` is `{hasContext, notes, fileCount}`; each
-     area is `{areaId, hasContext, notes, fileCount, files, links, usedBy}`, where
+     area's chip, shelf and footer. `canvas` is `{hasContext, notes, fileCount, linkCount}`; each
+     area is `{areaId, hasContext, notes, fileCount, linkCount, files, links, usedBy}`, where
      `files` lists the first 8 files (`id`, `name`, `mime`) for the shelf, `links` are
      the area's links with their source's `canvasId`, `canvasName` and
-     `counts: {notes, fileCount}`, and `usedBy` the areas that link to it. A link's
+     `counts: {notes, fileCount, linkCount}`, and `usedBy` the areas that link to it. A link's
      source is named, placed and counted only for viewers who can read its canvas
      (otherwise `title:'Unavailable area'` with nulls), and an unavailable link has
      `counts: null`. A `usedBy` area's `title` is null when the viewer cannot read its
@@ -1141,11 +1141,11 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    - Membership is checked through the engine, with the service token, on every
      read; nothing is cached. An agent that is only projected through federation
      metadata is not a member, and one that is both subscribed and listed in that
-     metadata is denied. A read returns the chat's home context only: canvas notes
-     and files, the home area's notes and files, and areas linked to it.
+     metadata is denied. A read returns the chat's home context only: canvas notes,
+     files and web links, the home area's notes, files and links, and areas linked to it.
 
 5. Context in the UI. Every area's title bar has a `◱` chip button labelled from
-   the summary (`Notes · 2 files`, `Notes`, `3 files`, or `Add context` when empty;
+   the summary (`Notes · 2 files · 1 link`, `Notes`, `3 files`, `2 links`, or `Add context` when empty;
    `No context` for viewers), hidden at compact zoom with the shelf and footer. One
    click opens the context popover anchored under the chip and kept inside the
    window (a bottom sheet at 760 px and below). The Canvas context button in the top

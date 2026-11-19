@@ -119,5 +119,5 @@ export function chatSees(card: Extract<BoardCard, {access: 'open'}>, canvasName:
 export function webLinkHost(url: string) {
   try { return new URL(url).host; } catch { return url; }
 }
-/** The address without its schemeand a trailing lone slash: `a.com/x?y=1`, shown when a link has no title. */
+/** The address without its scheme and trailing lone slash: `a.com/x?y=1`, shown when a link has no title. */
 export const webLinkAddress = (url: string) => url.replace(/^https?:\/\//i, '').replace(/\/$/, '');

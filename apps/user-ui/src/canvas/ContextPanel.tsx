@@ -2,7 +2,7 @@
 // opened it (an area's `◱` chip, a `↳` chip, the chat header's "sees N contexts" or the Canvas context button). It
 // floats over the canvas, so an open chat stays open beside it; on phones it is a bottom sheet. Notes are a plain
 // textarea (no rich text, spec section 4); edits never post to a chat.
-import {useCallback,useEffect,useLayoutEffect,useRef,useState,type ClipboardEvent,type CSSProperties,type DragEvent} from 'react';
+import {useCallback,useEffect,useLayoutEffect,useRef,useState,type CSSProperties,type DragEvent} from 'react';
 import {MAX_LINKS_PER_AREA,MAX_WEB_LINKS_PER_SCOPE,type ContextReader,type ScopeContext} from '@nest/schemas';
 import type {PendingAttachment} from '../attachments';
 import {ChatAttachments} from '../components/ChatAttachments';
@@ -13,7 +13,7 @@ import {
 import {useNotesAutosave} from './notes-autosave';
 import {contextLabel,linkDetail,linkElsewhere,usedByList,webLinkAddress,webLinkHost} from './context-label';
 import {FileTile} from './FileTile';
-import {pasteAction} from './context-paste';
+import {nameClipboardFiles,pasteAction,pasteReachesPanel} from './context-paste';
 import {ApiError} from '../api';
 
 export const CONTEXT_WARNING = 'Everyone in these chats, including their agents, can see this.';
@@ -58,6 +58,8 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
   const [sources, setSources] = useState<ContextSource[] | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [webLinkError, setWebLinkError] = useState<string | null>(null);
+  /** A muted line, not an alert: what a paste without a link or file says. */
+  const [webLinkHint, setWebLinkHint] = useState<string | null>(null);
   const [readers, setReaders] = useState<ContextReader[] | null>(null);
 
   const mounted = useRef(true);
@@ -163,6 +165,7 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
         changed();
         loadReaders();
         if (!mounted.current) return;
+        setWebLinkHint(null);
         setUploads(current => current.filter(row => row.localId !== item.localId));
         setContext(current => current && {...current, files: [...current.files.filter(f => f.id !== file.id), file]});
       }).catch(error => {
@@ -197,12 +200,13 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
   // Paste: files go to the upload path, web addresses become links, in order, until the scope is full. Nothing is fetched.
   async function addWebLinks(links: {url: string; title: string | null}[]) {
     setWebLinkError(null);
+    setWebLinkHint(null);
     for (const {url, title} of links) {
       try {
         const {link, created} = await addContextWebLink(canvasId, scope, url, title);
-        if (created) changed();
+        if (created) { changed(); loadReaders(); }
         if (!mounted.current) continue;
-        if (!created) setWebLinkError('Already in context');
+        setWebLinkError(created ? null : 'Already in context');
         setContext(current => current && {...current, webLinks: [...current.webLinks.filter(l => l.id !== link.id), link]});
       } catch (error) {
         if (mounted.current) setWebLinkError(error instanceof ApiError && error.status === 409 ? `Context is full: ${MAX_WEB_LINKS_PER_SCOPE} links` : errorText(error, 'Could not add the link. Try again.'));
@@ -212,6 +216,7 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
   }
   async function removeWebLink(linkId: string) {
     setWebLinkError(null);
+    setWebLinkHint(null);
     try {
       await removeContextWebLink(canvasId, scope, linkId);
       changed();
@@ -220,17 +225,28 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
       if (mounted.current) setWebLinkError(errorText(error, 'Could not remove the link. Try again.'));
     }
   }
-  function paste(event: ClipboardEvent<HTMLDivElement>) {
+  // Focus is often nowhere (the body) once a press lands on plain popover text or a focused ✕ unmounts, so a paste is
+  // heard on the document: it counts when it targets the panel or the body, never the chat composer or other fields
+  // elsewhere. The composer is outside the panel and handles its own images, so no paste is handled twice.
+  function paste(event: ClipboardEvent) {
     const target = event.target;
     const inField = target instanceof HTMLElement && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName));
     const data = event.clipboardData;
     const action = pasteAction({editable: canEdit && !!context, inField, files: Array.from(data?.files ?? []), text: data?.getData('text/plain') ?? '', html: data?.getData('text/html') ?? ''});
     if (action.kind === 'ignore') return;
     event.preventDefault();
-    if (action.kind === 'files') addFiles(action.files);
+    if (action.kind === 'files') addFiles(nameClipboardFiles(action.files));
     else if (action.kind === 'links') void addWebLinks(action.links);
-    else setWebLinkError('Paste a link or a file to add it here.');
+    else { setWebLinkError(null); setWebLinkHint('Paste a link or a file to add it here.'); }
   }
+  const pasteRef = useRef(paste); pasteRef.current = paste;
+  useEffect(() => {
+    const heard = (event: ClipboardEvent) => {
+      if (pasteReachesPanel({target: event.target, panel: panelRef.current, body: document.body, root: document.documentElement, defaultPrevented: event.defaultPrevented})) pasteRef.current(event);
+    };
+    document.addEventListener('paste', heard);
+    return () => document.removeEventListener('paste', heard);
+  }, []);
 
   function togglePicker() {
     setLinkError(null);
@@ -282,11 +298,11 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
       if (canEdit) setDropping(true);
     }}
     onDragLeave={event => { if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) setDropping(false); }}
-    onDrop={drop} onPaste={paste}>
+    onDrop={drop}>
     <header className="canvas-context-head">
       <h2 ref={headingRef} tabIndex={-1}>Context · {name}</h2>
       <p className="canvas-context-explainer">
-        {scope.kind === 'canvas' ? 'Every chat on this canvas sees this.' : 'Every chat in this area sees this, on top of the canvas context.'} Agents read it as files.
+        {scope.kind === 'canvas' ? 'Every chat on this canvas sees this.' : 'Every chat in this area sees this, on top of the canvas context.'} Agents read its notes, files and links.
       </p>
     </header>
     <div className="canvas-context-body">
@@ -343,6 +359,7 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
             })}
           </ul> : <p className="canvas-context-muted">{canEdit ? 'No links yet. Paste one here.' : 'No links.'}</p>}
           {webLinkError ? <p className="canvas-context-error" role="alert">{webLinkError}</p> : null}
+          {webLinkHint && !webLinkError ? <p className="canvas-context-muted" role="status">{webLinkHint}</p> : null}
         </section>
 
         {scope.kind === 'area' ? <section className="canvas-context-section">

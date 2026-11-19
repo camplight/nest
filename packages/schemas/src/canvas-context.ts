@@ -13,12 +13,14 @@ export type ContextScope = { kind: 'canvas'; canvasId: string } | { kind: 'area'
 
 export const ContextNotesSchema = z.object({ notes: z.string().max(MAX_NOTES_CHARS), version: z.number().int().min(0) }).strict();
 export const ContextLinkSchema = z.object({ sourceAreaId: z.string().uuid() }).strict();
-/** The normalized http(s) form of a pasted URL, or null when it is not a web URL or is too long. */
+/** The normalized http(s) form of a pasted URL, without embedded credentials, or null when it is not a web URL or is too long. */
 export function normalizeWebUrl(input: string): string | null {
   if (input.length > MAX_WEB_LINK_URL) return null;
   let url: URL;
   try { url = new URL(input); } catch { return null; }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  // Credentials in an address are never stored or shown.
+  url.username = ''; url.password = '';
   return url.href.length > MAX_WEB_LINK_URL ? null : url.href;
 }
 export const ContextWebLinkSchema = z.object({
@@ -30,12 +32,12 @@ export const UseHomeSchema = z.object({ channelId: z.string().min(1).max(200) })
 /** A pasted web address kept in a scope's context. */
 export type ContextWebLink = { id: string; url: string; title: string | null; addedBy: string; addedAt: number };
 export type ContextFile = { id: string; name: string; mime: string; size: number; uploadedBy: string; uploadedAt: number };
-/** Whether a scope has notes and how many files it holds: what an area's `◱ Notes · 2 files` chip reads. */
+/** Whether a scope has notes and how many files and web links it holds: what an area's `◱ Notes · 2 files` chip reads. */
 export type ContextCounts = { notes: boolean; fileCount: number; linkCount: number };
 /** The most files the board summary lists per area, for the file shelf on an area with no chats. */
 export const SUMMARY_SHELF_FILES = 8;
 /**
- * A link to another area's context. `canvasId`/`canvasName` name the source canvas and `counts` its notes and files,
+ * A link to another area's context. `canvasId`/`canvasName` name the source canvas and `counts` its notes, files and links,
  * only for viewers who can read that canvas (null otherwise); `counts` is also null while the link is unavailable.
  */
 export type ContextLink = {
@@ -55,7 +57,7 @@ export type ContextShelfFile = { id: string; name: string; mime: string };
 /**
  * One board load's context markers: each scope's notes flag and file count (the chips), an area's first
  * SUMMARY_SHELF_FILES files (the shelf), its links with their own counts (the `↳` chips) and the areas that
- * use it (the "Used by …" footer). `hasContext` is notes or files.
+ * use it (the "Used by …" footer). `hasContext` is notes, files or links.
  */
 export type ContextSummary = {
   areas: ({ areaId: string; hasContext: boolean; files: ContextShelfFile[]; links: ContextLink[]; usedBy: ContextUse[] } & ContextCounts)[];

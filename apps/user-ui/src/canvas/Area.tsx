@@ -110,7 +110,7 @@ export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, su
       </p> : null}
       {label && onContext && !compact ? <button type="button" className={`canvas-area-ctx${context!.hasContext ? ' has-context' : ''}`}
         aria-label={`Context for ${title}: ${label}`} aria-haspopup="dialog" aria-expanded={contextOpen}
-        title="Notes and files every chat in this area can see" onClick={event => onContext(area.id, event.currentTarget)}>
+        title="Notes, files and links every chat in this area can see" onClick={event => onContext(area.id, event.currentTarget)}>
         <span aria-hidden="true">◱</span> {label}
       </button> : null}
       {context?.links.length && !compact ? <div className="canvas-context-chips">
