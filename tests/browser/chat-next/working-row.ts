@@ -34,6 +34,15 @@ await runChatTest('composer stop: Stop takes Send\'s place while an agent works 
   assert.equal(await stop.count(),0,'no Stop while nothing runs');
   await h.emit('agent.turn.started',{triggerEventId:m1.id});
   await rowAfter(page,m1.id).filter({hasText:agentName}).waitFor();
+  // The bundled engine does not declare turn cancellation yet, so there is no Stop.
+  await page.waitForTimeout(500);
+  assert.equal(await stop.count(),0,'no Stop when the engine cannot cancel turns');
+  await send.waitFor();
+  // An engine that declares agent.turn.cancel_requested gets Stop; its cancel endpoint is simulated here.
+  await page.route('**/api/event-types',route=>route.fulfill({json:{eventTypes:[{type:'message.created'},{type:'agent.turn.cancel_requested'}],loadErrors:[]}}));
+  await page.route(`**/api/agents/${agentName}/turns/cancel`,route=>route.fulfill({status:202,json:{}}));
+  await page.reload();
+  await rowAfter(page,m1.id).filter({hasText:agentName}).waitFor();
   await page.getByRole('button',{name:`Stop ${agentName}`,exact:true}).waitFor();
   assert.equal(await send.count(),0,'Stop takes Send\'s place while the composer is empty');
   assert.equal(await rows(page).getByRole('button').count(),0,'the working row has no Stop of its own');
@@ -49,10 +58,7 @@ await runChatTest('composer stop: Stop takes Send\'s place while an agent works 
   const cancel=page.waitForRequest(request=>request.method()==='POST'&&new URL(request.url()).pathname===`/api/agents/${agentName}/turns/cancel`);
   await stop.click();
   assert.deepEqual(JSON.parse((await cancel).postData()??'{}'),{channelId:h.project.channelId},'Stop names the open chat');
-  await rowAfter(page,m1.id).filter({hasText:'Stopping…'}).waitFor({timeout:5000});
-  assert.equal(await stop.isDisabled(),true,'Stop waits while the turn stops');
-  assert.equal(await stop.innerText(),'Stopping…');
-
+  // "Stopping…" follows the engine's agent.turn.cancel_requested event, which the bundled engine cannot record yet.
   await h.emit('agent.turn.completed',{triggerEventId:m1.id,eventCount:1,cancelled:true,noReply:true});
   await rows(page).waitFor({state:'detached',timeout:5000});
   await send.waitFor();

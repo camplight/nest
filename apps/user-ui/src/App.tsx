@@ -15,6 +15,7 @@ import {useChannelEvents} from './chat/useChannelEvents';
 import {adaptiveMessageBatchSize} from './chat/history';
 import {ChatThread, type ChatThreadHandle} from './chat/ChatThread';
 import {activeTurns as workingTurns} from './chat/working';
+import {useEngineCapabilities} from './engine-capabilities';
 import {ChatComposer,ComposerSessionProvider,type ComposerSessionOptions,type ChatComposerHandle} from './chat/ChatComposer';
 import {Share2} from 'lucide-react';
 import {HuddleButton} from './huddle/HuddleButton';
@@ -544,9 +545,11 @@ export default function App() {
   const activeChannelManageable = canManageUserChannel(activeChannel, userId);
   const activeChannelCanPost = activeChannel ? activeChannel.canPost !== false : false;
   // Native agent turns running in the open chat; the composer's Stop asks the engine to end them.
-  const stoppableTurns = useMemo(() => activeChannelCanPost
+  // Only engines that declare turn cancellation get a Stop button.
+  const engineCapabilities = useEngineCapabilities(authenticated);
+  const stoppableTurns = useMemo(() => activeChannelCanPost && engineCapabilities.cancelTurn
     ? workingTurns(threadSnapshot.events, agents, threadSnapshot.agentStarts).filter(turn => !turn.wrapped && !turn.interrupted)
-    : [], [activeChannelCanPost, threadSnapshot.events, threadSnapshot.agentStarts, agents]);
+    : [], [activeChannelCanPost, engineCapabilities.cancelTurn, threadSnapshot.events, threadSnapshot.agentStarts, agents]);
   const activeConversationName = activeChannel ? projectIndex.find(project => project.channelId === activeChannel.id)?.name ?? channelLabel(activeChannel, username) : "";
   const mentionProject=projectIndex.find(project=>project.channelId===activeChannelId);
   const canInviteMention=activeChannelManageable&&(!mentionProject||mentionProject.ownerId===userId);
