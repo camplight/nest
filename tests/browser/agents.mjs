@@ -115,6 +115,8 @@ await page.getByRole('navigation',{name:'Research & Design workspace'}).getByRol
 await page.locator('.agent-advanced > summary').focus();await page.keyboard.press('Enter');
 await page.getByLabel('Personality and instructions',{exact:true}).waitFor();
 await page.getByLabel('Enable message speech').check();
+await page.getByRole('button',{name:'Use Rocky voice'}).click();
+assert.equal(await page.getByLabel('Fish Audio voice ID').inputValue(),'6dd07916890445e59c5f019ad0fc7879');
 await page.getByLabel('Fish Audio voice ID').fill('fixture-voice');
 await page.getByLabel('Speaking personality').selectOption('calm');
 await page.getByLabel('Speaking speed').selectOption('1.25');

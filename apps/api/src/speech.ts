@@ -1,9 +1,10 @@
+import {randomBytes} from 'node:crypto';
 import {Hono} from 'hono';
 import {bodyLimit} from 'hono/body-limit';
 import {DEFAULT_SPEECH_SETTINGS, SpeechSettingsSchema} from '@nest/schemas';
 import type {ProductDb} from '@nest/db';
 import type {Human, OrgOpsClient} from '@nest/orgops-client';
-import {spokenText, type SpeechProvider} from './fish-audio';
+import {spokenText, relaySpeech, type SpeechProvider} from './fish-audio';
 
 type Agent = {id:string; name:string; ownerHumanId?:string|null};
 type Message = {id:string; type:string; source:string; channelId?:string; payloadTruncated?:boolean; payload?:{text?:unknown}};
@@ -46,9 +47,24 @@ export function registerSpeechRoutes(app:Hono, {store,orgops,provider}:{store:Pr
     return c.json({settings:parsed.data,available:Boolean(provider),canManage:true});
   });
   const recent=new Map<string,{start:number;count:number}>(), active=new Set<string>();
+  const tickets=new Map<string,{human:string;eventId:string;expires:number}>();
   routes.post('/messages/:id',async c=>{
+    const now=Date.now();
+    for(const [token,ticket] of tickets)if(ticket.expires<=now)tickets.delete(token);
+    if(tickets.size>=1000)return c.json({error:'Speech is busy. Try again shortly.'},429);
+    // Prepare without generating: native media GETs require a single-use ticket.
+    return prepare(c,false);
+  });
+  routes.get('/streams/:token',async c=>{
+    if(c.req.method!=='GET')return c.body(null,405);
+    const token=c.req.param('token'),ticket=tickets.get(token);
+    if(!ticket || ticket.human!==c.get('human').id || ticket.expires<=Date.now())return c.json({error:'Playback expired. Choose Listen again.'},404);
+    tickets.delete(token);
+    return prepare(c,true,ticket.eventId);
+  });
+  async function prepare(c:import('hono').Context<{Variables:{human:Human}}>, play:boolean, eventId=c.req.param('id')) {
     const headers=c.req.raw.headers;
-    const r=await orgops.humanRequest('/api/events/'+encodeURIComponent(c.req.param('id')),headers);
+    const r=await orgops.humanRequest('/api/events/'+encodeURIComponent(eventId),headers);
     if (r.status===403 || r.status===404) return c.json({error:'Message not found'},404);
     if (!r.ok) throw Error('Message unavailable');
     const event=await r.json() as Message;
@@ -66,13 +82,23 @@ export function registerSpeechRoutes(app:Hono, {store,orgops,provider}:{store:Pr
     const human=c.get('human').id, now=Date.now();
     for (const [id,entry] of recent) if (now-entry.start>=60_000) recent.delete(id);
     const usage=recent.get(human)??{start:now,count:0};
-    if (active.has(human) || active.size>=4 || usage.count>=10) {c.header('Retry-After','60');return c.json({error:'Speech is busy. Try again in a minute.'},429);}
-    usage.count++; recent.set(human,usage); active.add(human);
+    if (active.has(human) || active.size>=4 || (!play && usage.count>=10)) {c.header('Retry-After','60');return c.json({error:'Speech is busy. Try again in a minute.'},429);}
+    if(!play) {
+      usage.count++;recent.set(human,usage);
+      const token=randomBytes(24).toString('hex');
+      tickets.set(token,{human,eventId,expires:now+60_000});
+      return c.json({url:'/api/speech/streams/'+token});
+    }
+    active.add(human);
+    const abort=new AbortController();
+    const signal=AbortSignal.any([c.req.raw.signal,abort.signal,AbortSignal.timeout(60_000)]);
     try {
-      const audio=await provider(text,config,AbortSignal.any([c.req.raw.signal,AbortSignal.timeout(60_000)]));
-      return new Response(new Uint8Array(audio).buffer,{headers:{'Content-Type':'audio/mpeg','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
-    } catch {return c.json({error:'Could not generate speech. Please try again.'},502);}
-    finally {active.delete(human);}
-  });
+      const audio=await provider!(text,config,signal);
+      return new Response(relaySpeech(audio,abort,signal,()=>active.delete(human)),{headers:{
+        'Content-Type':'audio/mpeg','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
+        'Accept-Ranges':'none','X-Accel-Buffering':'no',
+      }});
+    } catch {abort.abort();active.delete(human);return c.json({error:'Could not generate speech. Please try again.'},502);}
+  }
   app.route('/api/speech',routes);
 }

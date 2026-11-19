@@ -1,3 +1,4 @@
+import type {SpeechProvider} from '../../../apps/api/src/fish-audio';
 // Browser harness for the chat-next suites: a real engine, product API and WebSocket gateway
 // (the codex-progress.mjs topology) behind a fresh Vite dev server, one set per runChatTest call.
 import {mkdirSync,mkdtempSync,realpathSync,rmSync} from 'node:fs';
@@ -29,6 +30,7 @@ export type ChatHarness={
   screenshot(name:string):Promise<string>;
 };
 export type ChatTestOptions={
+  speech?:SpeechProvider;
   viewport?:{width:number;height:number};
   chatUi?:'next'|'classic'|'unset';
   colorScheme?:'light'|'dark';
@@ -80,7 +82,7 @@ async function setup(options:ChatTestOptions,cleanup:(()=>Promise<void>|void)[])
   const upstreamSockets=track(upstream);engine.injectWebSocket(upstream);await once(upstream,'listening');
   cleanup.push(()=>closeServer(upstream,upstreamSockets));
   const engineUrl=`http://127.0.0.1:${(upstream.address() as {port:number}).port}`;
-  const product=createApp({orgops:createOrgOpsClient(engineUrl),dbPath:join(dir,'product.sqlite'),connections:(options.connections as ConnectionProvider|undefined)??null});
+  const product=createApp({speech:options.speech,orgops:createOrgOpsClient(engineUrl),dbPath:join(dir,'product.sqlite'),connections:(options.connections as ConnectionProvider|undefined)??null});
   cleanup.push(()=>product.store.db.close());
 
   // holdNext: the matching request's body is read in full before `started` resolves.

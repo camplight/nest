@@ -13,8 +13,9 @@ await runChatTest('message speech: generate on demand, retry errors, close and c
     requests++;
     assert.equal(route.request().method(),'POST');
     assert.equal(route.request().postData(),null);
-    await route.fulfill(fail?{status:502,json:{error:'Synthetic speech failure'}}:{contentType:'audio/wav',body:wav});
+    await route.fulfill(fail?{status:502,json:{error:'Synthetic speech failure'}}:{json:{url:'/api/speech/streams/'+'a'.repeat(48)}});
   });
+  await page.route('**/api/speech/streams/*',route=>route.fulfill({contentType:'audio/wav',body:wav}));
   await page.goto(`${h.base}/?channel=${h.project.channelId}`);
   const message=page.locator(`#message-${target.id}`);
   await message.getByRole('button',{name:'Listen to message'}).waitFor();
@@ -39,4 +40,26 @@ await runChatTest('message speech: generate on demand, retry errors, close and c
   await message.getByRole('button',{name:'Listen to message'}).click();
   await message.getByRole('button',{name:'Cancel',exact:true}).click();
   assert(await message.getByRole('button',{name:'Listen to message'}).isEnabled());
-});
+},{viewport:{width:390,height:844}});
+
+let cancelled=false;
+await runChatTest('message speech: native playback starts while upstream is still open',async h=>{
+  const response=await fetch(h.apiUrl+'/api/speech/agents/Pip',{method:'PUT',headers:{cookie:h.cookie,'content-type':'application/json'},body:JSON.stringify({enabled:true,voiceId:'fixture',style:'neutral',speed:1})});
+  assert.equal(response.status,200);
+  const event=await h.emit('message.created',{text:'Streaming fixture'});
+  await h.page.goto(`${h.base}/?channel=${h.project.channelId}`);
+  const message=h.page.locator(`#message-${event.id}`);
+  await message.getByRole('button',{name:'Listen to message'}).click();
+  await h.page.waitForFunction(()=>{const audio=document.querySelector('audio');return audio&&audio.currentTime>0;},{},{timeout:15000});
+  assert.equal(cancelled,false,'playback begins before the upstream response ends');
+  await message.getByRole('button',{name:'Close audio'}).click();
+  for(let i=0;i<50&&!cancelled;i++)await new Promise(resolve=>setTimeout(resolve,100));
+  assert(cancelled,'closing playback cancels the upstream stream');
+},{viewport:{width:390,height:844},speech:async()=>{
+  // Serve the first two seconds of a 20-second PCM file, then keep the stream open.
+  // Chromium sniffs the fixture format; the real Fish provider emits MP3 frames.
+  const wav=Buffer.alloc(44+32000);
+  wav.write('RIFF',0);wav.writeUInt32LE(36+320000,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);
+  wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(8000,24);wav.writeUInt32LE(16000,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(320000,40);
+  return new ReadableStream({start(c){c.enqueue(wav);},cancel(){cancelled=true;}});
+}});

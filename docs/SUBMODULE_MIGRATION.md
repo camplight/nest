@@ -741,3 +741,7 @@ Fish Audio message speech is a Nest product feature (`011_agent_speech`); it add
 no engine migration or submodule patch. It reuses engine HTTP identity, agent,
 event and channel access, and existing instructions for native personalities.
 The optional Fish API credential belongs in the private server environment.
+
+Message speech streams through Nest using short-lived, human-bound playback
+tickets; no engine change is required. Closing the native player cancels the
+provider stream. The server environment still holds the instance-wide Fish key.
