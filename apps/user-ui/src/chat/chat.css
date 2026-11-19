@@ -86,3 +86,8 @@
     }
   }
 }
+
+.nest-chat .message-speech { margin-top: 4px; font-size: 12px; }
+.nest-chat .message-speech-button { color: inherit; text-decoration: underline; margin-right: 12px; }
+.nest-chat .message-speech audio { display: block; width: 100%; max-width: 340px; height: 36px; margin-top: 6px; }
+.nest-chat .message-speech p { margin: 4px 0; }

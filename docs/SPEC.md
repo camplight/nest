@@ -1521,3 +1521,30 @@ check. Incomplete DB/configuration recovery blocks automatic restarts with a
 persistent operator-recovery marker. See `deploy/native/README.md` for the exact
 budgets and restoration procedure. This is Nest deployment infrastructure only;
 OrgOps remains untouched.
+
+## Optional message speech
+
+Nest owns per-agent Fish Audio settings in product migration `011_agent_speech`,
+keyed by the engine agent ID. Agent/instance owners can enable speech, choose a
+Fish voice ID, speaking personality and speed at `PUT /api/speech/agents/:name`;
+visible-agent readers can inspect them with GET. Native agent personality uses
+the existing engine instructions field; wrapped instructions remain externally
+managed. Speech settings apply to both native and wrapped agents.
+
+`POST /api/speech/messages/:id` reads the saved agent message and checks live
+human event, channel and agent access through engine HTTP before generating MP3.
+It accepts no caller-supplied text or voice override. Speech is opt-in per agent
+and generated only when a listener clicks Listen; the message text is then sent
+to Fish Audio. The returned audio has no public URL, is not persisted, and is
+released when the player closes or unmounts. Browser audio controls start playback.
+Markdown noise, code fences and URLs are omitted; empty messages and messages over
+5,000 spoken characters are rejected. Limits are one active generation and ten
+requests per minute per human, four active generations per API process, 60 seconds
+and 10 MiB per response. Provider errors never include credentials or raw bodies.
+
+Operators supply server-only `FISH_AUDIO_API_KEY` and optionally `FISH_AUDIO_MODEL`
+(default `s2.1-pro`; `s2.1-pro-free` is also supported). Missing credentials leave
+text chat functional and display a setup message. Settings can be saved before
+credentials are installed. Provider protocol follows
+[Fish Audio TTS](https://docs.fish.audio/api-reference/endpoint/openapi-v1/text-to-speech)
+and [emotion cues](https://docs.fish.audio/developer-guide/core-features/emotions).

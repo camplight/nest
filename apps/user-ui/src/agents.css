@@ -52,3 +52,12 @@
 }
 
 .agent-immutable-name{display:block;padding:6px 0;font-size:1.1rem;overflow-wrap:anywhere}
+
+.agent-speech { margin-top: 24px; padding: 24px; max-width: 880px; }
+.agent-speech h2 { margin-top: 0; }
+.agent-speech p, .agent-speech small { color: var(--nest-muted); }
+.agent-speech fieldset { border: 0; padding: 0; margin: 20px 0 0; min-width: 0; display: grid; gap: 18px; }
+.agent-speech .speech-toggle { display: flex; align-items: center; gap: 8px; }
+.agent-speech .speech-toggle input { width: auto; }
+.agent-speech input, .agent-speech select { box-sizing: border-box; max-width: 100%; }
+.agent-speech .dashboard-action { justify-self: start; }

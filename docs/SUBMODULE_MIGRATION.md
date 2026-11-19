@@ -736,3 +736,8 @@ policy; data backups remain untouched. Rollback health failure no longer skips
 watchdog restoration. Partial DB/configuration restoration requires operator
 recovery before any automatic restart; preserve the recovery marker until the
 matching DB/release pair is restored.
+
+Fish Audio message speech is a Nest product feature (`011_agent_speech`); it adds
+no engine migration or submodule patch. It reuses engine HTTP identity, agent,
+event and channel access, and existing instructions for native personalities.
+The optional Fish API credential belongs in the private server environment.

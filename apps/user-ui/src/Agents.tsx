@@ -1,3 +1,4 @@
+import {AgentSpeech} from './AgentSpeech';
 import {AgentWorkspaceTabs, type AgentTab} from './components/AgentNavigation';
 import {ModelPicker} from './ModelPicker';
 import {SharedPersonalAgents} from './SharedPersonalAgents';
@@ -101,6 +102,7 @@ function AgentDetails({ tab,name, userId, onSaved, setup, onChat, onResume }: { 
       <div className="agent-settings-fields">
         <div className="agent-field"><span>Name</span><strong className="agent-immutable-name">{name}</strong></div>
         <div className="agent-field"><label htmlFor="agent-description">About this agent</label><textarea id="agent-description" rows={3} value={description} disabled={!editable || busy} onChange={e => { setDescription(e.target.value); setSaved(false); }} /><small>A short description shown in your team.</small></div>
+        {wrapped ? <p className="dashboard-card agent-runtime-note">This wrapped agent manages its instructions, model and skills in its external runtime. Nest’s description is editable here; execution configuration remains in administration.</p> : <div className="agent-field"><label htmlFor="agent-instructions">Personality and instructions</label><textarea id="agent-instructions" rows={6} value={instructions} disabled={!editable || busy} onChange={e => { setInstructions(e.target.value); setSaved(false); }} /></div>}
         <details className="agent-advanced">
           <summary>Advanced <span>Model, instructions and runtime</span></summary>
           <div className="agent-advanced-content">
@@ -113,13 +115,15 @@ function AgentDetails({ tab,name, userId, onSaved, setup, onChat, onResume }: { 
           <dt>Runner</dt><dd>{agent.assignedRunnerId || "Unassigned"}</dd>
           <dt>Skills</dt><dd>{wrapped ? "Managed by external runtime" : agent.enabledSkills?.join(", ") || "None enabled"}</dd>
         </dl></section>
-        {wrapped ? <p className="dashboard-card agent-runtime-note">This wrapped agent manages its instructions, model and skills in its external runtime. Nest’s description is editable here; execution configuration remains in administration.</p> : <div className="agent-field"><label htmlFor="agent-instructions">Additional instructions</label><textarea id="agent-instructions" rows={6} value={instructions} disabled={!editable || busy} onChange={e => { setInstructions(e.target.value); setSaved(false); }} /></div>}
+        
           </div>
         </details>
         {!editable && <p>These settings are read-only. Only this private agent’s owner can edit them.</p>}
         <div className="agent-save-row">{saved && <span role="status">Settings saved.</span>}{dirty && <span>Unsaved changes</span>}<button className="dashboard-action" type="submit" disabled={!editable || !dirty || busy}>{busy ? "Saving…" : "Save settings"}</button></div>
       </div>
     </form>}
+
+    {tab==='settings' && agent && <AgentSpeech key={name} name={name}/>}
 
     {tab==='connections' && agent && !wrapped && agent.visibility === "PRIVATE" && userId && agent.ownerHumanId === userId && <AgentConnections name={name}/>}
 

@@ -1,3 +1,4 @@
+import {MessageSpeech} from './MessageSpeech';
 // The channel thread on assistant-ui (spec 6.2 to 6.5, 6.13 to 6.17, 7.1.2, 7.1.3, 8.1 to 8.5). Our store and converter
 // stay the source of truth: assistant-ui gets one message per timeline item and never owns, edits or sends anything.
 import {createContext,useCallback,useContext,useEffect,useImperativeHandle,useLayoutEffect,useMemo,useRef,useState,type ReactNode,type Ref} from 'react';
@@ -132,6 +133,7 @@ function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;pr
     activity={activity&&<div data-aui-quote-selectable="false" className={ACTIVITY_IN_MESSAGE}>
      <AgentActivity events={activity.events} tone={activity.tone} formatTime={formatTime}/>
     </div>}/>
+   {meta.authorKind==='agent' && item.event.type==='message.created' && !item.event.payloadTruncated && item.text.trim() && <MessageSpeech key={item.id} eventId={item.id}/>}
   </div>
  </article>;
 }
