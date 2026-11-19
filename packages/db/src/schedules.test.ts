@@ -126,7 +126,8 @@ describe('webhook trigger store', () => {
   });
   it('applies 016_triggers: a paused reason and the creator index', () => {
     const names = (store.db.prepare('SELECT name FROM product_migrations').all() as { name: string }[]).map(r => r.name);
-    expect(names.at(-1)).toBe('016_triggers');
+    // Later migrations (017_context_compaction, …) follow it; only that it is applied matters here.
+    expect(names).toContain('016_triggers');
     const columns = (store.db.prepare('PRAGMA table_info(product_triggers)').all() as { name: string }[]).map(c => c.name);
     expect(columns).toEqual(expect.arrayContaining(['paused_reason', 'updated_at', 'token_hash', 'token_hint']));
     expect(columns).not.toContain('token');
