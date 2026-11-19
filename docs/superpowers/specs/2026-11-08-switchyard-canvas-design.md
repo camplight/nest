@@ -53,7 +53,7 @@ The first prototype looked like n8n: nodes, wires and a "Run all" button. This d
 2. Real-time multiplayer editing of the canvas layout: live cursors, simultaneous drags. Shared canvases sync, but not live (see Phase 1).
 3. Restricting which agent can invite which agent. OrgOps has no such limit and v1 does not add one. Revisit after v1.
 4. A template marketplace or reusable flow templates. These come later, if at all.
-5. A phone-first canvas. Phones get a simplified view (see Phase 1).
+5. A phone-first canvas. Phones get the canvas with less chrome, and a list behind a `List` toggle (see Phase 1).
 
 ## 4. Anti-goals: it must never become these
 
@@ -161,7 +161,7 @@ Scope:
     - last activity and needs-you
   - **Moving cards:** drag to move. Moving a card into or out of an area changes only its area.
 - **Loose chats pile** with search, filters, multi-select, bulk archive (hide), "place on canvas" (drag or button) and "new area from these".
-- **Bottom box:** starts a chat exactly as Nest's own "new chat" does today (chat-first project creation, including mentions and background naming). The new chat is placed at the viewport centre and opens beside the canvas (on a view-only canvas or a phone it opens in focus and stays in the pile). So "plain" means "not on the canvas", not a different kind of chat.
+- **Bottom box:** starts a chat exactly as Nest's own "new chat" does today (chat-first project creation, including mentions and background naming). The new chat is placed at the viewport centre and opens beside the canvas (on a view-only canvas or in the phone list it opens in focus and stays in the pile). So "plain" means "not on the canvas", not a different kind of chat.
 - **Opening a chat** in place, in split screen, or in the regular chat view. The chat inside reuses the existing assistant-ui chat module.
 - **Needs you:** a list in the top bar with jump-to.
 - **Quiet:** "quiet for N min" with Nudge. Nudge posts a targeted message to the agent through the normal send path.
@@ -174,7 +174,7 @@ Scope:
   - **Zoom levels:** semantic zoom, zoom controls and Fit.
   - **Theme:** light and dark.
   - **Input:** mouse, trackpad and touch (pinch and pan) on tablets.
-- **Phones:** a list fallback with Areas → chats, Needs you and Loose chats. There is no free canvas on phones.
+- **Phones:** the canvas, as the mockup shows: tablet pinch and pan, no navigation rail, legend or zoom buttons, the drawer and an open chat at screen width (one chat at a time), and no `+` port drag on touch (the chat picker connects). A `List` toggle in the top bar swaps in a list with Areas → chats, Needs you and Loose chats, remembered per browser. (Updated 2026-11-19: this first said phones get only the list.)
 - **Locked cards:** a teammate on a shared canvas who isn't in a chat sees a locked card. The title is hidden; it shows "Private chat" and the owner.
 
 Data (Nest product DB):
@@ -405,7 +405,7 @@ We write these ourselves as pull requests to `camplight/orgops`, and Nest adopts
 - **Thresholds:** for "quiet" (the spike used about 20 minutes), the missed-run grace period, and the hand-off rate cap.
 - **Transcription provider:** if OrgOps has no one-shot transcription.
 - **Tool classification:** which app tools count as read and which as change.
-- **Phone layout** details within the list-fallback decision.
+- **Phone layout** details of the canvas and its List toggle.
 
 ## 14. Calls made in this document (please check)
 
@@ -415,7 +415,7 @@ We write these ourselves as pull requests to `camplight/orgops`, and Nest adopts
 3. "Archive" in the Loose chats pile is a personal hide, not an engine archive.
 4. Linked context is one level deep, with no chaining.
 5. Context is pulled by agents on demand. Editing it never posts messages or wakes agents.
-6. Phones get a list view, not a free canvas.
+6. Phones get the canvas with less chrome, and the list as a `List` toggle (first a list view only; changed 2026-11-19).
 7. Shared canvases sync by refresh and versioning in Phase 1, not live multiplayer.
 8. Unknown app tools count as "changed outside Nest".
 9. Raising app access on someone else's agent asks the owner. Lowering it never does.

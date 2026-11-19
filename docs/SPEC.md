@@ -829,8 +829,8 @@ Phase 1 is built from
    still send themselves, and when card and window drops wait for the same chat at
    once they all attach without sending. A drop on empty canvas still goes to the
    bottom box. This is a deliberate departure from the mockup at the owner's
-   request. On a phone the canvas is a list and a chat in either mode fills the body
-   over it. A focus chat there makes the list behind it inert, keeps Tab in the chat
+   request. On a phone there is room for one chat at a time: a chat in either mode fills the body
+   over the canvas (or the list). A focus chat there makes the canvas behind it inert, keeps Tab in the chat
    (focus in another dialog, such as the Huddle, is left alone) and closes on Escape
    (after any popover, menu or picker). The chat's header is one row, as in the mock: title, faces and
    `in <area> · sees N contexts` (plus Archived or Read-only), then icon buttons
@@ -849,9 +849,9 @@ Phase 1 is built from
    membership still uses the card's top 160 px centre, on client and server alike.
    A chat started from the bottom box stays in sight: on a canvas the person can
    edit it is placed at the viewport centre (moved below any card it would cover),
-   opens in split screen (or the mode of the chat already open) and is centred in
-   view; on a view-only canvas or a phone it opens in focus and stays loose (the
-   drawer, on a wide screen, opens and points at it). While a card or loose chat is dragged, the area it would join (by its centre)
+   opens in split screen (in focus on a phone, or the mode of the chat already open) and is centred in
+   view; on a view-only canvas or the phone list it opens in focus and stays loose (the
+   drawer, where there is one, opens and points at it). While a card or loose chat is dragged, the area it would join (by its centre)
    lights up with a "Place in <area> · shares its context" label on its top edge. A card in an area
    has a flat 1.5 px border in the area's tint (no thick top stripe; a needs-you card keeps its coral border), and screen readers hear "In area <area>".
    A card or chats dropped into an area grow it, never shrink it, so they fit inside
@@ -869,7 +869,7 @@ Phase 1 is built from
    moves the card just outside its area; the view follows the card. For a loose chat the
    picker also offers `No area (on the canvas)` after the areas (so a first arrow press
    never places it), shown even on a canvas without areas,
-   and the More menu has `Place on canvas` (desktop editors only): both place it at the
+   and the More menu has `Place on canvas` (editors, with the canvas shown): both place it at the
    viewport centre, moved below any card it would cover, and the chat then opens in
    place over its new card. This is the keyboard and single-pointer way to place one
    chat, alongside dragging. On desktop the canvas starts with an icon-only
@@ -893,7 +893,7 @@ Phase 1 is built from
    press on it leaves the drawer open. The drawer and the agent picker take turns:
    opening one closes the other. ✕ (`Close`) or Escape closes it, focus returning to the
    toggle when it was in the drawer; opening it from the toggle focuses the search
-   (phones have no drawer; see below). It has `Loose chats · {n}`, a search over titles and agent names
+   (the phone list has no drawer; see below). It has `Loose chats · {n}`, a search over titles and agent names
    (`Search loose chats`), a compact `All agents` filter, the chips `All / Needs you /
    Working / Done` with counts (archived chats left out, as in the header), and rows in day groups by last activity on the local
    calendar (`Today · n`, `Yesterday · n`, `This week · n` for the five days before,
@@ -918,7 +918,8 @@ Phase 1 is built from
    becomes its icon and count and Canvas context reads `Context` below 1288 px; the
    canvas menu and Context become icons below 1100 px; Needs you becomes a dot and its
    count below 1000 px). Every button keeps its full text as its name. Narrower windows
-   wrap the heading rather than run it under the search; phones keep the phone layout.
+   wrap the heading rather than run it under the search; phones keep the phone layout
+   (menu and controls, then the heading, then Needs you, Scheduled, Search and `List`, wrapping).
 
    A summary line after the canvas name reads `N chats · X moving · Y quiet` (quiet omitted at 0; open chats only,
    counted like the area summaries but including loose cards, so it can exceed the sum of the area summaries) and hides when the bar is under 1200 px. The owner's Share button carries up to
@@ -1011,14 +1012,28 @@ Phase 1 is built from
    area from these" says "New area with N chats. Rename it, and add context they should
    all share." Double-click and the `⋯` menu still rename.
 
-6. Phones and display. On viewports up to 760 px wide there is no free canvas.
-   A list takes its place with three segments: Areas (each area opens to its chats,
-   then the chats in no area), Needs you and Loose chats. Tapping a chat opens it in
-   focus over the whole body, and the bottom box stays under the list. The top bar's
-   Loose chats toggle (icon and count, coral while one needs the person) has no drawer
-   there: it closes an open chat, then selects the list's Loose chats segment, focuses
-   its tab and scrolls the segments into view. Tablets keep
-   the canvas with pinch and pan. Colours come from the Nest brand tokens with
+6. Phones and display. On viewports up to 760 px wide the canvas is shown, as in the
+   mockup, with the tablet's pinch zoom and pan (`phone-view.ts`, `canvasChrome`): the
+   zoom buttons and Fit and the legend are left out, the navigation rail is already the
+   slide-in menu, and the Loose chats drawer and the agent tray's row take the screen
+   width (16 px gutters). Tapping a card opens its chat in focus over the whole body, one
+   chat at a time (no floating windows; split screen fills the body too). The top bar's
+   Loose chats toggle closes an open chat, then opens the drawer. The `+` port is not
+   shown and a touch never drags it (a finger on it pans); the card's connect button and
+   the chat picker connect chats instead. Dragging from the drawer or tray needs a mouse;
+   the chat header's Area picker and Place on canvas, and the More menu's Add agent…,
+   cover them on touch.
+
+   A `List` toggle at the end of the top bar's tools row (text only, `aria-pressed`)
+   swaps in the list instead and is remembered per browser (`localStorage`
+   `nest-canvas-phone-view`: `list`, anything else or nothing meaning the canvas;
+   a blocked store keeps the canvas). Pressing it closes an open chat. The list has three
+   segments: Areas (each area opens to its chats, then the chats in no area), Needs you
+   and Loose chats. Tapping a chat opens it in focus over the whole body, and the bottom
+   box stays under the list. There the top bar has no Needs you button and the Loose chats
+   toggle (icon and count, coral while one needs the person) has no drawer: it closes an
+   open chat, then selects the list's Loose chats segment, focuses its tab and scrolls
+   the segments into view. Tablets keep the canvas with pinch and pan. Colours come from the Nest brand tokens with
    light and dark variants under `:root[data-theme="dark"]`; the Pip and Pom tints
    and the quiet and alert text colours, which have no brand token, are canvas
    tokens with dark values. Card text keeps at least 4.5:1 contrast in both themes,
@@ -1028,7 +1043,7 @@ Phase 1 is built from
    against real Nest-to-OrgOps handlers with temporary databases.
    `npm run test:ui:canvas` (run in CI by `.github/workflows/product.yml`) drives the
    real engine, API and WebSocket in Chromium on desktop, tablet and phone. It
-   covers sharing and locked cards, live state, opening chats, the phone list,
+   covers sharing and locked cards, live state, opening chats, the phone canvas and list,
    light and dark contrast, and reload. Its scale check seeds 150 cards in 6 areas
    with 30 agents: fitted to one area, fewer than 60 cards are mounted, a scripted
    2 second pan averages at least 30 frames a second, and Fit shows every area.
@@ -1823,8 +1838,9 @@ deviations; item 16 the checks.
    can still pause or disconnect a link (S10).
    - The `+` port (`[data-port]`, titled `Drag to another chat to pass results
      along`) sits on an open card's right edge, shown on hover and on the selected
-     card, never on the card whose chat is open or at far zoom; phones (the list)
-     have none. Dragging it draws the mock's dashed `.lk.temp` from the card's right
+     card, never on the card whose chat is open or at far zoom; phones have none
+     (the canvas hides it at 760 px and below, and Surface never starts a port drag
+     from a touch, which pans instead). Dragging it draws the mock's dashed `.lk.temp` from the card's right
      edge to the pointer and outlines the open card under it (`.linktarget`).
      Released on another open card it connects the two; released on empty canvas
      (hit-tested with `elementFromPoint`: the surface's own background or an area's
@@ -1901,7 +1917,7 @@ deviations; item 16 the checks.
      opening another chat, changing the chat's mode, closing it or opening the regular
      chat view. Nothing about the reply box changes unless the canvas calls it, so the
      chat outside the canvas is unchanged.
-   - While a phone's chat makes the canvas inert, the chat
+   - While a phone's chat makes the canvas (or list) inert, the chat
      carries its own `role=status` region that repeats the canvas's newest notice, so
      toasts from the digest and the Hand-off popover are announced. When the digest
      goes while it holds focus (after Approve), focus moves to the reply box, else the

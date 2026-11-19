@@ -671,13 +671,14 @@ Follow-ups:
   booking one run at a time.
 - Fork history (upstream proposal U6), so a fork can carry its parent's history
   rather than a seeded summary.
-- The canvas on phones, as the design mockup shows. At 760 px and below Nest
-  replaces the canvas with a list (Areas, Needs you, Loose chats), following the
-  design spec; the mockup keeps the canvas there and only hides the rail, legend
-  and zoom buttons, with the drawer and open chat at screen width. Reuse the
-  tablet pinch and pan, open chats in place at screen width, keep the list as a
-  `List` toggle, and leave connecting by dragging the `+` port off on touch (the
-  chat picker covers it). Needs a design-spec update and phone browser checks.
+- The canvas on phones, as the design mockup shows: implemented on
+  `feat/switchyard-canvas` (2026-11-19 overnight batch). At 760 px and below the
+  canvas shows with the tablet pinch and pan, without the legend or zoom buttons,
+  with the drawer and open chat at screen width; the list (Areas, Needs you, Loose
+  chats) is a `List` toggle remembered per browser; the `+` port is hidden there and
+  never dragged by touch (the chat picker connects). The design spec and SPEC are
+  updated and the canvas browser suite's phone scenarios rewritten; they still need
+  a CI run and a check on a real phone.
 
 ## First-visit visual orientation
 

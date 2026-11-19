@@ -1,4 +1,4 @@
-// Devices, theme and scale (Task 12): phone list, tablet pinch, light and dark contrast, 150 cards and reload,
+// Devices, theme and scale (Task 12): phone canvas and list, tablet pinch, light and dark contrast, 150 cards and reload,
 // on the real engine, API and WS. Synthetic data.
 import assert from 'node:assert/strict';
 import {mkdtempSync,realpathSync} from 'node:fs';
@@ -100,7 +100,75 @@ async function assertContrast(page:Page,what:string,expect:string[],roots?:strin
   return Math.min(...all.map(item=>item.ratio));
 }
 
-await runChatTest('canvas devices: a phone gets the list with areas, needs you and loose chats, and opens chats full screen',async h=>{
+await runChatTest('canvas devices: a phone shows the canvas without zoom buttons or legend, opens chats and the drawer at screen width, and pinches',async h=>{
+  const {page,base}=h;
+  await newProject(h,'Synthetic loose chat');
+  const id=await newCanvas(h,'Phone canvas');
+  await newArea(h,id,{title:'Launch content',x:0,y:0,w:900,h:500});
+  await call(h,'POST',`/api/canvases/${id}/cards`,{cards:[{channelId:h.project.channelId,x:60,y:80}]});
+  await page.goto(`${base}/?view=canvas&canvas=${id}`);
+  const card=cardAt(page,h.project.channelId);
+  await card.waitFor();
+  assert.equal(await page.locator('.canvas-phone').count(),0,'the canvas, not the list, by default');
+  assert.equal(await page.locator('.canvas-zoom, .canvas-legend').count(),0,'no zoom buttons or legend on a phone');
+  await page.locator('.canvas-tray').waitFor();
+  await page.getByRole('region',{name:'Start a chat',exact:true}).waitFor();
+  const listToggle=page.getByRole('button',{name:'List',exact:true});
+  assert.equal(await listToggle.getAttribute('aria-pressed'),'false');
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal page scroll at 390 px');
+
+  // Tapping a card opens its chat in place, over the whole body.
+  await card.locator('.canvas-card-title').tap();
+  const chat=page.locator('.canvas-chat');
+  await chat.waitFor();
+  assert.equal(new URL(page.url()).searchParams.get('chat'),h.project.channelId);
+  const chatBox=(await chat.boundingBox())!,bodyBox=(await page.locator('.canvas-body').boundingBox())!;
+  assert.ok(Math.abs(chatBox.width-bodyBox.width)<=1&&Math.abs(chatBox.height-bodyBox.height)<=1,`the chat fills the body: ${JSON.stringify(chatBox)} vs ${JSON.stringify(bodyBox)}`);
+  assert.equal(await page.locator('.canvas-chat').count(),1,'one chat at a time');
+
+  // The Loose chats toggle closes the chat, then opens the drawer across the screen.
+  const toggle=page.locator('.canvas-loose-button');
+  await toggle.tap();
+  await chat.waitFor({state:'detached'});
+  const drawer=page.locator('.canvas-drawer');
+  await drawer.getByRole('button',{name:/Synthetic loose chat/}).first().waitFor();
+  assert.equal(await toggle.getAttribute('aria-expanded'),'true');
+  const drawerBox=(await drawer.boundingBox())!,shownBody=(await page.locator('.canvas-body').boundingBox())!;
+  assert.ok(Math.abs(drawerBox.width-(shownBody.width-32))<=1,`the drawer takes the screen width: ${drawerBox.width} in ${shownBody.width}`);
+  await drawer.getByRole('button',{name:'Close',exact:true}).tap();
+  await drawer.waitFor({state:'detached'});
+
+  // List swaps in the list, remembered across a reload; pressed again, the canvas is back.
+  await listToggle.tap();
+  const list=page.getByRole('region',{name:'Canvas list',exact:true});
+  await list.waitFor();
+  assert.equal(await listToggle.getAttribute('aria-pressed'),'true');
+  assert.equal(await page.locator('.canvas-surface').count(),0,'the list replaces the canvas');
+  await page.reload();
+  await list.waitFor();
+  assert.equal(await page.getByRole('button',{name:'List',exact:true}).getAttribute('aria-pressed'),'true','the choice is remembered');
+  await page.getByRole('button',{name:'List',exact:true}).tap();
+  await card.waitFor();
+  assert.equal(await page.locator('.canvas-phone').count(),0);
+
+  // A two-finger pinch zooms the canvas, as on a tablet.
+  const world=page.locator('.canvas-world');
+  const scale=async()=>Number(/scale\(([^)]+)\)/.exec(await world.getAttribute('style')??'')?.[1]??Number.NaN);
+  const before=await scale();
+  const surface=(await page.locator('.canvas-surface').boundingBox())!;
+  const cx=Math.round(surface.x+surface.width/2),cy=Math.round(surface.y+surface.height/3);
+  const cdp=await page.context().newCDPSession(page);
+  const touch=(type:'touchStart'|'touchMove'|'touchEnd',spread:number)=>cdp.send('Input.dispatchTouchEvent',{type,
+    touchPoints:type==='touchEnd'?[]:[{x:cx-spread,y:cy,id:0},{x:cx+spread,y:cy,id:1}]});
+  await touch('touchStart',30);
+  for(const spread of [36,42,48,54])await touch('touchMove',spread);
+  await touch('touchEnd',0);
+  for(let i=0;i<50&&await scale()===before;i++)await page.waitForTimeout(100);
+  const after=await scale();
+  assert.ok(Math.abs(after-before*1.8)<=before*0.2,`pinch zoom: ${before} -> ${after}`);
+},{canvas:true,viewport:{width:390,height:844},hasTouch:true});
+
+await runChatTest('canvas devices: a phone\'s List toggle shows the list with areas, needs you and loose chats, and opens chats full screen',async h=>{
   const {page,base}=h;
   const hidden=(await call<{id:string}>(h,'POST','/api/channels',{name:'Hidden roadmap rehearsal',visibility:'PRIVATE'})).id;
   const placed=await newProject(h,'Synthetic placed chat');
@@ -116,11 +184,14 @@ await runChatTest('canvas devices: a phone gets the list with areas, needs you a
   await shareWith(h,id,'mate','view');
 
   await page.goto(`${base}/?view=canvas&canvas=${id}`);
+  // A phone shows the canvas first; List swaps in the list.
+  await page.locator('.canvas-surface').waitFor();
+  await page.getByRole('button',{name:'List',exact:true}).tap();
   const list=page.getByRole('region',{name:'Canvas list',exact:true});
   await list.waitFor();
-  assert.equal(await page.locator('.canvas-surface').count(),0,'no free canvas on a phone');
-  assert.equal(await page.locator('.canvas-drawer, .canvas-tray').count(),0,'no open Loose chats drawer or agent tray on a phone');
-  assert.equal(await page.locator('[data-drag]').count(),0,'nothing to drag on a phone');
+  assert.equal(await page.locator('.canvas-surface').count(),0,'no free canvas in the list');
+  assert.equal(await page.locator('.canvas-drawer, .canvas-tray').count(),0,'no open Loose chats drawer or agent tray in the list');
+  assert.equal(await page.locator('[data-drag]').count(),0,'nothing to drag in the list');
   const tabs=list.getByRole('tablist',{name:'Sections',exact:true});
   assert.deepEqual(await tabs.getByRole('tab').evaluateAll(els=>els.map(el=>el.firstChild?.textContent)),['Areas','Needs you','Loose chats']);
   assert.equal(await tabs.getByRole('tab',{name:/^Areas/}).getAttribute('aria-selected'),'true','Areas is the first segment');
@@ -162,13 +233,13 @@ await runChatTest('canvas devices: a phone gets the list with areas, needs you a
   await chat.getByRole('button',{name:'Close',exact:true}).tap();
   await chat.waitFor({state:'detached'});
 
-  // The top bar's Loose chats toggle shrinks to its icon and count. A phone has no drawer: the toggle selects the
+  // The top bar's Loose chats toggle shrinks to its icon and count. The list has no drawer: the toggle selects the
   // list's own Loose chats segment and brings it into view.
   const toggle=page.locator('.canvas-loose-button');
   assert.equal(await toggle.locator('.canvas-loose-count').innerText(),'1');
   assert.equal(await toggle.locator('.canvas-loose-label').evaluate(el=>el.getBoundingClientRect().width<=1),true,'the label is visually hidden');
   assert.ok((await toggle.boundingBox())!.width<=72,'icon and count only');
-  assert.equal(await toggle.getAttribute('aria-expanded'),null,'nothing to expand on a phone');
+  assert.equal(await toggle.getAttribute('aria-expanded'),null,'nothing to expand in the list');
   await tabs.getByRole('tab',{name:/^Areas/}).tap();
   await list.evaluate(el=>el.closest('.canvas-phone-stage')?.scrollTo?.(0,10_000));
   await toggle.tap();
@@ -214,6 +285,7 @@ await runChatTest('canvas devices: a phone gets the list with areas, needs you a
 
   // A viewer who is not in a chat sees it as a private row that never opens.
   await mate.page.goto(`${base}/?view=canvas&canvas=${id}`);
+  await mate.page.getByRole('button',{name:'List',exact:true}).tap();
   const theirs=mate.page.getByRole('region',{name:'Canvas list',exact:true});
   await theirs.waitFor();
   await theirs.getByRole('button',{name:/^Review/}).tap();

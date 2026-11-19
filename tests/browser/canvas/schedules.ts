@@ -215,7 +215,9 @@ await runChatTest('canvas schedules: a phone has Scheduled in its top bar, text 
   const canvasId=await scheduleBoard(h);
   await call(h,'POST','/api/flows/schedules',{id:crypto.randomUUID(),channelId:chat,agent:'Pip',prompt:'Summarise new email.',rule:{kind:'weekdays',time:'08:00'},timezone:'UTC'});
   await page.goto(`${base}/?view=canvas&canvas=${canvasId}`);
-  await page.getByRole('region',{name:'Canvas list',exact:true}).waitFor();
+  // A phone shows the canvas, with the top bar's List toggle beside Scheduled and Search.
+  await page.locator('.canvas-surface').waitFor();
+  await page.getByRole('button',{name:'List',exact:true}).waitFor();
   const scheduled=page.locator('.canvas-sched-button');
   await until(()=>text(scheduled.locator('.cnt')),t=>t==='1','the count');
   assert.equal(await scheduled.locator('svg').evaluate(el=>getComputedStyle(el).display),'none','text only, like Search');

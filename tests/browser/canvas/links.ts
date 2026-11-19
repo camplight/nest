@@ -368,9 +368,13 @@ await runChatTest('canvas links: a phone has no port, and the Setup line still s
   const {canvasId,blog}=await twoCards(h);
   await call(h,'POST','/api/flows/links',{id:crypto.randomUUID(),from,to:blog});
   await page.goto(`${base}/?view=canvas&canvas=${canvasId}`);
+  // The phone's canvas shows no port (touch never drags it; the chat picker connects instead).
+  await page.locator(`.canvas-card[data-channel-id="${from}"]`).waitFor();
+  assert.equal(await page.locator('[data-port]').evaluateAll(els=>els.filter(el=>getComputedStyle(el).display!=='none').length),0,'no port on a phone');
+  // The rest goes through the list.
+  await page.getByRole('button',{name:'List',exact:true}).tap();
   const list=page.getByRole('region',{name:'Canvas list',exact:true});
   await list.waitFor();
-  assert.equal(await page.locator('[data-port]').count(),0,'no port on a phone');
   await list.getByRole('button',{name:/^Not in an area/}).tap();
   await list.getByRole('list',{name:'Chats not in an area',exact:true}).getByRole('button',{name:/^Synthetic chat project/}).tap();
   const chat=page.locator('.canvas-chat');

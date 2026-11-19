@@ -2668,7 +2668,7 @@
   }
 }
 
-/* Phones (760 px wide or less): PhoneList replaces the surface, with the bottom box under it. */
+/* Phones (760 px wide or less) with the top bar's List pressed: PhoneList replaces the surface, with the bottom box under it. */
 .canvas-phone-stage {
   flex: 1;
   min-width: 0;
@@ -2881,6 +2881,28 @@ li.canvas-phone-row[data-access] {
   width: auto;
   margin: 0 12px 12px;
   transform: none;
+}
+/* The top bar's List toggle on a phone, pressed while the list is shown. */
+.canvas-view-toggle[aria-pressed="true"] {
+  border-color: var(--nest-accent);
+  background: color-mix(in srgb, var(--nest-lime) 18%, var(--nest-surface));
+}
+/*
+ * The canvas on a phone (the mock's phone rule): no zoom buttons (pinch instead) or legend (CanvasView leaves both out),
+ * and the drawer and the tray's row take the screen width.
+ */
+@media (max-width: 760px) {
+  /* Needs you, Scheduled, Search and List: a narrow phone wraps them rather than scroll the page sideways. */
+  .workspace-topbar .canvas-tools {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .canvas-drawer {
+    width: calc(100% - 32px);
+  }
+  .canvas-tray {
+    max-width: calc(100% - 32px);
+  }
 }
 
 /* Area membership: a card in an area carries a border in the area's tint. */
@@ -3650,6 +3672,10 @@ li.canvas-phone-row[data-access] {
 .canvas-world.is-compact .canvas-card .port,
 .canvas-card.is-open .port,
 .canvas-surface.is-linking .port::after { display: none; }
+/* Touch never drags the port (Surface ignores it), so a phone's canvas has none: the chat picker connects instead. */
+@media (max-width: 760px) {
+  .canvas-card .port { display: none; }
+}
 .canvas-surface.is-linking,
 .canvas-surface.is-linking * { cursor: crosshair; }
 .canvas-links .lk.temp { fill: none; stroke: var(--nest-accent); stroke-width: 2.4; stroke-dasharray: 6 6; }

@@ -1,5 +1,6 @@
-// Phones (760 px wide or less): a list in place of the free canvas. Areas expand to their chats, and
-// Needs you and Loose chats sit beside them. Tapping a chat opens it in focus. No surface, tray or drag.
+// Phones (760 px wide or less): the list, shown in place of the canvas once the top bar's `List` toggle is pressed
+// (phone-view.ts). Areas expand to their chats, and Needs you and Loose chats sit beside them. Tapping a chat opens it
+// in focus. No surface, tray or drag.
 import {useEffect,useId,useMemo,useRef,useState,useSyncExternalStore,type KeyboardEvent} from 'react';
 import type {BoardCard,CanvasBoard,DashboardTask,FlowNeed,Project} from '@nest/schemas';
 import {ago,cardTitle,statusText} from './Card';
@@ -12,6 +13,7 @@ import type {AreaContext} from './Area';
 import {contextLabel} from './context-label';
 import {contextFileHref} from './context-api';
 import {FileTile} from './FileTile';
+import type {PhoneView} from './phone-view';
 
 /** The existing phone breakpoint. */
 export const PHONE_QUERY = '(max-width: 760px)';
@@ -25,6 +27,16 @@ function onPhoneChange(notify: () => void) {
 /** Whether the viewport is phone sized. It follows resizes and rotation. */
 export function usePhoneLayout() {
   return useSyncExternalStore(onPhoneChange, phoneNow, () => false);
+}
+
+/**
+ * The top bar's `List` toggle on a phone: pressed, the list replaces the canvas; pressed again, the canvas is back.
+ * Text only, like the phone's other top-bar buttons.
+ */
+export function PhoneViewToggle({view, onChange}: {view: PhoneView; onChange(view: PhoneView): void}) {
+  const list = view === 'list';
+  return <button type="button" className="canvas-search-button canvas-view-toggle" aria-pressed={list}
+    title={list ? 'Show the canvas' : 'Show the canvas as a list'} onClick={() => onChange(list ? 'canvas' : 'list')}>List</button>;
 }
 
 type Segment = 'areas' | 'needs' | 'loose';
@@ -87,7 +99,7 @@ export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, o
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [query, setQuery] = useState('');
   const tabs = useRef(new Map<Segment, HTMLButtonElement>());
-  // The top bar's Loose chats toggle: phones have no drawer, so it selects this list's own segment, brings the
+  // The top bar's Loose chats toggle: the list has no drawer, so it selects this list's own segment, brings the
   // segments into view and puts focus on the tab.
   const shownKey = useRef(looseKey);
   useEffect(() => {
@@ -156,7 +168,7 @@ export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, o
             </> : null}
         </li>;
       })}
-    </ul> : <p className="canvas-phone-empty">Nothing on this canvas yet. Start a chat below, or lay out chats on a larger screen.</p>;
+    </ul> : <p className="canvas-phone-empty">Nothing on this canvas yet. Start a chat below, or turn off List to lay out chats on the canvas.</p>;
   } else if (segment === 'needs') {
     panel = needs.length ? <ul className="canvas-phone-rows" aria-label="Needs you">
       {needs.map(item => <li key={item.key} className="canvas-phone-need">

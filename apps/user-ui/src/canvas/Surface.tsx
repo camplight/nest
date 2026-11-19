@@ -95,6 +95,8 @@ export type SurfaceProps = {
   onLinkPick?(from: string, anchor: HTMLElement): void;
   /** Each chat's scheduled jobs (flows set up): an open card's badge under its last activity. */
   schedules?: ReadonlyMap<string, readonly ScheduleJob[]>;
+  /** The zoom buttons and Fit (default shown); a phone's canvas has none and pinches instead. */
+  zoomButtons?: boolean;
 };
 const NO_RECTS: ReadonlyMap<string, Rect> = new Map();
 export type FileDropTarget = {kind: 'card'; channelId: string} | {kind: 'area'; areaId: string};
@@ -190,7 +192,7 @@ const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + 
 export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null, windowChannelIds = NO_WINDOWS,
   onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onOpenCanvas, onDropFiles,
   needs = NO_NEEDS, viewer = '', onNotice, onAreaCreated, renameAreaId = null, onRenameStarted, onNewChat, onNewChatInArea, onViewChange, onEmptyPress, onFit,
-  links, onOpenLink, onToggleFork, canConnect, onConnect, onNewStep, onLinkPick, schedules}: SurfaceProps) {
+  links, onOpenLink, onToggleFork, canConnect, onConnect, onNewStep, onLinkPick, schedules, zoomButtons = true}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
   // Without a known human the view is not remembered, so it can never land under another person's key.
   const key = humanId ? viewKey(humanId, board.canvas.id) : null;
@@ -598,8 +600,11 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     const pressed = pan ? undefined : target.closest<HTMLElement>('.canvas-card')?.dataset.channelId;
     if (pressed) selectRef.current?.(pressed);
     if (!pan && target.closest('button, input, textarea, select, a, .canvas-menu, .canvas-chrome')) return;
-    const handle = pan ? null : target.closest<HTMLElement>('[data-drag]');
-    const port = pan || !pressed ? null : target.closest('[data-port]');
+    const onPort = pan || !pressed ? null : target.closest('[data-port]');
+    // Touch never drags the `+` port (the chat picker links instead): a finger on it pans, never moving the card under it.
+    const touchPort = Boolean(onPort) && event.pointerType === 'touch';
+    const handle = pan || touchPort ? null : target.closest<HTMLElement>('[data-drag]');
+    const port = touchPort ? null : onPort;
     const portCard = port ? boardRef.current.cards.find(card => card.channelId === pressed) : undefined;
     const start = local(event), startView = viewRef.current;
     const current = boardRef.current;
@@ -907,13 +912,13 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
         onClick={() => { const arming = toolRef.current !== 'area'; setTool(arming ? 'area' : 'select'); if (arming) onNotice?.(DRAW_HINT); }}>Area</button>
       {onNewChat ? <button type="button" className="canvas-tool" title="Start a new chat at the centre of the view" onClick={() => { setTool('select'); onNewChat(); }}>Chat</button> : null}
     </div>
-    <div className="canvas-chrome canvas-zoom" role="group" aria-label="Zoom">
+    {zoomButtons ? <div className="canvas-chrome canvas-zoom" role="group" aria-label="Zoom">
       <button type="button" aria-label="Zoom out" onClick={() => zoomBy(1 / ZOOM_STEP)}><span aria-hidden="true">−</span></button>
       {/* Not live: a pinch or wheel zoom would announce every step. */}
       <output aria-label="Zoom level" aria-live="off">{Math.round(view.zoom * 100)}%</output>
       <button type="button" aria-label="Zoom in" onClick={() => zoomBy(ZOOM_STEP)}><span aria-hidden="true">+</span></button>
       <button type="button" className="canvas-fit" onClick={fitAll}>Fit</button>
-    </div>
+    </div> : null}
   </div>;
 }
 

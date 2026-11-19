@@ -374,7 +374,7 @@ await runChatTest('canvas chat: opens in place over its card, dims the rest, and
   await until(async()=>await opacity(page.locator('.canvas-world'))<0.5,'the canvas faded');
   assert.equal(await chat.locator('.canvas-chat-sub').getByText('Plain chat · not on this canvas').count(),1);
 
-  // A phone has no free canvas: the chat fills the body.
+  // A phone has room for one chat at a time: it fills the body.
   await page.setViewportSize({width:390,height:844});
   await until(async()=>{const c=await boxOf(chat),b=await boxOf(page.locator('.canvas-body'));return Math.abs(c.width-b.width)<=1&&Math.abs(c.x-b.x)<=1;},'a full-width chat at 390 px');
   await page.keyboard.press('Escape');
