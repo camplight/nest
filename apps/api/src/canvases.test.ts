@@ -127,6 +127,21 @@ describe('canvas API against the unchanged engine', () => {
       expect((await call(owner, 'POST', '/api/canvases/hidden', { channelIds: [], hidden: true })).status).toBe(400);
     });
 
+    it('archiving a chat pauses the person\'s hand-offs to and from it; unarchiving resumes them', async () => {
+      const humans = await (await call(owner, 'GET', '/api/humans')).json();
+      const ownerId = humans.find((h: any) => h.username === 'owner').id;
+      const chat = async (name: string) => (await (await call(owner, 'POST', '/api/channels', { name, visibility: 'PRIVATE' })).json()).id as string;
+      const a = await chat('Source'), b = await chat('Target');
+      before = await engineChannels();
+      const link = product.store.flows.createLink({ id: randomUUID(), from: a, to: b, kind: 'link', createdBy: ownerId, now: 1000 });
+      const waiting = product.store.flows.claimDelivery(link.id, 'turn-1', 'awaiting', 1000)!;
+      await call(owner, 'POST', '/api/canvases/hidden', { channelIds: [b], hidden: true });
+      expect(product.store.flows.link(link.id)).toMatchObject({ on: false, pausedReason: 'archived' });
+      expect(product.store.flows.delivery(waiting.id)).toMatchObject({ status: 'declined' });
+      await call(owner, 'POST', '/api/canvases/hidden', { channelIds: [b], hidden: false });
+      expect(product.store.flows.link(link.id)).toMatchObject({ on: true, pausedReason: null });
+    });
+
     it('saves agent pins per person in order, caps them at 7 and drops agents the person cannot see', async () => {
       const agent = async (h: Record<string, string>, name: string, visibility: 'PUBLIC' | 'PRIVATE') => {
         const r = await call(h, 'POST', '/api/agents', { name, modelId: 'test', workspacePath: join(dir, name), visibility });

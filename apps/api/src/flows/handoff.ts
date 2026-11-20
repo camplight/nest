@@ -48,6 +48,7 @@ export function pausedWhy(reason: Reason, who: string | null): string {
   if (reason === 'cap') return `hit ${LINK_HOURLY_CAP} an hour`;
   if (reason === 'access') return 'access changed';
   if (reason === 'agent-left') return `${who ?? 'The agent'} left the chat`;
+  if (reason === 'archived') return 'the chat is archived';
   return 'chat unavailable';
 }
 

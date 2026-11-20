@@ -6,7 +6,7 @@ export const LinkWhen = z.enum(['done', 'approve', 'manual']);
 export type LinkWhen = z.infer<typeof LinkWhen>;
 export const LinkKind = z.enum(['link', 'fork']);
 export type LinkKind = z.infer<typeof LinkKind>;
-export const PausedReason = z.enum(['cap', 'access', 'agent-left', 'unavailable']).nullable();
+export const PausedReason = z.enum(['cap', 'access', 'agent-left', 'unavailable', 'archived']).nullable();
 export type PausedReason = z.infer<typeof PausedReason>;
 
 export const LINK_HOURLY_CAP = 20;

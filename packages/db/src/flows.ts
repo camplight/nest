@@ -93,6 +93,47 @@ export function createFlowStore(db: Database.Database, clock: () => number = Dat
     if (changed) audit('link-paused', actor, { linkId: id, reason });
   }
 
+  /**
+   * Archive (the person's hide of a chat): their own running links to or from these chats pause with reason
+   * `archived`, and hand-offs on them still waiting for their OK are declined. Returns the paused link ids.
+   */
+  function archiveLinks(createdBy: string, channelIds: string[]): string[] {
+    if (!channelIds.length) return [];
+    return db.transaction(() => {
+      const marks = channelIds.map(() => '?').join(',');
+      const ids = (db.prepare(`SELECT id FROM product_links WHERE created_by=? AND on_flag=1 AND (from_channel IN (${marks}) OR to_channel IN (${marks})) ORDER BY created_at, id`)
+        .all(createdBy, ...channelIds, ...channelIds) as { id: string }[]).map(r => r.id);
+      const now = clock();
+      for (const id of ids) {
+        db.prepare("UPDATE product_links SET on_flag=0,paused_reason='archived',updated_at=?,version=version+1 WHERE id=?").run(now, id);
+        const waiting = db.prepare("SELECT id FROM product_link_deliveries WHERE link_id=? AND status='awaiting'").all(id) as { id: string }[];
+        for (const d of waiting) finishDelivery(d.id, { status: 'declined' }, now, ['awaiting']);
+        audit('link-paused', createdBy, { linkId: id, reason: 'archived' });
+      }
+      return ids;
+    })();
+  }
+
+  /**
+   * Unarchive: the person's links to or from these chats that archiving paused turn back on, unless the other
+   * end is still archived (`stillArchived`). The scan restarts now, so nothing finished meanwhile is replayed.
+   */
+  function unarchiveLinks(createdBy: string, channelIds: string[], stillArchived: ReadonlySet<string>): string[] {
+    if (!channelIds.length) return [];
+    return db.transaction(() => {
+      const marks = channelIds.map(() => '?').join(',');
+      const rows = db.prepare(`SELECT id,from_channel,to_channel,scanned_to FROM product_links WHERE created_by=? AND on_flag=0 AND paused_reason='archived' AND (from_channel IN (${marks}) OR to_channel IN (${marks})) ORDER BY created_at, id`)
+        .all(createdBy, ...channelIds, ...channelIds) as { id: string; from_channel: string; to_channel: string; scanned_to: number }[];
+      const now = clock();
+      const resumed = rows.filter(r => !stillArchived.has(r.from_channel) && !stillArchived.has(r.to_channel));
+      for (const r of resumed) {
+        db.prepare('UPDATE product_links SET on_flag=1,paused_reason=NULL,scanned_to=?,updated_at=?,version=version+1 WHERE id=?').run(Math.max(now, r.scanned_to), now, r.id);
+        audit('link-updated', createdBy, { linkId: r.id });
+      }
+      return resumed.map(r => r.id);
+    })();
+  }
+
   function removeLink(id: string, actor: string): void {
     db.transaction(() => {
       if (db.prepare('DELETE FROM product_links WHERE id=?').run(id).changes) audit('link-removed', actor, { linkId: id });
@@ -145,9 +186,12 @@ export function createFlowStore(db: Database.Database, clock: () => number = Dat
   const deliveredSince = (linkId: string, since: number): number =>
     (db.prepare("SELECT COUNT(*) n FROM product_link_deliveries WHERE link_id=? AND status='delivered' AND updated_at>=?").get(linkId, since) as { n: number }).n;
 
-  /** The creator's links that the worker paused (a reason is set), oldest first, with when they last changed. */
+  /**
+   * The creator's links that the worker paused (a reason is set), oldest first, with when they last changed.
+   * Links paused because the person archived a chat are left out: they did that on purpose.
+   */
   const pausedLinks = (createdBy: string): (Link & { pausedAt: number })[] =>
-    (db.prepare(`SELECT ${LINK_COLS},updated_at FROM product_links WHERE created_by=? AND on_flag=0 AND paused_reason IS NOT NULL ORDER BY updated_at, id`).all(createdBy) as (LinkRow & { updated_at: number })[])
+    (db.prepare(`SELECT ${LINK_COLS},updated_at FROM product_links WHERE created_by=? AND on_flag=0 AND paused_reason IS NOT NULL AND paused_reason!='archived' ORDER BY updated_at, id`).all(createdBy) as (LinkRow & { updated_at: number })[])
       .map(r => ({ ...toLink(r), pausedAt: r.updated_at }));
 
   const awaiting = (createdBy: string): Delivery[] =>
@@ -177,6 +221,6 @@ export function createFlowStore(db: Database.Database, clock: () => number = Dat
       .run(name, holder, now + ms, now).changes > 0;
   }
 
-  return { createLink, link, linksTouching, activeSources, patchLink, pause, removeLink, scannedTo, advance, claimDelivery, leaseExpired, finishDelivery, reclaim, deliveredSince, awaiting, pausedLinks, delivery, recordFork, forkOf, forksOf, lease };
+  return { createLink, link, linksTouching, activeSources, patchLink, pause, archiveLinks, unarchiveLinks, removeLink, scannedTo, advance, claimDelivery, leaseExpired, finishDelivery, reclaim, deliveredSince, awaiting, pausedLinks, delivery, recordFork, forkOf, forksOf, lease };
 }
 export type FlowStore = ReturnType<typeof createFlowStore>;

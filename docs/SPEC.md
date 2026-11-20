@@ -758,6 +758,11 @@ Phase 1 is built from
      takes `{channelIds (1–100), hidden: true|false}` and returns the person's full
      `{channelIds}`. Chats the person cannot see are dropped without an error. This
      is the Loose chats drawer's Archive: a personal hide, never an engine archive.
+     Archiving also pauses the person's own running links to or from those chats
+     (`paused_reason` `archived`) and declines their hand-offs there still awaiting
+     an OK; other people's links are untouched. Unarchiving turns back on only the
+     links archiving paused, unless the other end is still archived, with the scan
+     restarting at that moment so nothing finished meanwhile is handed off.
    - `GET /api/canvases/agent-pins` returns `{agentNames, saved}`: the person's tray
      pins in order, and whether they have ever saved any. `PUT /api/canvases/agent-pins`
      takes `{agentNames}` (the whole list, at most 7 distinct names) and returns the
@@ -1367,7 +1372,7 @@ deviations; item 16 the checks.
      `(kind, from_channel, to_channel)`. It holds `what` (`results`, `summary` or
      `all`), `when_mode` (`done`, `approve` or `manual`), `who_agent` (the agent to
      wake in the target, or none), the label (at most 60 characters), `on_flag` and
-     `paused_reason` (`cap`, `access`, `agent-left` or `unavailable`), `scanned_to`
+     `paused_reason` (`cap`, `access`, `agent-left`, `unavailable` or `archived`), `scanned_to`
      (the hand-off cursor: turns at or before it are never handed off), the creator
      and a `version` for compare-and-swap. A chat can touch at most 50 links.
    - `product_link_deliveries`: one row per `(link_id, source_turn_id)`, where the
@@ -1535,7 +1540,8 @@ deviations; item 16 the checks.
        chat: `short` `Hand-off to {to title} paused · {why}`, where `why` is
        `hit 20 an hour`, `access changed`, `{who} left the chat` or
        `chat unavailable`, and `gate {kind:'paused', linkId}`. A link paused by a
-       person (no reason) is not listed.
+       person (no reason), or because they archived one of its chats (`archived`),
+       is not listed.
      - `missed`, one per schedule of the viewer's whose newest settled run was
        missed (none once a later run starts, or after Run now), on the schedule's
        chat: `short` `Missed run · {reason}`, `from` the agent, `at` the due time,

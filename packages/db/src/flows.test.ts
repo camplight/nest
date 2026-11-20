@@ -87,6 +87,34 @@ describe('flow store', () => {
     expect(store.flows.pausedLinks('u')).toEqual([expect.objectContaining({ id: paused.id, pausedReason: 'cap', on: false, pausedAt: expect.any(Number) })]);
     expect(store.flows.pausedLinks('v').map(l => l.id)).toEqual([other.id]);
   });
+  it('archiving a chat pauses the person\'s own links to and from it and declines what waits for their OK', () => {
+    const out = mk('a', 'b'), into = mk('c', 'a'), elsewhere = mk('c', 'd');
+    const theirs = store.flows.createLink({ id: randomUUID(), from: 'a', to: 'e', kind: 'link', createdBy: 'v', now: 1000 });
+    const byHand = mk('a', 'f');
+    store.flows.patchLink(byHand.id, { on: false }, 0, 'u');
+    const waiting = store.flows.claimDelivery(out.id, 't1', 'awaiting', 1000)!;
+    expect(store.flows.archiveLinks('u', ['a']).sort()).toEqual([out.id, into.id].sort());
+    expect(store.flows.link(out.id)).toMatchObject({ on: false, pausedReason: 'archived' });
+    expect(store.flows.link(into.id)).toMatchObject({ on: false, pausedReason: 'archived' });
+    expect(store.flows.link(elsewhere.id)).toMatchObject({ on: true });
+    expect(store.flows.link(theirs.id)).toMatchObject({ on: true });
+    expect(store.flows.link(byHand.id)).toMatchObject({ on: false, pausedReason: null });
+    expect(store.flows.delivery(waiting.id)).toMatchObject({ status: 'declined' });
+    // Paused on purpose: not a Needs you item.
+    expect(store.flows.pausedLinks('u')).toEqual([]);
+  });
+  it('unarchiving resumes only the links archiving paused, once neither end is archived, without replaying', () => {
+    const out = mk('a', 'b', { scannedTo: 500 }), both = mk('a', 'c'), byHand = mk('a', 'd');
+    store.flows.patchLink(byHand.id, { on: false }, 0, 'u');
+    store.flows.archiveLinks('u', ['a']);
+    store.flows.archiveLinks('u', ['c']);
+    expect(store.flows.unarchiveLinks('u', ['a'], new Set(['c']))).toEqual([out.id]);
+    expect(store.flows.link(out.id)).toMatchObject({ on: true, pausedReason: null });
+    expect(store.flows.scannedTo(out.id)).toBeGreaterThan(1000);
+    expect(store.flows.link(both.id)).toMatchObject({ on: false, pausedReason: 'archived' });
+    expect(store.flows.link(byHand.id)).toMatchObject({ on: false, pausedReason: null });
+    expect(store.flows.unarchiveLinks('u', ['c'], new Set())).toEqual([both.id]);
+  });
   it('settles only the given open statuses', () => {
     const l = mk('a', 'b');
     const d = store.flows.claimDelivery(l.id, 't1', 'awaiting', 1000)!;

@@ -143,8 +143,13 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
     const human = c.get('human');
     // Only channels the caller can see (and not archived) are stored; others are dropped silently.
     const visible = new Set(c.get('channels').filter(channel => !channel.archivedAt).map(channel => channel.id));
-    canvases.setHidden(human.id, input.channelIds.filter(id => visible.has(id)), input.hidden);
-    return c.json({ channelIds: canvases.hidden(human.id) });
+    const ids = input.channelIds.filter(id => visible.has(id));
+    canvases.setHidden(human.id, ids, input.hidden);
+    const hidden = canvases.hidden(human.id);
+    // Archive pauses the person's own hand-offs to and from these chats; unarchive resumes the ones it paused.
+    if (input.hidden) store.flows.archiveLinks(human.id, ids);
+    else store.flows.unarchiveLinks(human.id, ids, new Set(hidden));
+    return c.json({ channelIds: hidden });
   });
 
   // Agents pinned to the person's tray, across canvases and devices. Agents the engine no longer lists for them
