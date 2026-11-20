@@ -108,12 +108,20 @@ describe('flow store', () => {
     store.flows.patchLink(byHand.id, { on: false }, 0, 'u');
     store.flows.archiveLinks('u', ['a']);
     store.flows.archiveLinks('u', ['c']);
-    expect(store.flows.unarchiveLinks('u', ['a'], new Set(['c']))).toEqual([out.id]);
+    expect(store.flows.unarchiveLinks('u', ['a'], id => id === 'c')).toEqual([out.id]);
     expect(store.flows.link(out.id)).toMatchObject({ on: true, pausedReason: null });
     expect(store.flows.scannedTo(out.id)).toBeGreaterThan(1000);
     expect(store.flows.link(both.id)).toMatchObject({ on: false, pausedReason: 'archived' });
     expect(store.flows.link(byHand.id)).toMatchObject({ on: false, pausedReason: null });
-    expect(store.flows.unarchiveLinks('u', ['c'], new Set())).toEqual([both.id]);
+    expect(store.flows.unarchiveLinks('u', ['c'], () => false)).toEqual([both.id]);
+  });
+  it('archiving a chat for everyone pauses every creator\'s links to it, and unarchive asks per creator', () => {
+    const mine = mk('a', 'b');
+    const theirs = store.flows.createLink({ id: randomUUID(), from: 'c', to: 'a', kind: 'link', createdBy: 'v', now: 1000 });
+    expect(store.flows.archiveLinks(null, ['a']).sort()).toEqual([mine.id, theirs.id].sort());
+    // 'v' still hides 'c' from their list: their link stays paused.
+    expect(store.flows.unarchiveLinks(null, ['a'], (id, creator) => creator === 'v' && id === 'c')).toEqual([mine.id]);
+    expect(store.flows.link(theirs.id)).toMatchObject({ on: false, pausedReason: 'archived' });
   });
   it('settles only the given open statuses', () => {
     const l = mk('a', 'b');

@@ -94,41 +94,46 @@ export function createFlowStore(db: Database.Database, clock: () => number = Dat
   }
 
   /**
-   * Archive (the person's hide of a chat): their own running links to or from these chats pause with reason
-   * `archived`, and hand-offs on them still waiting for their OK are declined. Returns the paused link ids.
+   * Archive: running links to or from these chats pause with reason `archived`, and hand-offs on them still
+   * waiting for an OK are declined. `createdBy` limits it to one person's links (their personal hide);
+   * `null` pauses every creator's (the chat itself was archived). Returns the paused link ids.
    */
-  function archiveLinks(createdBy: string, channelIds: string[]): string[] {
+  function archiveLinks(createdBy: string | null, channelIds: string[]): string[] {
     if (!channelIds.length) return [];
     return db.transaction(() => {
       const marks = channelIds.map(() => '?').join(',');
-      const ids = (db.prepare(`SELECT id FROM product_links WHERE created_by=? AND on_flag=1 AND (from_channel IN (${marks}) OR to_channel IN (${marks})) ORDER BY created_at, id`)
-        .all(createdBy, ...channelIds, ...channelIds) as { id: string }[]).map(r => r.id);
+      const byCreator = createdBy === null ? '' : 'created_by=? AND ';
+      const rows = db.prepare(`SELECT id,created_by FROM product_links WHERE ${byCreator}on_flag=1 AND (from_channel IN (${marks}) OR to_channel IN (${marks})) ORDER BY created_at, id`)
+        .all(...(createdBy === null ? [] : [createdBy]), ...channelIds, ...channelIds) as { id: string; created_by: string }[];
       const now = clock();
-      for (const id of ids) {
+      for (const { id, created_by } of rows) {
         db.prepare("UPDATE product_links SET on_flag=0,paused_reason='archived',updated_at=?,version=version+1 WHERE id=?").run(now, id);
         const waiting = db.prepare("SELECT id FROM product_link_deliveries WHERE link_id=? AND status='awaiting'").all(id) as { id: string }[];
         for (const d of waiting) finishDelivery(d.id, { status: 'declined' }, now, ['awaiting']);
-        audit('link-paused', createdBy, { linkId: id, reason: 'archived' });
+        audit('link-paused', createdBy ?? created_by, { linkId: id, reason: 'archived' });
       }
-      return ids;
+      return rows.map(r => r.id);
     })();
   }
 
   /**
-   * Unarchive: the person's links to or from these chats that archiving paused turn back on, unless the other
-   * end is still archived (`stillArchived`). The scan restarts now, so nothing finished meanwhile is replayed.
+   * Unarchive: links to or from these chats that archiving paused turn back on, unless either end is still
+   * off for the link's creator (`stillOff(channelId, createdBy)`: archived, or hidden from their list).
+   * `createdBy` limits it to one person's links; `null` takes every creator's. The scan restarts now, so
+   * nothing finished meanwhile is replayed.
    */
-  function unarchiveLinks(createdBy: string, channelIds: string[], stillArchived: ReadonlySet<string>): string[] {
+  function unarchiveLinks(createdBy: string | null, channelIds: string[], stillOff: (channelId: string, createdBy: string) => boolean): string[] {
     if (!channelIds.length) return [];
     return db.transaction(() => {
       const marks = channelIds.map(() => '?').join(',');
-      const rows = db.prepare(`SELECT id,from_channel,to_channel,scanned_to FROM product_links WHERE created_by=? AND on_flag=0 AND paused_reason='archived' AND (from_channel IN (${marks}) OR to_channel IN (${marks})) ORDER BY created_at, id`)
-        .all(createdBy, ...channelIds, ...channelIds) as { id: string; from_channel: string; to_channel: string; scanned_to: number }[];
+      const byCreator = createdBy === null ? '' : 'created_by=? AND ';
+      const rows = db.prepare(`SELECT id,created_by,from_channel,to_channel,scanned_to FROM product_links WHERE ${byCreator}on_flag=0 AND paused_reason='archived' AND (from_channel IN (${marks}) OR to_channel IN (${marks})) ORDER BY created_at, id`)
+        .all(...(createdBy === null ? [] : [createdBy]), ...channelIds, ...channelIds) as { id: string; created_by: string; from_channel: string; to_channel: string; scanned_to: number }[];
       const now = clock();
-      const resumed = rows.filter(r => !stillArchived.has(r.from_channel) && !stillArchived.has(r.to_channel));
+      const resumed = rows.filter(r => !stillOff(r.from_channel, r.created_by) && !stillOff(r.to_channel, r.created_by));
       for (const r of resumed) {
         db.prepare('UPDATE product_links SET on_flag=1,paused_reason=NULL,scanned_to=?,updated_at=?,version=version+1 WHERE id=?').run(Math.max(now, r.scanned_to), now, r.id);
-        audit('link-updated', createdBy, { linkId: r.id });
+        audit('link-updated', createdBy ?? r.created_by, { linkId: r.id });
       }
       return resumed.map(r => r.id);
     })();

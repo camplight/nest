@@ -148,7 +148,11 @@ export function registerCanvasRoutes(app: Hono, { store, orgops, enabled, files,
     const hidden = canvases.hidden(human.id);
     // Archive pauses the person's own hand-offs to and from these chats; unarchive resumes the ones it paused.
     if (input.hidden) store.flows.archiveLinks(human.id, ids);
-    else store.flows.unarchiveLinks(human.id, ids, new Set(hidden));
+    else {
+      // A link stays paused while either end is archived for everyone or hidden from the person's list.
+      const archived = new Set(c.get('channels').filter(channel => channel.archivedAt).map(channel => channel.id));
+      store.flows.unarchiveLinks(human.id, ids, id => archived.has(id) || hidden.includes(id));
+    }
     return c.json({ channelIds: hidden });
   });
 
