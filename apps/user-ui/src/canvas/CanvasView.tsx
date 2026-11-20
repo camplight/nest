@@ -3,6 +3,7 @@ import {useCallback,useEffect,useId,useLayoutEffect,useMemo,useReducer,useRef,us
 import {Columns2,Ellipsis,FileText,Search,Share2,SquareArrowOutUpRight,X} from 'lucide-react';
 import {AGENT_PIN_LIMIT_MESSAGE,CanvasTint,relTime,ruleText,type AgentPins,type TriggerView,type BoardLink,type Link,DEFAULT_CARD_WIDTH,MAX_MESSAGE_ATTACHMENTS,areaFor,type BoardCard,type Canvas,type CanvasArea,type ContextSummary,type NewArea,type Project,type ScheduleView} from '@nest/schemas';
 import type {Agent,Channel} from '../types';
+import {olderToast,type ToastShown} from './one-toast';
 import {WorkspaceTopbar} from '../components/WorkspaceTopbar';
 import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 import {addChatMember,removeChatMember} from '../chat-members';
@@ -283,6 +284,17 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
   useEffect(() => { setMemberNotice(null); }, [canvasId]);
   const noticeId = useRef(0);
   const say = useCallback((text: string, undo?: () => void) => setMemberNotice({id: ++noticeId.current, text, undo}), []);
+  // One toast at a time: a new notice of either kind replaces the one still showing.
+  const [dockElement, setDockElement] = useState<HTMLDivElement | null>(null);
+  const shownToast = useRef<ToastShown>({notice: null, member: null});
+  const storeNotice = state.notice && state.canvasId === canvasId ? state.notice : null;
+  useEffect(() => {
+    const next = {notice: storeNotice, member: memberNotice?.id ?? null};
+    const older = olderToast(shownToast.current, next);
+    shownToast.current = next;
+    if (older === 'notice') store.clearNotice();
+    else if (older === 'member') setMemberNotice(null);
+  }, [storeNotice, memberNotice?.id, store]);
   /**
    * Board writes, plus the drop warning: a move or placement that puts a chat into an area with context AND
    * changes the chat's home says who can see it, with an Undo. The home comes from the server's answer, so
@@ -1625,7 +1637,7 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
       <PhoneList key={board.canvas.id} board={board} pulses={pulses} loose={shownLoose} titles={titles} projects={projects}
         onOpenChat={openLoose} openChannelId={chatShown ? chatChannelId : null} areaContext={areaContext} onAreaContext={openAreaContext} looseKey={phoneLoose}
         reviews={reviews} flows={flows.needs} onRunNow={runNow} onNeedsShown={setPhoneNeedsOpen}/>
-      {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice schedules={flowsOn} onCreated={created} fileDrop={!chatShown} fileDropAccept={outsideCanvasChat} onFilesDropped={dockFiles}/></div> : null}
+      {humanId ? <div ref={setDockElement} className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice schedules={flowsOn} onCreated={created} fileDrop={!chatShown} fileDropAccept={outsideCanvasChat} onFilesDropped={dockFiles}/></div> : null}
     </div>;
   } else {
     // Keyed by canvas so the saved view, gestures and measured card heights start fresh per canvas.
@@ -1645,7 +1657,7 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
           agents={roster} humanId={humanId} owners={owners} busy={busy} cards={board.cards} areas={board.areas} open={pickerOpen} onOpenChange={showPicker}/>
         {/* Files dropped on empty canvas start a chat here, beside a split chat or chat windows too; a window takes the drops on itself. */}
         {chrome.legend ? <Legend heading={trayHeading(tray.suggested.length > 0)}/> : null}
-        {humanId ? <div className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice schedules={flowsOn} onCreated={created} fileDrop
+        {humanId ? <div ref={setDockElement} className="canvas-dock"><StartChat key={dockKey} ownerId={humanId} variant="dock" voice schedules={flowsOn} onCreated={created} fileDrop
           fileDropAccept={outsideCanvasChat} fileDropOverlay={false} onFilesDropped={dockFiles}/></div> : null}
         {fileDrag ? <p className="canvas-file-hint" role="status">{board.canvas.role === 'view' ? FILE_DRAG_HINT_VIEW : FILE_DRAG_HINT}</p> : null}
       </div>
@@ -1689,17 +1701,17 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
     <div className={`canvas-body${chatShown ? ` has-chat is-${shownMode}` : ''}`}>
       {sharing && board && board.canvas.role === 'owner' ? <ShareDialog canvasId={board.canvas.id} ownerId={board.canvas.ownerId} humans={humans}
         version={canvasVersion} freshVersion={freshVersion} onSaved={() => { loadMembers(board.canvas.id); void store.refresh({force: true}); void reloadList().catch(() => {}); }} onClose={() => setSharing(false)}/> : null}
-      <CanvasMain inert={chatShown && phone}>
+      <CanvasMain inert={chatShown && phone} dock={dockElement}>
         <div className="canvas-notices">
-          {state.notice && state.canvasId === canvasId ? <div className="canvas-notice" role="status">
-            <span>{state.notice}</span>
-            <button type="button" onClick={store.clearNotice}>Dismiss</button>
-          </div> : null}
           {board ? areaUploads.map(upload => <div key={upload.id} className="canvas-notice" role="status">
             <span>{upload.text}</span>
             <span className="composer-attachment-progress canvas-notice-progress" role="progressbar" aria-label={upload.text} aria-valuemin={0} aria-valuemax={100}
               aria-valuenow={Math.round(upload.progress * 100)}><span style={{width: `${Math.round(upload.progress * 100)}%`}}/></span>
           </div>) : null}
+          {storeNotice ? <div className="canvas-notice" role="status">
+            <span>{storeNotice}</span>
+            <button type="button" onClick={store.clearNotice}>Dismiss</button>
+          </div> : null}
           {memberNotice && board ? <div key={memberNotice.id} className="canvas-notice" role="status">
             <span>{memberNotice.text}</span>
             {memberNotice.undo ? <button type="button" onClick={memberNotice.undo}>Undo</button> : null}
@@ -1770,13 +1782,28 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
  * full-screen chat it is inert. A layout effect, so that is gone before the closing chat's passive cleanup moves focus
  * back here.
  */
-function CanvasMain({inert, children}: {inert: boolean; children: ReactNode}) {
+function CanvasMain({inert, dock, children}: {inert: boolean; dock: HTMLElement | null; children: ReactNode}) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const element = ref.current;
     if (!element) return;
     if (inert) element.setAttribute('inert', ''); else element.removeAttribute('inert');
   }, [inert]);
+  // The toast sits just above the bottom box, which grows with a long draft: keep its top edge in `--canvas-dock-top`.
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const place = () => {
+      const top = dock ? element.getBoundingClientRect().bottom - dock.getBoundingClientRect().top : 0;
+      element.style.setProperty('--canvas-dock-top', `${Math.max(0, Math.round(top))}px`);
+    };
+    place();
+    if (typeof ResizeObserver === 'undefined') return;
+    const sizes = new ResizeObserver(place);
+    sizes.observe(element);
+    if (dock) sizes.observe(dock);
+    return () => sizes.disconnect();
+  }, [dock]);
   return <div ref={ref} className="canvas-main">{children}</div>;
 }
 

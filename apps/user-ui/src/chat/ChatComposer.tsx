@@ -383,6 +383,8 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
                 ? "Restore this channel to send messages"
                 : activeChannel && !activeChannelCanPost
                   ? "This channel is shared with you as read-only"
+                : voice.state === "recording"
+                  ? "Listening… tap the mic to stop"
                 : activeChannel
                   ? session.changesAsked ? "What should change?" : `Message to ${activeConversationName}`
                   : "Select a channel first"

@@ -766,9 +766,13 @@
   color: var(--canvas-alert) !important;
 }
 /* Store notices and agent membership messages stack at the top centre. */
+/*
+ * One toast, bottom centre just above the bottom box (the mock's `.toast`): `--canvas-dock-top` is the box's top edge,
+ * measured in CanvasMain. Upload progress rows stack above it.
+ */
 .canvas-notices {
   position: absolute;
-  top: 14px;
+  bottom: max(18px, calc(var(--canvas-dock-top, 0px) + 10px));
   left: 50%;
   z-index: 3;
   transform: translateX(-50%);
@@ -786,22 +790,43 @@
   pointer-events: auto;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   max-width: 100%;
-  border: 1px solid var(--nest-border);
-  border-radius: 999px;
-  padding: 8px 8px 8px 16px;
-  background: var(--nest-surface);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--nest-forest) 14%, transparent);
-  font-size: 14px;
+  border-radius: 10px;
+  padding: 6px 6px 6px 14px;
+  background: var(--nest-text);
+  color: var(--nest-bg);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--nest-forest) 18%, transparent);
+  font-size: 13px;
+  line-height: 1.35;
+}
+.canvas-notice > span:first-child {
+  padding: 3px 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .canvas-notice {
+    animation: canvas-toast-in .25s ease-out;
+  }
+}
+@keyframes canvas-toast-in {
+  from { opacity: 0; transform: translateY(10px); }
 }
 .canvas-notice button {
   border: 0;
-  border-radius: 8px;
-  padding: 6px 12px;
-  background: var(--nest-muted-surface);
-  color: var(--nest-text);
+  border-radius: 7px;
+  padding: 5px 10px;
+  background: color-mix(in srgb, var(--nest-bg) 16%, transparent);
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
   cursor: pointer;
+}
+.canvas-notice button:hover {
+  background: color-mix(in srgb, var(--nest-bg) 26%, transparent);
+}
+.canvas-notice button:focus-visible {
+  outline: 2px solid var(--nest-lime);
+  outline-offset: 2px;
 }
 /* The heading (name, switcher, Share, Canvas context, Loose chats) takes the room the search and controls leave. */
 @media (min-width: 761px) {
@@ -3375,7 +3400,21 @@ li.canvas-phone-row[data-access] {
   pointer-events: none;
 }
 .canvas-notice-progress {
+  display: block;
+  flex: none;
   width: 96px;
+  height: 4px;
+  margin-right: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--nest-bg) 24%, transparent);
+}
+.canvas-notice-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--nest-lime);
+  transition: width .2s ease;
 }
 /* The open chat's sub-line: faces, then where it sits and which context it reads. */
 .canvas-chat-heading {
