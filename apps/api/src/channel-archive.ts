@@ -5,7 +5,8 @@ import type { OrgOpsClient } from '@nest/orgops-client';
 type Forward = (request: Request) => Promise<Response>;
 
 /**
- * Archiving a chat (the engine's own archive, read-only for everyone) pauses every hand-off link to or from it
+ * Deleting a chat removes its hand-off links. Archiving a chat (the engine's own archive, read-only for everyone)
+ * pauses every hand-off link to or from it
  * and declines hand-offs there waiting for an OK; unarchiving resumes the links archiving paused, unless the
  * other end is still archived or hidden from the link creator's list. The engine decides who may archive;
  * Nest touches links only after the engine accepted, and returns the engine's answer unchanged.
@@ -17,6 +18,14 @@ export function registerChannelArchiveRoutes(app: Hono, { store, orgops, forward
     const channels = await response.json() as { id: string; archivedAt?: number | null }[];
     return new Set(channels.filter(channel => channel.archivedAt).map(channel => channel.id));
   }
+  // Deleting a chat removes every hand-off link to or from it (and their deliveries), once the engine deleted it.
+  app.delete('/api/channels/:id', async c => {
+    const response = await forward(c.req.raw);
+    if (!response.ok) return response;
+    const human = await orgops.currentHuman(c.req.raw.headers).catch(() => null);
+    store.flows.removeLinksOf([c.req.param('id')], human?.id ?? 'system');
+    return response;
+  });
   for (const action of ['archive', 'unarchive'] as const) {
     app.post(`/api/channels/:id/${action}`, async c => {
       const response = await forward(c.req.raw);

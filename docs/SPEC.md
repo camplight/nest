@@ -788,6 +788,12 @@ Phase 1 is built from
      their hand-offs there awaiting an OK) or, on unarchive, resume the links
      archiving paused unless the other end is still archived or hidden from the
      link creator's list. The engine's answer, including a refusal, is returned as is.
+   - Deleting a chat removes its hand-off links: Nest forwards
+     `DELETE /api/channels/:id` and, once the engine deleted the chat, removes every
+     link to or from it with its deliveries. The hand-off worker also removes, each
+     tick, links whose chat is missing from the engine's full chat list (a chat
+     deleted outside Nest), paused ones included, so a deleted chat never stays as
+     a `Passes to` chip or a paused Needs you item.
    - `GET /api/canvases/agent-pins` returns `{agentNames, saved}`: the person's tray
      pins in order, and whether they have ever saved any. `PUT /api/canvases/agent-pins`
      takes `{agentNames}` (the whole list, at most 7 distinct names) and returns the

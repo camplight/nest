@@ -540,14 +540,30 @@ describe('the hand-off worker against the unchanged engine', () => {
     const c = await chat('C', [{ type: 'AGENT', id: 'Pom' }]);
     const broken = await link(owner, { from: a, to: b, who: 'Pom' });
     const fine = await link(owner, { from: a, to: c, who: 'Pom' });
-    // The B chat disappears from the engine: that link pauses as unavailable, the other delivers.
+    // The B chat disappears from the engine: that link goes, the other delivers.
     engine.db.prepare('DELETE FROM channel_subscriptions WHERE channel_id=?').run(b);
     engine.db.prepare('DELETE FROM channels WHERE id=?').run(b);
     await turn(a, ['Draft ready']);
     await tick();
-    expect(product.store.flows.link(broken.id)).toMatchObject({ on: false, pausedReason: 'unavailable' });
+    expect(product.store.flows.link(broken.id)).toBeNull();
     expect(await handoffs(c)).toHaveLength(1);
     expect(deliveries(fine.id)).toEqual([expect.objectContaining({ status: 'delivered' })]);
+  });
+
+  it('removes links to and from a deleted chat, paused ones included, and keeps the rest', async () => {
+    const c = await chat('C', [{ type: 'AGENT', id: 'Pom' }]);
+    const into = await link(owner, { from: a, to: b, who: 'Pom' });
+    const out = await link(owner, { from: b, to: c, who: 'Pom' });
+    const kept = await link(owner, { from: a, to: c, who: 'Pom' });
+    product.store.flows.pause(into.id, 'unavailable', 'system');
+    // Deleted outside Nest (an agent, another tool): the engine no longer has the chat at all.
+    engine.db.prepare('DELETE FROM channel_subscriptions WHERE channel_id=?').run(b);
+    engine.db.prepare('DELETE FROM channels WHERE id=?').run(b);
+    await tick();
+    expect(product.store.flows.link(into.id)).toBeNull();
+    expect(product.store.flows.link(out.id)).toBeNull();
+    expect(product.store.flows.link(kept.id)).toMatchObject({ on: true });
+    expect((await needs(owner)).filter((item: { kind: string }) => item.kind === 'paused')).toEqual([]);
   });
 
   it('wakes on a completed turn without waiting for the next tick', async () => {

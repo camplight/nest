@@ -139,6 +139,26 @@ export function createFlowStore(db: Database.Database, clock: () => number = Dat
     })();
   }
 
+  /** A deleted chat: every link to or from it goes, with its deliveries. Returns the removed link ids. */
+  function removeLinksOf(channelIds: string[], actor: string): string[] {
+    if (!channelIds.length) return [];
+    return db.transaction(() => {
+      const ids = linksTouching(channelIds).map(link => link.id);
+      for (const id of ids) removeLink(id, actor);
+      return ids;
+    })();
+  }
+
+  /** Links with an end that is not among the chats that exist (the engine's full list); they go, with their deliveries. */
+  function removeOrphanLinks(existing: ReadonlySet<string>, actor: string): string[] {
+    return db.transaction(() => {
+      const rows = db.prepare('SELECT id,from_channel,to_channel FROM product_links ORDER BY created_at, id').all() as { id: string; from_channel: string; to_channel: string }[];
+      const ids = rows.filter(r => !existing.has(r.from_channel) || !existing.has(r.to_channel)).map(r => r.id);
+      for (const id of ids) removeLink(id, actor);
+      return ids;
+    })();
+  }
+
   function removeLink(id: string, actor: string): void {
     db.transaction(() => {
       if (db.prepare('DELETE FROM product_links WHERE id=?').run(id).changes) audit('link-removed', actor, { linkId: id });
@@ -226,6 +246,6 @@ export function createFlowStore(db: Database.Database, clock: () => number = Dat
       .run(name, holder, now + ms, now).changes > 0;
   }
 
-  return { createLink, link, linksTouching, activeSources, patchLink, pause, archiveLinks, unarchiveLinks, removeLink, scannedTo, advance, claimDelivery, leaseExpired, finishDelivery, reclaim, deliveredSince, awaiting, pausedLinks, delivery, recordFork, forkOf, forksOf, lease };
+  return { createLink, link, linksTouching, activeSources, patchLink, pause, archiveLinks, unarchiveLinks, removeLink, removeLinksOf, removeOrphanLinks, scannedTo, advance, claimDelivery, leaseExpired, finishDelivery, reclaim, deliveredSince, awaiting, pausedLinks, delivery, recordFork, forkOf, forksOf, lease };
 }
 export type FlowStore = ReturnType<typeof createFlowStore>;

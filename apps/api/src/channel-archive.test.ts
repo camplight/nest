@@ -73,4 +73,16 @@ describe('archiving a chat through Nest, against the unchanged engine', () => {
     expect(await res.json()).toEqual({ error: 'Forbidden' });
     expect(product.store.flows.link(l.id)).toMatchObject({ on: true, pausedReason: null });
   });
+
+  it('deleting a chat through Nest removes its hand-off links; a refused delete keeps them', async () => {
+    const a = await chat(owner, 'Source'), b = await chat(owner, 'Target'), c = await chat(owner, 'Other');
+    const gone = link(a, b), kept = link(a, c);
+    const waiting = product.store.flows.claimDelivery(gone.id, 'turn-1', 'awaiting', 1000)!;
+    expect((await call(mate, 'DELETE', `/api/channels/${b}`)).status).toBe(403);
+    expect(product.store.flows.link(gone.id)).not.toBeNull();
+    expect((await call(owner, 'DELETE', `/api/channels/${b}`)).status).toBeLessThan(300);
+    expect(product.store.flows.link(gone.id)).toBeNull();
+    expect(product.store.flows.delivery(waiting.id)).toBeNull();
+    expect(product.store.flows.link(kept.id)).not.toBeNull();
+  });
 });

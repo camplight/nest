@@ -123,6 +123,17 @@ describe('flow store', () => {
     expect(store.flows.unarchiveLinks(null, ['a'], (id, creator) => creator === 'v' && id === 'c')).toEqual([mine.id]);
     expect(store.flows.link(theirs.id)).toMatchObject({ on: false, pausedReason: 'archived' });
   });
+  it('removes the links of chats that no longer exist, and their deliveries', () => {
+    const gone = mk('a', 'b'), alsoGone = mk('c', 'a'), kept = mk('c', 'd');
+    const d = store.flows.claimDelivery(gone.id, 't1', 'awaiting', 1000)!;
+    expect(store.flows.removeLinksOf(['a'], 'u').sort()).toEqual([gone.id, alsoGone.id].sort());
+    expect(store.flows.link(gone.id)).toBeNull();
+    expect(store.flows.delivery(d.id)).toBeNull();
+    expect(store.flows.link(kept.id)).not.toBeNull();
+    const orphan = mk('c', 'x');
+    expect(store.flows.removeOrphanLinks(new Set(['c', 'd']), 'system')).toEqual([orphan.id]);
+    expect(store.flows.link(kept.id)).not.toBeNull();
+  });
   it('settles only the given open statuses', () => {
     const l = mk('a', 'b');
     const d = store.flows.claimDelivery(l.id, 't1', 'awaiting', 1000)!;

@@ -308,6 +308,11 @@ export function createHandoffWorker({ store, orgops, token, switchyard, summariz
     const service = await serviceOrNull();
     if (!service) return;
     const ctx = snapshot(service);
+    // Links to or from a chat that no longer exists (deleted anywhere, Nest or not) go; the service sees every chat.
+    try {
+      const channels = await ctx.channels();
+      if (channels.size) for (const id of flows.removeOrphanLinks(new Set(channels.keys()), 'system')) log(`[flows] link ${id} removed: its chat was deleted`);
+    } catch (error) { log(`[flows] checking for deleted chats failed: ${describe(error)}`); }
     try { await switchyard.drain(); } catch (error) { log(`[flows] draining Switchyard's receipts failed: ${describe(error)}`); }
     try { await retryExpired(ctx, at); } catch (error) { log(`[flows] retrying hand-offs failed: ${describe(error)}`); }
     for (const { channelId, links } of flows.activeSources()) {
