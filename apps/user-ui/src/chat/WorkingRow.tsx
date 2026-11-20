@@ -9,6 +9,7 @@ import type {WorkingTurn} from './working';
 import {WorkingRing} from './WorkingRing';
 import {useChatPortal} from './ui/portal';
 import {useTapCard} from './tap-card';
+import './tap-hint.css';
 
 export function WorkingRow({turn,activityUnavailable,onReview,events=[]}:{turn:WorkingTurn;activityUnavailable?:boolean;onReview():void;events?:readonly EventRow[]}):JSX.Element|null{
  const container=useChatPortal();
@@ -31,7 +32,7 @@ const Row=forwardRef<HTMLDivElement,{turn:WorkingTurn;activityUnavailable?:boole
  // Only the whitelisted progress text reaches the page, never tool data (anti-goal 5.6).
  return <div ref={ref} {...rest} tabIndex={focusable?0:undefined} role="status" data-aui-quote-selectable="false" data-agent={turn.agent} data-turn-state={turn.interrupted?'interrupted':activityUnavailable?'unavailable':'working'}
   className="working-row mb-2 flex w-full max-w-3xl min-w-0 gap-3 self-start rounded-xl px-2 py-1 animate-in fade-in slide-in-from-bottom-1 duration-200">
-  <div className="w-8 shrink-0 pt-0.5"><AgentAvatar name={turn.agent} size={32}/></div>
+  <div className="w-8 shrink-0 pt-0.5">{focusable?<span className="working-row-avatar"><AgentAvatar name={turn.agent} size={32}/></span>:<AgentAvatar name={turn.agent} size={32}/>}</div>
   <div className="min-w-0 flex-1">
    <div className="flex min-w-0 items-center gap-2">
     <strong className="min-w-0 text-sm font-semibold leading-5 text-foreground [overflow-wrap:anywhere]">{turn.agent}</strong>

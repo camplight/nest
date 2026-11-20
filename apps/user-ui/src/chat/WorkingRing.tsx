@@ -45,7 +45,7 @@ export function WorkingRing({agent,since,events,finished}:{agent:string;since:nu
   seen.current=counts;
  },[state,reduced]);
  const placed=state.stations.map((station,index)=>({station,...position(index,state.stations.length)}));
- return <div className="working-ring w-[min(380px,calc(100vw-32px))] text-foreground">
+ return <div className="working-ring w-[min(380px,calc(100vw-66px))] text-foreground">
   <div className="flex items-baseline justify-between gap-3 text-sm">
    <strong className="working-ring-status min-w-0 truncate font-semibold">{finished?finishedText(agent,finished):ringStatusText(agent,state.status,now)}</strong>
    <span className="flex shrink-0 gap-1.5 text-xs text-muted-foreground">{!finished&&<><span>{elapsed(now-since)}</span><span aria-hidden="true">·</span></>}<span>{state.actions} {state.actions===1?'action':'actions'}</span></span>

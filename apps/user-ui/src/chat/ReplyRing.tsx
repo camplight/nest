@@ -7,6 +7,7 @@ import {finishedTurn} from './ring';
 import {WorkingRing} from './WorkingRing';
 import {useChatPortal} from './ui/portal';
 import {useTapCard} from './tap-card';
+import './tap-hint.css';
 
 export function ReplyRing({agent,events,children}:{agent:string;events:readonly EventRow[];children:ReactNode}):JSX.Element{
  const container=useChatPortal();
