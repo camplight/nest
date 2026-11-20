@@ -286,12 +286,30 @@ describe('project workflow against the unchanged engine',()=>{
     expect((await request(`${taskPath()}/dispatch`,{version:0},otherHeaders)).status).toBe(404);
     expect((await request('/api/projects',{id:randomUUID(),name:'Forbidden',channelId},otherHeaders)).status).toBe(403);
   });
-  it('hides projects whose engine conversation has been archived',async()=>{
+  it('keeps an archived project listed, tagged archived and readable, but out of the dashboard and closed to edits',async()=>{
     expect((await request(`/api/channels/${channelId}/archive`,{})).status).toBe(200);
     const overview=await (await request('/api/projects/dashboard')).json();
     expect(overview.projects).toEqual([]);expect(overview.reviews).toEqual([]);expect(overview.tasks.total).toBe(0);
-    expect(await (await request('/api/projects')).json()).toEqual([]);
+    expect(await (await request('/api/projects')).json()).toEqual([expect.objectContaining({id:projectId,archived:true})]);
+    const detail=await request(`/api/projects/${projectId}`);
+    expect(detail.status).toBe(200);expect(await detail.json()).toMatchObject({id:projectId,archived:true});
     expect((await request(`${taskPath()}/dispatch`,{version:0})).status).toBe(404);
+    expect((await request(`/api/projects/${projectId}/tasks`,{title:'More',agentName:'Builder',instructions:'x'})).status).toBe(404);
+    expect((await request(`/api/channels/${channelId}/unarchive`,{})).status).toBe(200);
+    expect(await (await request('/api/projects')).json()).toEqual([expect.not.objectContaining({archived:true})]);
+  });
+  it('shows a team member an archived team project tagged, and still refuses their edits',async()=>{
+    expect((await request('/api/humans/invite',{username:'mate',tempPassword:'password'})).status).toBe(201);
+    const body={id:randomUUID(),name:'Team room',collaboration:'team',members:[{subscriberType:'HUMAN',subscriberId:'mate'}]};
+    const project=await (await request('/api/projects',body)).json();
+    engine.db.prepare("UPDATE humans SET must_change_password=0 WHERE username='mate'").run();
+    const login=await request('/api/auth/login',{username:'mate',password:'password'});
+    const mate={'content-type':'application/json',cookie:login.headers.get('set-cookie')!.split(';')[0]};
+    expect((await request(`/api/channels/${project.channelId}/archive`,{})).status).toBe(200);
+    expect(await (await request('/api/projects',undefined,mate)).json()).toEqual([expect.objectContaining({id:project.id,archived:true})]);
+    expect(await (await request(`/api/projects/${project.id}`,undefined,mate)).json()).toMatchObject({archived:true});
+    expect((await product.app.request(`/api/projects/${project.id}`,{method:'PATCH',headers:mate,body:JSON.stringify({name:'Not mine',description:'',expected:{name:project.name,description:project.description}})})).status).toBe(404);
+    expect((await request(`/api/channels/${project.channelId}/unarchive`,{},mate)).status).toBe(403);
   });
   it('rejects malformed input and reserves unknown product routes',async()=>{
     expect((await request('/api/projects',{name:'Missing identity'})).status).toBe(400);

@@ -529,9 +529,13 @@ intent for safe retries. There is no automatic sharing of historical projects.
 The creator remains the project owner and invitation manager. Historical task
 mutations and reviews remain owner-only compatibility APIs.
 All project routes require a signed-in human with password
-setup complete and recheck current chat access. Archived/deleted/inaccessible
-chats make the project unavailable without deleting its history. Unarchive or
-restore access to recover it.
+setup complete and recheck current chat access. Deleted or inaccessible chats
+make the project unavailable without deleting its history; restore access to
+recover it. An archived chat keeps the project listed: `GET /api/projects` returns
+it after the active ones with `archived: true` (for its owner, or a team member
+in the chat), and `GET /api/projects/:id` opens it read-only with `archived: true`.
+The dashboard leaves it out, and every edit stays refused until the chat is
+unarchived.
 
 Tasks store a title, brief, acceptance criteria and assigned agent. Creating a
 task queues it; sending explicitly subscribes the agent and posts a targeted

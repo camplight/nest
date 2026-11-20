@@ -30,7 +30,9 @@ export function registerProjectRoutes(app: Hono, {store, orgops, engineToken}: {
     if (!human) return c.json({error:'Unauthorized'},401);
     if (human.mustChangePassword) return c.json({error:'Complete password setup first'},403);
     c.set('human',human);
-    c.set('channels',await orgops.humanJson<Channel[]>('/api/channels',c.req.raw.headers));
+    // Archived chats are read too, so an archived project stays listed and readable; every edit check below
+    // still requires an active chat.
+    c.set('channels',await orgops.humanJson<Channel[]>('/api/channels?includeArchived=1',c.req.raw.headers));
     c.header('Cache-Control','no-store');
     await next();
   });
@@ -42,6 +44,17 @@ export function registerProjectRoutes(app: Hono, {store, orgops, engineToken}: {
   function visibleProjects(human:Human,channels:Channel[]) {
     const teamChannels=channels.filter(channel=>channel.canPost&&!channel.archivedAt&&channel.participants?.some(member=>member.subscriberType==='HUMAN'&&member.subscriberId===human.username)).map(channel=>channel.id);
     return db.projects(human.id,teamChannels).filter(project=>canView(project,human,channels));
+  }
+  const member=(channel:Channel,human:Human)=>channel.participants?.some(m=>m.subscriberType==='HUMAN'&&m.subscriberId===human.username)??false;
+  /** An archived project: its chat is archived, and the viewer owns it (and may manage the chat) or is in the team. */
+  function archivedView(project:Project,human:Human,channels:Channel[]) {
+    const channel=channels.find(item=>item.id===project.channelId&&item.archivedAt);
+    if(!channel)return false;
+    return project.ownerId===human.id?channel.canManage:project.collaboration==='team'&&member(channel,human);
+  }
+  function archivedProjects(human:Human,channels:Channel[]):Project[] {
+    const teamChannels=channels.filter(channel=>channel.archivedAt&&member(channel,human)).map(channel=>channel.id);
+    return db.projects(human.id,teamChannels).filter(project=>archivedView(project,human,channels)).map(project=>({...project,archived:true}));
   }
   function owned(id: string, human: Human, channels: Channel[]): Project {
     const value = db.project(id);
@@ -70,7 +83,7 @@ export function registerProjectRoutes(app: Hono, {store, orgops, engineToken}: {
     return event.type==='message.created' && event.source===`agent:${task.agentName}` && event.channelId===project.channelId &&
       task.dispatchedAt !== null && event.createdAt>task.dispatchedAt && typeof event.payload?.text==='string' && event.payload.text.trim().length>0;
   }
-  routes.get('/api/projects', c => c.json(visibleProjects(c.get('human'),c.get('channels'))));
+  routes.get('/api/projects', c => c.json([...visibleProjects(c.get('human'),c.get('channels')),...archivedProjects(c.get('human'),c.get('channels'))]));
   async function memberOptions(headers:HeadersInit,human:Human):Promise<ProjectMemberOption[]> {
     const [humans,agents]=await Promise.all([
       orgops.humanJson<{username:string}[]>('/api/humans',headers),
@@ -180,6 +193,7 @@ export function registerProjectRoutes(app: Hono, {store, orgops, engineToken}: {
   });
   routes.get('/api/projects/:projectId', c => {
     const project=db.project(c.req.param('projectId'));
+    if(project&&archivedView(project,c.get('human'),c.get('channels')))return c.json({...db.detail(project),archived:true});
     if(!project||!canView(project,c.get('human'),c.get('channels')))throw new HTTPException(404,{message:'Project unavailable or conversation access has changed'});
     return c.json(db.detail(project));
   });
