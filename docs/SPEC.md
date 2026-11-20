@@ -1135,6 +1135,11 @@ Phase 1 is built from
    tokens with dark values. Card text keeps at least 4.5:1 contrast in both themes,
    and a focused card keeps an outline in forced-colours mode.
 
+   Notices are one toast at a time (`canvas/one-toast.ts`): a new canvas or member
+   notice replaces the one still showing. The toast sits bottom centre over the board,
+   10 px above the bottom box (its top edge is measured into `--canvas-dock-top`), in
+   inverted text and background colours; upload progress rows stack above it.
+
 7. Checks. `apps/api/src/canvases.test.ts` and `canvas-board.test.ts` run the routes
    against real Nest-to-OrgOps handlers with temporary databases.
    `npm run test:ui:canvas` (run in CI by `.github/workflows/product.yml`) drives the
@@ -1384,7 +1389,9 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    `POST /api/files` and the engine's `POST /api/voice/transcribe`. The transcript
    fills the draft and the audio is attached. If transcription is off or fails, the
    audio is still attached and a message says so. Cancelling at any stage discards
-   the recording, transcript and attachment.
+   the recording, transcript and attachment. In the reply box the mic is icon-only
+   (`Record a voice note`); while recording it turns coral as the stop button and
+   the status shows a `Listening…` chip with the time.
 
 9. Checks. `apps/api/src/canvas-context.test.ts`, `context-files.test.ts` and
    `context-agents.test.ts` run against real Nest-to-OrgOps handlers with temporary
