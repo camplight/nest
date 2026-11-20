@@ -6,6 +6,7 @@ import {fileHref,formatAttachmentSize} from '../attachments';
 import {fileKind} from '../canvas/context-label';
 import {VIEWER_COPY,ViewableFileTile} from '../canvas/FileViewer';
 import {isPlainClick,startViewerLoad} from '../canvas/file-viewer';
+import {VoicePlayer} from '../canvas/VoicePlayer';
 import type {MessageAttachment} from './timeline';
 import {Button} from './ui/button';
 import {ImageZoom} from './ui/ImageZoom';
@@ -38,8 +39,8 @@ export function InlineAudio({name,mime,href,size,fetchFile=fetch}:{name:string;m
   return startViewerLoad({file:{name,mime,size,href},kind:'audio',fetchFile,onResult:result=>setState(
    result.status==='url'?{status:'ready',url:result.url}:{status:result.status==='too-large'?'too-large':'failed'})});
  },[load,name,mime,size,href,fetchFile]);
- if(state.status==='ready')return <audio ref={takeFocus} className="message-audio block w-full max-w-[420px]" src={state.url} controls autoPlay aria-label={name}
-  onError={()=>setState({status:'failed'})}/>;
+ if(state.status==='ready')return <VoicePlayer src={state.url} name={name} size="compact" autoPlay buttonRef={takeFocus}
+  onFailed={()=>setState({status:'failed'})}/>;
  if(state.status==='too-large'||state.status==='failed')
   return <span ref={takeFocus} tabIndex={-1} className="text-xs text-muted-foreground" role={state.status==='failed'?'alert':undefined}>{state.status==='failed'?VIEWER_COPY.failed:VIEWER_COPY.tooLarge}</span>;
  const loading=state.status==='loading';

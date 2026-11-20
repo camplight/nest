@@ -8,6 +8,7 @@ import {formatAttachmentSize} from '../attachments';
 import {fileTypeLabel} from './context-label';
 import {FileTile,type FileTileProps} from './FileTile';
 import {FILE_VIEWER_ATTR,VIEWER_MAX_BYTES,returnFocus,startViewerLoad,viewerKind,type ViewerFile,type ViewerKind,type ViewerResult} from './file-viewer';
+import {VoicePlayer} from './VoicePlayer';
 import './file-tile.css';
 
 export type ViewerState = {status: 'loading'} | ViewerResult;
@@ -81,7 +82,7 @@ export function FileViewerBody({name, kind, state, onFailed}: {name: string; kin
     }
     case 'url':
       if (kind === 'image') return <img className="file-viewer-image" src={state.url} alt={name} onError={onFailed}/>;
-      if (kind === 'audio') return <audio className="file-viewer-audio" src={state.url} controls autoPlay onError={onFailed}/>;
+      if (kind === 'audio') return <VoicePlayer src={state.url} name={name} autoPlay onFailed={onFailed}/>;
       if (kind === 'video') return <video className="file-viewer-video" src={state.url} controls autoPlay playsInline onError={onFailed}/>;
       // Phones (Android Chrome) show no PDF in a frame: the link, shown at 760 px or narrower, opens the browser's viewer.
       if (kind === 'pdf') return <>

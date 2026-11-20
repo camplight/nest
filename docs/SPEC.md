@@ -964,8 +964,8 @@ Phase 1 is built from
    menus beneath it (the context popover, a hand-off popover, the chat's More menu, an
    area menu, the agent picker) ignore presses inside it and leave its Escape to it. The kind comes from the file's MIME type, else its
    extension when the type is missing or `application/octet-stream`: PNG, JPEG, GIF,
-   WebP and AVIF pictures fit the dialog; audio (voice notes included) and video play
-   in native players (a picture or recording the browser cannot decode says `Could not
+   WebP and AVIF pictures fit the dialog; audio (voice notes included) plays in the Nest
+   voice player (below) and video in the native player (a picture or recording the browser cannot decode says `Could not
    open this file. Download it instead.`); a PDF shows in the browser's viewer, and at
    760 px or narrower an `Open in a new tab` link above it opens the PDF in the browser
    (phones often show no PDF inside a frame); text, Markdown, JSON, logs and YAML show
@@ -3102,8 +3102,10 @@ returned attachment in their message payload. No public static copy is created.
 
 A plain click on an inline preview opens a zoom view of the image with an "Open original" link. A click with a modifier key, a middle click and keyboard activation still follow the file link as before. SVG files stay link only and never open in the zoom view.
 
-Audio attachments (voice notes included) in the Attachments list also get a `Play <name>` button. The file is fetched only on the first press, with the file viewer's rules (with the session, an allowlisted audio type, the 25 MB cap), then a native player replaces the button and starts playing, taking keyboard focus when the button had it (the button stays focusable while the file loads); the object URL is revoked when the message unmounts. Over the cap it says `Too large to preview here.`, and a failed request says `Could not open this file. Download it instead.`
+Audio attachments (voice notes included) in the Attachments list also get a `Play <name>` button. The file is fetched only on the first press, with the file viewer's rules (with the session, an allowlisted audio type, the 25 MB cap), then the compact Nest voice player replaces the button and starts playing, its play button taking keyboard focus when the Play button had it (the button stays focusable while the file loads); the object URL is revoked when the message unmounts. Over the cap it says `Too large to preview here.`, and a failed request says `Could not open this file. Download it instead.`
 
+
+The Nest voice player (`canvas/VoicePlayer.tsx`, `voice-player.ts`) replaces the browser's audio controls in the file viewer and in chat: a round lime play/pause button (`Play <name>` / `Pause <name>`), the recording's own waveform in 48 bars (decoded in the browser with Web Audio; a file it cannot decode gets a stable stand-in waveform from its name) that fills in the accent colour as it plays, the clock `0:03 / 0:12` (its length taken from the decoded audio when the element reports none, as MediaRecorder WebM does), and a speed pill cycling 1×, 1.5× and 2×. The waveform is a `slider` named `Position in <name>` with the value text `0:03 of 0:12`: a press or drag seeks, arrow keys move 5 seconds, Home and End jump to the ends. The chat version is compact. Only brand tokens are used, so instance themes and dark mode follow; reduced motion removes the button's scale and colour transitions.
 
 ## Chat sender avatars
 

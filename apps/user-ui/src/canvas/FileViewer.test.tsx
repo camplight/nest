@@ -59,8 +59,9 @@ describe('FileViewerBody',()=>{
   it('switches to the failed copy when a picture or player cannot decode the file',()=>{
     for(const kind of ['image','audio','video'] as const){
       const onFailed=vi.fn();
-      const element=FileViewerBody({name:'file',kind,state:{status:'url',url:'blob:x'},onFailed}) as ReactElement<{onError():void}>;
-      element.props.onError();
+      const element=FileViewerBody({name:'file',kind,state:{status:'url',url:'blob:x'},onFailed}) as ReactElement<{onError?():void;onFailed?():void}>;
+      // The voice player takes onFailed and hands it to its own <audio onError>.
+      (element.props.onError??element.props.onFailed)!();
       expect(onFailed,kind).toHaveBeenCalledOnce();
     }
   });
@@ -75,7 +76,9 @@ describe('FileViewerBody',()=>{
 
   it('plays, shows or embeds an object URL by kind',()=>{
     expect(body('image',{status:'url',url:'blob:x'})).toContain('<img');
-    expect(body('audio',{status:'url',url:'blob:x'})).toMatch(/<audio[^>]*controls/);
+    const audio=body('audio',{status:'url',url:'blob:x'});
+    expect(audio).toContain('class="voice-player"');
+    expect(audio).not.toMatch(/<audio[^>]*controls/);
     expect(body('video',{status:'url',url:'blob:x'})).toMatch(/<video[^>]*controls/);
     expect(body('pdf',{status:'url',url:'blob:x'})).toMatch(/<iframe[^>]*src="blob:x"[^>]*title="file"/);
   });
