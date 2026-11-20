@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {inviteLabel} from './invite-label';
+import {inviteLabel,startLabel} from './invite-label';
 
 const card=(over:Partial<{title:string;access:string;manageable:boolean;members:string[]}>={})=>({title:'Launch',access:'open',manageable:true,members:['Pip'],...over});
 
@@ -10,4 +10,10 @@ describe('inviteLabel',()=>{
     for(const over of [{manageable:false},{access:'locked'},{access:'unavailable'}])
       expect(inviteLabel({agent:'Moss',card:card(over)})).toBe("You can't add agents to this chat");
   });
+});
+
+describe('startLabel',()=>{
+  it('offers a chat with the agent on empty canvas',()=>{ expect(startLabel('Moss')).toBe('Start a chat with Moss'); });
+  it('names the area the chat would join',()=>{ expect(startLabel('Moss','Research')).toBe('Start a chat with Moss in Research'); });
+  it('leaves out a blank area title',()=>{ expect(startLabel('Moss','')).toBe('Start a chat with Moss'); });
 });

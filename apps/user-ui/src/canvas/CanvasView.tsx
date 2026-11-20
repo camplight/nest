@@ -17,6 +17,7 @@ import {FOLDER_NOTICE,dragCarriesFiles,outsideCanvasChat} from '../components/fi
 import {ChatHeaderSlotsContext,type ChatHeaderSlots} from '../chat/header-slots';
 import {nudgeMessage,type CanvasLive} from './live';
 import {LooseDrawer,LooseToggle,MAX_BULK} from './LooseDrawer';
+import {newChatMembers,startFailed,startSpot} from './agent-drop';
 import {CARD_PLACE_HEIGHT,areaAround,clearOfCards,dropLayout,gridPlacement,looseChats,looseNeedsYou,slotInArea,slotOutsideAreas,type Placed} from './loose';
 import {SPLIT_MAX,SPLIT_MIN,clampSplit,readSplit,splitAt,writeSplit} from './split';
 import {cardTitle} from './Card';
@@ -945,28 +946,37 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
   const lastModeRef = useRef<CanvasChatMode>('focus');
   if (chatShown && shownMode) lastModeRef.current = shownMode;
   const startingChat = useRef(false);
+  /** A new chat at a canvas point (an agent dropped on empty canvas): centred there, nudged clear of other cards. */
+  const placeAt = useCallback((channelId: string, at: Point) => {
+    const current = store.snapshot().board;
+    if (!current) return Promise.resolve(false);
+    return applyTracked({kind: 'placeCards', cards: [{channelId, ...clampPoint(startSpot(at, measured(current.cards)))}]});
+  }, [store, applyTracked, measured]);
   /**
-   * The toolbar's `Chat` and an area's `+ Chat` (editors): a new team chat named "New chat" (the first message names it,
-   * as from the bottom box) with the person's own agent, if they have one, placed at the view's centre or inside the area
-   * (which grows to hold it), then opened in the current or last chat mode with its composer focused.
+   * The toolbar's `Chat`, an area's `+ Chat` and an agent dropped from the tray on empty canvas (editors): a new team chat
+   * named "New chat" (the first message names it, as from the bottom box) with the dropped agent, or else the person's own
+   * agent if they have one, placed at the drop point, inside the area (which grows to hold it) or at the view's centre,
+   * then opened in the current or last chat mode with its composer focused.
    */
-  const newChat = useCallback(async (areaId?: string) => {
+  const newChat = useCallback(async ({areaId, at, agent}: {areaId?: string; at?: Point; agent?: string} = {}) => {
     const current = store.snapshot().board;
     if (!current || current.canvas.role === 'view' || phoneListRef.current || startingChat.current) return;
     startingChat.current = true;
     try {
       let project: Project;
       try {
-        const roster = await apiJson<{personalAgent: {subscriberId: string} | null}>('/api/projects/members').catch(() => null);
-        const members = roster?.personalAgent ? [{subscriberType: 'AGENT', subscriberId: roster.personalAgent.subscriberId}] : [];
+        // A dropped agent is the chat's only agent, so the person's own agent is not looked up.
+        const roster = agent ? null : await apiJson<{personalAgent: {subscriberId: string} | null}>('/api/projects/members').catch(() => null);
+        const members = newChatMembers(agent, roster?.personalAgent?.subscriberId);
         project = await apiJson<Project>('/api/projects', {method: 'POST', headers: getApiHeaders(),
           body: JSON.stringify({id: crypto.randomUUID(), name: NEW_CHAT_NAME, members, collaboration: 'team'})});
-      } catch { say('Could not start a new chat. Try again.'); return; }
+      } catch { say(startFailed(agent)); return; }
       await refreshRef.current().catch(() => {});
       const now = store.snapshot().board;
       if (!now || now.canvas.id !== current.canvas.id) return;
       const area = areaId ? now.areas.find(a => a.id === areaId) : undefined;
-      if (!await (area ? placeInArea(project.channelId, area) : place([project.channelId], false))) { say('Could not put the new chat on the canvas. Try again.'); return; }
+      const placed = area ? placeInArea(project.channelId, area) : at ? placeAt(project.channelId, at) : place([project.channelId], false);
+      if (!await placed) { say('Could not put the new chat on the canvas. Try again.'); return; }
       // Let App's refreshed chat list reach the canvas before opening the chat from it.
       await new Promise(resolve => requestAnimationFrame(resolve));
       setSelectedId(project.channelId);
@@ -982,9 +992,11 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
       };
       requestAnimationFrame(focus);
     } finally { startingChat.current = false; }
-  }, [store, say, place, placeInArea]);
+  }, [store, say, place, placeInArea, placeAt]);
   const newChatHere = useCallback(() => void newChat(), [newChat]);
-  const newChatInArea = useCallback((areaId: string) => void newChat(areaId), [newChat]);
+  const newChatInArea = useCallback((areaId: string) => void newChat({areaId}), [newChat]);
+  /** An agent dropped from the tray on empty canvas: in an area the chat joins it; elsewhere it lands at the drop point. */
+  const dropAgentAt = useCallback((agent: string, at: Point, areaId: string | null) => void newChat(areaId ? {agent, areaId} : {agent, at}), [newChat]);
   /**
    * The open chat's header moves its card into an area (a free spot under the title bar; the area
    * grows to fit) or, with no area, just outside the one it is in. A loose chat is placed straight
@@ -1609,7 +1621,7 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
       <div className="canvas-stage">
         <Surface key={board.canvas.id} board={board} humanId={humanId} onApply={applyTracked} pulses={pulses} onNudge={sendNudge}
           onDropChat={canPlace ? dropChat : undefined} controls={controls} onOpenChat={openFromCard} openChannelId={chatShown ? chatChannelId : null} windowChannelIds={windowChannelIds}
-          onDropAgent={dropAgent} onRemoveAgent={removeAgent} canManageCard={manageable} onSelectCard={setSelectedId} selectedChannelId={selected?.channelId ?? null}
+          onDropAgent={dropAgent} onDropAgentAt={canPlace ? dropAgentAt : undefined} onRemoveAgent={removeAgent} canManageCard={manageable} onSelectCard={setSelectedId} selectedChannelId={selected?.channelId ?? null}
           areaContext={areaContext} onAreaContext={openAreaContext} contextAreaId={panel?.kind === 'area' ? panel.areaId : null} onOpenCanvas={id => onSelectCanvas(id)} onDropFiles={dropFiles}
           needs={cardNeeds} viewer={username} onNotice={say} onAreaCreated={setRenameAreaId} renameAreaId={renameAreaId} onRenameStarted={renameStarted}
           links={shownLinks} onOpenLink={openFlowLink} onToggleFork={toggleFork}

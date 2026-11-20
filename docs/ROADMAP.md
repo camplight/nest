@@ -709,7 +709,7 @@ kept outside the repo), mapped to Nest, where the chat is the unit. Each item is
 unordered; the owner picks the next one. Phase 4 (per-chat agent setup, sandboxes and
 repos; see the canvas design) is unchanged.
 
-In progress on the branch:
+Done on the branch:
 
 - **Start a chat by dropping an agent:** dropping a tray agent on empty canvas creates
   a chat with that agent there (inside an area, it joins the area and its context)

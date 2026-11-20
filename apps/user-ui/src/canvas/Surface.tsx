@@ -15,7 +15,8 @@ import {CARD_PLACE_HEIGHT} from './loose';
 import {clearOfDrawer,presentView,stageBounds} from './sheet';
 import {Links} from './Links';
 import {createPortal} from 'react-dom';
-import {draggedAgent,inviteLabel,setDraggedAgent} from './invite-label';
+import {draggedAgent,inviteLabel,setDraggedAgent,startLabel} from './invite-label';
+import {agentDropTarget} from './agent-drop';
 import {linkRelease,tempLinkPath} from './link-geometry';
 import {createMoveBurst,moveAnnouncement,nudge as arrowStep,pressArmsMove,type MoveBurst} from './keyboard-move';
 
@@ -38,6 +39,11 @@ export type SurfaceProps = {
   windowChannelIds?: ReadonlySet<string>;
   /** An agent from the tray or picker dropped on an open card. Locked and unavailable cards take no drop. */
   onDropAgent?(channelId: string, agent: string): void;
+  /**
+   * Editors: an agent from the tray dropped on empty canvas (no card under the pointer), at this canvas point, inside
+   * the area `areaId` or none. Without it, agent drags off a card take no drop.
+   */
+  onDropAgentAt?(agent: string, at: Point, areaId: string | null): void;
   /** An agent's face dragged more than REMOVE_DISTANCE outside its card. */
   onRemoveAgent?(channelId: string, agent: string): void;
   /** Whether the person may add and remove this card's agents; without it no face drags. */
@@ -190,7 +196,7 @@ const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + b.y) / 2});
 
 export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null, windowChannelIds = NO_WINDOWS,
-  onDropAgent, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onOpenCanvas, onDropFiles,
+  onDropAgent, onDropAgentAt, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onOpenCanvas, onDropFiles,
   needs = NO_NEEDS, viewer = '', onNotice, onAreaCreated, renameAreaId = null, onRenameStarted, onNewChat, onNewChatInArea, onViewChange, onEmptyPress, onFit,
   links, onOpenLink, onToggleFork, canConnect, onConnect, onNewStep, onLinkPick, schedules, zoomButtons = true}: SurfaceProps) {
   const canEdit = board.canvas.role !== 'view';
@@ -340,13 +346,15 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
 
   const dropRef = useRef(onDropChat); dropRef.current = onDropChat;
   const carriesChat = (event: ReactDragEvent) => canEdit && Boolean(dropRef.current) && event.dataTransfer.types.includes(CHAT_DRAG_TYPE);
-  // An agent drag targets the open card under the pointer; anywhere else (locked, unavailable, empty canvas) takes no drop.
+  // An agent drag targets the open card under the pointer (locked and unavailable cards take no drop); off any card,
+  // editors drop it on empty canvas to start a chat with it there.
   const agentDropRef = useRef(onDropAgent); agentDropRef.current = onDropAgent;
+  const startRef = useRef(onDropAgentAt); startRef.current = onDropAgentAt;
   const [dropId, setDropId] = useState<string | null>(null);
   /** The area a loose chat would land in if dropped now. */
   const [chatDropArea, setDropArea] = useState<{id: string; kind: 'chat' | 'files'} | null>(null);
   const setChatDropArea = (id: string | null, kind: 'chat' | 'files' = 'chat') => setDropArea(current => id ? (current?.id === id && current.kind === kind ? current : {id, kind}) : null);
-  // The label that follows an agent dragged over a card (its target says what dropping does).
+  // The label that follows an agent dragged over a card or empty canvas (its target says what dropping does).
   const [inviteTip, setInviteTip] = useState<{x: number; y: number; text: string} | null>(null);
   const tipFor = (event: ReactDragEvent) => {
     const agent = draggedAgent(), id = (event.target instanceof Element ? event.target.closest<HTMLElement>('.canvas-card') : null)?.dataset.channelId;
@@ -354,7 +362,14 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     setInviteTip(agent && card ? {x: event.clientX, y: event.clientY, text: inviteLabel({agent, card: {title: cardTitle(card), access: card.access,
       manageable: Boolean(canManageCard?.(card)), members: card.access === 'open' ? card.participants.filter(p => p.subscriberType === 'AGENT').map(p => p.subscriberId) : []}})} : null);
   };
-  const carriesAgent = (event: ReactDragEvent) => Boolean(agentDropRef.current) && event.dataTransfer.types.includes(AGENT_DRAG_TYPE);
+  const carriesAgent = (event: ReactDragEvent) => Boolean(agentDropRef.current || startRef.current) && event.dataTransfer.types.includes(AGENT_DRAG_TYPE);
+  /** Where an agent drag would land: the card under the pointer, empty canvas (and its area) when a chat can start there, or nowhere. */
+  const agentTargetAt = (event: ReactDragEvent) => {
+    const cardId = (event.target instanceof Element ? event.target.closest<HTMLElement>('.canvas-card') : null)?.dataset.channelId;
+    const at = toCanvas(viewRef.current, local(event));
+    const area = cardId ? undefined : areaFor(at, boardRef.current.areas);
+    return {target: agentDropTarget({cardId, areaId: area?.id ?? null, canStart: canEdit && Boolean(startRef.current)}), at, area};
+  };
   const openCardAt = (event: ReactDragEvent) => {
     const id = (event.target instanceof Element ? event.target.closest<HTMLElement>('.canvas-card') : null)?.dataset.channelId;
     const card = id ? boardRef.current.cards.find(c => c.channelId === id) : undefined;
@@ -398,6 +413,17 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       return;
     }
     if (carriesAgent(event)) {
+      const {target, area} = agentTargetAt(event);
+      if (target?.kind === 'canvas') {
+        setDropId(null);
+        setChatDropArea(target.areaId);
+        const agent = draggedAgent();
+        setInviteTip(agent ? {x: event.clientX, y: event.clientY, text: startLabel(agent, area?.title)} : null);
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+        return;
+      }
+      setChatDropArea(null);
       const card = openCardAt(event);
       setDropId(card?.channelId ?? null);
       tipFor(event);
@@ -421,7 +447,14 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       return;
     }
     if (carriesAgent(event)) {
-      setDropId(null); setInviteTip(null);
+      setDropId(null); setInviteTip(null); setChatDropArea(null);
+      const {target, at} = agentTargetAt(event);
+      if (target?.kind === 'canvas') {
+        event.preventDefault();
+        const agent = event.dataTransfer.getData(AGENT_DRAG_TYPE);
+        if (agent) startRef.current?.(agent, at, target.areaId);
+        return;
+      }
       const card = openCardAt(event);
       if (!card) return;
       event.preventDefault();

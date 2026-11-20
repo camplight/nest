@@ -1005,14 +1005,18 @@ Phase 1 is built from
    named `Pin {name} to tray` with `aria-pressed` for its state (titled `Pin to tray` or
    `Unpin`); an eighth pin is refused with the notice `You can pin up to 7 agents. Unpin
    one first.` The footer says `Drag any agent onto a chat · ☆ pins it to the tray`;
-   areas take no agent drops. App grants are not shown or searched (the agent list
+   an editor may also drop a tray face on empty canvas to start a chat with it (see New
+   chats). App grants are not shown or searched (the agent list
    carries none). A face dragged far enough off
    its card to remove the agent shows `Remove {agent} from "{title}"` in coral.
 
    Inviting agents. While a tray or picker face is dragged over a card, a floating label
    follows the pointer: `Invite {agent} to "{title}"`, `{agent} is already here`, or
    `You can't add agents to this chat` (locked, unavailable or not manageable cards).
-   The native drag image is unchanged. For keyboard and touch, the open chat's More menu
+   Over empty canvas (no card under the pointer) an editor's label reads
+   `Start a chat with {agent}`, or `Start a chat with {agent} in {area title}` over an
+   area (which highlights); viewers and the phone list take no such drop. A drop on any
+   card behaves as above and never starts a chat. The native drag image is unchanged. For keyboard and touch, the open chat's More menu
    has `Add agent…` (when the person may manage the chat): a searchable picker of the
    roster the All agents picker lists, with Arrow, Enter and Escape; agents already in
    the chat read `In this chat` and are disabled; a pick runs the same add as a drop
@@ -1040,7 +1044,11 @@ Phase 1 is built from
    the view's centre or in a free spot inside the area (which grows to fit, so the chat
    shares the area's context), and opens it in the current chat mode (floating by
    default) with the composer focused. The first message names the chat, as from the
-   bottom box.
+   bottom box. An agent dropped from the tray on empty canvas does the same with that
+   agent as the chat's only agent (the person's own agent is not added): dropped in an
+   area, the card takes a free spot inside it (the area grows to fit); elsewhere it is
+   centred on the drop point and moved down below any card it would cover. A failed
+   create says `Could not start a chat with {agent}. Try again.`
 
    Renaming a chat. The chat's owner clicks its title in the open chat's header, or
    chooses `Rename chat` in the More menu. Enter or leaving the field saves through
