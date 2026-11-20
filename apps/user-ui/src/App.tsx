@@ -19,8 +19,8 @@ import {activeTurns as workingTurns} from './chat/working';
 import {useEngineCapabilities} from './engine-capabilities';
 import {ChatComposer,ComposerSessionProvider,type ComposerSessionOptions,type ChatComposerHandle} from './chat/ChatComposer';
 import {CanvasChatFilesBridge,mergeChatFiles,type CanvasChatFiles} from './canvas/ChatFilesBridge';
-import {Settings as SettingsIcon} from 'lucide-react';
-import {ArchivedTag, ChatSettingsDialog} from './components/ChatSettingsDialog';
+import {ArchivedTag, ChatSettingsButton, ChatSettingsDialog} from './components/ChatSettingsDialog';
+import {keepsProjectPage} from './project-archive';
 import {HuddleButton} from './huddle/HuddleButton';
 import './huddle/huddle.css';
 import type {ChannelEventsSnapshot} from './chat/channel-events';
@@ -1482,7 +1482,7 @@ export default function App() {
           ? activeChannelId
           : visibleChannels.find((channel) => !channel.archivedAt)?.id ?? null;
     // A listed project keeps its page when its chat is archived: it shows there tagged Archived.
-    if (view === "projects" && projectIndex.some(project => project.id === selectedProject && project.channelId === nextSelectedChannelId) && visibleChannels.some(channel => channel.id === nextSelectedChannelId)) {
+    if (view === "projects" && keepsProjectPage({selectedProject, channelId: nextSelectedChannelId, projects: projectIndex, channels: visibleChannels})) {
       setActiveChannelId(nextSelectedChannelId);
     } else selectChannel(nextSelectedChannelId, { replace: true });
     return nextChannels;
@@ -1542,7 +1542,7 @@ export default function App() {
           // This empty channel was created by this action. Do not leave a successful-looking
           // conversation without its requested participants, or duplicate it on retry.
           try { await apiFetch(`/api/channels/${encodeURIComponent(created.id)}`,{method:'DELETE'}); }
-          catch { await refreshChannels(created.id);throw Error('The chat was created, but participants could not be added. Use Manage channel to finish setup.'); }
+          catch { await refreshChannels(created.id);throw Error('The chat was created, but participants could not be added. Use Settings to finish setup.'); }
           throw Error('Could not add the participants. No new chat was kept; try again.');
         }
         setCollapsedChannelGroups((current) => ({ ...current, channels: false }));
@@ -1889,13 +1889,6 @@ export default function App() {
                 : activeChannel?.description || "Talk to the team and agents in plain language."}
             </p>
           </div>
-          {activeChannel && activeChannelManageable ? (
-            <div className="channel-actions">
-              <button type="button" onClick={() => setShowChannelManageDialog(true)}>
-                Settings
-              </button>
-            </div>
-          ) : null}
         </header>
 
         {error ? <div className="notice error" role="alert">{error}</div> : null}
@@ -1915,7 +1908,7 @@ export default function App() {
             wrappedAgents={wrappedParticipants}
             appActivity={canvasAvailable === true}
             flows={chatFlows}
-            headerMore={activeChannel && activeChannelManageable && <button type="button" className="huddle-launch channel-sharing-launch" aria-haspopup="dialog" aria-expanded={showChannelManageDialog} onClick={() => setShowChannelManageDialog(true)}><SettingsIcon size={17} aria-hidden="true"/>Settings</button>}
+            headerMore={activeChannel && activeChannelManageable && <ChatSettingsButton open={showChannelManageDialog} onOpen={() => setShowChannelManageDialog(true)}/>}
             headerStatus={activeChannel?.archivedAt ? <ArchivedTag canUnarchive={activeChannelManageable} busy={archivingChannel} onUnarchive={() => void setChannelArchived(activeChannel, false)}/> : null}
             headerActions={activeChannel && <HuddleButton key={activeChannel.id} channel={activeChannel} label={activeConversationName} username={username} agents={agents} events={threadSnapshot.events} canPost={activeChannelCanPost}/>}
             onPreviewDemo={path => setDemoPreview({channel: activeChannelId!, path})}

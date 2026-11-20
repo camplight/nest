@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {ArchivedTag,ChatSettingsDialog,type ChatSettingsDialogProps} from './ChatSettingsDialog';
+import {ArchivedTag,ChatSettingsButton,ChatSettingsDialog,type ChatSettingsDialogProps} from './ChatSettingsDialog';
 
 const noop=()=>{};
 const props=(over:Partial<ChatSettingsDialogProps>={}):ChatSettingsDialogProps=>({
@@ -41,5 +41,13 @@ describe('ArchivedTag',()=>{
     expect(text(allowed)).toContain('Archived');expect(allowed).toMatch(/<button[^>]*>Unarchive<\/button>/);
     const view=renderToStaticMarkup(<ArchivedTag canUnarchive={false} onUnarchive={noop}/>);
     expect(text(view)).toContain('Archived');expect(view).not.toContain('<button');
+  });
+});
+
+describe('ChatSettingsButton',()=>{
+  it('reads Settings and is named Chat settings, apart from an agent\'s Settings tab',()=>{
+    const html=renderToStaticMarkup(<ChatSettingsButton open={false} onOpen={noop}/>);
+    expect(html).toMatch(/^<button[^>]*aria-label="Chat settings"[^>]*aria-haspopup="dialog"[^>]*aria-expanded="false"/);
+    expect(text(html).trim()).toBe('Settings');
   });
 });

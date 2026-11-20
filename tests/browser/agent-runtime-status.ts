@@ -93,7 +93,7 @@ try {
   await participants.locator('article').filter({hasText:'Moss'}).getByText('Stopped',{exact:true}).waitFor();
   await page.screenshot({path:join(screenshots,'standalone-desktop.png'),fullPage:true});
   await page.setViewportSize({width:390,height:844});
-  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  await page.getByRole('button',{name:'Chat settings',exact:true}).click();
   await page.getByRole('button',{name:'Manage participants',exact:true}).click();
   const members=page.getByRole('dialog').filter({has:page.getByRole('heading',{name:'Manage participants',exact:true})});
   await members.locator('article').filter({hasText:'Puff'}).getByText('Running',{exact:true}).waitFor();

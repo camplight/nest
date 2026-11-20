@@ -15,7 +15,7 @@ export type LooseChat = {
   reason: string | null;
   /** The row's second line without a reason: `{agent} · {activity}`, else the last message's first line, else empty. */
   line: string;
-  /** The person may archive it for everyone: they manage the chat and, for a project chat, own the project. */
+  /** The person may archive it for everyone from the drawer: they own and manage the chat and, for a project chat, own the project. */
   manageable: boolean;
   /** Archived for everyone (listed only under Show archived). */
   archived: boolean;
@@ -79,7 +79,8 @@ export function looseChats({channels, projects, boardChannelIds, hidden, usernam
       lastActivityAt: pulse?.lastActivityAt ?? project?.createdAt ?? null,
       agents,
       ...status,
-      manageable: Boolean(channel.canManage) && (!project || project.ownerId === userId),
+      // The engine lets anyone manage a public chat; archiving one for everyone from here stays with its owner.
+      manageable: Boolean(channel.canManage && userId && channel.ownerHumanId === userId) && (!project || project.ownerId === userId),
       archived: Boolean(channel.archivedAt),
     });
   }

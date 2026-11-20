@@ -36,13 +36,16 @@ describe('looseChats',()=>{
   });
 
   it('lists archived chats, tagged archived, only while Show archived is on, and says which the person may manage',()=>{
-    const channels=[chat('mine',{canManage:true}),chat('theirs',{canManage:false}),chat('gone',{archivedAt:NOW-HOUR,canManage:true}),chat('team',{canManage:true})];
+    const channels=[chat('mine',{canManage:true,ownerHumanId:myId}),chat('theirs',{canManage:false}),chat('gone',{archivedAt:NOW-HOUR,canManage:true,ownerHumanId:myId}),chat('team',{canManage:true,ownerHumanId:myId}),
+      // Anyone may manage a public chat in the engine; archiving it for everyone stays with its owner.
+      chat('open',{visibility:'PUBLIC',canManage:true,ownerHumanId:'human-2'})];
     const projects=[{...project('p1','team','Team room'),ownerId:'human-2'}];
-    expect(looseChats({...base,channels,projects,showHidden:true}).map(c=>c.channelId).sort()).toEqual(['mine','team','theirs']);
+    expect(looseChats({...base,channels,projects,showHidden:true}).map(c=>c.channelId).sort()).toEqual(['mine','open','team','theirs']);
     const listed=looseChats({...base,channels,projects,showHidden:true,showArchived:true});
     expect(listed.find(c=>c.channelId==='gone')).toMatchObject({archived:true,manageable:true});
     expect(listed.find(c=>c.channelId==='mine')).toMatchObject({archived:false,manageable:true});
     expect(listed.find(c=>c.channelId==='theirs')).toMatchObject({manageable:false});
+    expect(listed.find(c=>c.channelId==='open')).toMatchObject({manageable:false});
     // Another owner's project chat is theirs to archive.
     expect(listed.find(c=>c.channelId==='team')).toMatchObject({manageable:false});
   });

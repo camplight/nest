@@ -1,7 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
 import type {Project} from '@nest/schemas';
-import {splitArchived} from './project-archive';
+import {keepsProjectPage,splitArchived} from './project-archive';
 import {ProjectGrid} from './Projects';
 import {ProjectNavigation} from './components/ProjectNavigation';
 
@@ -39,5 +39,18 @@ describe('ProjectNavigation',()=>{
   it('keeps the open project in the list even when it is archived',()=>{
     const html=renderToStaticMarkup(<ProjectNavigation projects={[project('a',1),project('b',2,true)]} currentProjectId="b" inProjects creating={false} unreadCounts={{}} onBrowse={noop} onSelect={noop} onCreate={noop}/>);
     expect(html).toContain('Project b');
+  });
+});
+
+describe('keepsProjectPage',()=>{
+  const projects=[project('a',1)];
+  it('keeps the project page when its chat is archived, as long as the project is listed',()=>{
+    expect(keepsProjectPage({selectedProject:'a',channelId:'c-a',projects,channels:[{id:'c-a',archivedAt:5}]})).toBe(true);
+    expect(keepsProjectPage({selectedProject:'a',channelId:'c-a',projects,channels:[{id:'c-a',archivedAt:null}]})).toBe(true);
+  });
+  it('lets go when the project or its chat is gone, or another chat is chosen',()=>{
+    expect(keepsProjectPage({selectedProject:'a',channelId:'c-a',projects:[],channels:[{id:'c-a',archivedAt:5}]})).toBe(false);
+    expect(keepsProjectPage({selectedProject:'a',channelId:'c-a',projects,channels:[]})).toBe(false);
+    expect(keepsProjectPage({selectedProject:'a',channelId:'other',projects,channels:[{id:'other'}]})).toBe(false);
   });
 });

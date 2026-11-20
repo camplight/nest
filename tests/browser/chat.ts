@@ -56,7 +56,7 @@ try{
   await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
   await page.getByText('[Message too large to display. The original content is retained.]',{exact:true}).waitFor();
   await page.locator('.working-row[data-agent=Demo][data-turn-state=working]').waitFor();
-  const sharing=page.getByRole('button',{name:'Settings',exact:true});
+  const sharing=page.getByRole('button',{name:'Chat settings',exact:true});
   await sharing.waitFor({state:'visible'});
   assert.equal(await page.locator('.chat-header-actions').getByRole('button',{name:'Huddle',exact:true}).count(),1);
   await sharing.focus();await page.keyboard.press('Enter');
@@ -77,7 +77,7 @@ try{
   const nativeDialogs:string[]=[];page.on('dialog',dialog=>{nativeDialogs.push(dialog.message());void dialog.dismiss();});
   const doomed=await(await post('/api/channels',{name:'Channel to delete',visibility:'PRIVATE'},headers)).json();
   await page.goto(base+'/?channel='+doomed.id);
-  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  await page.getByRole('button',{name:'Chat settings',exact:true}).click();
   await page.getByRole('heading',{name:'Chat settings',exact:true}).waitFor();
   // Archive acts at once: the header shows the Archived tag, and Unarchive brings the chat back.
   await page.getByRole('button',{name:'Archive chat',exact:true}).click();
@@ -86,7 +86,7 @@ try{
   await page.locator('.chat-header-actions .chat-archived-tag').getByText('Archived',{exact:true}).waitFor();
   await page.locator('.chat-header-actions').getByRole('button',{name:'Unarchive',exact:true}).click();
   await page.locator('.chat-header-actions .chat-archived-tag').waitFor({state:'detached'});
-  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  await page.getByRole('button',{name:'Chat settings',exact:true}).click();
   await page.getByRole('heading',{name:'Chat settings',exact:true}).waitFor();
   await page.getByRole('button',{name:'Delete chat',exact:true}).click();
   const confirmDelete=page.getByRole('group',{name:'Confirm chat deletion'});

@@ -235,7 +235,7 @@ await runChatTest('canvas chat: opens in place over its card, dims the rest, and
   const more=chat.getByRole('button',{name:'More chat actions',exact:true});
   await more.click();
   const menu=chat.getByRole('group',{name:'More chat actions',exact:true});
-  await menu.getByRole('button',{name:'Settings',exact:true}).waitFor();
+  await menu.getByRole('button',{name:'Chat settings',exact:true}).waitFor();
   await menu.getByRole('button',{name:'Export chat',exact:true}).waitFor();
   assert.equal(await more.getAttribute('aria-haspopup'),null,'a disclosure, not a menu');
   await page.keyboard.press('Escape');
@@ -244,7 +244,7 @@ await runChatTest('canvas chat: opens in place over its card, dims the rest, and
   assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')),'More chat actions','focus back on ⋯');
   // Choosing Settings (portaled from the thread) closes the panel; its dialog takes Escape, and the sheet stays.
   await more.click();
-  await menu.getByRole('button',{name:'Settings',exact:true}).click();
+  await menu.getByRole('button',{name:'Chat settings',exact:true}).click();
   const sharing=page.locator('.participants-dialog');
   await sharing.waitFor();
   await menu.waitFor({state:'hidden'});

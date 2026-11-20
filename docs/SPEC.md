@@ -294,8 +294,9 @@ browser Back/Forward restores the dashboard or conversation from the URL.
 Dashboard navigation clears the active channel so background messages are not
 treated as read merely because the home page is visible.
 
-A chat the person may manage shows a **Settings** button (gear) in its header, or
-in the canvas chat's More menu. It opens **Chat settings** with three parts:
+A chat the person may manage shows a **Settings** button (gear, named `Chat
+settings` so it never reads as an agent's Settings tab) in its header, or in the
+canvas chat's More menu. It opens **Chat settings** with three parts:
 Sharing (visibility with Save, Manage participants, Copy share link), Archive (an
 `Archive chat` / `Unarchive chat` button that acts at once through the engine
 archive) and Delete (`Delete chat`, then `Delete permanently`). An archived chat
@@ -940,13 +941,15 @@ Phase 1 is built from
    place`); shift-click ticks a range. With rows ticked, a bar shows `{n} selected`,
    `New area from these` (which frames the area, opens its title for typing and closes
    the drawer), `Archive` and `Clear`; actions take at most 100 chats. Archive
-   archives the ticked chats the person manages (the engine archive: read-only for
-   everyone, hand-offs paused) and hides the rest from their list (the personal hide
+   archives the ticked chats the person owns and manages, and for a project chat
+   whose project they own (the engine archive: read-only for everyone, hand-offs
+   paused; a public chat anyone may manage stays with its owner), and hides the rest
+   from their list (the personal hide
    above); it reads `Hide from my list` when none is theirs to archive, and a notice
    says what it did (`Archived 3 · hid 1 you can't manage`; a chat the engine refused
    counts as `could not be archived` and is not hidden instead). `Show archived` in
    the footer lists archived chats tagged `Archived` with Unarchive (for chats the
-   person manages) and hidden ones tagged `Hidden` with Unhide. The footer says `Tick chats to act on several at once`. The list is
+   person may archive) and hidden ones tagged `Hidden` with Unhide. The footer says `Tick chats to act on several at once`. The list is
    windowed (48 px rows, 30 px group headers) and opens at its top each time. From 1024 px up the top bar
    stays one row: the canvas name truncates with its full text as its title, and labels
    collapse to icons as the bar itself narrows, lowest priority first (Search and Share,

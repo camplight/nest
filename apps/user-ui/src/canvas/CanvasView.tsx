@@ -8,6 +8,7 @@ import {ApiError,apiFetch,apiJson,getApiHeaders} from '../api';
 import {addChatMember,removeChatMember} from '../chat-members';
 import {StartChat} from '../ProjectStart';
 import {NOT_SCHEDULED_NO_AGENT,NOT_SCHEDULED_TOO_LONG,browserZone,notScheduledText,promptTooLong,type TypedSchedule} from '../dock-schedule';
+import {archiveOrHide} from './archive-chats';
 import {getMembers,type CanvasMembers,boardApi,createCanvas,setCardHome,deleteCanvas,getAgentPins,getHidden,isCanvasGone,isPinsConflict,putAgentPins,listCanvases,renameCanvas,setHidden,withFreshVersion} from './api';
 import {CanvasSwitcher} from './CanvasSwitcher';
 import {ShareDialog} from './ShareDialog';
@@ -19,7 +20,7 @@ import {nudgeMessage,type CanvasLive} from './live';
 import {LooseDrawer,LooseToggle,MAX_BULK} from './LooseDrawer';
 import {newChatMembers,startFailed,startSpot} from './agent-drop';
 import {fileViewerOwns} from './file-viewer';
-import {CARD_PLACE_HEIGHT,archiveNotice,archivePlan,areaAround,clearOfCards,dropLayout,gridPlacement,looseChats,looseNeedsYou,slotInArea,slotOutsideAreas,type Placed} from './loose';
+import {CARD_PLACE_HEIGHT,areaAround,clearOfCards,dropLayout,gridPlacement,looseChats,looseNeedsYou,slotInArea,slotOutsideAreas,type Placed} from './loose';
 import {SPLIT_MAX,SPLIT_MIN,clampSplit,readSplit,splitAt,writeSplit} from './split';
 import {cardTitle} from './Card';
 import {AgentTray,trayHeading} from './AgentTray';
@@ -886,30 +887,12 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
     try { await apiFetch(`/api/channels/${encodeURIComponent(channelId)}/${archived ? 'archive' : 'unarchive'}`, {method: 'POST'}); return true; }
     catch { return false; }
   }, []);
-  /**
-   * The drawer's Archive: chats the person manages are archived for everyone, the rest hidden from their list, and a
-   * notice says how many of each. A chat the engine refused counts as failed and is not hidden in its place.
-   * Undo (false) unarchives an archived chat and unhides a hidden one.
-   */
+  /** The drawer's Archive (and its undo): see archiveOrHide. */
   const hide = useCallback(async (channelIds: string[], value: boolean) => {
-    const byId = new Map(looseRef.current.map(chat => [chat.channelId, chat]));
-    if (!value) {
-      const archived = channelIds.filter(id => byId.get(id)?.archived);
-      const results = await Promise.all(archived.map(id => engineArchive(id, false)));
-      const unhide = channelIds.filter(id => hiddenRef.current.has(id));
-      if (unhide.length) setHiddenIds(new Set((await setHidden(unhide, false)).channelIds));
-      if (results.some(Boolean)) await refreshRef.current();
-      return results.every(Boolean);
-    }
-    const plan = archivePlan(channelIds.filter(id => !byId.get(id)?.archived), id => Boolean(byId.get(id)?.manageable));
-    let done = 0;
-    for (const id of plan.archive) if (await engineArchive(id, true)) done += 1;
-    const failed = plan.archive.length - done;
-    if (plan.hide.length) setHiddenIds(new Set((await setHidden(plan.hide, true)).channelIds));
-    if (done) await refreshRef.current();
-    if (!done && !plan.hide.length) return !failed;
-    say(archiveNotice(done, plan.hide.length, failed));
-    return true;
+    const result = await archiveOrHide(channelIds, value, {chats: looseRef.current, hidden: hiddenRef.current, engineArchive, setHidden, refresh: () => refreshRef.current()});
+    if (result.hidden) setHiddenIds(new Set(result.hidden));
+    if (result.notice) say(result.notice);
+    return result.ok;
   }, [engineArchive, say]);
   /** Renames the open chat's project (owner only), then reloads the chat list and the board so card and window show it. */
   const renameChat = useCallback(async (name: string) => {

@@ -1,3 +1,5 @@
+import {Settings as SettingsIcon} from 'lucide-react';
+
 export type ChatVisibility='PRIVATE'|'PUBLIC';
 export type ChatSettingsDialogProps={
   label:string;archived:boolean;
@@ -69,4 +71,9 @@ export function ArchivedTag({canUnarchive,onUnarchive,busy=false}:{canUnarchive:
     <span className="chat-archived-tag">Archived</span>
     {canUnarchive?<button type="button" className="chat-archived-undo" onClick={onUnarchive} disabled={busy}>Unarchive</button>:null}
   </span>;
+}
+
+/** The chat header's Settings button (gear). Named Chat settings so it never reads as an agent's Settings tab. */
+export function ChatSettingsButton({open,onOpen}:{open:boolean;onOpen():void}) {
+  return <button type="button" className="huddle-launch channel-sharing-launch" aria-label="Chat settings" aria-haspopup="dialog" aria-expanded={open} onClick={onOpen}><SettingsIcon size={17} aria-hidden="true"/>Settings</button>;
 }
