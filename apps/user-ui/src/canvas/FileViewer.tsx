@@ -7,17 +7,10 @@ import {Dialog} from 'radix-ui';
 import {formatAttachmentSize} from '../attachments';
 import {fileTypeLabel} from './context-label';
 import {FileTile,type FileTileProps} from './FileTile';
-import {VIEWER_MAX_BYTES,loadViewerFile,viewerKind,type ViewerFile,type ViewerKind} from './file-viewer';
+import {VIEWER_MAX_BYTES,returnFocus,startViewerLoad,viewerKind,type ViewerFile,type ViewerKind,type ViewerResult} from './file-viewer';
 import './file-tile.css';
 
-export type ViewerState =
-  | {status: 'loading'}
-  | {status: 'none'}
-  | {status: 'too-large'}
-  | {status: 'failed'}
-  | {status: 'url'; url: string}
-  | {status: 'text'; text: string}
-  | {status: 'table'; rows: string[][]; cut: boolean};
+export type ViewerState = {status: 'loading'} | ViewerResult;
 
 export const VIEWER_COPY = {
   tooLarge: 'Too large to preview here.',
@@ -34,7 +27,7 @@ function firstState(file: ViewerFile, kind: ViewerKind): ViewerState {
 
 /**
  * Loads the file while mounted (the dialog content mounts only while open). Closing or unmounting aborts the request
- * and revokes the object URL; a URL made after that is revoked at once and never reaches state.
+ * and revokes the object URL; after that no URL is made and no state is set (startViewerLoad).
  */
 export function useViewerFile(file: ViewerFile, kind: ViewerKind, fetchFile: typeof fetch, enabled = true): ViewerState {
   const [state, setState] = useState<ViewerState>(() => firstState(file, kind));
@@ -43,19 +36,7 @@ export function useViewerFile(file: ViewerFile, kind: ViewerKind, fetchFile: typ
     const first = firstState({name, mime, size, href}, kind);
     setState(first);
     if (!enabled || first.status !== 'loading') return;
-    const controller = new AbortController();
-    let live = true, url: string | null = null;
-    loadViewerFile({name, mime, size, href}, kind, fetchFile, controller.signal).then(result => {
-      if (!live) return;
-      if (result.status !== 'media') { setState(result); return; }
-      url = URL.createObjectURL(result.blob);
-      setState({status: 'url', url});
-    }).catch(() => { if (live) setState({status: 'failed'}); });
-    return () => {
-      live = false;
-      controller.abort();
-      if (url) URL.revokeObjectURL(url);
-    };
+    return startViewerLoad({file: {name, mime, size, href}, kind, fetchFile, onResult: setState});
   }, [name, mime, size, href, kind, fetchFile, enabled]);
   return state;
 }
@@ -103,12 +84,16 @@ export function FileViewerBody({name, kind, state}: {name: string; kind: ViewerK
   }
 }
 
-/** The dialog's content: title, `type · size`, Download, close and the body. Exported for tests. */
-export function FileViewerContent({file, fetchFile = fetch}: {file: ViewerFile; fetchFile?: typeof fetch}) {
+/**
+ * The dialog's content: title, `type · size`, Download, close and the body. Exported for tests. On close, focus goes
+ * back to `opener` (the tile): with no Dialog.Trigger, Radix would otherwise leave it on the body.
+ */
+export function FileViewerContent({file, fetchFile = fetch, opener}: {file: ViewerFile; fetchFile?: typeof fetch; opener?: HTMLElement | null}) {
   const kind = viewerKind(file.mime, file.name);
   const state = useViewerFile(file, kind, fetchFile);
   const details = [fileTypeLabel(file.mime, file.name), formatAttachmentSize(file.size)].filter(Boolean).join(' · ');
-  return <Dialog.Content className="file-viewer" data-kind={kind} {...STOP_EVENTS}>
+  return <Dialog.Content className="file-viewer" data-kind={kind} {...STOP_EVENTS}
+    onCloseAutoFocus={event => { if (returnFocus(opener)) event.preventDefault(); }}>
     <header className="file-viewer-head">
       <div className="file-viewer-heading">
         <Dialog.Title className="file-viewer-title">{file.name}</Dialog.Title>
@@ -121,23 +106,26 @@ export function FileViewerContent({file, fetchFile = fetch}: {file: ViewerFile; 
   </Dialog.Content>;
 }
 
-export function FileViewer({file, open, onOpenChange, fetchFile = fetch}: {
+export function FileViewer({file, open, onOpenChange, fetchFile = fetch, opener}: {
   file: ViewerFile; open: boolean; onOpenChange(open: boolean): void; fetchFile?: typeof fetch;
+  /** What gets focus back on close, normally the tile's link. */
+  opener?: HTMLElement | null;
 }) {
   if (!open) return null;
   return <Dialog.Root open onOpenChange={onOpenChange}>
     <Dialog.Portal>
       <Dialog.Overlay className="file-viewer-overlay" {...STOP_EVENTS} onClick={event => { stop(event); onOpenChange(false); }}/>
-      <FileViewerContent file={file} fetchFile={fetchFile}/>
+      <FileViewerContent file={file} fetchFile={fetchFile} opener={opener}/>
     </Dialog.Portal>
   </Dialog.Root>;
 }
 
-/** A file tile whose plain click opens the viewer; any other click keeps the tile's link. */
+/** A file tile whose plain click opens the viewer (focus returns to the tile on close); any other click keeps the link. */
 export function ViewableFileTile(props: Omit<FileTileProps, 'onOpen'>) {
-  const [open, setOpen] = useState(false);
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
   return <>
-    <FileTile {...props} onOpen={() => setOpen(true)}/>
-    {open ? <FileViewer file={{name: props.name, mime: props.mime, size: props.size, href: props.href}} open onOpenChange={setOpen}/> : null}
+    <FileTile {...props} onOpen={event => setOpener(event.currentTarget)}/>
+    {opener ? <FileViewer file={{name: props.name, mime: props.mime, size: props.size, href: props.href}} open opener={opener}
+      onOpenChange={open => { if (!open) setOpener(null); }}/> : null}
   </>;
 }

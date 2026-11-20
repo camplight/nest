@@ -1,9 +1,10 @@
-import {describe,expect,it} from 'vitest';
+import {describe,expect,it,vi} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
+import type {MouseEvent,ReactElement} from 'react';
 import {Dialog} from 'radix-ui';
-import {FileTile} from './FileTile';
+import {FileTile,type FileTileProps} from './FileTile';
 import {FileViewer,FileViewerBody,FileViewerContent,ViewableFileTile} from './FileViewer';
-import {VIEWER_MAX_BYTES} from './file-viewer';
+import {VIEWER_MAX_BYTES,returnFocus,startViewerLoad,type ViewerResult} from './file-viewer';
 
 const noFetch=(async()=>{throw new Error('no fetch during render');}) as unknown as typeof fetch;
 const opened=(file:Parameters<typeof FileViewerContent>[0]['file'])=>
@@ -78,5 +79,126 @@ describe('opening tiles',()=>{
     const html=renderToStaticMarkup(<ViewableFileTile name="chart.png" href="/api/files/f2"/>);
     expect(html).toContain('canvas-file-tile');
     expect(html).not.toContain('role="dialog"');
+  });
+});
+
+/** Renders a tile once and hands back its link's click handler, so a click can be tried without a DOM. */
+function tileClick(props:FileTileProps){
+  let link:ReactElement|undefined;
+  function Harness(){
+    const item=FileTile(props) as ReactElement<{children:ReactElement[]}>;
+    link=item.props.children[0];
+    return item;
+  }
+  renderToStaticMarkup(<Harness/>);
+  return (link!.props as {onClick?:(event:MouseEvent<HTMLAnchorElement>)=>void}).onClick;
+}
+const click=(change:Partial<Record<'button'|'ctrlKey'|'metaKey'|'shiftKey'|'altKey',number|boolean>>={})=>{
+  const event={button:0,ctrlKey:false,metaKey:false,shiftKey:false,altKey:false,defaultPrevented:false,currentTarget:{},...change,preventDefault:vi.fn()};
+  return event as typeof event&MouseEvent<HTMLAnchorElement>;
+};
+
+describe('tile clicks',()=>{
+  it('open the viewer on a plain click, for any kind, instead of following the link',()=>{
+    for(const props of [{name:'voice.webm',mime:'audio/webm',href:'/api/files/v'},{name:'brief.txt',href:'/ctx/1',download:true},{name:'chart.png',href:'/f'}]){
+      const onOpen=vi.fn();
+      const event=click();
+      tileClick({...props,onOpen})!(event);
+      expect(event.preventDefault,props.name).toHaveBeenCalledOnce();
+      expect(onOpen,props.name).toHaveBeenCalledWith(event);
+    }
+  });
+
+  it('let modified and middle clicks follow the link (new tab or download)',()=>{
+    for(const change of [{ctrlKey:true},{metaKey:true},{shiftKey:true},{altKey:true},{button:1}]){
+      const onOpen=vi.fn();
+      const event=click(change);
+      tileClick({name:'brief.txt',href:'/ctx/1',download:true,onOpen})!(event);
+      expect(event.preventDefault,JSON.stringify(change)).not.toHaveBeenCalled();
+      expect(onOpen,JSON.stringify(change)).not.toHaveBeenCalled();
+    }
+  });
+
+  it('leave the link alone without onOpen',()=>expect(tileClick({name:'a.pdf',href:'/f'})).toBeUndefined());
+});
+
+describe('loading lifecycle',()=>{
+  /** A fetch that waits until the test settles it; it rejects like the browser when its signal aborts. */
+  function pendingFetch(){
+    const seen:{signal?:AbortSignal;settle(response:Response):void}={settle:()=>{}};
+    const fetchFile=((_href:string,init?:RequestInit)=>new Promise<Response>(resolve=>{seen.signal=init?.signal??undefined;seen.settle=resolve;})) as unknown as typeof fetch;
+    return {seen,fetchFile};
+  }
+  const urls=()=>({createObjectURL:vi.fn(()=>'blob:made'),revokeObjectURL:vi.fn()});
+  const flush=()=>new Promise(resolve=>setTimeout(resolve,0));
+
+  it('closing mid-fetch aborts, never makes a URL and reports nothing',async()=>{
+    const {seen,fetchFile}=pendingFetch(), objectUrls=urls(), results:ViewerResult[]=[];
+    const stop=startViewerLoad({file:{name:'voice.webm',mime:'audio/webm',href:'/api/files/v'},kind:'audio',fetchFile,onResult:r=>results.push(r),urls:objectUrls});
+    await flush();
+    stop();
+    expect(seen.signal?.aborted).toBe(true);
+    seen.settle(new Response(new Uint8Array([1,2])));
+    await flush();
+    expect(objectUrls.createObjectURL).not.toHaveBeenCalled();
+    expect(objectUrls.revokeObjectURL).not.toHaveBeenCalled();
+    expect(results).toEqual([]);
+  });
+
+  it('closing after a failed or aborted request reports nothing',async()=>{
+    const results:ViewerResult[]=[];
+    const fetchFile=((_href:string,init?:RequestInit)=>new Promise<Response>((_resolve,reject)=>init?.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))))) as unknown as typeof fetch;
+    const stop=startViewerLoad({file:{name:'a.pdf',href:'/f'},kind:'pdf',fetchFile,onResult:r=>results.push(r),urls:urls()});
+    stop();
+    await flush();
+    expect(results).toEqual([]);
+  });
+
+  it('reports a typed URL once loaded and revokes it on close',async()=>{
+    const {seen,fetchFile}=pendingFetch(), objectUrls=urls(), results:ViewerResult[]=[];
+    const stop=startViewerLoad({file:{name:'clip.mp4',href:'/api/files/c'},kind:'video',fetchFile,onResult:r=>results.push(r),urls:objectUrls});
+    await flush();
+    seen.settle(new Response(new Uint8Array([1,2,3])));
+    await flush();
+    expect(objectUrls.createObjectURL).toHaveBeenCalledOnce();
+    expect((objectUrls.createObjectURL.mock.calls[0] as unknown as [Blob])[0].type).toBe('video/mp4');
+    expect(results).toEqual([{status:'url',url:'blob:made'}]);
+    stop();
+    expect(objectUrls.revokeObjectURL).toHaveBeenCalledWith('blob:made');
+    stop();
+    expect(objectUrls.revokeObjectURL).toHaveBeenCalledOnce();
+  });
+
+  it('reports a failed request',async()=>{
+    const results:ViewerResult[]=[];
+    startViewerLoad({file:{name:'a.png',href:'/f'},kind:'image',fetchFile:(async()=>new Response('no',{status:500})) as unknown as typeof fetch,onResult:r=>results.push(r),urls:urls()});
+    await flush();
+    expect(results).toEqual([{status:'failed'}]);
+  });
+});
+
+describe('closing the viewer',()=>{
+  it('returns focus to the tile that opened it, when it is still on the page',()=>{
+    const tile={isConnected:true,focus:vi.fn()};
+    expect(returnFocus(tile)).toBe(true);
+    expect(tile.focus).toHaveBeenCalledWith({preventScroll:true});
+    const gone={isConnected:false,focus:vi.fn()};
+    expect(returnFocus(gone)).toBe(false);
+    expect(gone.focus).not.toHaveBeenCalled();
+    expect(returnFocus(null)).toBe(false);
+  });
+
+  it('wires that into the dialog, instead of Radix focusing the missing trigger',()=>{
+    let content:ReactElement|undefined;
+    const opener={isConnected:true,focus:vi.fn()} as unknown as HTMLElement;
+    function Harness(){
+      content=FileViewerContent({file:{name:'a.pdf',href:'/f'},fetchFile:noFetch,opener}) as ReactElement;
+      return content;
+    }
+    renderToStaticMarkup(<Dialog.Root open><Harness/></Dialog.Root>);
+    const event={preventDefault:vi.fn()};
+    (content!.props as {onCloseAutoFocus(event:Event):void}).onCloseAutoFocus(event as unknown as Event);
+    expect(opener.focus).toHaveBeenCalledOnce();
+    expect(event.preventDefault).toHaveBeenCalledOnce();
   });
 });

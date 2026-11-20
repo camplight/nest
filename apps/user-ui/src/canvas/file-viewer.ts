@@ -181,3 +181,44 @@ export async function loadViewerFile(file: ViewerFile, kind: ViewerKind, fetchFi
   }
   return {status: 'media', blob: body.slice(0, body.size, type!)};
 }
+
+/** What a load ends in: an object URL for media, the text or table, or why nothing is shown. */
+export type ViewerResult =
+  | {status: 'none'}
+  | {status: 'too-large'}
+  | {status: 'failed'}
+  | {status: 'url'; url: string}
+  | {status: 'text'; text: string}
+  | {status: 'table'; rows: string[][]; cut: boolean};
+
+export type ObjectUrls = {createObjectURL(blob: Blob): string; revokeObjectURL(url: string): void};
+
+/**
+ * Starts loading a file and reports the result once; the returned stop aborts the request and revokes the object URL.
+ * After stop nothing is reported and no URL is made, even when the request settles later.
+ */
+export function startViewerLoad({file, kind, fetchFile, onResult, urls = URL}: {
+  file: ViewerFile; kind: ViewerKind; fetchFile: typeof fetch; onResult(result: ViewerResult): void; urls?: ObjectUrls;
+}): () => void {
+  const controller = new AbortController();
+  let live = true, url: string | null = null;
+  loadViewerFile(file, kind, fetchFile, controller.signal).then(result => {
+    if (!live) return;
+    if (result.status !== 'media') { onResult(result); return; }
+    url = urls.createObjectURL(result.blob);
+    onResult({status: 'url', url});
+  }).catch(() => { if (live) onResult({status: 'failed'}); });
+  return () => {
+    live = false;
+    controller.abort();
+    if (url) urls.revokeObjectURL(url);
+    url = null;
+  };
+}
+
+/** Focus goes back to the tile that opened the viewer, when it is still on the page; true when it did. */
+export function returnFocus(opener: {isConnected: boolean; focus(options?: FocusOptions): void} | null | undefined): boolean {
+  if (!opener?.isConnected) return false;
+  opener.focus({preventScroll: true});
+  return true;
+}

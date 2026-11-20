@@ -5,7 +5,7 @@ import {useEffect,useState} from 'react';
 import {fileHref,formatAttachmentSize} from '../attachments';
 import {fileKind} from '../canvas/context-label';
 import {VIEWER_COPY,ViewableFileTile} from '../canvas/FileViewer';
-import {isPlainClick,loadViewerFile} from '../canvas/file-viewer';
+import {isPlainClick,startViewerLoad} from '../canvas/file-viewer';
 import type {MessageAttachment} from './timeline';
 import {Button} from './ui/button';
 import {ImageZoom} from './ui/ImageZoom';
@@ -24,17 +24,9 @@ export function InlineAudio({name,mime,href,size,fetchFile=fetch}:{name:string;m
  const [load,setLoad]=useState(false);
  useEffect(()=>{
   if(!load)return;
-  const controller=new AbortController();
-  let live=true,url:string|null=null;
   setState({status:'loading'});
-  loadViewerFile({name,mime,size,href},'audio',fetchFile,controller.signal).then(result=>{
-   if(!live)return;
-   if(result.status==='too-large'){setState({status:'too-large'});return;}
-   if(result.status!=='media'){setState({status:'failed'});return;}
-   url=URL.createObjectURL(result.blob);
-   setState({status:'ready',url});
-  }).catch(()=>{if(live)setState({status:'failed'});});
-  return ()=>{live=false;controller.abort();if(url)URL.revokeObjectURL(url);};
+  return startViewerLoad({file:{name,mime,size,href},kind:'audio',fetchFile,onResult:result=>setState(
+   result.status==='url'?{status:'ready',url:result.url}:{status:result.status==='too-large'?'too-large':'failed'})});
  },[load,name,mime,size,href,fetchFile]);
  if(state.status==='ready')return <audio className="message-audio block w-full max-w-[420px]" src={state.url} controls autoPlay aria-label={name}/>;
  if(state.status==='too-large'||state.status==='failed')
