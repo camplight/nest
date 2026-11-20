@@ -1895,3 +1895,63 @@ button {
 
 /* Who a message mentions: the picked people and agents read as a tinted chip in the text, in both themes. */
 .chat-mention { padding:0 4px; border-radius:6px; background:color-mix(in srgb, var(--nest-accent) 14%, transparent); color:var(--nest-accent); font-weight:600; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
+
+.chat-settings-part {
+  display: grid;
+  gap: 8px;
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 1px solid var(--nest-border);
+}
+
+.chat-settings-part:first-of-type {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: 0;
+}
+
+.chat-settings-part h3 {
+  margin: 0;
+  color: var(--nest-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chat-settings-part > p {
+  margin: 0;
+  color: var(--nest-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.chat-settings-part .channel-manage-delete-button,
+.chat-settings-part .channel-manage-save-button {
+  margin-top: 0;
+}
+
+.chat-archived {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+}
+
+.chat-archived-tag {
+  border: 1px solid var(--nest-border);
+  border-radius: 6px;
+  padding: 1px 7px;
+  color: var(--nest-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.chat-archived-undo {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--nest-forest);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}

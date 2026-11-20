@@ -36,8 +36,10 @@ export type ChatThreadProps={
  snapshot:ChannelEventsSnapshot;core:ChannelEventsCore;currentUsername:string;agents:Agent[];
  focusedMessageId:string|null;isConversationEmpty:boolean;
  onPreviewDemo(path:string):void;onQuote(target:ReplyTarget,quotedText:string):void;footer?:ReactNode;headerActions?:ReactNode;
- /** Sharing: before headerActions in the thread's own row, or in a host's More menu (ChatHeaderSlotsContext). */
+ /** Settings: before headerActions in the thread's own row, or in a host's More menu (ChatHeaderSlotsContext). */
  headerMore?:ReactNode;
+ /** The chat's state (the Archived tag), first in the thread's own row; a host with header slots shows its own. */
+ headerStatus?:ReactNode;
  channelLabel:string;wrappedAgents?:string[];onFocusMessage(eventId:string):void;handle?:Ref<ChatThreadHandle>;
  /** Phase 2 (canvas flag): the Apps here bar, the wrapped-agent line, app-call titles and redaction, and file tiles in messages. */
  appActivity?:boolean;
@@ -365,10 +367,10 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  const empty=snapshot.channelId!==null&&!snapshot.loading&&items.length===0;
  return <AssistantRuntimeProvider runtime={runtime}><ChatPortalProvider><ThreadContext.Provider value={view}>
   <div className={cn('nest-chat relative flex min-h-0 flex-1 flex-col',scrolled&&'is-scrolled')}>
-   {/* Keep Sharing and Huddle reachable on mobile. Export stays hidden at the existing mobile breakpoint. */}
+   {/* Keep Settings and Huddle reachable on mobile. Export stays hidden at the existing mobile breakpoint. */}
    {slots
     ? <>{slots.actions&&createPortal(props.headerActions,slots.actions)}{slots.more&&createPortal(<>{props.headerMore}<ExportButton items={items} channelLabel={props.channelLabel} menuItem/></>,slots.more)}</>
-    : <div className="chat-header-actions flex shrink-0 flex-wrap items-center justify-end gap-3 px-3 pb-2 empty:hidden">{props.headerMore}{props.headerActions}<span className="max-[761px]:hidden"><ExportButton items={items} channelLabel={props.channelLabel}/></span></div>}
+    : <div className="chat-header-actions flex shrink-0 flex-wrap items-center justify-end gap-3 px-3 pb-2 empty:hidden">{props.headerStatus}{props.headerMore}{props.headerActions}<span className="max-[761px]:hidden"><ExportButton items={items} channelLabel={props.channelLabel}/></span></div>}
    {props.appActivity&&<ChatAppsHere events={snapshot.events} wrappedAgents={props.wrappedAgents??NO_AGENTS} selected={activeFilter} onSelect={setAppFilter}/>}
    <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
     <ThreadPrimitive.Viewport ref={panelRef} turnAnchor="bottom" autoScroll={!focusPending} scrollToBottomOnInitialize={!focusedMessageId}

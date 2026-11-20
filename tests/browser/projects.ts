@@ -191,7 +191,7 @@ try {
       assert.equal(await teammatePage.getByRole('navigation',{name:'Project sections'}).getByRole('button',{name:'Members',exact:true}).count(),0);
       await teammatePage.locator('.project-about').getByText('sarah@example.com',{exact:true}).waitFor();
       assert.equal(await teammatePage.locator('.project-about').getByRole('button',{name:/^Remove /}).count(),0,'Only the owner removes members');
-      assert.equal(await teammatePage.getByRole('button',{name:'Sharing',exact:true}).count(),0);
+      assert.equal(await teammatePage.getByRole('button',{name:'Settings',exact:true}).count(),0);
       assert.equal(await teammatePage.getByRole('button',{name:'Edit project details',exact:true}).count(),0);
       console.log('Testing legacy project URL');
       await teammatePage.goto(`http://127.0.0.1:5298/onboarding?view=projects&project=${projectId}&tab=files`);

@@ -294,6 +294,14 @@ browser Back/Forward restores the dashboard or conversation from the URL.
 Dashboard navigation clears the active channel so background messages are not
 treated as read merely because the home page is visible.
 
+A chat the person may manage shows a **Settings** button (gear) in its header, or
+in the canvas chat's More menu. It opens **Chat settings** with three parts:
+Sharing (visibility with Save, Manage participants, Copy share link), Archive (an
+`Archive chat` / `Unarchive chat` button that acts at once through the engine
+archive) and Delete (`Delete chat`, then `Delete permanently`). An archived chat
+shows an `Archived` tag at the start of its header row, with `Unarchive` for people
+who may manage it; the reply box keeps asking to restore it before sending.
+
 Explicit Dashboard navigation writes `?view=dashboard`, so reload and refresh
 preserve home even when agent onboarding is unfinished. A first visit to `/`
 can still offer personal-agent setup.
@@ -852,7 +860,7 @@ Phase 1 is built from
    (after any popover, menu or picker). The chat's header is one row, as in the mock: title, faces and
    `in <area> · sees N contexts` (plus Archived or Read-only), then icon buttons
    for Split screen, Huddle, Open in the regular chat view, a More menu (Area,
-   Place on canvas, Use this area's context, Sharing, Export chat; hidden when it would be empty)
+   Place on canvas, Use this area's context, Settings, Export chat; hidden when it would be empty)
    and Close. A demo preview inside
    the chat stacks above it rather than beside it. Phones keep a full-width chat. Only
    chats in the user UI's visible chat list open; if the open chat leaves that list,

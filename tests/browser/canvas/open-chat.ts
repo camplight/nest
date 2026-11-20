@@ -213,7 +213,7 @@ await runChatTest('canvas chat: opens in place over its card, dims the rest, and
   assert.ok(thread.y-sheet.y<=110,`the thread starts ${thread.y-sheet.y}px below the sheet's top`);
   assert.ok(firstMessage.y>thread.y-1);
   assert.equal(await chat.locator('.workspace-header').isVisible(),false,'no second header row');
-  assert.equal(await chat.locator('.chat-header-actions').count(),0,'no Sharing / Huddle / Export row');
+  assert.equal(await chat.locator('.chat-header-actions').count(),0,'no Settings / Huddle / Export row');
   for(const name of ['Split screen','Huddle','Open in the regular chat view','More chat actions','Close']){
     const button=chat.locator('.canvas-chat-bar').getByRole('button',{name,exact:true});
     const b=await boxOf(button);
@@ -235,22 +235,22 @@ await runChatTest('canvas chat: opens in place over its card, dims the rest, and
   const more=chat.getByRole('button',{name:'More chat actions',exact:true});
   await more.click();
   const menu=chat.getByRole('group',{name:'More chat actions',exact:true});
-  await menu.getByRole('button',{name:'Sharing',exact:true}).waitFor();
+  await menu.getByRole('button',{name:'Settings',exact:true}).waitFor();
   await menu.getByRole('button',{name:'Export chat',exact:true}).waitFor();
   assert.equal(await more.getAttribute('aria-haspopup'),null,'a disclosure, not a menu');
   await page.keyboard.press('Escape');
   await menu.waitFor({state:'hidden'});
   assert.equal(await chat.count(),1,'Escape closed only the menu');
   assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')),'More chat actions','focus back on ⋯');
-  // Choosing Sharing (portaled from the thread) closes the panel; its dialog takes Escape, and the sheet stays.
+  // Choosing Settings (portaled from the thread) closes the panel; its dialog takes Escape, and the sheet stays.
   await more.click();
-  await menu.getByRole('button',{name:'Sharing',exact:true}).click();
+  await menu.getByRole('button',{name:'Settings',exact:true}).click();
   const sharing=page.locator('.participants-dialog');
   await sharing.waitFor();
   await menu.waitFor({state:'hidden'});
   await page.locator('.dialog-backdrop').click({position:{x:5,y:5}});
   await sharing.waitFor({state:'detached'});
-  assert.equal(await chat.count(),1,'the sheet stays after Sharing');
+  assert.equal(await chat.count(),1,'the sheet stays after Settings');
 
   // Tab and Shift+Tab stay in the sheet, wrapping at both ends.
   const inSheet=()=>page.evaluate(()=>Boolean(document.activeElement?.closest('.canvas-chat')));

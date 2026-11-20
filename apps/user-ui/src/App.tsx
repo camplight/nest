@@ -19,7 +19,8 @@ import {activeTurns as workingTurns} from './chat/working';
 import {useEngineCapabilities} from './engine-capabilities';
 import {ChatComposer,ComposerSessionProvider,type ComposerSessionOptions,type ChatComposerHandle} from './chat/ChatComposer';
 import {CanvasChatFilesBridge,mergeChatFiles,type CanvasChatFiles} from './canvas/ChatFilesBridge';
-import {Share2} from 'lucide-react';
+import {Settings as SettingsIcon} from 'lucide-react';
+import {ArchivedTag, ChatSettingsDialog} from './components/ChatSettingsDialog';
 import {HuddleButton} from './huddle/HuddleButton';
 import './huddle/huddle.css';
 import type {ChannelEventsSnapshot} from './chat/channel-events';
@@ -438,7 +439,7 @@ export default function App() {
   const [shareRemovingKey, setShareRemovingKey] = useState<string | null>(null);
   const [channelVisibilityDraft, setChannelVisibilityDraft] = useState<"PUBLIC" | "PRIVATE">("PRIVATE");
   const [updatingChannelVisibility, setUpdatingChannelVisibility] = useState(false);
-  const [archiveDraft, setArchiveDraft] = useState(false);
+  const [archivingChannel, setArchivingChannel] = useState(false);
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -675,7 +676,6 @@ export default function App() {
   useEffect(() => {
     if (!activeChannel) return;
     setChannelVisibilityDraft(activeChannel.visibility === "PUBLIC" ? "PUBLIC" : "PRIVATE");
-    setArchiveDraft(Boolean(activeChannel.archivedAt));
   }, [activeChannel?.id, activeChannel?.visibility, activeChannel?.archivedAt]);
 
   function selectCommunity(name:string|null) {
@@ -1591,20 +1591,27 @@ export default function App() {
           body: JSON.stringify({ visibility: channelVisibilityDraft })
         });
       }
-      const currentlyArchived = Boolean(activeChannel.archivedAt);
-      if (archiveDraft !== currentlyArchived) {
-        await apiFetch(
-          `/api/channels/${encodeURIComponent(activeChannel.id)}/${archiveDraft ? "archive" : "unarchive"}`,
-          { method: "POST" }
-        );
-        if (archiveDraft) setShowArchivedChannels(true);
-      }
       await refreshChannels(activeChannel.id);
       setShowChannelManageDialog(false);
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "Unable to update channel settings");
     } finally {
       setUpdatingChannelVisibility(false);
+    }
+  }
+
+  /** Archive acts at once: the engine archives the chat for everyone (Nest pauses its hand-offs), or unarchives it. */
+  async function setChannelArchived(channel: Channel, archived: boolean) {
+    setArchivingChannel(true);
+    setError(null);
+    try {
+      await apiFetch(`/api/channels/${encodeURIComponent(channel.id)}/${archived ? "archive" : "unarchive"}`, { method: "POST" });
+      if (archived) setShowArchivedChannels(true);
+      await refreshChannels(channel.id);
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : archived ? "Unable to archive the chat" : "Unable to unarchive the chat");
+    } finally {
+      setArchivingChannel(false);
     }
   }
 
@@ -1878,7 +1885,7 @@ export default function App() {
           {activeChannel && activeChannelManageable ? (
             <div className="channel-actions">
               <button type="button" onClick={() => setShowChannelManageDialog(true)}>
-                Manage channel
+                Settings
               </button>
             </div>
           ) : null}
@@ -1901,7 +1908,8 @@ export default function App() {
             wrappedAgents={wrappedParticipants}
             appActivity={canvasAvailable === true}
             flows={chatFlows}
-            headerMore={activeChannel && activeChannelManageable && <button type="button" className="huddle-launch channel-sharing-launch" aria-haspopup="dialog" aria-expanded={showChannelManageDialog} onClick={() => setShowChannelManageDialog(true)}><Share2 size={17} aria-hidden="true"/>Sharing</button>}
+            headerMore={activeChannel && activeChannelManageable && <button type="button" className="huddle-launch channel-sharing-launch" aria-haspopup="dialog" aria-expanded={showChannelManageDialog} onClick={() => setShowChannelManageDialog(true)}><SettingsIcon size={17} aria-hidden="true"/>Settings</button>}
+            headerStatus={activeChannel?.archivedAt ? <ArchivedTag canUnarchive={activeChannelManageable} busy={archivingChannel} onUnarchive={() => void setChannelArchived(activeChannel, false)}/> : null}
             headerActions={activeChannel && <HuddleButton key={activeChannel.id} channel={activeChannel} label={activeConversationName} username={username} agents={agents} events={threadSnapshot.events} canPost={activeChannelCanPost}/>}
             onPreviewDemo={path => setDemoPreview({channel: activeChannelId!, path})}
             onQuote={(target, quotedText) => {composerRef.current?.setReplyTarget(target, quotedText);composerRef.current?.focus();}}
@@ -2376,132 +2384,26 @@ export default function App() {
       ) : null}
 
       {showChannelManageDialog && activeChannel && activeChannelManageable ? (
-        <div
-          className={`dialog-backdrop${showParticipantsDialog ? " dialog-backdrop-underlay" : ""}`}
-          role="presentation"
-          onMouseDown={() => setShowChannelManageDialog(false)}
-        >
-          <section
-            aria-modal="true"
-            className="conversation-dialog participants-dialog"
-            role="dialog"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <header>
-              <div>
-                <span>Channel settings</span>
-                <h2>Manage channel</h2>
-              </div>
-              <button
-                aria-label="Close dialog"
-                className="dialog-close"
-                onClick={() => setShowChannelManageDialog(false)}
-                type="button"
-              >
-                Close
-              </button>
-            </header>
-
-            <div className="channel-manage-grid">
-              <label>
-                <span id="channel-visibility-label">Visibility</span>
-                <select
-                  aria-labelledby="channel-visibility-label"
-                  value={channelVisibilityDraft}
-                  onChange={(event) =>
-                    setChannelVisibilityDraft(event.target.value === "PUBLIC" ? "PUBLIC" : "PRIVATE")
-                  }
-                  disabled={updatingChannelVisibility}
-                >
-                  <option value="PRIVATE">Private</option>
-                  <option value="PUBLIC">Public</option>
-                </select>
-              </label>
-
-              <label className="archive-checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={archiveDraft}
-                  onChange={(event) => setArchiveDraft(event.target.checked)}
-                  disabled={updatingChannelVisibility}
-                />
-                <span>Archived</span>
-              </label>
-            </div>
-
-            <div className="channel-manage-quick-actions">
-              <button
-                type="button"
-                className="channel-manage-secondary-button"
-                onClick={() => {
-                  setShowChannelManageDialog(false);
-                  setShowParticipantsDialog(true);
-                }}
-                disabled={updatingChannelVisibility}
-              >
-                Manage participants
-              </button>
-              <button
-                type="button"
-                className="channel-manage-secondary-button"
-                onClick={() => void handleCopyShareLink()}
-                disabled={updatingChannelVisibility}
-              >
-                {shareLinkCopied ? "Link copied" : "Copy share link"}
-              </button>
-            </div>
-
-            <button
-              className="channel-manage-save-button"
-              type="button"
-              onClick={() => void handleSaveChannelSettings()}
-              disabled={
-                updatingChannelVisibility ||
-                (channelVisibilityDraft === (activeChannel.visibility === "PUBLIC" ? "PUBLIC" : "PRIVATE") &&
-                  archiveDraft === Boolean(activeChannel.archivedAt))
-              }
-            >
-              {updatingChannelVisibility ? "Saving..." : "Save"}
-            </button>
-
-            {confirmingChannelDelete ? (
-              <div className="channel-manage-delete-confirm" role="group" aria-label="Confirm channel deletion">
-                <p>
-                  <strong>Permanently delete {channelLabel(activeChannel, username)}?</strong> Its messages are
-                  removed for everyone and can’t be restored. To hide it instead, archive it.
-                </p>
-                <div>
-                  <button
-                    autoFocus
-                    className="channel-manage-secondary-button"
-                    type="button"
-                    onClick={() => setConfirmingChannelDelete(false)}
-                    disabled={loading}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="channel-manage-delete-button"
-                    type="button"
-                    onClick={() => void handleDeleteChannel(activeChannel)}
-                    disabled={loading}
-                  >
-                    {loading ? "Deleting…" : "Delete permanently"}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                className="channel-manage-delete-button"
-                type="button"
-                onClick={() => setConfirmingChannelDelete(true)}
-                disabled={updatingChannelVisibility}
-              >
-                Delete channel
-              </button>
-            )}
-          </section>
-        </div>
+        <ChatSettingsDialog
+          label={channelLabel(activeChannel, username)}
+          archived={Boolean(activeChannel.archivedAt)}
+          visibility={channelVisibilityDraft}
+          currentVisibility={activeChannel.visibility === "PUBLIC" ? "PUBLIC" : "PRIVATE"}
+          onVisibility={setChannelVisibilityDraft}
+          saving={updatingChannelVisibility}
+          onSave={() => void handleSaveChannelSettings()}
+          archiving={archivingChannel}
+          onArchive={archived => void setChannelArchived(activeChannel, archived)}
+          onParticipants={() => { setShowChannelManageDialog(false); setShowParticipantsDialog(true); }}
+          onCopyLink={() => void handleCopyShareLink()}
+          linkCopied={shareLinkCopied}
+          confirmingDelete={confirmingChannelDelete}
+          onConfirmDelete={setConfirmingChannelDelete}
+          onDelete={() => void handleDeleteChannel(activeChannel)}
+          deleting={loading}
+          onClose={() => setShowChannelManageDialog(false)}
+          underlay={showParticipantsDialog}
+        />
       ) : null}
     </main></WorkspaceHeaderProvider></AgentAvatarChoices></ComposerSessionProvider>
   );
