@@ -35,8 +35,9 @@ export type ChatComposerHandle={insertText(text:string):void;enqueueFiles(files:
   /**
    * Request changes (the canvas digest): focuses the reply box and asks `What should change?`; the next message sent in
    * this chat is passed to onSent once, and the placeholder returns. Opening another chat cancels it. Nothing changes until it is called.
+   * False when no chat is open to take it.
    */
-  requestChanges(onSent:(text:string)=>Promise<void>):void;
+  requestChanges(onSent:(text:string)=>Promise<void>):boolean;
   /** Cancels an armed Request changes (the item was decided or went away, or the chat view changed): the placeholder returns. */
   cancelRequestChanges():void};
 export type ComposerSessionOptions={
@@ -95,7 +96,7 @@ export function useComposerSession(options:ComposerSessionOptions){
   const [changeRequest,setChangeRequest]=useState<{channelId:string;onSent(text:string):Promise<void>}|null>(null);
   const changeRequestRef=useRef(changeRequest);changeRequestRef.current=changeRequest;
   useEffect(()=>{setChangeRequest(null);},[activeChannelId]);
-  function requestChanges(onSent:(text:string)=>Promise<void>){if(!activeChannelId)return;const next={channelId:activeChannelId,onSent};changeRequestRef.current=next;setChangeRequest(next);}
+  function requestChanges(onSent:(text:string)=>Promise<void>):boolean{if(!activeChannelId)return false;const next={channelId:activeChannelId,onSent};changeRequestRef.current=next;setChangeRequest(next);return true;}
   function cancelRequestChanges(){changeRequestRef.current=null;setChangeRequest(null);}
   const [sending, setSendingState] = useState(false);
   function setSending(value:boolean){setSendingState(value);options.onStateChange({sending:value});}
@@ -326,7 +327,12 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
     enqueueFiles:uploadFiles,
     setReplyTarget:session.setReplyTarget,
     focus(){composerTextareaRef.current?.focus();},
-    requestChanges(onSent){session.requestChanges(onSent);composerTextareaRef.current?.focus();},
+    requestChanges(onSent){
+      if(!session.requestChanges(onSent))return false;
+      const area=composerTextareaRef.current;
+      area?.focus();area?.scrollIntoView?.({block:'nearest'});
+      return true;
+    },
     cancelRequestChanges:session.cancelRequestChanges,
   }));
 

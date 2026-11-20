@@ -11,7 +11,7 @@ const paused=item('paused','Hand-off to Blog post paused · hit 20 an hour',8,{k
 // Task 10 fills missed runs in; this fixture is the shape GET /api/flows/needs will serve.
 const missed=item('missed','Missed run · runner offline',3,{kind:'missed',scheduleId:'s1',runId:'r1'});
 const noop=async()=>{};
-const render=(items:NeedsItem[],line:string|null='Pip: drafting the outline.')=>renderToStaticMarkup(<ChatDigest items={items} agentLine={line} onApprove={noop} onRequestChanges={()=>{}} onRunNow={noop}/>);
+const render=(items:NeedsItem[],line:string|null='Pip: drafting the outline.')=>renderToStaticMarkup(<ChatDigest items={items} agentLine={line} onApprove={noop} onRequestChanges={()=>{}} onRunNow={noop} onDecline={noop}/>);
 
 describe('ChatDigest',()=>{
   it('renders nothing when nothing here waits on the person: no items, a mention, a paused link',()=>{
@@ -25,8 +25,24 @@ describe('ChatDigest',()=>{
   it('an approval: the mock\'s digest with the agent line, the reason, Approve and Request changes',()=>{
     expect(render([mention,approval])).toBe('<div class="digest" role="region" aria-label="Where it stands"><b>Where it stands</b>Pip: drafting the outline.'
       +'<div class="wy">Waiting on you: Approve hand-off to Blog post</div>'
-      +'<div class="gate"><button type="button" class="btn pri">Approve</button><button type="button" class="btn">Request changes</button></div></div>');
+      +'<div class="gate"><button type="button" class="btn pri">Approve</button><button type="button" class="btn">Request changes</button>'
+      +'<button type="button" class="btn">Don&#x27;t hand off</button></div></div>');
     expect(render([review],null)).toContain('<b>Where it stands</b><div class="wy">Waiting on you: Review Launch copy</div><div class="gate">');
+  });
+  it('a review has no Don\'t hand off: only a hand-off can be stopped',()=>{
+    expect(render([review])).not.toContain('hand off');
+  });
+  it('while Request changes waits for the reply: pressed, says what sending does, and offers Cancel',()=>{
+    const armed=(items:NeedsItem[])=>renderToStaticMarkup(<ChatDigest items={items} agentLine={null} onApprove={noop} onRequestChanges={()=>{}} onRunNow={noop}
+      armedKey={items[0]!.key} onCancelChanges={()=>{}}/>);
+    const html=armed([approval]);
+    expect(html).toContain('<button type="button" class="btn" aria-pressed="true">Request changes</button>');
+    expect(html).toContain('<div class="digest-ask" role="status">Write what should change in the reply box below. Sending it skips this hand-off.'
+      +'<button type="button" class="digest-ask-cancel">Cancel</button></div>');
+    expect(armed([review])).toContain('Sending it sends the task back.');
+    // Armed for another item: nothing pressed.
+    expect(render([approval])).not.toContain('aria-pressed');
+    expect(render([approval])).not.toContain('digest-ask');
   });
   it('says what waits but offers no buttons when the server would refuse this person (a review of someone else\'s project)',()=>{
     const html=renderToStaticMarkup(<ChatDigest items={[review]} agentLine={null} onApprove={noop} onRequestChanges={()=>{}} onRunNow={noop} canDecide={i=>i.kind!=='review'}/>);

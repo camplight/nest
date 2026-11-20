@@ -465,7 +465,7 @@ const humanTexts=async(h:ChatHarness,channelId:string)=>(await call<EngineEvent[
 /** The canvas notices on screen (errors from a decision would show here). */
 const notices=(page:Page)=>page.locator('.canvas-notice').allTextContents();
 
-await runChatTest('canvas links: an approval waits in Needs you; Approve hands it off, Request changes declines it with the reply, and a review is approved in the chat',async h=>{
+await runChatTest('canvas links: an approval waits in Needs you; Approve hands it off, Request changes declines it with the reply, Don\'t hand off declines it at once, and a review is approved in the chat',async h=>{
   const {page,base}=h, from=h.project.channelId;
   const {canvasId,blog,link}=await linkedBoard(h);
   await call(h,'PATCH',`/api/flows/links/${link.id}`,{when:'approve',version:link.version});
@@ -494,7 +494,7 @@ await runChatTest('canvas links: an approval waits in Needs you; Approve hands i
   assert.equal(await digest.locator('b').textContent(),'Where it stands');
   assert.match((await digest.textContent())??'',new RegExp(`^Where it stands${agentName}: .+\\.Waiting on you: `),'the agent line under the heading');
   assert.equal(await digest.locator('.wy').textContent(),'Waiting on you: Approve hand-off to Blog post');
-  assert.deepEqual(await digest.locator('.gate button').allTextContents(),['Approve','Request changes']);
+  assert.deepEqual(await digest.locator('.gate button').allTextContents(),['Approve','Request changes',"Don't hand off"]);
   assert.equal(await sheet.locator('.canvas-chat-body > .digest + .cfg').count(),1,'the digest sits above the Setup line');
 
   // Approve: Blog post gets the hand-off, the toast names it, and the item is gone.
@@ -540,8 +540,19 @@ await runChatTest('canvas links: an approval waits in Needs you; Approve hands i
   await page.goBack();
   await digest.waitFor();
 
+  // Request changes says in the digest what it waits for; Cancel ends it.
+  const changes=digest.getByRole('button',{name:'Request changes',exact:true});
+  await changes.click();
+  await until(()=>box.getAttribute('placeholder'),p=>p==='What should change?','armed to cancel');
+  assert.equal(await changes.getAttribute('aria-pressed'),'true');
+  assert.match((await digest.getByRole('status').textContent())??'',/^Write what should change in the reply box below\. Sending it skips this hand-off\./);
+  await digest.getByRole('button',{name:'Cancel',exact:true}).click();
+  await until(()=>box.getAttribute('placeholder'),p=>p==='Message to Synthetic chat project','the placeholder is back after Cancel');
+  assert.equal(await digest.getByRole('status').count(),0,'the waiting line goes');
+  assert.equal(await changes.getAttribute('aria-pressed'),null);
+
   // Request changes asks in the reply box; the reply is posted here and the hand-off is declined.
-  await digest.getByRole('button',{name:'Request changes',exact:true}).click();
+  await changes.click();
   await until(()=>box.getAttribute('placeholder'),p=>p==='What should change?','the reply box asks what should change');
   assert.equal(await box.evaluate(el=>el===document.activeElement),true,'the reply box has focus');
   await box.fill('Shorter, please');
@@ -555,6 +566,17 @@ await runChatTest('canvas links: an approval waits in Needs you; Approve hands i
   assert.equal((await handoffs(h,blog)).length,2,'Blog post got nothing new');
   assert.deepEqual(deliveries(h,link.id).map(d=>d.status),['declined','delivered','delivered'],'declined once');
   assert.equal((await notices(page)).some(t=>/Could not|already decided|paused/.test(t)),false,'no refusal toast after the reply');
+
+  // Don't hand off: declined at once, nothing reaches Blog post, and the link stays on.
+  await awaitingTurn(h,from,'Synthetic fourth draft');
+  await refocus(page);
+  await digest.waitFor();
+  await digest.getByRole('button',{name:"Don't hand off",exact:true}).click();
+  await page.locator('.canvas-notice').filter({hasText:'Not handed off to "Blog post".'}).waitFor();
+  await until(()=>digest.count(),n=>n===0,"the digest goes after Don't hand off");
+  for(let n=0;n<3;n++)await h.flowsTick();
+  assert.equal((await handoffs(h,blog)).length,2,'Blog post still got nothing new');
+  assert.deepEqual(deliveries(h,link.id).map(d=>d.status),['declined','declined','delivered','delivered'],'declined twice');
 
   // A task awaiting review in the open chat (a real deliverable): Approve marks it done.
   const task=await call<{id:string;version:number}>(h,'POST',`/api/projects/${h.project.id}/tasks`,{id:crypto.randomUUID(),title:'Synthetic launch copy',

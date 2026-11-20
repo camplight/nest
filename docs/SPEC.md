@@ -1961,13 +1961,24 @@ deviations; item 16 the checks.
      then `Waiting on you: {short}` for the newest of them. Paused links and mentions
      never open it; there are no generated digests. When `short` starts with
      `Approve` or `Review` (the mock's regex) it has Approve and Request changes; a
-     missed run has `Run now` alone.
+     hand-off also has `Don't hand off` (beyond the mock: the person asked for a way
+     to stop one from the chat); a missed run has `Run now` alone.
+   - Don't hand off posts `{decision:'decline'}` at once and toasts `Not handed off
+     to "{target}".`; nothing reaches the target and the link stays on, so the
+     chat's next finished result waits for an OK again (pause or disconnect the link
+     from its chip to stop future hand-offs).
    - Approve on an approval posts `{decision:'approve'}` and toasts `Handed off to
      "{target}".`; on a review it reads the task's version from
      `GET /api/projects/:id` and posts `{decision:'approve', feedback:''}` to
      `/api/projects/:id/tasks/:taskId/reviews` (the project owner's route).
    - Request changes calls the chat reply box's `requestChanges`: it focuses the box
-     and its placeholder reads `What should change?`. The next message the person
+     (scrolled into view) and its placeholder reads `What should change?`. Because a
+     placeholder is easy to miss (a draft hides it), the digest also shows the
+     button pressed (`aria-pressed`) and a `role=status` line, `Write what should
+     change in the reply box below. Sending it skips this hand-off.` (`sends the task
+     back.` for a review), with `Cancel`, which ends the request. When no reply box
+     can take it, a toast says `The reply box is not ready. Open the chat and try
+     again.` The next message the person
      sends in that chat is posted as usual, and then declines the hand-off
      (`{decision:'decline'}`) or sends the task back with the message as feedback
      (`{decision:'request_changes', feedback}`), once; the placeholder returns. A
@@ -2367,7 +2378,8 @@ deviations; item 16 the checks.
    worker every 200 ms), through pause, a delivered hand-off and disconnect, then
    connecting by dragging the port onto a card and onto empty canvas (a new step),
    the chat picker, the Setup line and its links row, loose chats and a phone, and
-   an approval link through Needs you, Approve, Request changes with a reply, and a
+   an approval link through Needs you, Approve, Request changes (with Cancel, then a
+   reply), Don't hand off, and a
    project review approved from the open chat. `tests/browser/canvas/forks.ts` forks
    Pip's message from the open chat (placement, the fork line and label, the seed,
    the chip, findings flowing back and pausing them) and a view-role member's fork

@@ -3747,6 +3747,12 @@ li.canvas-phone-row[data-access] {
 .digest .btn.pri { background: var(--nest-text); color: var(--nest-bg); border-color: var(--nest-text); font-weight: 600; }
 .digest .btn[aria-disabled="true"], .canvas-needs-run[aria-disabled="true"] { opacity: .6; cursor: default; }
 .digest .btn:focus-visible, .canvas-needs-run:focus-visible { outline: 2px solid var(--nest-lime); outline-offset: 2px; }
+/* Request changes waiting for the reply: the button stays pressed and a line says what sending does, with Cancel. */
+.digest .gate { flex-wrap: wrap; }
+.digest .btn[aria-pressed="true"] { border-color: var(--nest-accent); box-shadow: inset 0 0 0 1px var(--nest-accent); }
+.digest-ask { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-top: 8px; color: var(--nest-text); }
+.digest-ask-cancel { border: 0; padding: 0; background: none; color: var(--nest-accent); font: 600 12.5px Inter, sans-serif; text-decoration: underline; cursor: pointer; }
+.digest-ask-cancel:focus-visible { outline: 2px solid var(--nest-lime); outline-offset: 2px; border-radius: 3px; }
 /* A missed run's row in Needs you: the row, then Run now. */
 :is(.canvas-needs-row, .canvas-phone-need) { display: flex; gap: 6px; align-items: center; }
 :is(.canvas-needs-row, .canvas-phone-need) > :first-child { flex: 1; min-width: 0; }

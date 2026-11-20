@@ -1,7 +1,8 @@
 // The open chat's "Where it stands" (the mock's `.digest`): shown only while something in this chat waits on the person
 // (a hand-off awaiting their OK, a task awaiting their review, or a missed run). Its first line is the chat's first agent
 // row; there are no generated digests. Approve / Request changes appear when the reason starts with Approve or Review, as
-// the mock's regex has it; a missed run gets Run now.
+// the mock's regex has it; a hand-off also gets Don't hand off, and a missed run gets Run now. While Request changes waits
+// for the reply, the digest says so (the reply box's placeholder alone is easy to miss) and offers Cancel.
 import {useLayoutEffect,useRef,useState} from 'react';
 import type {NeedsItem} from './needs';
 
@@ -28,6 +29,12 @@ export type ChatDigestProps = {
   agentLine: string | null;
   onApprove(item: NeedsItem): Promise<void>;
   onRequestChanges(item: NeedsItem): void;
+  /** The key of the item Request changes is waiting on a reply for, if any. */
+  armedKey?: string | null;
+  /** Cancels a waiting Request changes. */
+  onCancelChanges?(): void;
+  /** A hand-off's Don't hand off: declines it at once. */
+  onDecline?(item: NeedsItem): Promise<void>;
   /** A missed run's Run now. */
   onRunNow(item: NeedsItem): Promise<void>;
   /**
@@ -66,7 +73,7 @@ function refocus(chat: HTMLElement | null) {
   });
 }
 
-function Digest({item, agentLine, onApprove, onRequestChanges, onRunNow, canDecide}: ChatDigestProps & {item: NeedsItem}) {
+function Digest({item, agentLine, onApprove, onRequestChanges, onRunNow, canDecide, armedKey, onCancelChanges, onDecline}: ChatDigestProps & {item: NeedsItem}) {
   const root = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
   // Runs before the digest leaves the page, while it still holds focus.
@@ -77,12 +84,21 @@ function Digest({item, agentLine, onApprove, onRequestChanges, onRunNow, canDeci
   // aria-disabled, not disabled: a disabled button drops focus to the page body.
   const waiting = busy === item.key;
   const approve = () => { if (waiting) return; setBusy(item.key); void onApprove(item).finally(() => setBusy(null)); };
+  const decline = () => { if (waiting || !onDecline) return; setBusy(item.key); void onDecline(item).finally(() => setBusy(null)); };
+  const armed = armedKey === item.key;
+  const handoff = item.gate?.kind === 'approval';
   return <div ref={root} className="digest" role="region" aria-label="Where it stands">
     <b>Where it stands</b>{agentLine}
     <div className="wy">Waiting on you: {item.short}</div>
     {canDecide && !canDecide(item) ? null : hasGate(item) ? <div className="gate">
       <button type="button" className="btn pri" aria-disabled={waiting || undefined} onClick={approve}>Approve</button>
-      <button type="button" className="btn" aria-disabled={waiting || undefined} onClick={() => { if (!waiting) onRequestChanges(item); }}>Request changes</button>
+      <button type="button" className="btn" aria-disabled={waiting || undefined} aria-pressed={armed || undefined}
+        onClick={() => { if (!waiting) onRequestChanges(item); }}>Request changes</button>
+      {handoff && onDecline ? <button type="button" className="btn" aria-disabled={waiting || undefined} onClick={decline}>Don't hand off</button> : null}
     </div> : item.gate?.kind === 'missed' ? <div className="gate"><RunNowButton key={item.key} item={item} onRunNow={onRunNow}/></div> : null}
+    {armed && hasGate(item) ? <div className="digest-ask" role="status">
+      Write what should change in the reply box below. Sending it {handoff ? 'skips this hand-off' : 'sends the task back'}.
+      {onCancelChanges ? <button type="button" className="digest-ask-cancel" onClick={onCancelChanges}>Cancel</button> : null}
+    </div> : null}
   </div>;
 }

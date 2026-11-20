@@ -1552,9 +1552,10 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
   // Where it stands: what in the open chat waits on the person, with Approve / Request changes or Run now in place. A refusal
   // (already decided, the link paused, not theirs to decide) is a toast, and the items are read again.
   const chatNeeds = chatShown && chatChannelId ? cardNeeds.get(chatChannelId) : undefined;
-  const {approve: approveNeed, requestChanges, runNow, canDecide} = useDigestActions({say, refreshFlows: flows.refresh, rereadReviews, changeRequests,
+  const {approve: approveNeed, requestChanges, decline: declineNeed, cancelChanges, armedKey, runNow, canDecide} = useDigestActions({say, refreshFlows: flows.refresh, rereadReviews, changeRequests,
     links: setupLinks, projects, humanId, chatNeeds, chatKey: chatShown ? `${chatChannelId}:${shownMode}` : ''});
   const chatDigest = chatNeeds ? <ChatDigest key={`digest:${chatChannelId}`} items={chatNeeds} onApprove={approveNeed} onRequestChanges={requestChanges} onRunNow={runNow} canDecide={canDecide}
+    onDecline={declineNeed} armedKey={armedKey} onCancelChanges={cancelChanges}
     agentLine={agentLine(participantRows({participants: chatPeople, pulse: pulses.get(chatChannelId!), needs: [], viewer: username, service}).find(row => row.kind === 'agent'))}/> : null;
   const flowCards = flowPop?.view && board ? {from: board.cards.find(c => c.channelId === flowPop.view!.from), to: board.cards.find(c => c.channelId === flowPop.view!.to)} : null;
   const agentsOf = (card: BoardCard | undefined) => card?.access === 'open'
