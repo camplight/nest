@@ -1,6 +1,5 @@
 /* Touch screens only (no hover): an agent avatar that opens the working ring shows it can be tapped. A live working
-   row's avatar breathes a lime ring while the agent works; a finished reply's avatar pulses twice when it appears,
-   then keeps a thin lime ring. A press shrinks it a little, and an open card holds the ring steady. */
+   row's avatar breathes a lime ring while the agent works; a finished reply's avatar keeps a still, thin lime ring. A press shrinks it a little, and an open card holds the ring steady. */
 @media (hover: none) and (pointer: coarse) {
   .reply-ring-trigger,
   .working-row-avatar {
@@ -20,7 +19,6 @@
     border-radius: 50%;
     pointer-events: none;
   }
-  .reply-ring-trigger::after { animation: tap-hint-ping 1.4s ease-out .3s 2 both; }
   .working-row-avatar::after { animation: tap-hint-breathe 1.8s ease-in-out infinite; }
   .reply-ring-trigger:active,
   .working-row:active .working-row-avatar { transform: scale(.92); }
@@ -30,12 +28,6 @@
     border-color: var(--nest-lime);
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--nest-lime) 25%, transparent);
   }
-}
-@keyframes tap-hint-ping {
-  0% { transform: scale(1); opacity: 1; }
-  60% { transform: scale(1.4); opacity: 0; }
-  61% { transform: scale(1); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
 }
 @keyframes tap-hint-breathe {
   0%, 100% { transform: scale(1); opacity: .95; }
