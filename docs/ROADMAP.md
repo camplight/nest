@@ -702,6 +702,48 @@ Follow-ups:
   760 px and below it shows with pinch and pan, without the legend or zoom buttons,
   with a `List` toggle remembered per browser; the `+` port is hidden there.
 
+## Switchyard canvas — Phase 5 candidates (from the original Switchyard canvas)
+
+Building blocks from the original Switchyard canvas prototype (`Switchyard Canvas.html`,
+kept outside the repo), mapped to Nest, where the chat is the unit. Each item is
+unordered; the owner picks the next one. Phase 4 (per-chat agent setup, sandboxes and
+repos; see the canvas design) is unchanged.
+
+In progress on the branch:
+
+- **Start a chat by dropping an agent:** dropping a tray agent on empty canvas creates
+  a chat with that agent there (inside an area, it joins the area and its context)
+  and opens it, like `+ Chat`.
+- **Open files in place:** a plain click on a file tile (cards, messages, area shelves,
+  context popover) opens a viewer: images zoom, audio and voice notes play, video
+  plays, PDFs show, text and CSV display; anything else offers Download.
+
+Candidates:
+
+- **Agent templates in the tray** (original: agent library with harness, skills, skill
+  packs and subagents): "Claude Code + superpowers", "Reviewer", "Researcher"… create a
+  real agent with that setup. Overlaps Phase 4's per-chat skill packs.
+- **Result strip on a card** (original: task block with run log and output card, e.g.
+  "Triage summary · 23 tickets · 2 escalated"): pin a chat's deliverable to its card.
+  Nest already has projects, tasks and reviews in the product DB. Needs design.
+- **Voice note transcripts** (original: voice input with waveform and transcript): a
+  transcript under the voice-note player, from a speech model. Needs a provider choice.
+- **Text in images** (original: image input with OCR chips): read the text in an image
+  file on the canvas, through the agent or a vision model.
+- **App feeds on an area** (original: Gmail, Slack, Linear, GitHub… input blocks with
+  their newest items): a connected app as an area source its agents use, showing its
+  three newest items. Needs Composio reads per viewer.
+- **Webhook and schedule inputs** (original: webhook and schedule blocks): done as chat
+  triggers and App event triggers in Phase 3; a block-style view is not planned.
+- **Wires** (original: edges between inputs, tasks, agents and sandboxes): done as links
+  between chats in Phase 2.
+- **Sandbox block** (original: image, CPU, memory, network and a terminal): covered by
+  Phase 4 "Where it runs"; needs upstream U5. Showing terminal output on the canvas
+  conflicts with the working ring's rule of never showing command output, so it stays
+  inside the chat, read-only, as Phase 4 says.
+- **Repo input** (original: repository block): covered by Phase 4's repo footprint and
+  by GitHub through connected apps.
+
 ## First-visit visual orientation
 
 Implemented for review: a replayable three-step spotlight tour in the workspace
