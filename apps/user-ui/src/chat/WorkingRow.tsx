@@ -8,14 +8,16 @@ import type {EventRow} from '../types';
 import type {WorkingTurn} from './working';
 import {WorkingRing} from './WorkingRing';
 import {useChatPortal} from './ui/portal';
+import {useTapCard} from './tap-card';
 
 export function WorkingRow({turn,activityUnavailable,onReview,events=[]}:{turn:WorkingTurn;activityUnavailable?:boolean;onReview():void;events?:readonly EventRow[]}):JSX.Element|null{
  const container=useChatPortal();
+ const tap=useTapCard();
  const row=<Row turn={turn} activityUnavailable={activityUnavailable} onReview={onReview} focusable={!turn.interrupted&&!activityUnavailable&&Boolean(container)}/>;
- // Hovering or focusing a live row opens the working ring (action names only, never tool data).
+ // Hovering, focusing or (on touch) tapping a live row opens the working ring (action names only, never tool data).
  if(turn.interrupted||activityUnavailable||!container)return row;
- return <HoverCard.Root openDelay={150} closeDelay={100}>
-  <HoverCard.Trigger asChild>{row}</HoverCard.Trigger>
+ return <HoverCard.Root openDelay={150} closeDelay={100} open={tap.open} onOpenChange={tap.onOpenChange}>
+  <HoverCard.Trigger asChild {...tap.triggerProps}>{row}</HoverCard.Trigger>
   <HoverCard.Portal container={container}>
    <HoverCard.Content side="top" align="start" sideOffset={6} collisionPadding={16}
     className="z-50 rounded-xl border border-border bg-popover p-4 pb-3 text-popover-foreground shadow-lg animate-in fade-in-0 zoom-in-95">
