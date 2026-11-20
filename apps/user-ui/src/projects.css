@@ -242,3 +242,20 @@
 .project-member-remove-confirm p { margin:0; font-size:13px; }
 .project-member-remove-confirm .project-actions { margin-top:10px; gap:8px; }
 .project-member-remove-confirm .project-danger { background:#b42332; border-color:#b42332; color:#fff; }
+
+.project-archived {
+  margin-top: 18px;
+}
+
+.project-archived > summary {
+  cursor: pointer;
+  color: var(--nest-muted);
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.project-summary .chat-archived-tag {
+  justify-self: start;
+  width: fit-content;
+}

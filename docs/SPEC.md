@@ -450,8 +450,13 @@ in place of the fifth shortcut when necessary. Only the current destination has
 `aria-current="page"`; the parent uses a contextual highlight for an open project.
 The separate disclosure toggles without navigating. Clicking Projects opens the
 full searchable directory and expands the group. New project lives inside the
-group; Cmd/Ctrl+K still opens creation. View all projects appears when there are
-more than five accessible projects. Long names truncate with a full-name title,
+group; Cmd/Ctrl+K still opens creation. Archived projects stay out of the short
+list and its count (unless one is open); View all projects appears when there are
+more than five active projects or any archived ones. The Projects page lists
+archived projects after the others in a collapsed `Archived (N)` section, each card
+tagged `Archived`. An archived project opens read-only: an `Archived` tag sits by
+its title with `Unarchive` for the owner, editing and invitations are hidden, and
+the dashboard leaves it out. Archiving a project's chat keeps its page open. Long names truncate with a full-name title,
 unread counts remain attached to their project, and the mobile drawer closes on
 selection. This bounds sidebar rendering, not the underlying project-list API:
 server pagination, pinning, archival and project folders are deferred. The layout

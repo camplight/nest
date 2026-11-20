@@ -386,7 +386,7 @@ export default function App() {
   // A chat open over or beside the canvas is as visible as the workspace one: live events, seen and unread follow it.
   chatVisibleRef.current = view === "workspace" || (view === "projects" && projectTab === "chat") || (view === "canvas" && canvasChat.mode !== null);
   const onProjectLoaded = useCallback((project: Project) => {
-    setProjectIndex(current => current.some(p => p.id === project.id && p.channelId === project.channelId && p.name === project.name && p.description === project.description) ? current : [...current.filter(p => p.id !== project.id), project]);
+    setProjectIndex(current => current.some(p => p.id === project.id && p.channelId === project.channelId && p.name === project.name && p.description === project.description && Boolean(p.archived) === Boolean(project.archived)) ? current : [...current.filter(p => p.id !== project.id), project]);
     void apiJson<Channel[]>("/api/channels?includeArchived=1").then(setChannels).catch(() => {});
   }, []);
   const [selectedProject, setSelectedProject] = useState<string | null>(() => new URL(window.location.href).searchParams.get("project"));
@@ -440,6 +440,7 @@ export default function App() {
   const [channelVisibilityDraft, setChannelVisibilityDraft] = useState<"PUBLIC" | "PRIVATE">("PRIVATE");
   const [updatingChannelVisibility, setUpdatingChannelVisibility] = useState(false);
   const [archivingChannel, setArchivingChannel] = useState(false);
+  const [projectReload, setProjectReload] = useState(0);
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -1480,7 +1481,8 @@ export default function App() {
             visibleChannels.some((channel) => channel.id === activeChannelId && !channel.archivedAt)
           ? activeChannelId
           : visibleChannels.find((channel) => !channel.archivedAt)?.id ?? null;
-    if (view === "projects" && projectIndex.some(project => project.id === selectedProject && project.channelId === nextSelectedChannelId) && visibleChannels.some(channel => channel.id === nextSelectedChannelId && !channel.archivedAt)) {
+    // A listed project keeps its page when its chat is archived: it shows there tagged Archived.
+    if (view === "projects" && projectIndex.some(project => project.id === selectedProject && project.channelId === nextSelectedChannelId) && visibleChannels.some(channel => channel.id === nextSelectedChannelId)) {
       setActiveChannelId(nextSelectedChannelId);
     } else selectChannel(nextSelectedChannelId, { replace: true });
     return nextChannels;
@@ -1601,12 +1603,17 @@ export default function App() {
   }
 
   /** Archive acts at once: the engine archives the chat for everyone (Nest pauses its hand-offs), or unarchives it. */
-  async function setChannelArchived(channel: Channel, archived: boolean) {
+  async function setChannelArchived(channel: Pick<Channel, "id">, archived: boolean) {
     setArchivingChannel(true);
     setError(null);
     try {
       await apiFetch(`/api/channels/${encodeURIComponent(channel.id)}/${archived ? "archive" : "unarchive"}`, { method: "POST" });
       if (archived) setShowArchivedChannels(true);
+      // A project chat's project stays listed, now tagged (or no longer tagged) archived.
+      if (projectIndex.some(project => project.channelId === channel.id)) {
+        setProjectIndex(await apiJson<Project[]>("/api/projects"));
+        setProjectReload(n => n + 1);
+      }
       await refreshChannels(channel.id);
     } catch (archiveError) {
       setError(archiveError instanceof Error ? archiveError.message : archived ? "Unable to archive the chat" : "Unable to unarchive the chat");
@@ -2122,8 +2129,8 @@ export default function App() {
         onChannels={setChannels}
         changeRequests={{arm: onSent => composerRef.current?.requestChanges(onSent) ?? false, cancel: () => cancelChangesRef.current?.()}}
         forks={canvasForks}
-      /> : null) : view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} onOpenAgent={name=>selectAgent(name)} username={username} onManage={activeChannelManageable?()=>setShowChannelManageDialog(true):undefined} voice={canvasAvailable === true} /> : view === "agents" ? <Agents tab={agentTab} onTab={tab=>selectAgent(selectedAgent,{tab})} onOpenChat={name=>void openAgentChat(name)} requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
-        resumeProject={userId?projectIndex.find(p=>p.id===recentProject(userId)):undefined} channels={visibleChannels} projects={projectIndex} onProject={selectProject} unreadCounts={unreadCounts} onCommunity={selectCommunity}
+      /> : null) : view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} onOpenAgent={name=>selectAgent(name)} username={username} onManage={activeChannelManageable?()=>setShowChannelManageDialog(true):undefined} voice={canvasAvailable === true} onUnarchive={channelId=>setChannelArchived({id: channelId}, false)} reload={projectReload} /> : view === "agents" ? <Agents tab={agentTab} onTab={tab=>selectAgent(selectedAgent,{tab})} onOpenChat={name=>void openAgentChat(name)} requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
+        resumeProject={userId?projectIndex.find(p=>p.id===recentProject(userId)&&!p.archived):undefined} channels={visibleChannels} projects={projectIndex.filter(p=>!p.archived)} onProject={selectProject} unreadCounts={unreadCounts} onCommunity={selectCommunity}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}
         onSelect={selectChannel} onCreate={() => selectProject(null, null, "new")}
         onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()}
