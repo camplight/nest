@@ -111,6 +111,37 @@ describe('ringState',()=>{
   const state=ringState([action('miro','Create card','create','ok',1),action('miro','Create card','create','failed',2)],'Pip',0);
   expect(state.feed.map(entry=>[entry.failed,entry.count])).toEqual([[true,1],[false,1]]);
  });
+ it('shows an app call made through the connections command on its app station, not Shell',()=>{
+  const state=ringState([
+   ev('tool.started',{tool:'shell_run',args:{cmd:'node connections.mjs execute conn-1 TRELLO_GET_BOARDS --input {}'}},1),
+   ev('tool.executed',{tool:'shell_run',output:'secret-board'},2),
+   ev('tool.started',{tool:'shell_run',args:{cmd:'ls'}},3),ev('tool.executed',{tool:'shell_run'},4),
+   ev('tool.started',{tool:'shell_run',args:{command:'node connections.mjs execute conn-2 GOOGLESHEETS_BATCH_UPDATE'}},5),
+   runner('process.exited',{exitCode:1},6),ev('tool.executed',{tool:'shell_run'},7),
+  ],'Pip',0);
+  expect(state.stations).toEqual([
+   {key:'app:trello',label:'Trello',app:'trello',count:1,failed:false},
+   {key:'shell',label:'Shell',count:1,failed:false},
+   {key:'app:googlesheets',label:'Google Sheets',app:'googlesheets',count:1,failed:true},
+  ]);
+  expect(state.actions).toBe(3);
+  expect(state.feed.map(entry=>[entry.station,entry.failed])).toEqual([['app:googlesheets',true],['shell',false],['app:trello',false]]);
+  expect(state.feed[2]?.text).toMatch(/^Trello · /);
+  expect(state.feed[0]?.text).toMatch(/^Google Sheets · /);
+  expect(JSON.stringify(state)).not.toMatch(/conn-1|secret|--input/);
+ });
+ it('names the app a running connections command is using',()=>{
+  const state=ringState([ev('tool.started',{tool:'shell_run',args:{cmd:'node connections.mjs execute c TRELLO_GET_BOARDS'}},5)],'Pip',0);
+  expect(state.status).toEqual({kind:'app',label:'Trello'});
+ });
+ it('counts an app call once when the chat also has its action line',()=>{
+  const state=ringState([
+   ev('tool.started',{tool:'shell_run',args:{cmd:'node connections.mjs execute c MIRO_GET_BOARD'}},1),
+   action('miro','Get board','read','ok',2),ev('tool.executed',{tool:'shell_run'},3),
+  ],'Pip',0);
+  expect(state.stations).toEqual([{key:'shell',label:'Shell',count:1,failed:false},{key:'app:miro',label:'Miro',app:'miro',count:1,failed:false}]);
+  expect(state.actions).toBe(2);
+ });
  it('says what the agent is doing in one line',()=>{
   expect(ringStatusText('Pip',{kind:'thinking'},0)).toBe('Pip is thinking…');
   expect(ringStatusText('Pip',{kind:'command',since:1000},41_000)).toBe('Pip is waiting on a command · 40s');

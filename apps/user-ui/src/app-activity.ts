@@ -90,7 +90,7 @@ function fingerprint(text: string) {
 }
 
 /** Reads payload.tool and payload.args only. */
-function commandOf(payload: unknown): string | null {
+export function commandOf(payload: unknown): string | null {
   if (!payload || typeof payload !== 'object') return null;
   const p = payload as {tool?: unknown; args?: unknown};
   if (p.tool !== 'shell_run' || !p.args || typeof p.args !== 'object') return null;

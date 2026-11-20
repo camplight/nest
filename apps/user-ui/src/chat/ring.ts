@@ -1,7 +1,10 @@
 // What an agent is doing in its open turn, for the working ring (spec: working ring on hover).
 // Built from action names only: tool arguments, outputs, paths and provider results never reach it.
+// App calls come from Nest's action lines; for agents whose chat gets none (OrgOps-native agents run the connections
+// command without the chat id), they come from the command itself, as in Apps here, reduced to the app and action name.
 import type {EventRow} from '../types';
 import {connectionAppName} from '../components/ConnectionActions';
+import {classifyCommand,commandOf} from '../app-activity';
 
 export type RingStation={key:string;label:string;app?:string;count:number;failed:boolean};
 /** One feed line; `count` is how many identical actions in a row it stands for, `at` the latest of them. */
@@ -46,8 +49,22 @@ function verb(tool:string,key:string):string{
  return FAMILY_VERBS[key]??'used a tool';
 }
 
+const isActionLine=(event:EventRow)=>{const p=record(event.payload);return event.type==='telemetry.nest.connection.action'&&typeof p.app==='string'&&!!p.app&&typeof p.title==='string'&&!!p.title.trim();};
+
+/** The app and action a shell command calls, as names only; null for any other command. */
+function appCommand(event:EventRow):{app:string;label:string;text:string}|null{
+ const raw=commandOf(event.payload);
+ const call=raw===null?null:classifyCommand(raw);
+ return call?{app:call.app,label:call.appName,text:`${call.appName} · ${call.action}`}:null;
+}
+
 export function ringState(events:readonly EventRow[],agent:string,since:number):RingState{
  const stations:RingStation[]=[];
+ const own=(event:EventRow)=>(event.createdAt??0)>=since&&agentOf(event)===agent;
+ // Action lines are the better record; when this turn has any, commands are not read for apps, so nothing counts twice.
+ const readCommands=!events.some(event=>own(event)&&isActionLine(event));
+ // The app each running shell tool calls (null for other commands), first in, first out like shellStarts.
+ const shellApps:(ReturnType<typeof appCommand>)[]=[];
  const feed:RingEntry[]=[];
  let actions=0,inFlight=0,shellInFlight=0,shellFailures=0;
  // Start times of running shell tools, and the latest app used: an app call made since the newest command began names that command.
@@ -64,27 +81,38 @@ export function ringState(events:readonly EventRow[],agent:string,since:number):
   else feed.push({id:event.id,station:key,text,failed,at,count:1});
  };
  for(const event of events){
-  if((event.createdAt??0)<since||agentOf(event)!==agent)continue;
+  if(!own(event))continue;
   const p=record(event.payload);
   const tool=typeof p.tool==='string'?p.tool:'';
   if(event.type==='tool.started'){
    const {key,label}=family(tool);
-   station(key,label).count++;actions++;inFlight++;
-   if(key==='shell'){shellInFlight++;shellStarts.push(event.createdAt??0);}
+   const app=key==='shell'&&readCommands?appCommand(event):null;
+   if(app){station(`app:${app.app}`,app.label,app.app).count++;lastApp={label:app.label,at:event.createdAt??0};}
+   else station(key,label).count++;
+   actions++;inFlight++;
+   if(key==='shell'){shellInFlight++;shellStarts.push(event.createdAt??0);shellApps.push(app);}
   }else if(event.type==='tool.executed'||event.type==='tool.failed'){
    const {key,label}=family(tool);
    inFlight=Math.max(0,inFlight-1);
    // shell_run reports a non-zero exit as a normal result: its process exit already marked the failure.
    const exitFailed=key==='shell'&&shellFailures>0;
+   const app=key==='shell'?shellApps.shift()??null:null;
    if(key==='shell'){shellInFlight=Math.max(0,shellInFlight-1);shellStarts.shift();if(exitFailed)shellFailures--;}
    const failed=event.type==='tool.failed'||exitFailed;
+   if(app){
+    const appKey=`app:${app.app}`;
+    if(failed)station(appKey,app.label,app.app).failed=true;
+    add(event,appKey,app.text,failed);
+    continue;
+   }
    if(failed)station(key,label).failed=true;
    add(event,key,exitFailed?'Shell · a command stopped with an error':`${label} · ${verb(tool,key)}`,failed);
   }else if(event.type==='process.exited'&&typeof p.exitCode==='number'&&p.exitCode!==0){
-   station('shell','Shell').failed=true;
+   // A failing app command marks its app when its tool result arrives; any other marks Shell now.
+   if(!(shellInFlight>0&&shellApps[0]))station('shell','Shell').failed=true;
    // While a shell tool is running, its result carries this failure; a background command's exit stands alone.
    if(shellInFlight>0)shellFailures++;else add(event,'shell','Shell · a command stopped with an error',true);
-  }else if(event.type==='telemetry.nest.connection.action'&&typeof p.app==='string'&&p.app&&typeof p.title==='string'&&p.title.trim()){
+  }else if(isActionLine(event)&&typeof p.app==='string'&&typeof p.title==='string'){
    const label=connectionAppName(p.app),key=`app:${p.app}`;
    const target=station(key,label,p.app);
    const failed=p.outcome==='failed';
