@@ -19,7 +19,7 @@ import {nudgeMessage,type CanvasLive} from './live';
 import {LooseDrawer,LooseToggle,MAX_BULK} from './LooseDrawer';
 import {newChatMembers,startFailed,startSpot} from './agent-drop';
 import {fileViewerOwns} from './file-viewer';
-import {CARD_PLACE_HEIGHT,areaAround,clearOfCards,dropLayout,gridPlacement,looseChats,looseNeedsYou,slotInArea,slotOutsideAreas,type Placed} from './loose';
+import {CARD_PLACE_HEIGHT,archiveNotice,archivePlan,areaAround,clearOfCards,dropLayout,gridPlacement,looseChats,looseNeedsYou,slotInArea,slotOutsideAreas,type Placed} from './loose';
 import {SPLIT_MAX,SPLIT_MIN,clampSplit,readSplit,splitAt,writeSplit} from './split';
 import {cardTitle} from './Card';
 import {AgentTray,trayHeading} from './AgentTray';
@@ -368,11 +368,6 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
     const grown = target ? growToFit(target, cards.map(card => ({...card, w: DEFAULT_CARD_WIDTH, h: CARD_PLACE_HEIGHT}))) : null;
     if (target && grown) void store.apply({kind: 'patchArea', areaId: target.id, patch: grown});
   }, [store, applyTracked, measured]);
-  const hide = useCallback(async (channelIds: string[], value: boolean) => {
-    const result = await setHidden(channelIds, value);
-    setHiddenIds(new Set(result.channelIds));
-    return true;
-  }, []);
   // The Loose chats drawer (over the left of the canvas, which keeps its width) and the agent picker (above the tray)
   // share the left side, so opening either closes the other, as in the mock. Both start closed.
   const drawerId = useId();
@@ -835,13 +830,13 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
     return next;
   }, [pulses, titles, reviews, projects, flows.needs]);
   // The drawer's rows read the same pulses and Needs you items as the cards: a row's reason, activity and chip.
-  const loose = useMemo(() => cards ? looseChats({channels, projects, boardChannelIds: boardIds, hidden, username, userId: humanId, pulses, needs: cardNeeds, showHidden}) : [],
+  const loose = useMemo(() => cards ? looseChats({channels, projects, boardChannelIds: boardIds, hidden, username, userId: humanId, pulses, needs: cardNeeds, showHidden, showArchived: showHidden}) : [],
     [cards, channels, projects, boardIds, hidden, username, humanId, pulses, cardNeeds, showHidden]);
   const ownsBoard = board?.canvas.role === 'owner', boardId = board?.canvas.id;
   useEffect(() => { if (ownsBoard && boardId) loadMembers(boardId); }, [ownsBoard, boardId, loadMembers]);
   const boardCards = board?.cards;
   const summaryLine = useMemo(() => boardCards ? summaryText(canvasSummary(boardCards, pulses)) : '', [boardCards, pulses]);
-  const shownLoose = useMemo(() => showHidden ? loose.filter(chat => !hidden.has(chat.channelId)) : loose, [loose, hidden, showHidden]);
+  const shownLoose = useMemo(() => showHidden ? loose.filter(chat => !hidden.has(chat.channelId) && !chat.archived) : loose, [loose, hidden, showHidden]);
   const looseHot = useMemo(() => shownLoose.some(looseNeedsYou), [shownLoose]);
   // Scheduled jobs (flows): the viewer's schedules and agents' own booked runs. Cards show a badge, the open chat its strips,
   // and the top bar the jobs in chats on this canvas or loose.
@@ -884,6 +879,38 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
    */
   const [dockKey, setDockKey] = useState(0);
   const refreshRef = useRef(refreshChannels); refreshRef.current = refreshChannels;
+  const looseRef = useRef(loose); looseRef.current = loose;
+  const hiddenRef = useRef(hidden); hiddenRef.current = hidden;
+  /** The engine archive through Nest (which pauses the chat's hand-offs); false when the engine refused it. */
+  const engineArchive = useCallback(async (channelId: string, archived: boolean) => {
+    try { await apiFetch(`/api/channels/${encodeURIComponent(channelId)}/${archived ? 'archive' : 'unarchive'}`, {method: 'POST'}); return true; }
+    catch { return false; }
+  }, []);
+  /**
+   * The drawer's Archive: chats the person manages are archived for everyone, the rest hidden from their list, and a
+   * notice says how many of each. A chat the engine refused counts as failed and is not hidden in its place.
+   * Undo (false) unarchives an archived chat and unhides a hidden one.
+   */
+  const hide = useCallback(async (channelIds: string[], value: boolean) => {
+    const byId = new Map(looseRef.current.map(chat => [chat.channelId, chat]));
+    if (!value) {
+      const archived = channelIds.filter(id => byId.get(id)?.archived);
+      const results = await Promise.all(archived.map(id => engineArchive(id, false)));
+      const unhide = channelIds.filter(id => hiddenRef.current.has(id));
+      if (unhide.length) setHiddenIds(new Set((await setHidden(unhide, false)).channelIds));
+      if (results.some(Boolean)) await refreshRef.current();
+      return results.every(Boolean);
+    }
+    const plan = archivePlan(channelIds.filter(id => !byId.get(id)?.archived), id => Boolean(byId.get(id)?.manageable));
+    let done = 0;
+    for (const id of plan.archive) if (await engineArchive(id, true)) done += 1;
+    const failed = plan.archive.length - done;
+    if (plan.hide.length) setHiddenIds(new Set((await setHidden(plan.hide, true)).channelIds));
+    if (done) await refreshRef.current();
+    if (!done && !plan.hide.length) return !failed;
+    say(archiveNotice(done, plan.hide.length, failed));
+    return true;
+  }, [engineArchive, say]);
   /** Renames the open chat's project (owner only), then reloads the chat list and the board so card and window show it. */
   const renameChat = useCallback(async (name: string) => {
     if (!chatProject) return false;
@@ -1033,7 +1060,8 @@ export function CanvasView({windowCores, canvasId, humanId, username, humans, ch
   // Archived (hidden) chats are always searchable, whatever the drawer's Show archived says; the drawer's list is unchanged.
   const index = useMemo(() => {
     const listed = new Set(loose.map(chat => chat.channelId));
-    return searchIndex({canvases: canvases ?? [], board, archived: hidden, loose: [...loose, ...candidates.filter(chat => hidden.has(chat.channelId) && !listed.has(chat.channelId))]});
+    const off = new Set([...hidden, ...loose.filter(chat => chat.archived).map(chat => chat.channelId)]);
+    return searchIndex({canvases: canvases ?? [], board, archived: off, loose: [...loose, ...candidates.filter(chat => hidden.has(chat.channelId) && !listed.has(chat.channelId))]});
   }, [canvases, board, loose, candidates, hidden]);
   const choose = useCallback((item: SearchItem) => {
     setSearchOpen(false);

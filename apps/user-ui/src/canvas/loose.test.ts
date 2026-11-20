@@ -3,7 +3,7 @@ import type {Project} from '@nest/schemas';
 import type {Channel} from '../types';
 import type {AgentPulse,CardPulse} from './pulse';
 import type {NeedsItem} from './needs';
-import {CARD_PLACE_HEIGHT,GRID_STEP,PLACE_GAP,areaAround,clearOfCards,dayGroup,drawerLayout,dropPlacement,filterLoose,gridPlacement,looseChats,looseCounts,looseNeedsYou,looseStatus,slotInArea,slotOutsideAreas,type LooseChat,type LooseFilter} from './loose';
+import {CARD_PLACE_HEIGHT,GRID_STEP,PLACE_GAP,archiveNotice,archivePlan,areaAround,clearOfCards,dayGroup,drawerLayout,dropPlacement,filterLoose,gridPlacement,looseChats,looseCounts,looseNeedsYou,looseStatus,slotInArea,slotOutsideAreas,type LooseChat,type LooseFilter} from './loose';
 
 const NOW=Date.UTC(2026,10,8,12);
 const HOUR=3_600_000,DAY=24*HOUR;
@@ -35,6 +35,18 @@ describe('looseChats',()=>{
     expect(ids(true)).toEqual(['hidden','in','owned']);
   });
 
+  it('lists archived chats, tagged archived, only while Show archived is on, and says which the person may manage',()=>{
+    const channels=[chat('mine',{canManage:true}),chat('theirs',{canManage:false}),chat('gone',{archivedAt:NOW-HOUR,canManage:true}),chat('team',{canManage:true})];
+    const projects=[{...project('p1','team','Team room'),ownerId:'human-2'}];
+    expect(looseChats({...base,channels,projects,showHidden:true}).map(c=>c.channelId).sort()).toEqual(['mine','team','theirs']);
+    const listed=looseChats({...base,channels,projects,showHidden:true,showArchived:true});
+    expect(listed.find(c=>c.channelId==='gone')).toMatchObject({archived:true,manageable:true});
+    expect(listed.find(c=>c.channelId==='mine')).toMatchObject({archived:false,manageable:true});
+    expect(listed.find(c=>c.channelId==='theirs')).toMatchObject({manageable:false});
+    // Another owner's project chat is theirs to archive.
+    expect(listed.find(c=>c.channelId==='team')).toMatchObject({manageable:false});
+  });
+
   it('titles a project chat by its project name and lists its agents, needs-you and activity',()=>{
     const [item]=looseChats({...base,channels:[chat('c1')],projects:[project('p1','c1','Invoice cleanup')],pulses:new Map([['c1',pulse(NOW-HOUR,2)]])});
     expect(item).toMatchObject({channelId:'c1',projectId:'p1',title:'Invoice cleanup',agents:['Pip'],state:'need',lastActivityAt:NOW-HOUR});
@@ -50,7 +62,7 @@ describe('looseChats',()=>{
 });
 
 const looseItem=(channelId:string,patch:Partial<LooseChat>):LooseChat=>({channelId,projectId:null,title:`Chat ${channelId}`,participants:[],lastActivityAt:null,
-  agents:[],state:'done',reason:null,line:'',...patch});
+  agents:[],state:'done',reason:null,line:'',manageable:true,archived:false,...patch} as LooseChat);
 
 describe('filterLoose',()=>{
   const items:LooseChat[]=[
@@ -259,5 +271,19 @@ describe('slotOutsideAreas',()=>{
     const spot=slotOutsideAreas(home,[home,neighbour],[{x:440,y:300,w:280}]);
     expect(spot.x).toBe(440);
     expect(spot.y).toBeGreaterThanOrEqual(300+CARD_PLACE_HEIGHT+PLACE_GAP/2);
+  });
+});
+
+describe('archivePlan',()=>{
+  it('archives the chats the person manages and hides the rest, order kept',()=>{
+    expect(archivePlan(['a','b','c','d'],id=>id==='a'||id==='c')).toEqual({archive:['a','c'],hide:['b','d']});
+  });
+});
+
+describe('archiveNotice',()=>{
+  it('says how many were archived, hidden, or could not be archived',()=>{
+    expect(archiveNotice(3,1,0)).toBe("Archived 3 · hid 1 you can't manage");
+    expect(archiveNotice(0,2,0)).toBe("Hid 2 you can't manage");
+    expect(archiveNotice(2,0,1)).toBe('Archived 2 · 1 could not be archived. Try again.');
   });
 });

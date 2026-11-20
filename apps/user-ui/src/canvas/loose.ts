@@ -15,6 +15,10 @@ export type LooseChat = {
   reason: string | null;
   /** The row's second line without a reason: `{agent} · {activity}`, else the last message's first line, else empty. */
   line: string;
+  /** The person may archive it for everyone: they manage the chat and, for a project chat, own the project. */
+  manageable: boolean;
+  /** Archived for everyone (listed only under Show archived). */
+  archived: boolean;
 };
 export type LooseStateFilter = 'all' | LooseState;
 export type LooseFilter = {query: string; state: LooseStateFilter; agent: string | null};
@@ -27,6 +31,8 @@ export type LooseInput = {
   /** Each chat's Needs you items (mentions and reviews), newest first, as the cards use them. Without it a chat's unread mentions count. */
   needs?: ReadonlyMap<string, readonly NeedsItem[]>;
   showHidden: boolean;
+  /** Also list chats archived for everyone (Show archived in the drawer). */
+  showArchived?: boolean;
 };
 
 const isHuman = (p: ChannelParticipant) => p.subscriberType.trim().toUpperCase() === 'HUMAN';
@@ -51,12 +57,12 @@ export function looseStatus(agents: readonly string[], pulse: CardPulse | undefi
   return {state: reason !== null ? 'need' : working ? 'working' : 'done', reason, line};
 }
 
-/** The person's own chats (a human participant, or the owner) that are not archived, on this board or hidden. Newest activity first. */
-export function looseChats({channels, projects, boardChannelIds, hidden, username, userId, pulses, needs, showHidden}: LooseInput): LooseChat[] {
+/** The person's own chats (a human participant, or the owner) that are not on this board, hidden or archived (unless shown). Newest activity first. */
+export function looseChats({channels, projects, boardChannelIds, hidden, username, userId, pulses, needs, showHidden, showArchived = false}: LooseInput): LooseChat[] {
   const byChannel = new Map(projects.map(project => [project.channelId, project]));
   const items: LooseChat[] = [];
   for (const channel of channels) {
-    if (channel.archivedAt || isSystem(channel) || boardChannelIds.has(channel.id) || (!showHidden && hidden.has(channel.id))) continue;
+    if ((channel.archivedAt && !showArchived) || isSystem(channel) || boardChannelIds.has(channel.id) || (!showHidden && hidden.has(channel.id))) continue;
     const participants = channel.participants ?? [];
     const mine = (Boolean(userId) && channel.ownerHumanId === userId) || participants.some(p => isHuman(p) && p.subscriberId === username);
     if (!mine) continue;
@@ -73,6 +79,8 @@ export function looseChats({channels, projects, boardChannelIds, hidden, usernam
       lastActivityAt: pulse?.lastActivityAt ?? project?.createdAt ?? null,
       agents,
       ...status,
+      manageable: Boolean(channel.canManage) && (!project || project.ownerId === userId),
+      archived: Boolean(channel.archivedAt),
     });
   }
   return items.sort((a, b) => (b.lastActivityAt ?? -Infinity) - (a.lastActivityAt ?? -Infinity) || a.title.localeCompare(b.title));
@@ -247,4 +255,20 @@ export function slotOutsideAreas(home: Rect, areas: Rect[], cards: Placed[], w =
     if (!taken.some(rect => overlaps(rect, {...spot, w, h}))) return spot;
   }
   return {x: start.x + 4 * GRID_STEP.x, y: start.y};
+}
+
+/** The drawer's Archive: chats the person manages are archived for everyone, the rest hidden from their list. Order kept. */
+export function archivePlan(ids: string[], manageable: (id: string) => boolean): {archive: string[]; hide: string[]} {
+  return {archive: ids.filter(id => manageable(id)), hide: ids.filter(id => !manageable(id))};
+}
+
+/** What the drawer's Archive did: `Archived 3 · hid 1 you can't manage`, with any that could not be archived. */
+export function archiveNotice(archived: number, hid: number, failed: number): string {
+  const parts = [
+    ...(archived ? [`Archived ${archived}`] : []),
+    ...(hid ? [`hid ${hid} you can't manage`] : []),
+    ...(failed ? [`${failed} could not be archived. Try again.`] : []),
+  ];
+  const text = parts.join(' · ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

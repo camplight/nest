@@ -774,7 +774,8 @@ Phase 1 is built from
    - `GET /api/canvases/hidden` returns `{channelIds}`. `POST /api/canvases/hidden`
      takes `{channelIds (1–100), hidden: true|false}` and returns the person's full
      `{channelIds}`. Chats the person cannot see are dropped without an error. This
-     is the Loose chats drawer's Archive: a personal hide, never an engine archive.
+     is the Loose chats drawer's `Hide from my list` for chats the person cannot
+     manage (the drawer's Archive of a chat they manage is the engine archive).
      Archiving also pauses the person's own running links to or from those chats
      (`paused_reason` `archived`) and declines their hand-offs there still awaiting
      an OK; other people's links are untouched. Unarchiving turns back on only the
@@ -906,7 +907,7 @@ Phase 1 is built from
    sidebar; the collapse button beside the logo expands it. That choice, the one for
    every other view (which start expanded) and whether the sidebar's agent list is
    shown are remembered per browser. Phones keep the full slide-in menu. Search (Ctrl/Cmd+K)
-   finds cards, areas, loose chats and canvases; loose chats the person has archived
+   finds cards, areas, loose chats and canvases; loose chats the person has hidden
    are always searchable, tagged Archived and listed after every other match, and
    opening one leaves it archived (the drawer's Show archived is unchanged). Needs you lists unread mentions,
    tasks waiting for review and, with flows set up, the person's flow items (Phase 3:
@@ -938,9 +939,14 @@ Phase 1 is built from
    on a click and drags onto the canvas (`Click to open · drag onto the canvas to
    place`); shift-click ticks a range. With rows ticked, a bar shows `{n} selected`,
    `New area from these` (which frames the area, opens its title for typing and closes
-   the drawer), `Archive` and `Clear`; actions take at most 100 chats. Archive is the
-   personal hide above; `Show archived` in the footer lists archived chats with
-   Unarchive. The footer says `Tick chats to act on several at once`. The list is
+   the drawer), `Archive` and `Clear`; actions take at most 100 chats. Archive
+   archives the ticked chats the person manages (the engine archive: read-only for
+   everyone, hand-offs paused) and hides the rest from their list (the personal hide
+   above); it reads `Hide from my list` when none is theirs to archive, and a notice
+   says what it did (`Archived 3 · hid 1 you can't manage`; a chat the engine refused
+   counts as `could not be archived` and is not hidden instead). `Show archived` in
+   the footer lists archived chats tagged `Archived` with Unarchive (for chats the
+   person manages) and hidden ones tagged `Hidden` with Unhide. The footer says `Tick chats to act on several at once`. The list is
    windowed (48 px rows, 30 px group headers) and opens at its top each time. From 1024 px up the top bar
    stays one row: the canvas name truncates with its full text as its title, and labels
    collapse to icons as the bar itself narrows, lowest priority first (Search and Share,

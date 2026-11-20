@@ -116,14 +116,16 @@ await runChatTest('canvas pile: 220 loose chats stay windowed, search, new area,
   await search.fill('invoice');
   await rowsAre(page,8);
 
-  // Archive (the spec's personal hide): the row goes, a reload keeps it gone, and the engine channel is not archived.
+  // Archive: a chat the person manages is archived for everyone (the engine archive, through Nest), a reload keeps it
+  // out of the list, Show archived lists it tagged with Unarchive, and Unarchive brings it back.
   const hidden=seeded.find(c=>c.name.includes('invoice')&&!picks.includes(c))!;
   await rowFor(page,hidden.name).getByRole('checkbox').check();
   await pile.getByRole('toolbar',{name:'Selected chats',exact:true}).getByText('1 selected',{exact:true}).waitFor();
   assert.equal(await pile.getByRole('button',{name:'Place on canvas',exact:true}).count(),0,'rows drag onto the canvas instead');
-  const hid=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith('/api/canvases/hidden'));
+  const archivedCall=page.waitForResponse(r=>r.request().method()==='POST'&&r.url().endsWith(`/api/channels/${hidden.channelId}/archive`));
   await pile.getByRole('button',{name:'Archive',exact:true}).click();
-  assert.equal((await hid).ok(),true);
+  assert.equal((await archivedCall).ok(),true);
+  await page.locator('.canvas-notice').getByText('Archived 1',{exact:true}).waitFor();
   await rowFor(page,hidden.name).waitFor({state:'detached'});
   await page.reload();
   await countIs(page,216);
@@ -131,12 +133,15 @@ await runChatTest('canvas pile: 220 loose chats stay windowed, search, new area,
   await search.fill('invoice');
   await rowsAre(page,7);
   assert.equal(await rowFor(page,hidden.name).count(),0,'still archived after a reload');
-  const channels=await call<Channel[]>(h,'GET','/api/channels?includeArchived=1');
-  assert.equal(channels.find(c=>c.id===hidden.channelId)?.archivedAt??null,null,'the engine channel is not archived');
+  const archivedNow=await call<Channel[]>(h,'GET','/api/channels?includeArchived=1');
+  assert.notEqual(archivedNow.find(c=>c.id===hidden.channelId)?.archivedAt??null,null,'the engine channel is archived');
   await pile.getByRole('checkbox',{name:'Show archived',exact:true}).check();
+  await rowFor(page,hidden.name).getByText('Archived',{exact:true}).waitFor();
   await rowFor(page,hidden.name).getByRole('button',{name:'Unarchive',exact:true}).click();
   await pile.getByRole('checkbox',{name:'Show archived',exact:true}).uncheck();
   await rowFor(page,hidden.name).waitFor();
+  const restored=await call<Channel[]>(h,'GET','/api/channels?includeArchived=1');
+  assert.equal(restored.find(c=>c.id===hidden.channelId)?.archivedAt??null,null,'the engine channel is unarchived');
   await search.fill('');
 
   // Scrolled far down, closed and opened again, the drawer opens at the top with its first rows mounted.

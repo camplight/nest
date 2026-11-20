@@ -55,7 +55,7 @@ export type LooseDrawerProps = {
   /** The drawer's element id, for the toggle's aria-controls. */
   id: string;
   open: boolean;
-  /** Loose chats, newest first; archived (hidden) ones are included only while Show archived is on. */
+  /** Loose chats, newest first; archived and hidden ones are included only while Show archived is on. */
   chats: LooseChat[];
   /** How many loose chats are not archived: the header count. */
   count: number;
@@ -67,7 +67,7 @@ export type LooseDrawerProps = {
   /** Rows drag onto the surface (not on phones, which have none). */
   draggable: boolean;
   onNewArea(channelIds: string[]): Promise<boolean>;
-  /** The spec's "archive (hide)": a personal hide from loose chats, never an engine archive. */
+  /** Archive: chats the person manages are archived for everyone, the rest hidden from their list; false undoes either. */
   onArchive(channelIds: string[], archived: boolean): Promise<boolean>;
   /** ✕ or Escape. `returnFocus` when focus was in the drawer, so it goes back to the toggle. */
   onClose(returnFocus: boolean): void;
@@ -88,7 +88,9 @@ type RowProps = {
   onToggle(index: number, channelId: string, checked: boolean, range: boolean): void;
   onUnhide(channelId: string): void;
 };
-const Row = memo(function Row({chat, index, top, selected, hidden, draggable, now, size, highlighted, onOpenChat, dragIds, onToggle, onUnhide}: RowProps) {
+const Row = memo(function Row({chat, index, top, selected, hidden: hiddenHere, draggable, now, size, highlighted, onOpenChat, dragIds, onToggle, onUnhide}: RowProps) {
+  // Off the list for now: archived for everyone, or hidden from the person's list.
+  const hidden = hiddenHere || chat.archived;
   const drag = draggable && !hidden;
   const start = (event: ReactDragEvent<HTMLLIElement>) => {
     const ids = dragIds(chat.channelId);
@@ -125,9 +127,16 @@ const Row = memo(function Row({chat, index, top, selected, hidden, draggable, no
     {chat.lastActivityAt !== null ? <span className="canvas-drawer-time" title={`Active ${ago(chat.lastActivityAt, now)}`}>
       <span className="canvas-visually-hidden">Active {ago(chat.lastActivityAt, now)}</span><span aria-hidden="true">{shortAgo(chat.lastActivityAt, now)}</span>
     </span> : null}
-    {hidden ? <button type="button" className="canvas-drawer-unhide" onClick={() => onUnhide(chat.channelId)}>Unarchive</button> : null}
+    {hidden ? <span className="canvas-drawer-tag">{chat.archived ? 'Archived' : 'Hidden'}</span> : null}
+    {hidden && (!chat.archived || chat.manageable) ? <button type="button" className="canvas-drawer-unhide" onClick={() => onUnhide(chat.channelId)}>{chat.archived ? 'Unarchive' : 'Unhide'}</button> : null}
   </li>;
 });
+
+/** The bulk button: Archive when a selected chat is the person's to archive (and not archived yet), else Hide from my list. */
+export function bulkArchiveLabel(chats: readonly LooseChat[], picked: readonly string[]): 'Archive' | 'Hide from my list' {
+  const ids = new Set(picked);
+  return chats.some(chat => ids.has(chat.channelId) && chat.manageable && !chat.archived) ? 'Archive' : 'Hide from my list';
+}
 
 export function LooseDrawer({id, open, chats, count, hidden, showHidden, onShowHidden, canPlace, draggable, onNewArea, onArchive, onClose, now, onOpenChat, highlight = null, focusKey}: LooseDrawerProps) {
   const [query, setQuery] = useState('');
@@ -153,7 +162,7 @@ export function LooseDrawer({id, open, chats, count, hidden, showHidden, onShowH
   const layout = useMemo(() => drawerLayout(filtered, time, foldOlder, olderOpen), [filtered, time, foldOlder, olderOpen]);
   const rowsRef = useRef(layout.rows); rowsRef.current = layout.rows;
   // The chips count what the header counts: archived chats are listed under Show archived but never counted.
-  const counts = useMemo(() => looseCounts(chats.filter(chat => !hidden.has(chat.channelId))), [chats, hidden]);
+  const counts = useMemo(() => looseCounts(chats.filter(chat => !hidden.has(chat.channelId) && !chat.archived)), [chats, hidden]);
   const agents = useMemo(() => [...new Set(chats.flatMap(c => c.agents))].sort((a, b) => a.localeCompare(b)), [chats]);
   // Selection only counts chats still listed: placed or archived ones drop out of it.
   const picked = useMemo(() => layout.rows.filter(c => selected.has(c.channelId)).map(c => c.channelId), [layout.rows, selected]);
@@ -259,7 +268,8 @@ export function LooseDrawer({id, open, chats, count, hidden, showHidden, onShowH
   const placeTitle = !canPlace ? 'You can view this canvas but not change it.' : tooMany ? `Select up to ${MAX_BULK} chats` : undefined;
   const runRef = useRef(run); runRef.current = run;
   const archiveRef = useRef(onArchive); archiveRef.current = onArchive;
-  const unhide = useCallback((channelId: string) => void runRef.current(() => archiveRef.current([channelId], false), 'Could not unarchive that chat. Try again.', false), []);
+  const unhide = useCallback((channelId: string) => void runRef.current(() => archiveRef.current([channelId], false), 'Could not bring that chat back. Try again.', false), []);
+  const archiveLabel = bulkArchiveLabel(chats, picked);
 
   if (!open) return null;
   return <aside ref={root} id={id} className="canvas-drawer" aria-label="Loose chats">
@@ -298,8 +308,8 @@ export function LooseDrawer({id, open, chats, count, hidden, showHidden, onShowH
       {tooMany ? <span id={limitId} className="canvas-drawer-limit">Select up to {MAX_BULK}</span> : null}
       <button type="button" className="is-primary" disabled={busy || !canPlace || tooMany} title={placeTitle} aria-describedby={tooMany ? limitId : undefined}
         onClick={() => void run(() => onNewArea(picked), 'Could not make that area. Try again.')}>New area from these</button>
-      <button type="button" disabled={busy || tooMany} title={tooMany ? `Select up to ${MAX_BULK} chats` : 'Hide from your loose chats. The chat itself is not changed.'}
-        aria-describedby={tooMany ? limitId : undefined} onClick={() => void run(() => onArchive(picked, true), 'Could not archive those chats. Try again.')}>Archive</button>
+      <button type="button" disabled={busy || tooMany} title={tooMany ? `Select up to ${MAX_BULK} chats` : archiveLabel === 'Archive' ? 'Archive the chats you manage for everyone (read-only, hand-offs paused); hide the rest from your list.' : 'Hide from your loose chats. The chat itself is not changed.'}
+        aria-describedby={tooMany ? limitId : undefined} onClick={() => void run(() => onArchive(picked, true), 'Could not archive those chats. Try again.')}>{archiveLabel}</button>
       <button type="button" className="canvas-drawer-clear" disabled={busy} onClick={() => setSelected(new Set())}>Clear</button>
     </div> : null}
     <p className="canvas-drawer-foot">
