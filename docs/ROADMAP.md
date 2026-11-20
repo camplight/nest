@@ -692,11 +692,13 @@ Follow-ups:
 - Fork history (upstream proposal U6), so a fork can carry its parent's history
   rather than a seeded summary.
 - Re-running naming jobs that failed before the Switchyard fallback.
-- Chat id in native agent shells (upstream): OrgOps's runner should export
-  `ORGOPS_CHANNEL_ID` to `shell_run`/`shell_start`, as the wrapped harness already
-  passes its channel. Until then Nest records no connected-app action lines for
-  OrgOps-native agents (no lines under replies); the working ring reads their
-  `connections.mjs execute` commands instead.
+- Chat id in native agent shells: done upstream (OrgOps #103, in 0.0.91, adopted on
+  this branch). Native agents' connected-app calls now produce action lines; the
+  working ring's command fallback stays for older history.
+- Reasoning effort per agent: OrgOps 0.0.91 stores an optional
+  `openai_compatible_reasoning_effort` per agent and sends it to OpenAI-compatible
+  hosts (this install's default model is one). Nest's agent settings do not offer it
+  yet; the engine admin UI does.
 - A CI run of the canvas browser suite (including the rewritten phone scenarios) and
   a check on a real phone. The phone canvas itself is implemented on the branch: at
   760 px and below it shows with pinch and pan, without the legend or zoom buttons,

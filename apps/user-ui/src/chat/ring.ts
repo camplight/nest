@@ -1,6 +1,6 @@
 // What an agent is doing in its open turn, for the working ring (spec: working ring on hover).
 // Built from action names only: tool arguments, outputs, paths and provider results never reach it.
-// App calls come from Nest's action lines; for agents whose chat gets none (OrgOps-native agents run the connections
+// App calls come from Nest's action lines; for turns whose chat gets none (engines before OrgOps 0.0.91 ran the connections
 // command without the chat id), they come from the command itself, as in Apps here, reduced to the app and action name.
 import type {EventRow} from '../types';
 import {connectionAppName} from '../components/ConnectionActions';

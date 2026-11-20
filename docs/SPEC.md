@@ -2609,10 +2609,11 @@ security guarantees. See [PERSONAL_AGENTS.md](PERSONAL_AGENTS.md) for installati
 configuration, expiry/renewal, limitations and live release checks.
 
 Account changes appear in the chat. Agent shells receive `ORGOPS_CHANNEL_ID`
-from engines that provide it (not yet upstream OrgOps main), and the
+(OrgOps 0.0.91 and later, for turns that run in a channel), and the
 `nest-connections` helper forwards it on execute as `x-nest-channel-id`. Without
 it Nest has no chat to post into, so it records no line; the agent's result is
-unchanged. The working ring then reads app calls from the agent's own
+unchanged. The working ring then reads app calls (older engines, turns without a channel and history
+recorded before the upgrade) from the agent's own
 `connections.mjs execute` shell commands (app and action name only, as Apps here
 does), and does so only for turns with no action lines, so no call counts twice. Nest classifies the executed tool from its provider tags
 (`readOnlyHint` → read, else `destructiveHint` → delete, `updateHint` → update,
