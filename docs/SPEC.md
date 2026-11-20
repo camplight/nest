@@ -947,11 +947,31 @@ Phase 1 is built from
    glyph (document, spreadsheet, slides, image, audio or video, chosen by the file's
    extension first and then its MIME type), or a PNG, JPEG, GIF or WebP file as its own
    preview, over the file name, titled `<name> · <type>` (`PDF`, `Excel spreadsheet`,
-   `PowerPoint slides`, never a raw MIME type) and linking to the file. As many tiles
+   `PowerPoint slides`, never a raw MIME type) and linking to the file; a plain click
+   opens it in the file viewer (below). As many tiles
    show as fit the card (four at 264 px); when more files were posted the last slot is
    `+N` (`N more files`), which opens the chat. A file that arrives while the canvas is
    open pops in once, except with reduced motion. Area shelves and the context popover
    use the same tile and keep their download links and ✕. The
+   **file viewer** opens on a plain primary click on any file tile (cards, chat messages
+   with the canvas flag on, area shelves, the context popover and the phone list);
+   Ctrl/Cmd/Shift/Alt and middle clicks keep the tile's link (new tab, or download for
+   context files). It is one dialog titled with the file name, with `<type> · <size>`,
+   a `Download` link and close; Escape closes it, focus stays inside it, and at 760 px
+   or narrower it fills the screen. The kind comes from the file's MIME type, else its
+   extension when the type is missing or `application/octet-stream`: PNG, JPEG, GIF,
+   WebP and AVIF pictures fit the dialog; audio (voice notes included) and video play
+   in native players; a PDF shows in the browser's viewer; text, Markdown, JSON, logs
+   and YAML show as plain text, never rendered; CSV and TSV show as a table of the
+   first 200 rows and 30 columns (`Showing the first 200 rows and 30 columns.` when
+   cut); anything else, HTML and SVG included, says `No preview for this file type.`
+   Because the engine serves most files as downloads, the viewer fetches the file
+   itself (same origin, with the session) only while open and makes an object URL typed
+   from an allowlist (raster image, audio, video or `application/pdf`); closing aborts
+   the request and revokes the URL. A file over 25 MB (by its known size, then the
+   response's `content-length`, then the bytes read) is not loaded: `Too large to
+   preview here.`; a failed request says `Could not open this file. Download it
+   instead.` The engine is not changed. The
    footer shows the newest Needs you reason as a coral pill (`<sender>: <text>` or
    `Review <task>`, `+N` for more) that opens the chat, and the card gets a coral
    border; otherwise it shows `Nudge <agent>` for a quiet agent, else `Moving` or
@@ -1289,9 +1309,8 @@ titles and details are exactly as before Phase 2. The browser reads the flag onc
    off the timeline is unchanged.
    With the canvas flag on, a message's files are a wrapping row of the cards' file
    tiles under its text instead of the Attachments list: each is named `<name>, <type>,
-   <size>` with `<type> · <size>` as its tooltip, and an image preview still opens the
-   zoom view on a plain click. Audio files, voice notes included, keep the Attachments
-   list. With the flag off, attachments render as described under Chat attachments.
+   <size>` with `<type> · <size>` as its tooltip, and a plain click opens any of them in
+   the file viewer. Audio files, voice notes included, keep the Attachments list. With the flag off, attachments render as described under Chat attachments.
    Running and failed calls are counted. Cards show the apps used, and the chat's
    "Apps here" bar shows "N reads · M changes outside Nest" (singular for one, "nothing changed outside Nest" for none) for the loaded history
    only (the chips are toggles: choosing one shows only that app's tool activity lines, hides messages
@@ -3066,6 +3085,8 @@ Native agents publish generated files with OrgOps `fs_upload`, then include the
 returned attachment in their message payload. No public static copy is created.
 
 A plain click on an inline preview opens a zoom view of the image with an "Open original" link. A click with a modifier key, a middle click and keyboard activation still follow the file link as before. SVG files stay link only and never open in the zoom view.
+
+Audio attachments (voice notes included) in the Attachments list also get a `Play <name>` button. The file is fetched only on the first press, with the file viewer's rules (same origin, an allowlisted audio type, the 25 MB cap), then a native player replaces the button and starts playing; the object URL is revoked when the message unmounts. Over the cap it says `Too large to preview here.`, and a failed request says `Could not open this file. Download it instead.`
 
 
 ## Chat sender avatars

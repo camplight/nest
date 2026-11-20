@@ -3,6 +3,7 @@
 import {useState,type MouseEvent,type ReactNode} from 'react';
 import {formatAttachmentSize} from '../attachments';
 import {fileKind,fileTypeLabel,type FileKind} from './context-label';
+import {isPlainClick} from './file-viewer';
 import './file-tile.css';
 
 /** The mock's `ART` glyphs; colours come from file-tile.css so each theme keeps 3:1 against the tile. */
@@ -48,12 +49,15 @@ export type FileTileProps = {
   fresh?: boolean;
   /** The pop finished, so the tile can drop `fresh` and never replay it. */
   onPopped?(): void;
-  /** A plain click on an image preview; any other click follows the link. */
-  onPreview?(event: MouseEvent<HTMLAnchorElement>): void;
+  /**
+   * A plain primary click on the tile, any kind of file (the default is prevented first): opens the file viewer.
+   * Ctrl/Cmd/Shift/Alt and middle clicks still follow the link, to a new tab or a download.
+   */
+  onOpen?(event: MouseEvent<HTMLAnchorElement>): void;
   onRemove?(): void;
 };
 
-export function FileTile({name, mime, href, size, detailed = false, download = false, fresh = false, onPopped, onPreview, onRemove}: FileTileProps) {
+export function FileTile({name, mime, href, size, detailed = false, download = false, fresh = false, onPopped, onOpen, onRemove}: FileTileProps) {
   const [failed, setFailed] = useState(false);
   const kind = fileKind(mime, name), type = fileTypeLabel(mime, name), bytes = formatAttachmentSize(size);
   // A picture that fails to load gives its tile the image glyph back.
@@ -63,7 +67,7 @@ export function FileTile({name, mime, href, size, detailed = false, download = f
     <a className={`canvas-file-art${preview ? ' has-preview' : ''}`} href={href} title={title}
       aria-label={detailed ? [name, type, bytes].filter(Boolean).join(', ') : undefined}
       {...(download ? {download: name} : {target: '_blank', rel: 'noreferrer'})}
-      onClick={preview && onPreview ? onPreview : undefined} onAnimationEnd={fresh ? onPopped : undefined}>
+      onClick={onOpen ? event => { if (!isPlainClick(event)) return; event.preventDefault(); onOpen(event); } : undefined} onAnimationEnd={fresh ? onPopped : undefined}>
       <FileGlyph kind={kind}/>
       {/* Loaded only when the tile is near the viewport; the caption names the link, so the picture is decorative. */}
       {preview ? <img className="canvas-file-preview" src={href} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)}/> : null}

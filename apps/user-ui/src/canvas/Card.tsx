@@ -8,7 +8,8 @@ import {fileHref} from '../attachments';
 import {IntegrationLogo} from '../components/IntegrationLogo';
 import {countOf} from '../app-activity';
 import {serverClock} from '../server-clock';
-import {FileTile,fileSlots} from './FileTile';
+import {fileSlots} from './FileTile';
+import {ViewableFileTile} from './FileViewer';
 import type {AgentPulse,CardPulse} from './pulse';
 import type {NeedsItem} from './needs';
 import {participantRows,shownRows,type ParticipantRow,type RowState} from './rows';
@@ -216,7 +217,7 @@ function CardFiles({files, total, width, fresh, onPopped, onMore}: {
 }) {
   const {shown, more} = fileSlots(cardFilesWidth(width), Math.max(total, files.length), files.length);
   return <ul className="canvas-card-files" aria-label="Files">
-    {files.slice(0, shown).map(file => <FileTile key={file.fileId} name={file.name} mime={file.mime} href={fileHref(file.fileId)}
+    {files.slice(0, shown).map(file => <ViewableFileTile key={file.fileId} name={file.name} mime={file.mime} href={fileHref(file.fileId)}
       fresh={fresh.has(file.fileId)} onPopped={() => onPopped(file.fileId)}/>)}
     {more ? <li className="canvas-file-tile is-more">
       <button type="button" aria-label={`${more} more ${more === 1 ? 'file' : 'files'}`} title="Open the chat to see every file" disabled={!onMore} onClick={onMore}>+{more}</button>

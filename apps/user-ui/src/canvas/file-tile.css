@@ -165,3 +165,219 @@
   padding: 0;
   list-style: none;
 }
+
+/*
+ * The file viewer (FileViewer.tsx): one dialog on the body over a tinted overlay, the file name and `type · size` in its
+ * header beside Download and close, the file below. Full screen on phones.
+ */
+.file-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: color-mix(in srgb, var(--nest-forest) 45%, transparent);
+}
+.file-viewer {
+  box-sizing: border-box;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 91;
+  transform: translate(-50%, -50%);
+  width: min(960px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--nest-border);
+  border-radius: 16px;
+  background: var(--nest-surface);
+  color: var(--nest-text);
+  font: 400 14px/1.4 Inter, sans-serif;
+  outline: none;
+}
+.file-viewer-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 12px 18px;
+  border-bottom: 1px solid var(--nest-border);
+}
+.file-viewer-heading {
+  flex: 1;
+  min-width: 0;
+}
+.file-viewer-title {
+  margin: 0;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-viewer-details {
+  margin: 2px 0 0;
+  color: var(--nest-muted);
+  font-size: 12px;
+}
+.file-viewer-download,
+.file-viewer-close {
+  box-sizing: border-box;
+  flex: none;
+  min-height: 36px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--nest-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--nest-text);
+  font: 500 13px Inter, sans-serif;
+  text-decoration: none;
+  cursor: pointer;
+}
+.file-viewer-download {
+  padding: 0 14px;
+}
+.file-viewer-close {
+  width: 36px;
+  padding: 0;
+}
+.file-viewer-download:hover,
+.file-viewer-download:focus-visible,
+.file-viewer-close:hover,
+.file-viewer-close:focus-visible {
+  border-color: var(--nest-accent);
+}
+.file-viewer-download:focus-visible,
+.file-viewer-close:focus-visible,
+.file-viewer-text:focus-visible,
+.file-viewer-table-scroll:focus-visible {
+  outline: 2px solid var(--nest-accent);
+  outline-offset: 1px;
+}
+.file-viewer-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 16px;
+}
+.file-viewer-note {
+  margin: 24px 0;
+  color: var(--nest-muted);
+  text-align: center;
+}
+.file-viewer-image,
+.file-viewer-video {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100dvh - 140px);
+  object-fit: contain;
+  border-radius: 8px;
+}
+.file-viewer-audio {
+  width: min(520px, 100%);
+}
+.file-viewer[data-kind="pdf"],
+.file-viewer[data-kind="text"],
+.file-viewer[data-kind="table"] {
+  height: calc(100dvh - 32px);
+}
+.file-viewer-pdf {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--nest-bg);
+}
+.file-viewer-text {
+  box-sizing: border-box;
+  flex: 1;
+  width: 100%;
+  margin: 0;
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--nest-bg);
+  color: var(--nest-text);
+  font: 400 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.file-viewer-table {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.file-viewer-table .file-viewer-note {
+  margin: 10px 0 0;
+}
+.file-viewer-table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--nest-border);
+  border-radius: 8px;
+}
+.file-viewer-table table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.file-viewer-table th,
+.file-viewer-table td {
+  max-width: 320px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--nest-border);
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.file-viewer-table th {
+  position: sticky;
+  top: 0;
+  background: var(--nest-surface);
+  font-weight: 600;
+}
+.file-viewer-body:has(.file-viewer-pdf, .file-viewer-text, .file-viewer-table) {
+  align-items: stretch;
+  justify-content: stretch;
+}
+/* Phones: the whole screen. */
+@media (max-width: 760px) {
+  .file-viewer,
+  .file-viewer[data-kind="pdf"],
+  .file-viewer[data-kind="text"],
+  .file-viewer[data-kind="table"] {
+    top: 0;
+    left: 0;
+    transform: none;
+    width: 100vw;
+    height: 100dvh;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+  .file-viewer-head {
+    padding: 10px 10px 10px 16px;
+  }
+  .file-viewer-download,
+  .file-viewer-close {
+    min-height: 44px;
+  }
+  .file-viewer-close {
+    width: 44px;
+  }
+  .file-viewer-body {
+    padding: 12px;
+  }
+  .file-viewer-image,
+  .file-viewer-video {
+    max-height: calc(100dvh - 120px);
+  }
+}

@@ -1,17 +1,48 @@
-// A message's attachments (spec 6.6): file link, mime and size, inline previews that zoom on a plain click (spec 7.1.4).
-// With the canvas flag on, files are artifact tiles instead (MessageFiles); audio keeps the classic list.
-import {useState,type MouseEvent} from 'react';
+// A message's attachments (spec 6.6): file link, mime and size, inline previews that zoom on a plain click (spec 7.1.4),
+// and a Play button for audio. With the canvas flag on, files are artifact tiles instead (MessageFiles) that open the
+// file viewer; audio keeps the classic list.
+import {useEffect,useState} from 'react';
 import {fileHref,formatAttachmentSize} from '../attachments';
 import {fileKind} from '../canvas/context-label';
-import {FileTile} from '../canvas/FileTile';
+import {VIEWER_COPY,ViewableFileTile} from '../canvas/FileViewer';
+import {isPlainClick,loadViewerFile} from '../canvas/file-viewer';
 import type {MessageAttachment} from './timeline';
+import {Button} from './ui/button';
 import {ImageZoom} from './ui/ImageZoom';
 
 // SVG is never previewed: it stays a link only.
 const previewTypes=new Set(['image/png','image/jpeg','image/gif','image/webp']);
 
-/** Only an unmodified primary click opens the zoom; every other click, and middle click, follows the link. */
-const isPlainClick=(event:MouseEvent)=>event.button===0&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&!event.defaultPrevented;
+type AudioState={status:'idle'|'loading'|'too-large'|'failed'}|{status:'ready';url:string};
+
+/**
+ * A voice note or other audio file: a Play button that fetches the file on first press (the viewer's rules and cap,
+ * so a long history never downloads every recording), then a player that starts at once. The URL is revoked on unmount.
+ */
+export function InlineAudio({name,mime,href,size,fetchFile=fetch}:{name:string;mime?:string;href:string;size?:number;fetchFile?:typeof fetch}):JSX.Element{
+ const [state,setState]=useState<AudioState>({status:'idle'});
+ const [load,setLoad]=useState(false);
+ useEffect(()=>{
+  if(!load)return;
+  const controller=new AbortController();
+  let live=true,url:string|null=null;
+  setState({status:'loading'});
+  loadViewerFile({name,mime,size,href},'audio',fetchFile,controller.signal).then(result=>{
+   if(!live)return;
+   if(result.status==='too-large'){setState({status:'too-large'});return;}
+   if(result.status!=='media'){setState({status:'failed'});return;}
+   url=URL.createObjectURL(result.blob);
+   setState({status:'ready',url});
+  }).catch(()=>{if(live)setState({status:'failed'});});
+  return ()=>{live=false;controller.abort();if(url)URL.revokeObjectURL(url);};
+ },[load,name,mime,size,href,fetchFile]);
+ if(state.status==='ready')return <audio className="message-audio block w-full max-w-[420px]" src={state.url} controls autoPlay aria-label={name}/>;
+ if(state.status==='too-large'||state.status==='failed')
+  return <span className="text-xs text-muted-foreground" role={state.status==='failed'?'alert':undefined}>{state.status==='failed'?VIEWER_COPY.failed:VIEWER_COPY.tooLarge}</span>;
+ return <Button variant="outline" size="sm" className="rounded-full" type="button" disabled={state.status==='loading'} onClick={()=>setLoad(true)}>
+  {state.status==='loading'?`Loading ${name}…`:`Play ${name}`}
+ </Button>;
+}
 
 function AttachmentItem({attachment}:{attachment:MessageAttachment}):JSX.Element{
  const [failed,setFailed]=useState(false);
@@ -19,6 +50,7 @@ function AttachmentItem({attachment}:{attachment:MessageAttachment}):JSX.Element
  const url=fileHref(attachment.fileId);
  const size=formatAttachmentSize(attachment.size);
  const preview=previewTypes.has(attachment.mime??'')&&!failed;
+ const audio=fileKind(attachment.mime,attachment.name)==='audio';
  return <li className="message-attachment flex min-w-0 flex-col items-start gap-1.5">
   {preview&&<>
    <a className="message-image-link group/preview block max-w-full overflow-hidden rounded-[14px] border border-border bg-muted transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-zoom-in"
@@ -30,6 +62,7 @@ function AttachmentItem({attachment}:{attachment:MessageAttachment}):JSX.Element
    <ImageZoom src={url} alt={attachment.name} open={zoom} onOpenChange={setZoom}/>
   </>}
   <a className="max-w-full text-sm font-medium text-foreground underline-offset-2 hover:underline [overflow-wrap:anywhere]" href={url} target="_blank" rel="noreferrer">{attachment.name}</a>
+  {audio&&<InlineAudio name={attachment.name} mime={attachment.mime} href={url} size={attachment.size}/>}
   {(attachment.mime||size)&&<span className="text-xs text-muted-foreground">{[attachment.mime,size].filter(Boolean).join(' • ')}</span>}
   {failed&&<span className="text-xs text-muted-foreground">Preview unavailable. Open the file using the link above.</span>}
  </li>;
@@ -42,15 +75,9 @@ export function MessageAttachments({attachments}:{attachments:MessageAttachment[
  </div>;
 }
 
-/** One tile; an image preview still zooms on a plain click, like the classic preview. */
+/** One tile; a plain click opens it in the file viewer, any other click follows its link. */
 function MessageFileTile({attachment}:{attachment:MessageAttachment}):JSX.Element{
- const [zoom,setZoom]=useState(false);
- const url=fileHref(attachment.fileId);
- return <>
-  <FileTile name={attachment.name} mime={attachment.mime} href={url} size={attachment.size} detailed
-   onPreview={event=>{if(!isPlainClick(event))return;event.preventDefault();setZoom(true);}}/>
-  {zoom&&<ImageZoom src={url} alt={attachment.name} open onOpenChange={setZoom}/>}
- </>;
+ return <ViewableFileTile name={attachment.name} mime={attachment.mime} href={fileHref(attachment.fileId)} size={attachment.size} detailed/>;
 }
 
 /**

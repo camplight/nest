@@ -12,7 +12,7 @@ import type {CardPulse} from './pulse';
 import type {AreaContext} from './Area';
 import {contextLabel} from './context-label';
 import {contextFileHref} from './context-api';
-import {FileTile} from './FileTile';
+import {ViewableFileTile} from './FileViewer';
 import type {PhoneView} from './phone-view';
 
 /** The existing phone breakpoint. */
@@ -163,7 +163,7 @@ export function PhoneList({board, pulses, loose, titles, projects, onOpenChat, o
               <p id={listId} className="canvas-phone-empty">No chats in this area yet.</p>
               {/* As on the canvas, an area with no chats shows its context files. */}
               {areaContext?.get(group.id)?.files.length ? <ul className="canvas-file-tiles canvas-phone-shelf" aria-label={`Files in ${group.title}`}>
-                {areaContext.get(group.id)!.files.map(file => <FileTile key={file.id} name={file.name} mime={file.mime} href={contextFileHref(board.canvas.id, file.id)} download/>)}
+                {areaContext.get(group.id)!.files.map(file => <ViewableFileTile key={file.id} name={file.name} mime={file.mime} href={contextFileHref(board.canvas.id, file.id)} download/>)}
               </ul> : null}
             </> : null}
         </li>;
