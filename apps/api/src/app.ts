@@ -36,6 +36,7 @@ import { openProductDb, type ProductDb } from '@nest/db';
 import { BrandingSchema } from '@nest/schemas';
 import { createOrgOpsClient, productHeaders, type OrgOpsClient } from '@nest/orgops-client';
 import { createMemoryModeRecorder, registerAgentMemoryRoutes } from './agent-memory';
+import { registerChannelArchiveRoutes } from './channel-archive';
 import { createContextCompactionWorker } from './context-compaction-worker';
 import type { HistorySummarizer } from './context-compaction';
 
@@ -162,6 +163,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   };
   const proxy = (c: any) => forward(c.req.raw as Request);
   registerAgentMemoryRoutes(app, {store, orgops, forward, now: config.compaction?.now});
+  registerChannelArchiveRoutes(app, {store, orgops, forward});
   app.all('/api/*', proxy);
   app.all('/v1/*', proxy);
   const projectNaming=createProjectNamingWorker({store,namer:config.projectNamer,log:config.projectNamingLog,context:async(projectId,requestId)=>{

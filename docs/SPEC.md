@@ -763,6 +763,12 @@ Phase 1 is built from
      an OK; other people's links are untouched. Unarchiving turns back on only the
      links archiving paused, unless the other end is still archived, with the scan
      restarting at that moment so nothing finished meanwhile is handed off.
+   - Nest also handles the engine archive, `POST /api/channels/:id/archive` and
+     `/unarchive`: it forwards the call, and only when the engine accepts does it
+     pause every creator's running links to or from the chat (`archived`, declining
+     their hand-offs there awaiting an OK) or, on unarchive, resume the links
+     archiving paused unless the other end is still archived or hidden from the
+     link creator's list. The engine's answer, including a refusal, is returned as is.
    - `GET /api/canvases/agent-pins` returns `{agentNames, saved}`: the person's tray
      pins in order, and whether they have ever saved any. `PUT /api/canvases/agent-pins`
      takes `{agentNames}` (the whole list, at most 7 distinct names) and returns the
@@ -1540,7 +1546,7 @@ deviations; item 16 the checks.
        chat: `short` `Hand-off to {to title} paused · {why}`, where `why` is
        `hit 20 an hour`, `access changed`, `{who} left the chat` or
        `chat unavailable`, and `gate {kind:'paused', linkId}`. A link paused by a
-       person (no reason), or because they archived one of its chats (`archived`),
+       person (no reason), or because one of its chats was archived or hidden (`archived`),
        is not listed.
      - `missed`, one per schedule of the viewer's whose newest settled run was
        missed (none once a later run starts, or after Run now), on the schedule's
