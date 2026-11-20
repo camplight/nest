@@ -18,6 +18,7 @@ import {ChatHeaderSlotsContext,type ChatHeaderSlots} from '../chat/header-slots'
 import {nudgeMessage,type CanvasLive} from './live';
 import {LooseDrawer,LooseToggle,MAX_BULK} from './LooseDrawer';
 import {newChatMembers,startFailed,startSpot} from './agent-drop';
+import {fileViewerOwns} from './file-viewer';
 import {CARD_PLACE_HEIGHT,areaAround,clearOfCards,dropLayout,gridPlacement,looseChats,looseNeedsYou,slotInArea,slotOutsideAreas,type Placed} from './loose';
 import {SPLIT_MAX,SPLIT_MIN,clampSplit,readSplit,splitAt,writeSplit} from './split';
 import {cardTitle} from './Card';
@@ -1907,13 +1908,14 @@ function CanvasChat({channelId, mode, canSplit = true, win, bounds, onMove, onFi
   const closeAdding = useCallback(() => { setAdding(false); menuButton.current?.focus({preventScroll: true}); }, []);
   useEffect(() => {
     if (!menu) return;
+    // The file viewer (on the body) keeps its presses and its Escape.
     const key = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      if (event.key !== 'Escape' || event.defaultPrevented || fileViewerOwns(event)) return;
       event.preventDefault();
       setMenu(false);
       menuButton.current?.focus();
     };
-    const press = (event: PointerEvent) => { if (!(event.target instanceof Node && menuRef.current?.contains(event.target))) setMenu(false); };
+    const press = (event: PointerEvent) => { if (!fileViewerOwns(event) && !(event.target instanceof Node && menuRef.current?.contains(event.target))) setMenu(false); };
     // Choosing an action closes it. A native listener: Sharing and Export are portaled from the thread, so their clicks
     // travel React's tree (the thread), not this panel's.
     const panelElement = menuRef.current?.querySelector('.canvas-chat-menu');

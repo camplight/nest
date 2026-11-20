@@ -5,6 +5,7 @@ import type {CanvasArea,ContextLink,ContextSummary} from '@nest/schemas';
 import {contextFileHref} from './context-api';
 import {contextLabel,linkElsewhere,usedByList} from './context-label';
 import {ViewableFileTile} from './FileViewer';
+import {fileViewerOwns} from './file-viewer';
 import {summaryParts} from './area-summary';
 
 /** Counts for the compact summary line, from live card state: cards that need you, are moving or have gone quiet, and all chats. */
@@ -65,7 +66,7 @@ export const Area = memo(function Area({area, dx, dy, w, h, canEdit, compact, su
   // A disclosure of plain buttons: Tab moves through them, Escape closes and returns focus to the trigger.
   useEffect(() => {
     if (!menu) return;
-    const outside = (event: PointerEvent) => { if (!menuRef.current?.contains(event.target as Node)) setMenu(false); };
+    const outside = (event: PointerEvent) => { if (!fileViewerOwns(event) && !menuRef.current?.contains(event.target as Node)) setMenu(false); };
     const escape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       const inside = menuRef.current?.contains(document.activeElement);

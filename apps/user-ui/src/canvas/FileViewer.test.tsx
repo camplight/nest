@@ -3,7 +3,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import type {MouseEvent,ReactElement} from 'react';
 import {Dialog} from 'radix-ui';
 import {FileTile,type FileTileProps} from './FileTile';
-import {FileViewer,FileViewerBody,FileViewerContent,ViewableFileTile} from './FileViewer';
+import {FileViewer,FileViewerBody,FileViewerContext,FileViewerContent,FileViewerProvider,ViewableFileTile,useFileViewer} from './FileViewer';
 import {VIEWER_MAX_BYTES,returnFocus,startViewerLoad,type ViewerResult} from './file-viewer';
 
 const noFetch=(async()=>{throw new Error('no fetch during render');}) as unknown as typeof fetch;
@@ -18,6 +18,7 @@ describe('FileViewer',()=>{
   it('opens with the file name as title, its type and size, and a Download link',()=>{
     const html=opened({name:'Q3 report.pdf',mime:'application/octet-stream',size:5*1024,href:'/api/files/f1'});
     expect(html).toContain('role="dialog"');
+    expect(html).toContain('data-file-viewer=""');
     expect(html).toMatch(/<h2[^>]*>Q3 report.pdf<\/h2>/);
     expect(html).toContain('>PDF · 5.0 KB<');
     expect(html).toMatch(/<a[^>]*href="\/api\/files\/f1"[^>]*download="Q3 report.pdf"[^>]*>Download<\/a>/);
@@ -37,9 +38,31 @@ describe('FileViewerBody',()=>{
     renderToStaticMarkup(<FileViewerBody name="file" kind={kind} state={state}/>);
 
   it('shows text as text, never as markup',()=>{
-    const html=body('text',{status:'text',text:'<script>alert(1)</script>'});
+    const html=body('text',{status:'text',text:'<script>alert(1)</script>',cut:false});
     expect(html).toContain('&lt;script&gt;');
     expect(html).not.toContain('<script>');
+  });
+
+  it('says when text was cut to its first 1 MB',()=>{
+    expect(body('text',{status:'text',text:'abc',cut:true})).toContain('Showing the first 1 MB. Download for the rest.');
+    expect(body('text',{status:'text',text:'abc',cut:false})).not.toContain('Showing the first');
+  });
+
+  it('names the table\'s scroll region',()=>{
+    expect(body('table',{status:'table',rows:[['a']],cut:false})).toMatch(/<div class="file-viewer-table-scroll" tabindex="0" role="region" aria-label="file">/);
+  });
+
+  it('offers a PDF in a new tab too, for phones that show no PDF inline',()=>{
+    expect(body('pdf',{status:'url',url:'blob:x'})).toMatch(/<a class="file-viewer-pdf-tab" href="blob:x" target="_blank" rel="noreferrer">Open in a new tab<\/a>/);
+  });
+
+  it('switches to the failed copy when a picture or player cannot decode the file',()=>{
+    for(const kind of ['image','audio','video'] as const){
+      const onFailed=vi.fn();
+      const element=FileViewerBody({name:'file',kind,state:{status:'url',url:'blob:x'},onFailed}) as ReactElement<{onError():void}>;
+      element.props.onError();
+      expect(onFailed,kind).toHaveBeenCalledOnce();
+    }
   });
 
   it('shows a table and says when it was cut',()=>{
@@ -200,5 +223,31 @@ describe('closing the viewer',()=>{
     (content!.props as {onCloseAutoFocus(event:Event):void}).onCloseAutoFocus(event as unknown as Event);
     expect(opener.focus).toHaveBeenCalledOnce();
     expect(event.preventDefault).toHaveBeenCalledOnce();
+  });
+});
+
+describe('one shared viewer',()=>{
+  it('lets a tile hand its file and link to the shared viewer',()=>{
+    const open=vi.fn();
+    let tile:ReactElement<{onOpen(event:MouseEvent<HTMLAnchorElement>):void}>|undefined;
+    function Harness(){
+      const fragment=ViewableFileTile({name:'voice.webm',mime:'audio/webm',size:3,href:'/api/files/v'}) as ReactElement<{children:ReactElement[]}>;
+      tile=fragment.props.children[0] as typeof tile;
+      return fragment;
+    }
+    renderToStaticMarkup(<FileViewerContext.Provider value={open}><Harness/></FileViewerContext.Provider>);
+    const link={isConnected:true};
+    tile!.props.onOpen({currentTarget:link} as unknown as MouseEvent<HTMLAnchorElement>);
+    expect(open).toHaveBeenCalledWith({name:'voice.webm',mime:'audio/webm',size:3,href:'/api/files/v'},link);
+  });
+
+  it('is there under the provider and missing outside it (tiles then keep their own dialog)',()=>{
+    let inside:unknown,outside:unknown='unset';
+    function In(){inside=useFileViewer();return null;}
+    function Out(){outside=useFileViewer();return null;}
+    expect(renderToStaticMarkup(<FileViewerProvider><In/><p>page</p></FileViewerProvider>)).toBe('<p>page</p>');
+    renderToStaticMarkup(<Out/>);
+    expect(typeof inside).toBe('function');
+    expect(outside).toBeNull();
   });
 });

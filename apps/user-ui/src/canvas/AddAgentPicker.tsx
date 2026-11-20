@@ -3,6 +3,7 @@ import {useEffect,useId,useRef,useState} from 'react';
 import type {Agent} from '../types';
 import {AgentAvatar} from '../components/AgentAvatar';
 import {oneLine} from './pulse';
+import {fileViewerOwns} from './file-viewer';
 
 /** Agents whose name or role contains the typed text, in any case; blank text keeps them all. */
 export const filterAgents = (agents: Agent[], query: string): Agent[] => {
@@ -29,7 +30,7 @@ export function AddAgentPicker({agents, members, onPick, onClose}: AddAgentPicke
   const choose = (name: string) => { if (!here.has(name)) onPick(name); };
   useEffect(() => { search.current?.focus({preventScroll: true}); }, []);
   useEffect(() => {
-    const press = (event: PointerEvent) => { if (!(event.target instanceof Node && root.current?.contains(event.target))) onClose(); };
+    const press = (event: PointerEvent) => { if (!fileViewerOwns(event) && !(event.target instanceof Node && root.current?.contains(event.target))) onClose(); };
     window.addEventListener('pointerdown', press, true);
     return () => window.removeEventListener('pointerdown', press, true);
   }, [onClose]);

@@ -15,8 +15,8 @@ import {CARD_PLACE_HEIGHT} from './loose';
 import {clearOfDrawer,presentView,stageBounds} from './sheet';
 import {Links} from './Links';
 import {createPortal} from 'react-dom';
-import {draggedAgent,inviteLabel,setDraggedAgent,startLabel} from './invite-label';
-import {agentDropTarget} from './agent-drop';
+import {draggedAgent,setDraggedAgent} from './invite-label';
+import {agentDragPlan} from './agent-drop';
 import {linkRelease,tempLinkPath} from './link-geometry';
 import {createMoveBurst,moveAnnouncement,nudge as arrowStep,pressArmsMove,type MoveBurst} from './keyboard-move';
 
@@ -356,24 +356,17 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
   const setChatDropArea = (id: string | null, kind: 'chat' | 'files' = 'chat') => setDropArea(current => id ? (current?.id === id && current.kind === kind ? current : {id, kind}) : null);
   // The label that follows an agent dragged over a card or empty canvas (its target says what dropping does).
   const [inviteTip, setInviteTip] = useState<{x: number; y: number; text: string} | null>(null);
-  const tipFor = (event: ReactDragEvent) => {
-    const agent = draggedAgent(), id = (event.target instanceof Element ? event.target.closest<HTMLElement>('.canvas-card') : null)?.dataset.channelId;
-    const card = id ? boardRef.current.cards.find(c => c.channelId === id) : undefined;
-    setInviteTip(agent && card ? {x: event.clientX, y: event.clientY, text: inviteLabel({agent, card: {title: cardTitle(card), access: card.access,
-      manageable: Boolean(canManageCard?.(card)), members: card.access === 'open' ? card.participants.filter(p => p.subscriberType === 'AGENT').map(p => p.subscriberId) : []}})} : null);
-  };
   const carriesAgent = (event: ReactDragEvent) => Boolean(agentDropRef.current || startRef.current) && event.dataTransfer.types.includes(AGENT_DRAG_TYPE);
-  /** Where an agent drag would land: the card under the pointer, empty canvas (and its area) when a chat can start there, or nowhere. */
-  const agentTargetAt = (event: ReactDragEvent) => {
+  /** What an agent drag does at the pointer (agentDragPlan): invite to the card under it, start a chat on empty canvas, or nothing. */
+  const agentPlanAt = (event: ReactDragEvent) => {
     const cardId = (event.target instanceof Element ? event.target.closest<HTMLElement>('.canvas-card') : null)?.dataset.channelId;
+    const found = cardId ? boardRef.current.cards.find(c => c.channelId === cardId) : undefined;
     const at = toCanvas(viewRef.current, local(event));
     const area = cardId ? undefined : areaFor(at, boardRef.current.areas);
-    return {target: agentDropTarget({cardId, areaId: area?.id ?? null, canStart: canEdit && Boolean(startRef.current)}), at, area};
-  };
-  const openCardAt = (event: ReactDragEvent) => {
-    const id = (event.target instanceof Element ? event.target.closest<HTMLElement>('.canvas-card') : null)?.dataset.channelId;
-    const card = id ? boardRef.current.cards.find(c => c.channelId === id) : undefined;
-    return card?.access === 'open' ? card : null;
+    const card = found ? {channelId: found.channelId, title: cardTitle(found), access: found.access, manageable: Boolean(canManageCard?.(found)),
+      members: found.access === 'open' ? found.participants.filter(p => p.subscriberType === 'AGENT').map(p => p.subscriberId) : []} : null;
+    return {at, plan: agentDragPlan({agent: draggedAgent(), cardId, card, areaId: area?.id ?? null, areaTitle: area?.title,
+      canEdit, starts: Boolean(startRef.current), invites: Boolean(agentDropRef.current)})};
   };
   useEffect(() => {
     const end = () => { setDropId(null); setChatDropArea(null); setInviteTip(null); setDraggedAgent(null); };
@@ -413,23 +406,13 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
       return;
     }
     if (carriesAgent(event)) {
-      const {target, area} = agentTargetAt(event);
-      if (target?.kind === 'canvas') {
-        setDropId(null);
-        setChatDropArea(target.areaId);
-        const agent = draggedAgent();
-        setInviteTip(agent ? {x: event.clientX, y: event.clientY, text: startLabel(agent, area?.title)} : null);
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'copy';
-        return;
-      }
-      setChatDropArea(null);
-      const card = openCardAt(event);
-      setDropId(card?.channelId ?? null);
-      tipFor(event);
-      if (!card) return;
+      const {plan} = agentPlanAt(event);
+      setDropId(plan.card);
+      setChatDropArea(plan.area);
+      setInviteTip(plan.label ? {x: event.clientX, y: event.clientY, text: plan.label} : null);
+      if (!plan.dropEffect) return;
       event.preventDefault();
-      event.dataTransfer.dropEffect = 'copy';
+      event.dataTransfer.dropEffect = plan.dropEffect;
       return;
     }
     if (!carriesChat(event)) return;
@@ -448,18 +431,13 @@ export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, o
     }
     if (carriesAgent(event)) {
       setDropId(null); setInviteTip(null); setChatDropArea(null);
-      const {target, at} = agentTargetAt(event);
-      if (target?.kind === 'canvas') {
-        event.preventDefault();
-        const agent = event.dataTransfer.getData(AGENT_DRAG_TYPE);
-        if (agent) startRef.current?.(agent, at, target.areaId);
-        return;
-      }
-      const card = openCardAt(event);
-      if (!card) return;
+      const {plan, at} = agentPlanAt(event);
+      if (!plan.drop) return;
       event.preventDefault();
       const agent = event.dataTransfer.getData(AGENT_DRAG_TYPE);
-      if (agent) agentDropRef.current?.(card.channelId, agent);
+      if (!agent) return;
+      if (plan.drop.kind === 'start') startRef.current?.(agent, at, plan.drop.areaId);
+      else agentDropRef.current?.(plan.drop.channelId, agent);
       return;
     }
     if (!carriesChat(event)) return;

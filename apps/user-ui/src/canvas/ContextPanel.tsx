@@ -13,6 +13,7 @@ import {
 import {useNotesAutosave} from './notes-autosave';
 import {contextLabel,linkDetail,linkElsewhere,usedByList,webLinkAddress,webLinkHost} from './context-label';
 import {ViewableFileTile} from './FileViewer';
+import {fileViewerOwns} from './file-viewer';
 import {nameClipboardFiles,pasteAction,pasteReachesPanel} from './context-paste';
 import {ApiError} from '../api';
 
@@ -133,7 +134,8 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
   useEffect(() => {
     const outside = (event: PointerEvent) => {
       const target = event.target as Node | null;
-      if (!target || panelRef.current?.contains(target) || anchorRef.current?.contains(target)) return;
+      // The file viewer opened from a tile here renders on the body; a press in it is not outside.
+      if (!target || fileViewerOwns(event) || panelRef.current?.contains(target) || anchorRef.current?.contains(target)) return;
       closeRef.current();
     };
     window.addEventListener('pointerdown', outside, true);
@@ -145,7 +147,8 @@ export function ContextPanel({canvasId, canvasName, scope, anchor, title, canEdi
   const pickerRef = useRef(false);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      // While the file viewer is open, Escape closes it, not this popover.
+      if (event.key !== 'Escape' || event.defaultPrevented || fileViewerOwns(event)) return;
       event.preventDefault();
       if (pickerRef.current) setPicker(false); else closeRef.current();
     };

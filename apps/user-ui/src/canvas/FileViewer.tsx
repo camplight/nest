@@ -2,12 +2,12 @@
 // Download and close. It fetches the file itself and makes a typed object URL from an allowlist, because the engine
 // sends most files as downloads; HTML and SVG are never rendered. Portalled to the body so the canvas's zoom
 // transform cannot move it, and its events stop at its edge so the canvas and cards never see them.
-import {useEffect,useState,type DragEvent,type SyntheticEvent} from 'react';
+import {createContext,useCallback,useContext,useEffect,useState,type DragEvent,type ReactNode,type SyntheticEvent} from 'react';
 import {Dialog} from 'radix-ui';
 import {formatAttachmentSize} from '../attachments';
 import {fileTypeLabel} from './context-label';
 import {FileTile,type FileTileProps} from './FileTile';
-import {VIEWER_MAX_BYTES,returnFocus,startViewerLoad,viewerKind,type ViewerFile,type ViewerKind,type ViewerResult} from './file-viewer';
+import {FILE_VIEWER_ATTR,VIEWER_MAX_BYTES,returnFocus,startViewerLoad,viewerKind,type ViewerFile,type ViewerKind,type ViewerResult} from './file-viewer';
 import './file-tile.css';
 
 export type ViewerState = {status: 'loading'} | ViewerResult;
@@ -56,17 +56,21 @@ const STOP_EVENTS = {
   onDragOver: refuseDrop, onDrop: refuseDrop,
 };
 
-export function FileViewerBody({name, kind, state}: {name: string; kind: ViewerKind; state: ViewerState}) {
+/** The body for a state. `onFailed` runs when a picture or player cannot decode the file. */
+export function FileViewerBody({name, kind, state, onFailed}: {name: string; kind: ViewerKind; state: ViewerState; onFailed?(): void}) {
   switch (state.status) {
     case 'loading': return <p className="file-viewer-note" role="status">Loading…</p>;
     case 'none': return <p className="file-viewer-note">{VIEWER_COPY.none}</p>;
     case 'too-large': return <p className="file-viewer-note">{VIEWER_COPY.tooLarge}</p>;
     case 'failed': return <p className="file-viewer-note" role="alert">{VIEWER_COPY.failed}</p>;
-    case 'text': return <pre className="file-viewer-text" tabIndex={0}>{state.text}</pre>;
+    case 'text': return <>
+      <pre className="file-viewer-text" tabIndex={0}>{state.text}</pre>
+      {state.cut ? <p className="file-viewer-note">Showing the first 1 MB. Download for the rest.</p> : null}
+    </>;
     case 'table': {
       const [head = [], ...rows] = state.rows;
       return <div className="file-viewer-table">
-        <div className="file-viewer-table-scroll" tabIndex={0}>
+        <div className="file-viewer-table-scroll" tabIndex={0} role="region" aria-label={name}>
           <table>
             <thead><tr>{head.map((cell, i) => <th key={i} scope="col">{cell}</th>)}</tr></thead>
             <tbody>{rows.map((row, r) => <tr key={r}>{row.map((cell, i) => <td key={i}>{cell}</td>)}</tr>)}</tbody>
@@ -76,10 +80,14 @@ export function FileViewerBody({name, kind, state}: {name: string; kind: ViewerK
       </div>;
     }
     case 'url':
-      if (kind === 'image') return <img className="file-viewer-image" src={state.url} alt={name}/>;
-      if (kind === 'audio') return <audio className="file-viewer-audio" src={state.url} controls autoPlay/>;
-      if (kind === 'video') return <video className="file-viewer-video" src={state.url} controls autoPlay playsInline/>;
-      if (kind === 'pdf') return <iframe className="file-viewer-pdf" src={state.url} title={name}/>;
+      if (kind === 'image') return <img className="file-viewer-image" src={state.url} alt={name} onError={onFailed}/>;
+      if (kind === 'audio') return <audio className="file-viewer-audio" src={state.url} controls autoPlay onError={onFailed}/>;
+      if (kind === 'video') return <video className="file-viewer-video" src={state.url} controls autoPlay playsInline onError={onFailed}/>;
+      // Phones (Android Chrome) show no PDF in a frame: the link, shown at 760 px or narrower, opens the browser's viewer.
+      if (kind === 'pdf') return <>
+        <a className="file-viewer-pdf-tab" href={state.url} target="_blank" rel="noreferrer">Open in a new tab</a>
+        <iframe className="file-viewer-pdf" src={state.url} title={name}/>
+      </>;
       return <p className="file-viewer-note">{VIEWER_COPY.none}</p>;
   }
 }
@@ -90,9 +98,12 @@ export function FileViewerBody({name, kind, state}: {name: string; kind: ViewerK
  */
 export function FileViewerContent({file, fetchFile = fetch, opener}: {file: ViewerFile; fetchFile?: typeof fetch; opener?: HTMLElement | null}) {
   const kind = viewerKind(file.mime, file.name);
-  const state = useViewerFile(file, kind, fetchFile);
+  const loaded = useViewerFile(file, kind, fetchFile);
+  // A picture or player that cannot decode the bytes says so (the dialog is keyed by file, so this resets per file).
+  const [broken, setBroken] = useState(false);
+  const state: ViewerState = broken ? {status: 'failed'} : loaded;
   const details = [fileTypeLabel(file.mime, file.name), formatAttachmentSize(file.size)].filter(Boolean).join(' · ');
-  return <Dialog.Content className="file-viewer" data-kind={kind} {...STOP_EVENTS}
+  return <Dialog.Content className="file-viewer" data-kind={kind} {...{[FILE_VIEWER_ATTR]: ''}} {...STOP_EVENTS}
     onCloseAutoFocus={event => { if (returnFocus(opener)) event.preventDefault(); }}>
     <header className="file-viewer-head">
       <div className="file-viewer-heading">
@@ -102,7 +113,7 @@ export function FileViewerContent({file, fetchFile = fetch, opener}: {file: View
       <a className="file-viewer-download" href={file.href} download={file.name}>Download</a>
       <Dialog.Close className="file-viewer-close" aria-label="Close"><span aria-hidden="true">✕</span></Dialog.Close>
     </header>
-    <div className="file-viewer-body"><FileViewerBody name={file.name} kind={kind} state={state}/></div>
+    <div className="file-viewer-body"><FileViewerBody name={file.name} kind={kind} state={state} onFailed={() => setBroken(true)}/></div>
   </Dialog.Content>;
 }
 
@@ -114,18 +125,43 @@ export function FileViewer({file, open, onOpenChange, fetchFile = fetch, opener}
   if (!open) return null;
   return <Dialog.Root open onOpenChange={onOpenChange}>
     <Dialog.Portal>
-      <Dialog.Overlay className="file-viewer-overlay" {...STOP_EVENTS} onClick={event => { stop(event); onOpenChange(false); }}/>
+      <Dialog.Overlay className="file-viewer-overlay" {...{[FILE_VIEWER_ATTR]: ''}} {...STOP_EVENTS} onClick={event => { stop(event); onOpenChange(false); }}/>
       <FileViewerContent file={file} fetchFile={fetchFile} opener={opener}/>
     </Dialog.Portal>
   </Dialog.Root>;
 }
 
-/** A file tile whose plain click opens the viewer (focus returns to the tile on close); any other click keeps the link. */
+/** Opens the shared viewer on a file; focus returns to `opener` (the tile's link) on close, when it is still there. */
+export type OpenFileViewer = (file: ViewerFile, opener: HTMLElement | null) => void;
+/** Exported for tests; use FileViewerProvider. */
+export const FileViewerContext = createContext<OpenFileViewer | null>(null);
+/** The shared viewer's opener, or null outside a FileViewerProvider. */
+export const useFileViewer = () => useContext(FileViewerContext);
+
+/**
+ * The one shared file viewer, mounted once above the canvas and the chat: a tile hands it its file, so the dialog stays
+ * open when the tile goes away (a newer file pushes it off a card, a popover closes, the zoom hides tiles).
+ */
+export function FileViewerProvider({children, fetchFile = fetch}: {children: ReactNode; fetchFile?: typeof fetch}) {
+  const [shown, setShown] = useState<{file: ViewerFile; opener: HTMLElement | null; key: number} | null>(null);
+  const open = useCallback<OpenFileViewer>((file, opener) => setShown(current => ({file, opener, key: (current?.key ?? 0) + 1})), []);
+  return <FileViewerContext.Provider value={open}>
+    {children}
+    {shown ? <FileViewer key={shown.key} file={shown.file} open opener={shown.opener} fetchFile={fetchFile}
+      onOpenChange={next => { if (!next) setShown(null); }}/> : null}
+  </FileViewerContext.Provider>;
+}
+
+/**
+ * A file tile whose plain click opens the shared viewer (focus returns to the tile on close); any other click keeps the
+ * link. Outside a FileViewerProvider the tile keeps its own dialog.
+ */
 export function ViewableFileTile(props: Omit<FileTileProps, 'onOpen'>) {
+  const shared = useFileViewer();
   const [opener, setOpener] = useState<HTMLElement | null>(null);
+  const file = {name: props.name, mime: props.mime, size: props.size, href: props.href};
   return <>
-    <FileTile {...props} onOpen={event => setOpener(event.currentTarget)}/>
-    {opener ? <FileViewer file={{name: props.name, mime: props.mime, size: props.size, href: props.href}} open opener={opener}
-      onOpenChange={open => { if (!open) setOpener(null); }}/> : null}
+    <FileTile {...props} onOpen={event => { if (shared) shared(file, event.currentTarget); else setOpener(event.currentTarget); }}/>
+    {opener && !shared ? <FileViewer file={file} open opener={opener} onOpenChange={open => { if (!open) setOpener(null); }}/> : null}
   </>;
 }

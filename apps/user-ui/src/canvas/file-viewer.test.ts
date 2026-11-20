@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {VIEWER_MAX_BYTES,blobType,isPlainClick,loadViewerFile,parseTable,viewerKind} from './file-viewer';
+import {TEXT_DISPLAY_MAX,VIEWER_MAX_BYTES,blobType,fileViewerOpen,fileViewerOwns,insideFileViewer,isPlainClick,loadViewerFile,parseTable,truncateText,viewerKind} from './file-viewer';
 
 describe('viewerKind',()=>{
   it('classifies by the known MIME type first',()=>{
@@ -108,17 +108,17 @@ describe('loadViewerFile',()=>{
   const fetchWith=(response:()=>Response)=>(async(href:string,init?:RequestInit)=>{calls.push({href,init});return response();}) as unknown as typeof fetch;
   const file=(name:string,mime?:string,size?:number)=>({name,mime,size,href:`/api/files/${name}`});
 
-  it('fetches same-origin with the abort signal and types media from the allowlist',async()=>{
+  it('fetches with credentials (the API may be on another origin) and the abort signal and types media from the allowlist',async()=>{
     calls.length=0;
     const signal=new AbortController().signal;
     const result=await loadViewerFile(file('voice.webm','audio/webm'),'audio',fetchWith(()=>new Response(new Uint8Array([1,2,3]),{headers:{'content-type':'application/octet-stream'}})),signal);
-    expect(calls).toEqual([{href:'/api/files/voice.webm',init:{credentials:'same-origin',signal}}]);
+    expect(calls).toEqual([{href:'/api/files/voice.webm',init:{credentials:'include',signal}}]);
     expect(result.status).toBe('media');
     if(result.status==='media'){expect(result.blob.type).toBe('audio/webm');expect(result.blob.size).toBe(3);}
   });
 
   it('reads text as text and CSV/TSV as a table',async()=>{
-    expect(await loadViewerFile(file('notes.md'),'text',fetchWith(()=>new Response('<b>hi</b>')))).toEqual({status:'text',text:'<b>hi</b>'});
+    expect(await loadViewerFile(file('notes.md'),'text',fetchWith(()=>new Response('<b>hi</b>')))).toEqual({status:'text',text:'<b>hi</b>',cut:false});
     expect(await loadViewerFile(file('a.csv'),'table',fetchWith(()=>new Response('a,b\n1,2')))).toEqual({status:'table',rows:[['a','b'],['1','2']],cut:false});
     expect(await loadViewerFile(file('a.tsv'),'table',fetchWith(()=>new Response('a\tb')))).toEqual({status:'table',rows:[['a','b']],cut:false});
   });
@@ -141,5 +141,43 @@ describe('loadViewerFile',()=>{
     const never=fetchWith(()=>{throw new Error('should not fetch');});
     expect(await loadViewerFile(file('page.html','text/html'),'none',never)).toEqual({status:'none'});
     await expect(loadViewerFile(file('a.png'),'image',fetchWith(()=>new Response('no',{status:404})))).rejects.toThrow('404');
+  });
+});
+
+describe('truncateText',()=>{
+  it('keeps the first 1 MB of characters and says when it cut',()=>{
+    expect(TEXT_DISPLAY_MAX).toBe(1024*1024);
+    expect(truncateText('short')).toEqual({text:'short',cut:false});
+    const exact='a'.repeat(TEXT_DISPLAY_MAX);
+    expect(truncateText(exact)).toEqual({text:exact,cut:false});
+    const long=truncateText('b'.repeat(TEXT_DISPLAY_MAX+10));
+    expect(long.text).toHaveLength(TEXT_DISPLAY_MAX);
+    expect(long.cut).toBe(true);
+    expect(truncateText('abcdef',3)).toEqual({text:'abc',cut:true});
+  });
+
+  it('applies to text the viewer loads',async()=>{
+    const big='x'.repeat(TEXT_DISPLAY_MAX+1);
+    const result=await loadViewerFile({name:'big.log',href:'/f'},'text',(async()=>new Response(big)) as unknown as typeof fetch);
+    expect(result.status==='text'&&result.text.length).toBe(TEXT_DISPLAY_MAX);
+    expect(result.status==='text'&&result.cut).toBe(true);
+  });
+});
+
+describe('telling the viewer apart',()=>{
+  const element=(inside:boolean)=>({closest:(selector:string)=>selector==='[data-file-viewer]'&&inside?{}:null});
+  it('knows a press inside the viewer',()=>{
+    expect(insideFileViewer(element(true) as unknown as EventTarget)).toBe(true);
+    expect(insideFileViewer(element(false) as unknown as EventTarget)).toBe(false);
+    expect(insideFileViewer(null)).toBe(false);
+    expect(insideFileViewer({} as EventTarget)).toBe(false);
+  });
+  it('lets popovers leave the viewer\'s presses and keys alone',()=>{
+    expect(fileViewerOwns({target:element(true)} as unknown as Event)).toBe(true);
+    expect(fileViewerOwns({target:element(false)} as unknown as Event)).toBe(false);
+  });
+  it('knows when a viewer is open',()=>{
+    expect(fileViewerOpen({querySelector:()=>({}) as Element})).toBe(true);
+    expect(fileViewerOpen({querySelector:()=>null})).toBe(false);
   });
 });

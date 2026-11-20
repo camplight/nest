@@ -22,7 +22,7 @@ const CHIPS: {value: LooseStateFilter; label: string}[] = [
  * Open things that take Escape before the drawer: another dialog, a popover or menu, the canvas search, the agent
  * picker, the Needs you list and an armed Area tool.
  */
-const DRAWER_YIELDS = '[aria-modal="true"]:not(.canvas-chat), .dialog-backdrop, .canvas-context, .canvas-chat-menu:not([hidden]), .canvas-menu, .canvas-picker, .canvas-needs-panel, .canvas-tool[aria-pressed="true"]';
+const DRAWER_YIELDS = '[aria-modal="true"]:not(.canvas-chat), [data-file-viewer], .dialog-backdrop, .canvas-context, .canvas-chat-menu:not([hidden]), .canvas-menu, .canvas-picker, .canvas-needs-panel, .canvas-tool[aria-pressed="true"]';
 /**
  * Whether the open chat takes this Escape before the drawer: a phone's full-screen chat always; a desktop chat window
  * only while focus is in it or on the page body (or nowhere), the same rule the window closes by. Otherwise Escape with

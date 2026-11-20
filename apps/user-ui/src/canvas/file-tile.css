@@ -285,6 +285,10 @@
 .file-viewer[data-kind="table"] {
   height: calc(100dvh - 32px);
 }
+/* Shown only on phones, where a PDF in a frame often stays blank. */
+.file-viewer-pdf-tab {
+  display: none;
+}
 .file-viewer-pdf {
   flex: 1;
   width: 100%;
@@ -314,7 +318,8 @@
   display: flex;
   flex-direction: column;
 }
-.file-viewer-table .file-viewer-note {
+.file-viewer-table .file-viewer-note,
+.file-viewer-text + .file-viewer-note {
   margin: 10px 0 0;
 }
 .file-viewer-table-scroll {
@@ -375,6 +380,24 @@
   }
   .file-viewer-body {
     padding: 12px;
+  }
+  .file-viewer-pdf-tab {
+    box-sizing: border-box;
+    min-height: 44px;
+    display: inline-grid;
+    place-items: center;
+    align-self: flex-start;
+    margin-bottom: 10px;
+    padding: 0 14px;
+    border: 1px solid var(--nest-border);
+    border-radius: 8px;
+    color: var(--nest-text);
+    font: 500 13px Inter, sans-serif;
+    text-decoration: none;
+  }
+  .file-viewer-pdf-tab:focus-visible {
+    outline: 2px solid var(--nest-accent);
+    outline-offset: 1px;
   }
   .file-viewer-image,
   .file-viewer-video {

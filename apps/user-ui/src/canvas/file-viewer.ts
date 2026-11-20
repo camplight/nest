@@ -5,6 +5,24 @@ export type ViewerKind = 'image' | 'audio' | 'video' | 'pdf' | 'text' | 'table' 
 
 /** Files over this are not loaded into the viewer; the dialog offers Download instead. */
 export const VIEWER_MAX_BYTES = 25 * 1024 * 1024;
+/** Text past this many characters is not shown (a huge <pre> freezes the tab); Download has the rest. */
+export const TEXT_DISPLAY_MAX = 1024 * 1024;
+
+/** The first `max` characters of a text and whether anything was left out. */
+export function truncateText(text: string, max = TEXT_DISPLAY_MAX): {text: string; cut: boolean} {
+  return text.length > max ? {text: text.slice(0, max), cut: true} : {text, cut: false};
+}
+
+/** Marks the viewer's overlay and dialog, so popovers that close on an outside press or Escape can leave it alone. */
+export const FILE_VIEWER_ATTR = 'data-file-viewer';
+/** True when an event's target is inside the file viewer. */
+export const insideFileViewer = (target: EventTarget | null) =>
+  typeof (target as Element | null)?.closest === 'function' && (target as Element).closest(`[${FILE_VIEWER_ATTR}]`) !== null;
+/** True while a file viewer is open: Escape then belongs to it, not to the popover or menu beneath. */
+export const fileViewerOpen = (root: Pick<Document, 'querySelector'> = document) => root.querySelector(`[${FILE_VIEWER_ATTR}]`) !== null;
+/** For window capture listeners that close popovers: true when the event is the viewer's (a press in it, or any key while open). */
+export const fileViewerOwns = (event: Event) =>
+  insideFileViewer(event.target) || (typeof document !== 'undefined' && fileViewerOpen());
 
 const RASTER_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif']);
 const TEXT_TYPES = new Set(['text/plain', 'text/markdown', 'application/json']);
@@ -132,7 +150,7 @@ export type ViewerFile = {name: string; mime?: string; size?: number; href: stri
 export type ViewerLoad =
   | {status: 'none'}
   | {status: 'too-large'}
-  | {status: 'text'; text: string}
+  | {status: 'text'; text: string; cut: boolean}
   | {status: 'table'; rows: string[][]; cut: boolean}
   /** The file's bytes, typed from the allowlist (blobType), for an object URL. */
   | {status: 'media'; blob: Blob};
@@ -159,14 +177,14 @@ async function readCapped(response: Response): Promise<Blob | null> {
 }
 
 /**
- * Fetches a file for the viewer (same origin, with the person's session) unless it is known to pass the cap: by its
+ * Fetches a file for the viewer (with the person's session, as apiFetch does: the API may be on another origin) unless it is known to pass the cap: by its
  * known size, then the response's `content-length`, then the bytes read. Throws when the request fails or is aborted.
  */
 export async function loadViewerFile(file: ViewerFile, kind: ViewerKind, fetchFile: typeof fetch, signal?: AbortSignal): Promise<ViewerLoad> {
   const type = blobType(kind, file.mime, file.name);
   if (kind === 'none' || (kind !== 'text' && kind !== 'table' && !type)) return {status: 'none'};
   if ((file.size ?? 0) > VIEWER_MAX_BYTES) return {status: 'too-large'};
-  const response = await fetchFile(file.href, {credentials: 'same-origin', signal});
+  const response = await fetchFile(file.href, {credentials: 'include', signal});
   if (!response.ok) throw new Error(`The file request failed with ${response.status}.`);
   if (Number(response.headers.get('content-length') ?? 0) > VIEWER_MAX_BYTES) {
     await response.body?.cancel().catch(() => undefined);
@@ -174,7 +192,7 @@ export async function loadViewerFile(file: ViewerFile, kind: ViewerKind, fetchFi
   }
   const body = await readCapped(response);
   if (!body) return {status: 'too-large'};
-  if (kind === 'text') return {status: 'text', text: await body.text()};
+  if (kind === 'text') return {status: 'text', ...truncateText(await body.text())};
   if (kind === 'table') {
     const tsv = knownType(file.mime) === 'text/tab-separated-values' || extension(file.name) === 'tsv';
     return {status: 'table', ...parseTable(await body.text(), tsv ? '\t' : ',')};
@@ -188,7 +206,7 @@ export type ViewerResult =
   | {status: 'too-large'}
   | {status: 'failed'}
   | {status: 'url'; url: string}
-  | {status: 'text'; text: string}
+  | {status: 'text'; text: string; cut: boolean}
   | {status: 'table'; rows: string[][]; cut: boolean};
 
 export type ObjectUrls = {createObjectURL(blob: Blob): string; revokeObjectURL(url: string): void};

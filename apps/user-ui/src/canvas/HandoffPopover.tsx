@@ -6,6 +6,7 @@ import {useEffect,useLayoutEffect,useRef,useState,type CSSProperties,type RefObj
 import type {LinkWhat,LinkWhen} from '@nest/schemas';
 import {AgentAvatar} from '../components/AgentAvatar';
 import type {LinkView} from './flows-api';
+import {fileViewerOwns} from './file-viewer';
 
 export type HandoffChange = {what?: LinkWhat; when?: LinkWhen; who?: string | null; label?: string; on?: boolean};
 export type HandoffPopoverProps = {
@@ -78,14 +79,15 @@ export const popStyle = (place: {left: number; top: number} | null) =>
 export function usePopDismiss(ref: RefObject<HTMLElement>, anchor: RefObject<HTMLElement | null>, onClose: () => void) {
   const closeRef = useRef(onClose); closeRef.current = onClose;
   useEffect(() => {
+    // The file viewer (on the body) keeps its presses and its Escape.
     const key = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      if (event.key !== 'Escape' || event.defaultPrevented || fileViewerOwns(event)) return;
       event.preventDefault();
       closeRef.current();
     };
     const outside = (event: PointerEvent) => {
       const target = event.target as Node | null;
-      if (!target || ref.current?.contains(target) || anchor.current?.contains(target)) return;
+      if (!target || fileViewerOwns(event) || ref.current?.contains(target) || anchor.current?.contains(target)) return;
       closeRef.current();
     };
     window.addEventListener('keydown', key, true);

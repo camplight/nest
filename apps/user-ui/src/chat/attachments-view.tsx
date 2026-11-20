@@ -1,7 +1,7 @@
 // A message's attachments (spec 6.6): file link, mime and size, inline previews that zoom on a plain click (spec 7.1.4),
 // and a Play button for audio. With the canvas flag on, files are artifact tiles instead (MessageFiles) that open the
 // file viewer; audio keeps the classic list.
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {fileHref,formatAttachmentSize} from '../attachments';
 import {fileKind} from '../canvas/context-label';
 import {VIEWER_COPY,ViewableFileTile} from '../canvas/FileViewer';
@@ -15,24 +15,37 @@ const previewTypes=new Set(['image/png','image/jpeg','image/gif','image/webp']);
 
 type AudioState={status:'idle'|'loading'|'too-large'|'failed'}|{status:'ready';url:string};
 
+/** A callback ref that focuses its element once when `pending.current` is set (the button it replaces had focus). */
+export const focusWhenPending=(pending:{current:boolean})=>(element:HTMLElement|null)=>{
+ if(!element||!pending.current)return;
+ pending.current=false;
+ element.focus({preventScroll:true});
+};
+
 /**
  * A voice note or other audio file: a Play button that fetches the file on first press (the viewer's rules and cap,
- * so a long history never downloads every recording), then a player that starts at once. The URL is revoked on unmount.
+ * so a long history never downloads every recording), then a player that starts at once. The URL is revoked on unmount. Keyboard focus follows from the button to
+ * the player (or the message saying why there is none); while loading the button stays focusable (aria-disabled).
  */
 export function InlineAudio({name,mime,href,size,fetchFile=fetch}:{name:string;mime?:string;href:string;size?:number;fetchFile?:typeof fetch}):JSX.Element{
  const [state,setState]=useState<AudioState>({status:'idle'});
  const [load,setLoad]=useState(false);
+ const hadFocus=useRef(false);
+ const takeFocus=focusWhenPending(hadFocus);
  useEffect(()=>{
   if(!load)return;
   setState({status:'loading'});
   return startViewerLoad({file:{name,mime,size,href},kind:'audio',fetchFile,onResult:result=>setState(
    result.status==='url'?{status:'ready',url:result.url}:{status:result.status==='too-large'?'too-large':'failed'})});
  },[load,name,mime,size,href,fetchFile]);
- if(state.status==='ready')return <audio className="message-audio block w-full max-w-[420px]" src={state.url} controls autoPlay aria-label={name}/>;
+ if(state.status==='ready')return <audio ref={takeFocus} className="message-audio block w-full max-w-[420px]" src={state.url} controls autoPlay aria-label={name}
+  onError={()=>setState({status:'failed'})}/>;
  if(state.status==='too-large'||state.status==='failed')
-  return <span className="text-xs text-muted-foreground" role={state.status==='failed'?'alert':undefined}>{state.status==='failed'?VIEWER_COPY.failed:VIEWER_COPY.tooLarge}</span>;
- return <Button variant="outline" size="sm" className="rounded-full" type="button" disabled={state.status==='loading'} onClick={()=>setLoad(true)}>
-  {state.status==='loading'?`Loading ${name}…`:`Play ${name}`}
+  return <span ref={takeFocus} tabIndex={-1} className="text-xs text-muted-foreground" role={state.status==='failed'?'alert':undefined}>{state.status==='failed'?VIEWER_COPY.failed:VIEWER_COPY.tooLarge}</span>;
+ const loading=state.status==='loading';
+ return <Button variant="outline" size="sm" className="rounded-full" type="button" aria-disabled={loading||undefined}
+  onClick={event=>{if(loading)return;hadFocus.current=document.activeElement===event.currentTarget;setLoad(true);}}>
+  {loading?`Loading ${name}…`:`Play ${name}`}
  </Button>;
 }
 

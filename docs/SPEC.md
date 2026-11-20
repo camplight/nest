@@ -956,17 +956,25 @@ Phase 1 is built from
    **file viewer** opens on a plain primary click on any file tile (cards, chat messages
    with the canvas flag on, area shelves, the context popover and the phone list);
    Ctrl/Cmd/Shift/Alt and middle clicks keep the tile's link (new tab, or download for
-   context files). It is one dialog titled with the file name, with `<type> · <size>`,
-   a `Download` link and close; Escape closes it, focus stays inside it, and at 760 px
-   or narrower it fills the screen. The kind comes from the file's MIME type, else its
+   context files). It is one shared dialog for the whole app, so it stays open when the
+   tile that opened it goes away (a newer file on the card, a closing popover). It is
+   titled with the file name, with `<type> · <size>`, a `Download` link and close;
+   Escape closes it, focus stays inside it and returns to the tile on close (when the
+   tile is still there), and at 760 px or narrower it fills the screen. Popovers and
+   menus beneath it (the context popover, a hand-off popover, the chat's More menu, an
+   area menu, the agent picker) ignore presses inside it and leave its Escape to it. The kind comes from the file's MIME type, else its
    extension when the type is missing or `application/octet-stream`: PNG, JPEG, GIF,
    WebP and AVIF pictures fit the dialog; audio (voice notes included) and video play
-   in native players; a PDF shows in the browser's viewer; text, Markdown, JSON, logs
-   and YAML show as plain text, never rendered; CSV and TSV show as a table of the
+   in native players (a picture or recording the browser cannot decode says `Could not
+   open this file. Download it instead.`); a PDF shows in the browser's viewer, and at
+   760 px or narrower an `Open in a new tab` link above it opens the PDF in the browser
+   (phones often show no PDF inside a frame); text, Markdown, JSON, logs and YAML show
+   as plain text, never rendered, up to their first 1 MB (`Showing the first 1 MB.
+   Download for the rest.`); CSV and TSV show as a table of the
    first 200 rows and 30 columns (`Showing the first 200 rows and 30 columns.` when
    cut); anything else, HTML and SVG included, says `No preview for this file type.`
    Because the engine serves most files as downloads, the viewer fetches the file
-   itself (same origin, with the session) only while open and makes an object URL typed
+   itself (with the session cookie, as the API client does) only while open and makes an object URL typed
    from an allowlist (raster image, audio, video or `application/pdf`); closing aborts
    the request and revokes the URL. A file over 25 MB (by its known size, then the
    response's `content-length`, then the bytes read) is not loaded: `Too large to
@@ -3094,7 +3102,7 @@ returned attachment in their message payload. No public static copy is created.
 
 A plain click on an inline preview opens a zoom view of the image with an "Open original" link. A click with a modifier key, a middle click and keyboard activation still follow the file link as before. SVG files stay link only and never open in the zoom view.
 
-Audio attachments (voice notes included) in the Attachments list also get a `Play <name>` button. The file is fetched only on the first press, with the file viewer's rules (same origin, an allowlisted audio type, the 25 MB cap), then a native player replaces the button and starts playing; the object URL is revoked when the message unmounts. Over the cap it says `Too large to preview here.`, and a failed request says `Could not open this file. Download it instead.`
+Audio attachments (voice notes included) in the Attachments list also get a `Play <name>` button. The file is fetched only on the first press, with the file viewer's rules (with the session, an allowlisted audio type, the 25 MB cap), then a native player replaces the button and starts playing, taking keyboard focus when the button had it (the button stays focusable while the file loads); the object URL is revoked when the message unmounts. Over the cap it says `Too large to preview here.`, and a failed request says `Could not open this file. Download it instead.`
 
 
 ## Chat sender avatars
