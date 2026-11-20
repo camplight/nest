@@ -35,7 +35,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { openProductDb, type ProductDb } from '@nest/db';
 import { BrandingSchema } from '@nest/schemas';
 import { createOrgOpsClient, productHeaders, type OrgOpsClient } from '@nest/orgops-client';
-import { registerAgentMemoryRoutes } from './agent-memory';
+import { createMemoryModeRecorder, registerAgentMemoryRoutes } from './agent-memory';
 import { createContextCompactionWorker } from './context-compaction-worker';
 import type { HistorySummarizer } from './context-compaction';
 
@@ -88,7 +88,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     return c.json(store.saveBranding(value.data, user.id));
   });
   registerIntegrationRoutes(app,{store,orgops,provider,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
-  registerAgentModelRoutes(app, orgops, defaultAgentModelId);
+  registerAgentModelRoutes(app, orgops, defaultAgentModelId, createMemoryModeRecorder({store, orgops, now: config.compaction?.now}));
   registerDashboardActivityRoutes(app,orgops);
   registerModelPickerRoutes(app, orgops, {engineToken:config.connectionEngineToken??process.env.NEST_RUNNER_TOKEN});
   const managementName = process.env.NEST_MANAGEMENT_AGENT_NAME;

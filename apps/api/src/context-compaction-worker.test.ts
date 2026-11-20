@@ -48,6 +48,15 @@ describe('Full history, summarized when long',()=>{
     expect((await call('/api/agents/Pip','PATCH',{memoryContextMode:'FULL_CHANNEL_EVENTS'})).status).toBe(200);
     expect(await memoryMode()).toBe('FULL_CHANNEL_EVENTS');
   });
+  it('is saved the same way when an agent is created with it, so the engine never stores the Nest-only mode',async()=>{
+    expect((await call('/api/agents','POST',{name:'Moss',modelId:'default-model',workspacePath:join(dir,'moss'),memoryContextMode:'FULL_CHANNEL_EVENTS_AUTO_COMPACT'})).status).toBe(201);
+    expect((await (await engineCall('/api/agents/Moss')).json()).memoryContextMode).toBe('FULL_CHANNEL_EVENTS');
+    expect((await (await call('/api/agents/Moss')).json()).memoryContextMode).toBe('FULL_CHANNEL_EVENTS_AUTO_COMPACT');
+  });
+  it('is not recorded when the engine refuses the new agent',async()=>{
+    expect((await call('/api/agents','POST',{name:'Moss',modelId:'default-model',workspacePath:join(dir,'moss'),memoryContextMode:'FULL_CHANNEL_EVENTS_AUTO_COMPACT'},{'content-type':'application/json'})).status).toBe(401);
+    expect(product.store.contextCompaction.autoCompact('Moss','any-id')).toBe(false);
+  });
   it('is not saved when the engine refuses the change',async()=>{
     expect((await call('/api/agents/Pip','PATCH',{memoryContextMode:'FULL_CHANNEL_EVENTS_AUTO_COMPACT'},{'content-type':'application/json'})).status).toBe(401);
     expect(await memoryMode()).toBe('FULL_CHANNEL_EVENTS');

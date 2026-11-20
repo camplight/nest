@@ -2914,8 +2914,10 @@ there is no cross-system atomic permission transaction or invitation rollback.
 
 The Conversation memory choice "Full history, summarized when long" is a Nest mode,
 `FULL_CHANNEL_EVENTS_AUTO_COMPACT` (`packages/schemas/src/agent-memory.ts`). The
-engine has no such mode. Nest's `PATCH /api/agents/:name` route sends
-`FULL_CHANNEL_EVENTS` to the engine instead. Only after the engine accepts the change
+engine has no such mode (and refuses it). Nest's `PATCH /api/agents/:name` and
+`POST /api/agents` routes send `FULL_CHANNEL_EVENTS` to the engine instead. An agent
+an older engine saved with the raw Nest value runs with the engine's default,
+`PER_CHANNEL_CROSS_CHANNEL`, until the mode is saved again through Nest. Only after the engine accepts the change
 does Nest record the choice in `product_agent_memory`, keyed by agent name and pinned
 to the agent's engine ID. Choosing any other mode clears it. `GET /api/agents` and
 `GET /api/agents/:name` report the Nest mode to people while the engine still reads
