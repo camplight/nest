@@ -9,7 +9,7 @@ import {AgentAvatar} from './components/AgentAvatar';
 import {AgentRuntimeStatus} from './components/AgentRuntimeStatus';
 
 
-export function ProjectContext({project,participants,agents,owner,viewer,onSaved,onMembersChanged,onOpenAgent}:{project:Project;participants:ChannelParticipant[];agents:Agent[];owner:boolean;viewer?:string;onSaved:(project:Project)=>void;onMembersChanged:()=>Promise<void>;onOpenAgent?:(name:string)=>void}) {
+export function ProjectContext({project,participants,agents,owner,note='The project owner manages invitations.',viewer,onSaved,onMembersChanged,onOpenAgent}:{project:Project;participants:ChannelParticipant[];agents:Agent[];owner:boolean;/** Shown instead of the invite button when the viewer cannot invite. */note?:string|null;viewer?:string;onSaved:(project:Project)=>void;onMembersChanged:()=>Promise<void>;onOpenAgent?:(name:string)=>void}) {
   const [expanded,setExpanded]=useState(()=>window.matchMedia('(min-width:1101px)').matches);
   const dialog=useRef<HTMLDialogElement>(null);
   const [selected,setSelected]=useState<ProjectMember[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState<string|null>(null);
@@ -57,7 +57,7 @@ export function ProjectContext({project,participants,agents,owner,viewer,onSaved
           ?<a className="project-assignee-link" href={href} onClick={open}>{member.subscriberId}</a>
           :<span>{member.subscriberId}</span>}<small>{member.subscriberType==='AGENT'?<>Agent · <AgentRuntimeStatus state={agents.find(agent=>agent.name===member.subscriberId)?.runtimeState}/></>:member.subscriberType==='HUMAN'?'Person':'Team'}</small></span>{removable(member)&&<button type="button" className="project-member-remove" aria-label={`Remove ${member.subscriberId} from this project`} title={`Remove ${member.subscriberId}`} disabled={removeBusy} onClick={()=>{setRemoving(memberKey(member));setRemoveError(null);}}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>}</div>;})}
         {owner&&<><button type="button" className="dashboard-action project-invite" onClick={()=>{setSelected([]);setError(null);dialog.current?.showModal();}}>Add people or agents</button></>}
-        {!owner&&<p className="project-muted">The project owner manages invitations.</p>}
+        {!owner&&note&&<p className="project-muted">{note}</p>}
       </div>
     </details>
     <dialog ref={dialog} className="project-settings-dialog" aria-label="Add people or agents" onCancel={event=>{if(busy)event.preventDefault();}}>

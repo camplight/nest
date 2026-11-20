@@ -1,7 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
 import type {Project} from '@nest/schemas';
-import {keepsProjectPage,splitArchived} from './project-archive';
+import {inviteNote,keepsProjectPage,splitArchived} from './project-archive';
 import {ProjectGrid} from './Projects';
 import {ProjectNavigation} from './components/ProjectNavigation';
 
@@ -52,5 +52,23 @@ describe('keepsProjectPage',()=>{
     expect(keepsProjectPage({selectedProject:'a',channelId:'c-a',projects:[],channels:[{id:'c-a',archivedAt:5}]})).toBe(false);
     expect(keepsProjectPage({selectedProject:'a',channelId:'c-a',projects,channels:[]})).toBe(false);
     expect(keepsProjectPage({selectedProject:'a',channelId:'other',projects,channels:[{id:'other'}]})).toBe(false);
+  });
+});
+
+describe('ProjectGrid empty state',()=>{
+  it('shows the empty card when every project is archived, above the Archived section',()=>{
+    const html=renderToStaticMarkup(<ProjectGrid projects={[project('b',2,true)]} onSelect={noop} empty={<p>Nothing active</p>}/>);
+    expect(html.indexOf('Nothing active')).toBeGreaterThan(-1);
+    expect(html.indexOf('Nothing active')).toBeLessThan(html.indexOf('<details'));
+    expect(renderToStaticMarkup(<ProjectGrid projects={[project('a',1)]} onSelect={noop} empty={<p>Nothing active</p>}/>)).not.toContain('Nothing active');
+  });
+});
+
+describe('inviteNote',()=>{
+  it('tells the owner of an archived project how to change it, and others who manages invitations',()=>{
+    expect(inviteNote({owner:true,archived:true})).toBe('This project is archived. Unarchive it to edit or invite.');
+    expect(inviteNote({owner:false,archived:true})).toBe('The project owner manages invitations.');
+    expect(inviteNote({owner:false,archived:false})).toBe('The project owner manages invitations.');
+    expect(inviteNote({owner:true,archived:false})).toBeNull();
   });
 });

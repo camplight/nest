@@ -14,3 +14,9 @@ export function keepsProjectPage({selectedProject, channelId, projects, channels
   return Boolean(selectedProject && channelId) && projects.some(project => project.id === selectedProject && project.channelId === channelId)
     && channels.some(channel => channel.id === channelId);
 }
+
+/** The members panel's note when the viewer cannot invite: why, and for an archived project's owner, how to change it. */
+export function inviteNote({owner, archived}: {owner: boolean; archived: boolean}): string | null {
+  if (owner && archived) return 'This project is archived. Unarchive it to edit or invite.';
+  return owner ? null : 'The project owner manages invitations.';
+}

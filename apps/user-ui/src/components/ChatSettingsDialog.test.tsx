@@ -51,3 +51,11 @@ describe('ChatSettingsButton',()=>{
     expect(text(html).trim()).toBe('Settings');
   });
 });
+
+describe('ChatSettingsDialog errors',()=>{
+  it('shows a failed archive inside the dialog, where the person is looking',()=>{
+    const html=renderToStaticMarkup(<ChatSettingsDialog {...props({error:'Forbidden'})}/>);
+    expect(html).toMatch(/<p[^>]*role="alert"[^>]*>Forbidden<\/p>/);
+    expect(renderToStaticMarkup(<ChatSettingsDialog {...props()}/>)).not.toContain('role="alert"');
+  });
+});

@@ -61,7 +61,7 @@ import {
   useRef,
   useState
 } from "react";
-import { apiFetch, apiJson, getApiHeaders } from "./api";
+import { apiFetch, apiJson, getApiHeaders, readableError } from "./api";
 import { addChatMember, removeChatMember, type ChatMember } from "./chat-members";
 import { wsUrl } from "./config";
 import type { Agent, AuthMe, Channel, ChannelParticipant, ChannelShare, EventRow, Team } from "./types";
@@ -440,6 +440,7 @@ export default function App() {
   const [channelVisibilityDraft, setChannelVisibilityDraft] = useState<"PUBLIC" | "PRIVATE">("PRIVATE");
   const [updatingChannelVisibility, setUpdatingChannelVisibility] = useState(false);
   const [archivingChannel, setArchivingChannel] = useState(false);
+  const [channelSettingsError, setChannelSettingsError] = useState<string | null>(null);
   const [projectReload, setProjectReload] = useState(0);
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
@@ -1568,13 +1569,19 @@ export default function App() {
 
   async function handleDeleteChannel(channel: Channel) {
     setError(null);
+    setChannelSettingsError(null);
     setLoading(true);
     try {
       await apiFetch(`/api/channels/${encodeURIComponent(channel.id)}`, { method: "DELETE" });
       setShowChannelManageDialog(false);
+      // A deleted project chat leaves its project unavailable: go back to the Projects list instead of an error.
+      if (projectIndex.some(project => project.channelId === channel.id)) {
+        setProjectIndex(await apiJson<Project[]>("/api/projects"));
+        if (view === "projects") { selectProject(null); await refreshChannels(undefined, { select: false }); return; }
+      }
       await refreshChannels(activeChannelId === channel.id ? null : undefined);
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Unable to delete channel");
+      setChannelSettingsError(readableError(deleteError, "Unable to delete the chat"));
     } finally {
       setLoading(false);
     }
@@ -1596,16 +1603,20 @@ export default function App() {
       await refreshChannels(activeChannel.id);
       setShowChannelManageDialog(false);
     } catch (updateError) {
-      setError(updateError instanceof Error ? updateError.message : "Unable to update channel settings");
+      setChannelSettingsError(readableError(updateError, "Unable to save chat settings"));
     } finally {
       setUpdatingChannelVisibility(false);
     }
   }
 
-  /** Archive acts at once: the engine archives the chat for everyone (Nest pauses its hand-offs), or unarchives it. */
-  async function setChannelArchived(channel: Pick<Channel, "id">, archived: boolean) {
+  /**
+   * Archive acts at once: the engine archives the chat for everyone (Nest pauses its hand-offs), or unarchives it.
+   * Returns what went wrong, also shown in Chat settings when it is open, else in the page notice.
+   */
+  async function setChannelArchived(channel: Pick<Channel, "id">, archived: boolean): Promise<string | null> {
     setArchivingChannel(true);
     setError(null);
+    setChannelSettingsError(null);
     try {
       await apiFetch(`/api/channels/${encodeURIComponent(channel.id)}/${archived ? "archive" : "unarchive"}`, { method: "POST" });
       if (archived) setShowArchivedChannels(true);
@@ -1615,8 +1626,11 @@ export default function App() {
         setProjectReload(n => n + 1);
       }
       await refreshChannels(channel.id);
+      return null;
     } catch (archiveError) {
-      setError(archiveError instanceof Error ? archiveError.message : archived ? "Unable to archive the chat" : "Unable to unarchive the chat");
+      const message = readableError(archiveError, archived ? "Unable to archive the chat" : "Unable to unarchive the chat");
+      if (showChannelManageDialog) setChannelSettingsError(message); else setError(message);
+      return message;
     } finally {
       setArchivingChannel(false);
     }
@@ -1908,8 +1922,8 @@ export default function App() {
             wrappedAgents={wrappedParticipants}
             appActivity={canvasAvailable === true}
             flows={chatFlows}
-            headerMore={activeChannel && activeChannelManageable && <ChatSettingsButton open={showChannelManageDialog} onOpen={() => setShowChannelManageDialog(true)}/>}
-            headerStatus={activeChannel?.archivedAt ? <ArchivedTag canUnarchive={activeChannelManageable} busy={archivingChannel} onUnarchive={() => void setChannelArchived(activeChannel, false)}/> : null}
+            headerMore={activeChannel && activeChannelManageable && <ChatSettingsButton open={showChannelManageDialog} onOpen={() => { setChannelSettingsError(null); setShowChannelManageDialog(true); }}/>}
+            headerStatus={activeChannel?.archivedAt && view !== "projects" ? <ArchivedTag canUnarchive={activeChannelManageable} busy={archivingChannel} onUnarchive={() => void setChannelArchived(activeChannel, false)}/> : null}
             headerActions={activeChannel && <HuddleButton key={activeChannel.id} channel={activeChannel} label={activeConversationName} username={username} agents={agents} events={threadSnapshot.events} canPost={activeChannelCanPost}/>}
             onPreviewDemo={path => setDemoPreview({channel: activeChannelId!, path})}
             onQuote={(target, quotedText) => {composerRef.current?.setReplyTarget(target, quotedText);composerRef.current?.focus();}}
@@ -2401,8 +2415,9 @@ export default function App() {
           onConfirmDelete={setConfirmingChannelDelete}
           onDelete={() => void handleDeleteChannel(activeChannel)}
           deleting={loading}
-          onClose={() => setShowChannelManageDialog(false)}
+          onClose={() => { setShowChannelManageDialog(false); setChannelSettingsError(null); }}
           underlay={showParticipantsDialog}
+          error={channelSettingsError}
         />
       ) : null}
     </main></WorkspaceHeaderProvider></AgentAvatarChoices></ComposerSessionProvider>

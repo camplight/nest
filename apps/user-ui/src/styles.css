@@ -1955,3 +1955,12 @@ button {
   text-decoration: underline;
   cursor: pointer;
 }
+
+.chat-settings-error {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, #a63016 8%, var(--nest-surface));
+  color: #a63016;
+  font-size: 13px;
+}

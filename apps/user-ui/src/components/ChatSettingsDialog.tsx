@@ -12,6 +12,8 @@ export type ChatSettingsDialogProps={
   onClose():void;
   /** Another dialog (participants) is open on top. */
   underlay:boolean;
+  /** What went wrong with the last save, archive or delete, shown in the dialog. */
+  error?:string|null;
 };
 
 /** Chat settings: Sharing, Archive and Delete for a chat the person may manage. */
@@ -23,6 +25,7 @@ export function ChatSettingsDialog(p:ChatSettingsDialogProps) {
         <div><span>{p.label}</span><h2 id="chat-settings-title">Chat settings</h2></div>
         <button aria-label="Close dialog" className="dialog-close" onClick={p.onClose} type="button">Close</button>
       </header>
+      {p.error?<p className="chat-settings-error" role="alert">{p.error}</p>:null}
 
       <section className="chat-settings-part" aria-label="Sharing">
         <h3>Sharing</h3>

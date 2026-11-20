@@ -11,6 +11,17 @@ export class ApiError extends Error {
   }
 }
 
+/** A failure as a person reads it: a JSON body's `error`, else a plain-text message, else the fallback. */
+export function readableError(error: unknown, fallback: string): string {
+  if (!(error instanceof Error) || !error.message.trim()) return fallback;
+  const text = error.message.trim();
+  if (!text.startsWith("{")) return text;
+  try {
+    const value = JSON.parse(text) as { error?: unknown };
+    return typeof value.error === "string" && value.error.trim() ? value.error : fallback;
+  } catch { return text; }
+}
+
 export async function apiFetch(path: string, init?: RequestInit) {
   const res = await fetch(apiUrl(path), { credentials: "include", ...init });
   serverClock.noteResponseDate(res);
