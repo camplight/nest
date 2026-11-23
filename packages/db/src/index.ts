@@ -1,6 +1,7 @@
 import { createAgentRequestStore } from './agent-requests';
 import { createCommunityStore } from './community';
 import { createContextCompactionStore } from './context-compaction';
+import { createReplyNudgeStore } from './reply-nudges';
 import Database from 'better-sqlite3';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { createProjectStore } from './projects';
@@ -44,9 +45,10 @@ export function openProductDb(path = '.nest-product/nest.sqlite') {
     })();
     return parsed;
   }
-  return { db, projects, agentRequests:createAgentRequestStore(db), community:createCommunityStore(db), contextCompaction:createContextCompactionStore(db), branding, saveBranding, close: () => db.close() };
+  return { db, projects, agentRequests:createAgentRequestStore(db), community:createCommunityStore(db), contextCompaction:createContextCompactionStore(db), replyNudges:createReplyNudgeStore(db), branding, saveBranding, close: () => db.close() };
 }
 export type ProductDb = ReturnType<typeof openProductDb>;
 
 export type { AgentRequestRow, OfferRow } from './agent-requests';
 export type { CompactionJob, ContextCompactionStore } from './context-compaction';
+export type { ReplyNudgeStore } from './reply-nudges';

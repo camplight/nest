@@ -24,6 +24,7 @@ import { BrandingSchema } from '@nest/schemas';
 import { createOrgOpsClient, productHeaders, type OrgOpsClient } from '@nest/orgops-client';
 import { registerAgentMemoryRoutes } from './agent-memory';
 import { createContextCompactionWorker } from './context-compaction-worker';
+import { createReplyNudgeWorker } from './reply-nudge-worker';
 import type { HistorySummarizer } from './context-compaction';
 
 export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; compaction?: {engineToken?:string; summarize?:HistorySummarizer; now?:()=>number}; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string } = {}) {
@@ -111,5 +112,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   }});
   const compactionToken = config.compaction ? config.compaction.engineToken : managementKey;
   const contextCompaction = createContextCompactionWorker({store, engine: compactionToken ? orgops.contextCompaction(compactionToken) : null, summarize: config.compaction?.summarize, now: config.compaction?.now});
-  return { app, store, orgops, projectNaming, contextCompaction };
+  // Same service token as compaction: both read engine events and post as Nest.
+  const replyNudges = createReplyNudgeWorker({store, engine: compactionToken ? orgops.replyNudges(compactionToken) : null});
+  return { app, store, orgops, projectNaming, contextCompaction, replyNudges };
 }

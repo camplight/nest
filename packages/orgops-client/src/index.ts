@@ -231,9 +231,8 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
       },
     };
   }
-  /** Service access for Nest's chat compaction through the engine's context API. */
-  function contextCompaction(serviceToken: string) {
-    if (!serviceToken) throw Error('Context compaction is not configured');
+  /** Engine reads with Nest's runner token; a missing resource reads as null. */
+  function serviceReads(serviceToken: string) {
     const headers = {'x-orgops-runner-token':serviceToken};
     async function read<T>(path:string):Promise<T|null> {
       const response = await request(path,{headers});
@@ -246,6 +245,12 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
       for (const [key,value] of Object.entries(query)) for (const item of [value].flat()) params.append(key,item);
       return (await read<CompactionEvent[]>(`/api/events?${params}`)) ?? [];
     };
+    return {headers, read, events};
+  }
+  /** Service access for Nest's chat compaction through the engine's context API. */
+  function contextCompaction(serviceToken: string) {
+    if (!serviceToken) throw Error('Context compaction is not configured');
+    const {headers, read, events} = serviceReads(serviceToken);
     return {
       /** Context-window telemetry the runner records each turn, oldest first. */
       telemetry: (after:number, limit=500) => events({type:'telemetry.context.window.updated',after:String(after),order:'asc',limit:String(limit)}),
@@ -310,7 +315,40 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
       },
     };
   }
-  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, agentModelEnv, connectionContext, assistantDirectory, agentManagement, connectionActivity, contextCompaction, projectNamingEnv, projectNamingContext, baseUrl: base.origin };
+  /** Service access for Nest's reply nudge: turn completions, the chat around them, and one targeted note. */
+  function replyNudges(serviceToken: string) {
+    if (!serviceToken) throw Error('Reply nudges are not configured');
+    const {headers, read, events} = serviceReads(serviceToken);
+    const completed = 'agent.turn.completed';
+    return {
+      /** Turn completions after a time, oldest first. */
+      turnCompletions: (after:number, limit=200) => events({type:completed,after:String(after),order:'asc',limit:String(limit)}),
+      async latestTurnCompletionAt() {
+        return (await events({type:completed,order:'desc',limit:'1'}))[0]?.createdAt ?? 0;
+      },
+      event: (id:string) => read<CompactionEvent & {parentEventId?:string}>(`/api/events/${encodeURIComponent(id)}`),
+      /** Agents in an open chat; none when the chat is gone or archived. */
+      async channelAgents(channelId:string) {
+        const channel = ((await read<ActivityChannel[]>('/api/channels?includeArchived=1')) ?? []).find(item => item.id === channelId);
+        if (!channel || channel.archivedAt) return [];
+        return channel.participants.filter(p => p.subscriberType === 'AGENT').map(p => p.subscriberId);
+      },
+      /** Messages posted in a chat after a time, oldest first. */
+      messagesAfter: (channelId:string, afterExclusive:number) => events({channelId,type:'message.created',after:String(afterExclusive),order:'asc',limit:'200'}),
+      /** Posts the note at most once per request; the engine answers a repeated key with the first event. */
+      async postNudge(input:{agentName:string;channelId:string;triggerEventId:string;requestedFor:string;text:string}) {
+        const response = await request('/api/events',{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify({
+          type:'message.created', source:'system:nest', channelId:input.channelId, parentEventId:input.triggerEventId,
+          idempotencyKey:`nest-reply-nudge:${input.agentName}:${input.triggerEventId}`,
+          payload:{text:input.text, targetAgentName:input.agentName, nestReplyNudge:{triggerEventId:input.triggerEventId, requestedFor:input.requestedFor}},
+        })});
+        if (response.status === 201) return 'posted' as const;
+        if (response.ok || response.status === 409) return 'duplicate' as const;
+        throw Error(`Engine rejected the reply nudge (${response.status})`);
+      },
+    };
+  }
+  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, agentModelEnv, connectionContext, assistantDirectory, agentManagement, connectionActivity, contextCompaction, replyNudges, projectNamingEnv, projectNamingContext, baseUrl: base.origin };
 }
 export type OrgOpsClient = ReturnType<typeof createOrgOpsClient>;
 export type ActivityChannel = {id:string;archivedAt?:number|null;participants:{subscriberType:string;subscriberId:string}[]};
@@ -318,3 +356,4 @@ export type ActivityChannel = {id:string;archivedAt?:number|null;participants:{s
 export type ManagedEngineAgent = {agentRole?:'STANDARD'|'SYSTEM';id:string;name:string;mode:string;ownerHumanId:string|null;visibility:string;assignedRunnerId:string|null;workspacePath:string;modelId:string;description:string;systemInstructions:string;allowOutsideWorkspace:boolean;allowOwnerHumanSecrets:boolean};
 export type CompactionEvent = {id:string;type:string;source:string;channelId?:string;createdAt:number;payload:unknown;payloadTruncated?:boolean};
 export type ContextCompactionEngine = ReturnType<OrgOpsClient['contextCompaction']>;
+export type ReplyNudgeEngine = ReturnType<OrgOpsClient['replyNudges']>;
