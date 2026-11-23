@@ -51,6 +51,8 @@ export type ChatComposerProps={
   inProject:boolean;mentionCandidates:MentionCandidate[];canInvite:boolean;
   onInvite(candidate:MentionCandidate):Promise<void>;onAskAssistant(name:string,brief:string):void;
   openInvite():void;openFiles():void;
+  // While agents are working in this chat: Stop takes Send's place, or sits beside it once something is typed.
+  stop?:{agents:string[];stopping:boolean;onStop():void};
 };
 
 /**
@@ -197,6 +199,7 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
     pendingAttachments,setPendingAttachments,attachmentError,uploadingAttachmentCount,readyAttachments,hasAttachmentErrors,uploadFiles,mentions}=session;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   useLayoutEffect(()=>{session.bindCommands({inProject:props.inProject,openInvite:props.openInvite,openFiles:props.openFiles});});
+  const showSend=!props.stop||Boolean(draft.trim())||pendingAttachments.length>0||sending;
   const draftRecipients=[...new Map(draftState.mentions.map(m=>[m.kind+':'+m.name,m])).values()];
   const joining=new Set(joiningOnSend(draftState.mentions,props.mentionCandidates).map(candidate=>(candidate.kind==='Agent'?'AGENT':'HUMAN')+':'+candidate.name));
 
@@ -324,7 +327,19 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg>
               Attach files
             </button>
-            <button
+            <span className="composer-submit">
+            {props.stop&&<button
+              type="button"
+              className={`composer-stop${showSend?' composer-stop-compact':''}`}
+              disabled={props.stop.stopping}
+              aria-label={props.stop.stopping?'Stopping':`Stop ${props.stop.agents.join(', ')}`}
+              title={props.stop.stopping?'Stopping…':`Stop ${props.stop.agents.join(', ')}`}
+              onClick={props.stop.onStop}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2.5" fill="currentColor"/></svg>
+              {!showSend&&(props.stop.stopping?'Stopping…':'Stop')}
+            </button>}
+            {showSend&&<button
               className="composer-send"
               disabled={
                 !activeChannel ||
@@ -341,7 +356,8 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
                   ? "Sending..."
                   : "Send"}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>
-            </button>
+            </button>}
+            </span>
           </div>
           {hasAttachmentErrors ? (
             <p className="composer-attachment-error">
