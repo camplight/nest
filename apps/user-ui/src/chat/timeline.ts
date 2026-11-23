@@ -10,8 +10,12 @@ export type ChatMeta={eventId:string;authorKind:AuthorKind;authorName:string;isM
  belongsTo?:string};
 export type TimelineItem=
  |{kind:'message';id:string;meta:ChatMeta;text:string;markdown:boolean;attachments:MessageAttachment[];event:EventRow}
- |{kind:'activity';id:string;meta:ChatMeta;tone:'agent'|'system';events:EventRow[]};
-type BuildOptions={currentUsername:string;detachedIds?:ReadonlySet<string>};
+ |{kind:'activity';id:string;meta:ChatMeta;tone:'agent'|'system';events:EventRow[];unanswered?:Unanswered};
+/** A finished turn that did not answer a person waiting for this agent: shown as the agent's row. */
+export type Unanswered={agent:string;at:number;reason?:string};
+type BuildOptions={currentUsername:string;detachedIds?:ReadonlySet<string>;
+ /** The chat's only agent, if it has exactly one: a person's message naming nobody is meant for it. */
+ soleAgent?:string|null};
 
 // Ported from classic App.tsx (MARKDOWN_HINT_RE, URL_RE).
 const MARKDOWN_HINT_RE=
@@ -25,6 +29,7 @@ const TRACE_TYPES=new Set([
  'telemetry.context.window.updated',
  'agent.turn.cancel_requested','agent.context.compacted',
  'telemetry.nest.connection.action',
+ 'noop',
 ]);
 const TURN_STARTS=new Set(['agent.turn.started','wrapper.turn.started']);
 const TURN_ENDS=new Set(['agent.turn.completed','agent.turn.failed','wrapper.turn.completed','wrapper.turn.failed']);
@@ -130,14 +135,57 @@ function messageItem(event:EventRow,opts:BuildOptions,previousMessageId?:string)
  return {kind:'message',id:event.id,meta,text,markdown:shouldRenderMarkdown(text),attachments:parseMessageAttachments(payload),event};
 }
 
-function activityItem(events:EventRow[],id:string,opts:BuildOptions,belongsTo?:string):TimelineItem{
+/** Nest's note asking an agent to reply (see docs/SPEC.md, agents that end without replying). */
+function nudgeTarget(event:EventRow):{agent:string;trigger:string}|undefined{
+ if(event.type!=='message.created'||event.source!=='system:nest')return undefined;
+ const payload=record(event.payload);
+ const nudge=record(payload?.nestReplyNudge);
+ if(typeof payload?.targetAgentName!=='string'||typeof nudge?.triggerEventId!=='string')return undefined;
+ return {agent:payload.targetAgentName,trigger:nudge.triggerEventId};
+}
+
+export function replyNudgeLine(event:EventRow):string|null{
+ const nudge=nudgeTarget(event);
+ return nudge?`Nest asked ${nudge.agent} to reply.`:null;
+}
+
+/**
+ * A reply-less group is unanswered when its turn finished (not stopped, not failed) and it was started by a
+ * message meant for that agent: a person's message naming it (or naming nobody, in a chat where it is the only
+ * agent), Nest's ask to reply, or a person's message Nest asked it to answer. Silent turns of agents nobody addressed stay as they are.
+ */
+function meantFor(trigger:EventRow,agent:string,soleAgent:string|null|undefined){
+ const targets=targetAgents(trigger.payload);
+ if(targets.includes(agent))return true;
+ const mentions=record(trigger.payload)?.mentions;
+ // A message naming someone else is not this agent's to answer.
+ return targets.length===0&&!(Array.isArray(mentions)&&mentions.length>0)&&soleAgent===agent;
+}
+
+function unansweredTurn(events:EventRow[],messages:ReadonlyMap<string,EventRow>,nudged:ReadonlySet<string>,soleAgent:string|null|undefined):Unanswered|undefined{
+ if(events.some(event=>event.type==='agent.turn.failed'||event.type==='wrapper.turn.failed'))return undefined;
+ const completed=events.find(event=>event.type==='agent.turn.completed'&&event.source.startsWith('agent:'));
+ const payload=record(completed?.payload);
+ if(!completed||payload?.cancelled===true||typeof payload?.triggerEventId!=='string')return undefined;
+ const agent=completed.source.slice('agent:'.length);
+ const trigger=messages.get(payload.triggerEventId);
+ if(!trigger)return undefined;
+ const meant=trigger.source.startsWith('human:')
+  ?meantFor(trigger,agent,soleAgent)||nudged.has(`${agent}\n${trigger.id}`)
+  :nudgeTarget(trigger)?.agent===agent;
+ if(!meant)return undefined;
+ const reason=[...events].reverse().map(event=>event.type==='noop'?record(event.payload)?.reason:undefined).find(value=>typeof value==='string'&&value.trim());
+ return {agent,at:displayTime(completed),...(typeof reason==='string'?{reason:reason.trim()}:{})};
+}
+
+function activityItem(events:EventRow[],id:string,opts:BuildOptions,belongsTo?:string,unanswered?:Unanswered):TimelineItem{
  const first=events[0]!;
  const tone=events.some(event=>event.type==='agent.turn.failed'||event.type==='tool.failed')?'system':'agent';
  const meta:ChatMeta={eventId:first.id,authorKind:'activity',authorName:sourceLabel(first.source),isMine:false,
   displayAt:displayTime(first),targetAgents:[]};
  if(belongsTo)meta.belongsTo=belongsTo;
  if(events.some(event=>opts.detachedIds?.has(event.id)))meta.detached=true;
- return {kind:'activity',id,meta,tone,events};
+ return {kind:'activity',id,meta,tone,events,...(unanswered?{unanswered}:{})};
 }
 
 // A group keeps the id of the earliest previous activity item that shares one of its events and is not yet taken
@@ -167,7 +215,8 @@ function unchanged(prev:TimelineItem,next:TimelineItem){
  if(!sameMeta(prev.meta,next.meta))return false;
  if(prev.kind==='message'&&next.kind==='message')return sameEvent(prev.event,next.event);
  if(prev.kind==='activity'&&next.kind==='activity')
-  return prev.events.length===next.events.length&&prev.events.every((event,index)=>sameEvent(event,next.events[index]!));
+  return prev.unanswered?.agent===next.unanswered?.agent&&prev.unanswered?.at===next.unanswered?.at&&prev.unanswered?.reason===next.unanswered?.reason&&
+   prev.events.length===next.events.length&&prev.events.every((event,index)=>sameEvent(event,next.events[index]!));
  return false;
 }
 
@@ -272,10 +321,16 @@ export function buildTimeline(events:EventRow[],opts:BuildOptions,previous?:read
   loose.events.push(event);
  }
  for(const agent of [...open.keys()])finish(agent);
+ const messages=new Map(events.filter(event=>event.type==='message.created').map(event=>[event.id,event]));
+ const nudged=new Set(events.flatMap(event=>{const nudge=nudgeTarget(event);return nudge?[`${nudge.agent}\n${nudge.trigger}`]:[];}));
  let previousMessageId:string|undefined;
  for(const slot of slots){
   if('message' in slot){reuse(messageItem(slot.message,opts,previousMessageId));previousMessageId=slot.message.id;}
-  else if(slot.group.events.length&&(slot.reply||!slot.group.events.every(quiet)))reuse(activityItem(slot.group.events,groupId(slot.group.events,previousActivity,taken),opts,slot.reply));
+  else if(slot.group.events.length){
+   const unanswered=slot.reply?undefined:unansweredTurn(slot.group.events,messages,nudged,opts.soleAgent);
+   if(slot.reply||unanswered||!slot.group.events.every(quiet))
+    reuse(activityItem(slot.group.events,groupId(slot.group.events,previousActivity,taken),opts,slot.reply,unanswered));
+  }
  }
  return items;
 }

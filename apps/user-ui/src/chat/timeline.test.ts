@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {attachesTo,buildTimeline,dayKey,isContinuation,isTraceEvent,toThreadMessage,upsertEvents} from './timeline';
+import {attachesTo,buildTimeline,dayKey,isContinuation,isTraceEvent,replyNudgeLine,toThreadMessage,upsertEvents} from './timeline';
 import type {EventRow} from '../types';
 const opts={currentUsername:'alek'};
 const msg=(id:string,source:string,payload:Record<string,unknown>={text:'Hi'},createdAt=1000,extra:Partial<EventRow>={}):EventRow=>({id,type:'message.created',source,payload,createdAt,...extra});
@@ -394,5 +394,62 @@ describe('turn activity follows the agent reply',()=>{
   expect(attachesTo(items[0],items[1])).toBe(false); // a failed turn never sits inside the person's question
   expect(attachesTo(items[3],items[4])).toBe(true);
   expect(attachesTo(items[3],items[5])).toBe(false); // Bob's reply-less turn is not Pip's
+ });
+});
+
+describe('a turn that ended without replying',()=>{
+ const ev=(id:string,type:string,source:string,createdAt:number,payload:Record<string,unknown>={}):EventRow=>({id,type,source,payload,createdAt});
+ const turn=(trigger:string,at:number,middle:EventRow[]=[],end:Record<string,unknown>={noReply:true},agent='Pip')=>[
+  ev(`s-${trigger}`,'agent.turn.started',`agent:${agent}`,at,{triggerEventId:trigger}),...middle,
+  ev(`c-${trigger}`,'agent.turn.completed',`agent:${agent}`,at+5,{triggerEventId:trigger,...end})];
+ const nudge=(id:string,trigger:string,createdAt:number,agent='Pip')=>msg(id,'system:nest',{text:'You ended your turn without replying to alek.',targetAgentName:agent,nestReplyNudge:{triggerEventId:trigger,requestedFor:'human:alek'}},createdAt);
+ const activity=(items:ReturnType<typeof buildTimeline>)=>items.filter(item=>item.kind==='activity');
+ it("marks a finished turn without a reply as unanswered, with the agent's reason",()=>{
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'@Pip what is on the board?',targetAgentName:'Pip'},1),
+   ...turn('q',10,[ev('t','tool.executed','agent:Pip',11),ev('n','noop','agent:Pip',12,{reason:'already delivered'})]),
+  ],opts);
+  expect(items.map(item=>item.id)).toEqual(['q','s-q']);
+  expect(activity(items)[0]).toMatchObject({unanswered:{agent:'Pip',at:15,reason:'already delivered'}});
+ });
+ it('a quiet turn that ended without replying to the person who asked it is still shown',()=>{
+  const [,item]=buildTimeline([msg('q','human:alek',{text:'Hi',targetAgentNames:['Pip','Rex']},1),...turn('q',10)],opts);
+  expect(item).toMatchObject({kind:'activity',unanswered:{agent:'Pip',at:15}});
+ });
+ it("an unaddressed turn becomes unanswered once Nest asked the agent to reply, and so does the ask's own silent turn",()=>{
+  const question=msg('q','human:alek',{text:'Hi'},1);
+  expect(buildTimeline([question,...turn('q',10)],opts).map(item=>item.id)).toEqual(['q']);
+  const items=buildTimeline([question,...turn('q',10),nudge('ask','q',20),...turn('ask',30)],opts);
+  expect(items.map(item=>item.id)).toEqual(['q','s-q','ask','s-ask']);
+  expect(activity(items).map(item=>item.kind==='activity'&&item.unanswered?.agent)).toEqual(['Pip','Pip']);
+  // The ask arriving later changes the row although the turn's events did not.
+  const before=buildTimeline([question,...turn('q',10,[ev('t','tool.executed','agent:Pip',11)])],opts);
+  const after=buildTimeline([question,...turn('q',10,[ev('t','tool.executed','agent:Pip',11)]),nudge('ask','q',20)],opts,before);
+  expect(activity(after)[0]).toMatchObject({unanswered:{agent:'Pip'}});
+ });
+ it('replied, stopped, failed, partly loaded and other agents\' turns are not unanswered',()=>{
+  const asked=(id:string,at:number)=>msg(id,'human:alek',{text:'?',targetAgentName:'Pip'},at);
+  const items=buildTimeline([
+   asked('q1',1),...turn('q1',2,[msg('r','agent:Pip',{text:'Here'},3)]),
+   asked('q2',10),...turn('q2',11,[ev('t2','tool.executed','agent:Pip',12)],{cancelled:true}),
+   asked('q3',20),ev('s-q3','agent.turn.started','agent:Pip',21,{triggerEventId:'q3'}),ev('t3','tool.executed','agent:Pip',22),ev('f-q3','agent.turn.failed','agent:Pip',23,{triggerEventId:'q3'}),
+   asked('q4',30),ev('t4','tool.executed','agent:Pip',31),
+   // A wrapped agent whose wrapper failed: the engine still reports its own turn as completed.
+   asked('q6',50),...turn('q6',51,[ev('wf','wrapper.turn.failed','system:runner:wrapper',52,{targetAgentName:'Pip',triggerEventId:'q6'})]),
+   asked('q5',40),...turn('q5',41,[ev('t5','tool.executed','agent:Rex',42)],{noReply:true},'Rex'),
+  ],opts);
+  expect(activity(items).length).toBeGreaterThan(0);
+  expect(activity(items).filter(item=>item.kind==='activity'&&item.unanswered)).toEqual([]);
+ });
+ it("a person's unaddressed message in a chat whose only agent this is counts, unless it names someone else",()=>{
+  const sole={...opts,soleAgent:'Pip'};
+  expect(activity(buildTimeline([msg('q','human:alek',{text:'Hi'},1),...turn('q',10)],sole))).toMatchObject([{unanswered:{agent:'Pip'}}]);
+  expect(buildTimeline([msg('q','human:alek',{text:'@alice look',mentions:[{kind:'HUMAN',name:'alice'}]},1),...turn('q',10)],sole).map(item=>item.id)).toEqual(['q']);
+  expect(buildTimeline([msg('q','human:alek',{text:'Hi'},1),...turn('q',10,[],{noReply:true},'Rex')],sole).map(item=>item.id)).toEqual(['q']);
+ });
+ it("describes Nest's ask to reply",()=>{
+  expect(replyNudgeLine(nudge('ask','q',1))).toBe('Nest asked Pip to reply.');
+  expect(replyNudgeLine(msg('s','system:nest',{text:'Hello'},1))).toBeNull();
+  expect(replyNudgeLine(msg('h','human:alek',{text:'x',nestReplyNudge:{triggerEventId:'q'},targetAgentName:'Pip'},1))).toBeNull();
  });
 });

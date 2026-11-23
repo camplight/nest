@@ -14,7 +14,7 @@ import {MessageActions} from './MessageActions';
 import {MessageBody} from './MessageBody';
 import type {ReplyTarget} from './quote-types';
 import {SelectionQuote} from './SelectionQuote';
-import {attachesTo,buildTimeline,dayKey,isContinuation,isTraceEvent,toThreadMessage,type ChatMeta,type TimelineItem} from './timeline';
+import {attachesTo,buildTimeline,dayKey,isContinuation,isTraceEvent,replyNudgeLine,toThreadMessage,type ChatMeta,type TimelineItem,type Unanswered} from './timeline';
 import {Button} from './ui/button';
 import {DaySeparator} from './ui/day-separator';
 import {cn} from './ui/lib/utils';
@@ -29,6 +29,8 @@ export type ChatThreadProps={
  focusedMessageId:string|null;isConversationEmpty:boolean;
  onPreviewDemo(path:string):void;onQuote(target:ReplyTarget,quotedText:string):void;footer?:ReactNode;headerActions?:ReactNode;
  channelLabel:string;onFocusMessage(eventId:string):void;handle?:Ref<ChatThreadHandle>;
+ /** The chat's only agent, if it has exactly one. */
+ soleAgent?:string|null;
 };
 // What the page may ask of the thread: after a send it follows the new message down (the viewport is the thread's own).
 export type ChatThreadHandle={scrollToBottom():void};
@@ -133,6 +135,24 @@ function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;pr
  </article>;
 }
 
+// A finished turn that did not answer the person waiting for it: the agent's row, so it reads as the agent's turn
+// (avatar, name, time), with what it said about ending and the turn's Details underneath.
+function UnansweredRow({item,unanswered,spacing}:{item:ActivityItem;unanswered:Unanswered;spacing:string}){
+ const time=formatTime(unanswered.at);
+ return <article id={`message-${item.id}`} data-message-id={item.id} data-aui-quote-selectable="false" className={cn('message message-agent message-unanswered',SHELL,spacing)}>
+  <div className="w-8 shrink-0 pt-0.5"><AgentAvatar name={unanswered.agent} size={32}/></div>
+  <div data-slot="message-focus" tabIndex={0} role="group" aria-label={`${unanswered.agent}, ${time}`} className={COLUMN}>
+   <div className="flex min-w-0 items-center gap-2">
+    <strong className="message-author min-w-0 text-sm font-semibold leading-5 text-foreground [overflow-wrap:anywhere]">{unanswered.agent}</strong>
+    <time className="shrink-0 whitespace-nowrap text-xs font-normal leading-4 text-muted-foreground tabular-nums" dateTime={new Date(unanswered.at).toISOString()}>{time}</time>
+   </div>
+   <p className="m-0 text-sm italic text-muted-foreground">Ended without replying</p>
+   {unanswered.reason&&<p className="m-0 mt-0.5 text-sm text-muted-foreground [overflow-wrap:anywhere]">It said: “{unanswered.reason}”</p>}
+   <div className={ACTIVITY_IN_MESSAGE}><TurnActivity events={item.events} tone={item.tone} formatTime={formatTime}/></div>
+  </div>
+ </article>;
+}
+
 // Neighbours come from the runtime's list, so separators, grouping and markers change in the commit that renders
 // the runtime's new messages, never one commit early (a prepend would shift the reader before it is anchored).
 function ThreadItem(){
@@ -163,11 +183,16 @@ function ThreadItem(){
    <span id={`fold-participants-${foldControl.fold.id}`} className="sr-only">Participants: {foldControl.fold.agentNames.join(', ')}</span>
    <ChevronRightIcon aria-hidden="true" className={cn('size-4 shrink-0',foldControl.expanded&&'rotate-90')}/>
   </Button>}
-  {item.kind==='message'?(attachesTo(item,next)?
+  {item.kind==='message'&&replyNudgeLine(item.event)?
+   <p id={`message-${item.id}`} data-message-id={item.id} role="note" className={cn('my-1 self-center px-2 text-center text-xs text-muted-foreground',spaceAfter(item,next))}>
+    {replyNudgeLine(item.event)} <time dateTime={new Date(item.meta.displayAt).toISOString()}>{formatTime(item.meta.displayAt)}</time>
+   </p>:
+   item.kind==='message'?(attachesTo(item,next)?
     <MessageShell item={item} previous={previous} view={view} activity={next as ActivityItem}
      spacing={spaceAfter(next as ActivityItem,afterNextId?view.byId.get(afterNextId):undefined)}/>:
     <MessageShell item={item} previous={previous} view={view} spacing={spaceAfter(item,next)}/>):
    attachesTo(previous,item)?null:
+   item.unanswered?<UnansweredRow item={item} unanswered={item.unanswered} spacing={spaceAfter(item,next)}/>:
    <div data-aui-quote-selectable="false" className={cn(ACTIVITY_SLOT,spaceAfter(item,next))}>
     <TurnActivity events={item.events} tone={item.tone} formatTime={formatTime} standalone/>
    </div>}
@@ -212,10 +237,10 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  const {snapshot,core,currentUsername,focusedMessageId}=props;
  const previousItems=useRef<TimelineItem[]>([]);
  const items=useMemo(()=>{
-  const next=buildTimeline(snapshot.events,{currentUsername,detachedIds:snapshot.detachedIds},previousItems.current);
+  const next=buildTimeline(snapshot.events,{currentUsername,detachedIds:snapshot.detachedIds,soleAgent:props.soleAgent},previousItems.current);
   previousItems.current=next;
   return next;
- },[snapshot.events,snapshot.detachedIds,currentUsername]);
+ },[snapshot.events,snapshot.detachedIds,currentUsername,props.soleAgent]);
  // Each active turn's row follows its trigger message, or the last item when the trigger is not loaded (spec 7.5.1).
  const turns=useMemo(()=>activeTurns(snapshot.events,props.agents,snapshot.agentStarts),[snapshot.events,props.agents,snapshot.agentStarts]);
  // A deep-link focus is pending until it scrolled into view and the reader then scrolled themselves (spec 8.5).

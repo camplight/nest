@@ -408,6 +408,11 @@ export default function App() {
     () => channels.find((channel) => channel.id === activeChannelId) ?? null,
     [activeChannelId, channels]
   );
+  // A turn answering nobody in a one-agent chat shows as "Ended without replying" (docs/SPEC.md).
+  const soleChannelAgent = useMemo(() => {
+    const names = (activeChannel?.participants ?? []).filter((participant) => participant.subscriberType === "AGENT").map((participant) => participant.subscriberId);
+    return names.length === 1 ? names[0]! : null;
+  }, [activeChannel?.participants]);
 
   useEffect(() => {
     channelsRef.current = channels;
@@ -1697,6 +1702,7 @@ export default function App() {
             core={channelEvents}
             currentUsername={username}
             agents={agents}
+            soleAgent={soleChannelAgent}
             focusedMessageId={focusedMessage}
             isConversationEmpty={isConversationEmpty}
             channelLabel={activeConversationName}
