@@ -741,12 +741,9 @@ matching DB/release pair is restored.
 
 Advance from `5986761` to merged upstream `0837472` (#99, #103–#106). This fixes silent failures when a text-only provider rejects image context, malformed final replies and shell lifecycle wakeups. Migration 054 adds nullable compatible reasoning effort without changing existing configured models or credentials. The native gate includes the exact image-rejection regressions. Later upstream scheduling and dependency upgrades are outside this targeted recovery.
 
-## Task model overrides (depends on OrgOps #112)
+## Proposed automatic task routing dependency
 
-The proposed pin includes OrgOps #112: human-authorized CLASSIC per-message
-OpenRouter overrides, isolated turn boundaries, and cost/intelligence frontier
-selection. It also includes the intervening main changes (#107 durable scheduling
-and #108 dependency updates, including Zod 4); the parent lockfile is refreshed.
-This is a review dependency, not a deployed engine version. Merge the upstream PR
-first and replace the proposed pin with its reviewed main commit before merging
-this Nest PR. Nest's `/model` adapter never writes engine model settings.
+[OrgOps #112](https://github.com/camplight/orgops/pull/112) is an execution foundation
+for the [automatic routing proposal](proposals/automatic-task-model-routing.md).
+The current pin is unchanged. Automatic routing, policy enforcement and a reviewed
+engine bump are still required before the Nest experience can be enabled.

@@ -1,4 +1,3 @@
-import { taskModelCommand } from "./task-model-command";
 import { createHash, randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -151,15 +150,8 @@ export function registerMessageRoutes(
       ...new Map(sorted.map((m) => [m.kind + ":" + m.name, m])).values(),
     ];
     const agentRecipients = recipients.filter((m) => m.kind === "AGENT");
-    let targetAgentName=input.targetAgentName??(agentRecipients.length===1?agentRecipients[0].name:undefined);
+    const targetAgentName=input.targetAgentName??(agentRecipients.length===1?agentRecipients[0].name:undefined);
     const targetAgentNames=agentRecipients.length>1?agentRecipients.map(m=>m.name):undefined;
-    const channelAgents = channel!.participants.filter(p=>p.subscriberType==='AGENT');
-    let taskModel: ReturnType<typeof taskModelCommand>;
-    try {
-      taskModel = taskModelCommand(input.text, targetAgentNames ? undefined :
-        targetAgentName ?? (channelAgents.length===1 ? channelAgents[0].subscriberId : undefined));
-    } catch (error) { fail(400, (error as Error).message); }
-    if (taskModel) targetAgentName=taskModel.agentName;
     if(input.targetAgentName&&targetAgentNames)
       fail(400,"An explicit single target cannot be combined with multiple selected agents");
     if(input.targetAgentName&&agentRecipients[0]&&input.targetAgentName!==agentRecipients[0].name)
@@ -218,7 +210,6 @@ export function registerMessageRoutes(
       fail(409, "A selected person is unavailable");
     const payload = {
       text: input.text,
-      ...(taskModel ? { taskModel } : {}),
       ...(input.attachments.length ? { attachments: input.attachments } : {}),
       nestMessageId: input.id,
       mentions: resolved,
@@ -295,10 +286,6 @@ export function registerMessageRoutes(
           payload,
         },
       );
-      if (taskModel && response.status === 400) {
-        const error = await response.json().catch(()=>null) as {error?:string}|null;
-        fail(400, error?.error ?? "Task model request rejected");
-      }
       if (response.status === 403) fail(403, "Conversation access changed");
       if (!response.ok) throw Error("Engine delivery failed");
       event = (await response.json()) as Event;

@@ -367,33 +367,3 @@ it("delivers one recoverable message to multiple selected agents and one human n
   expect(await (await call("/api/events?channelId="+channel+"&type=message.created")).json()).toHaveLength(1);
   expect((await (await call("/api/mentions","GET",undefined,other)).json()).items).toHaveLength(1);
 });
-
-
-it("routes a one-task model command through the real engine and preserves receipts/defaults",async()=>{
-  const body=message('/model openrouter:google/gemini-2.5-flash\n@Puff inspect the image',[['Puff','AGENT']]);
-  const first=await call('/api/messages','POST',body);
-  expect(first.status).toBe(201);
-  const event=await first.json();
-  expect(event.payload.taskModel).toEqual({agentName:'Puff',mode:'manual',modelId:'openrouter:google/gemini-2.5-flash'});
-  expect(event.payload.text).toBe(body.text);
-  const retry=await call('/api/messages','POST',body);
-  expect(retry.status).toBe(201);
-  expect((await retry.json()).id).toBe(event.id);
-  const saved=await call('/api/agents/Puff');
-  expect((await saved.json()).modelId).toBe('openrouter:test');
-  const next=await call('/api/messages','POST',message('@Puff ordinary task',[['Puff','AGENT']]));
-  expect((await next.json()).payload.taskModel).toBeUndefined();
-});
-
-it("rejects ambiguous, unauthorized and malformed model commands",async()=>{
-  expect((await call('/api/messages','POST',message('/model auto 70 2\nhello',[]))).status).toBe(400);
-  expect((await call('/api/messages','POST',message('/model auto 70 2\n@Puff @Moss hello',[['Puff','AGENT'],['Moss','AGENT']]))).status).toBe(400);
-  expect((await call('/api/messages','POST',message('/model openrouter:google/gemini-2.5-flash\n@Puff hello',[['Puff','AGENT']]),other)).status).toBe(400);
-  expect((await call('/api/messages','POST',message('/model auto banana 2\n@Puff hello',[['Puff','AGENT']]))).status).toBe(400);
-});
-
-it("keeps auto routing constraints in the idempotent message payload",async()=>{
-  const result=await call('/api/messages','POST',message('/model auto 70 2\n@Puff review',[['Puff','AGENT']]));
-  expect(result.status).toBe(201);
-  expect((await result.json()).payload.taskModel).toEqual({agentName:'Puff',mode:'economy',minIntelligence:70,maxPricePerMillion:2,minContextTokens:32000});
-});
