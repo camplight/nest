@@ -736,3 +736,7 @@ policy; data backups remain untouched. Rollback health failure no longer skips
 watchdog restoration. Partial DB/configuration restoration requires operator
 recovery before any automatic restart; preserve the recovery marker until the
 matching DB/release pair is restored.
+
+### Image rejection and reply recovery
+
+Advance from `5986761` to merged upstream `0837472` (#99, #103–#106). This fixes silent failures when a text-only provider rejects image context, malformed final replies and shell lifecycle wakeups. Migration 054 adds nullable compatible reasoning effort without changing existing configured models or credentials. The native gate includes the exact image-rejection regressions. Later upstream scheduling and dependency upgrades are outside this targeted recovery.

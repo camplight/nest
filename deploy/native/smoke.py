@@ -19,7 +19,7 @@ class Provider(BaseHTTPRequestHandler):
     def do_POST(self):
         self.rfile.read(int(self.headers.get('Content-Length', 0)))
         Provider.calls += 1
-        event = {'turnStatus': 'DONE', 'type': 'message.created', 'payload': {'text': 'Native smoke agent replied.'}}
+        event = {'turnStatus': 'WORK_FULLY_COMPLETE', 'type': 'message.created', 'payload': {'text': 'Native smoke agent replied.'}}
         body = json.dumps({'id': 'synthetic-native', 'object': 'chat.completion',
                            'created': int(time.time()), 'model': 'native-smoke',
                            'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': json.dumps(event)},
