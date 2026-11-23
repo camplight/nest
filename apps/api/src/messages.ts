@@ -1,3 +1,4 @@
+import { createTaskClassifier, type TaskClassifier, type TaskDecision } from './task-classifier';
 import { createHash, randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -26,6 +27,7 @@ type Intent = {
   event_id: string;
   created_at: number;
   delivered_at: number | null;
+  routing_json: string | null;
 };
 type Event = {
   id: string;
@@ -53,7 +55,7 @@ const hash = (value: unknown) =>
   createHash("sha256").update(canonical(value)).digest("hex");
 export function registerMessageRoutes(
   app: Hono,
-  { store, orgops }: { store: ProductDb; orgops: OrgOpsClient },
+  { store, orgops, classify = createTaskClassifier() }: { store: ProductDb; orgops: OrgOpsClient; classify?:TaskClassifier },
 ) {
   const routes = new Hono<{ Variables: { human: Human } }>(),
     db = store.db;
@@ -185,6 +187,7 @@ export function registerMessageRoutes(
           headers,
         )
       : [];
+    let replyText: string | undefined;
     // Validate a reply target only for a new request, so an unchanged retry recovers after the target vanished.
     if (input.replyTo && !intent(input.id)) {
       const target = await engineEvent(input.replyTo, headers);
@@ -199,6 +202,7 @@ export function registerMessageRoutes(
           },
           400,
         );
+      if(typeof target.payload.text==='string')replyText=target.payload.text;
     }
     const resolved = recipients.map((m) => ({
       ...m,
@@ -208,7 +212,7 @@ export function registerMessageRoutes(
     }));
     if (resolved.some((m) => m.kind === "HUMAN" && !m.humanId))
       fail(409, "A selected person is unavailable");
-    const payload = {
+    const basePayload = {
       text: input.text,
       ...(input.attachments.length ? { attachments: input.attachments } : {}),
       nestMessageId: input.id,
@@ -220,6 +224,25 @@ export function registerMessageRoutes(
       ...(input.replyTo ? { inReplyTo: input.replyTo } : {}),
     };
     const inputHash = hash({ ...input, mentions: sorted });
+    const prior=intent(input.id);
+    if(prior&&(prior.sender_id!==human.id||prior.input_hash!==inputHash))
+      fail(409,'Message ID already used for different content');
+    let decision:TaskDecision|undefined;
+    if(prior)decision=prior.routing_json?JSON.parse(prior.routing_json):undefined;
+    else {
+      // Only classify tasks destined for eligible, visible native agents. No personal credentials.
+      const names=targetAgentNames??(targetAgentName?[targetAgentName]:channel!.participants.filter(p=>p.subscriberType==='AGENT').map(p=>p.subscriberId));
+      for(const name of names){
+        const response=await orgops.humanRequest('/api/agents/'+encodeURIComponent(name),headers);
+        if(!response.ok)continue;
+        const agent=await response.json() as {mode?:string;modelId?:string};
+        if((agent.mode??'CLASSIC')==='CLASSIC'&&/^(openrouter|or):/.test(agent.modelId??'')){
+          decision=await classify({text:input.text,replyText,attachmentTypes:input.attachments.map(a=>a.mime??'application/octet-stream')});
+          break;
+        }
+      }
+    }
+    let payload={...basePayload,...(decision?{taskRouting:decision}:{})};
     db.transaction(() => {
       const existing = intent(input.id);
       if (existing) {
@@ -231,7 +254,7 @@ export function registerMessageRoutes(
         return;
       }
       db.prepare(
-        "INSERT INTO product_message_requests(id,sender_id,sender_name,channel_id,input_hash,payload_hash,event_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
+        "INSERT INTO product_message_requests(id,sender_id,sender_name,channel_id,input_hash,payload_hash,event_id,created_at,routing_json) VALUES(?,?,?,?,?,?,?,?,?)",
       ).run(
         input.id,
         human.id,
@@ -241,6 +264,7 @@ export function registerMessageRoutes(
         hash(payload),
         randomUUID(),
         Date.now(),
+        decision?JSON.stringify(decision):null,
       );
       for (const recipient of resolved)
         if (recipient.humanId && recipient.humanId !== human.id)
@@ -249,6 +273,8 @@ export function registerMessageRoutes(
           ).run(input.id, recipient.humanId);
     })();
     const row = intent(input.id)!;
+    // Concurrent sends use the first committed classification, including after a lost response.
+    payload={...basePayload,...(row.routing_json?{taskRouting:JSON.parse(row.routing_json)}:{})};
     let event = await engineEvent(row.event_id, headers);
     if (!event) {
       if (row.delivered_at)

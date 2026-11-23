@@ -288,6 +288,9 @@ try {
     assert(await page.getByRole("button", {name:"Send",exact:true}).isEnabled());
     await page.getByRole("button", {name:"Send",exact:true}).click();
     await page.getByText("To @Puff, @Moss", {exact:true}).waitFor();
+    // Rendering the receipt can precede the send handler's final draft reset.
+    // Do not start editing the next draft until the previous send has finished.
+    await page.waitForFunction(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.value === '');
     await page.screenshot({path:join(screenshots,"multiple-agents-desktop.png"),fullPage:true});
     await page.setViewportSize({width:390,height:844});
     await page.screenshot({path:join(screenshots,"multiple-agents-mobile.png"),fullPage:true});

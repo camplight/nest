@@ -740,3 +740,21 @@ matching DB/release pair is restored.
 ### Image rejection and reply recovery
 
 Advance from `5986761` to merged upstream `0837472` (#99, #103–#106). This fixes silent failures when a text-only provider rejects image context, malformed final replies and shell lifecycle wakeups. Migration 054 adds nullable compatible reasoning effort without changing existing configured models or credentials. The native gate includes the exact image-rejection regressions. Later upstream scheduling and dependency upgrades are outside this targeted recovery.
+
+## Automatic task routing dependency
+
+The proposed pin is OrgOps `a5bebbf` from [#112](https://github.com/camplight/orgops/pull/112).
+It adds explicit task model requests and automatic native OpenRouter routing.
+Nest enables the latter through its launcher without modifying upstream files.
+Before merge, replace the proposed pin with its reviewed upstream main commit.
+The bump also includes intervening #107 durable scheduling and #108 dependency
+updates. The lockfile follows those dependencies; the launcher now explicitly
+owns its @hono/node-server dependency instead of relying on a transitive install.
+No production deployment or model-row rewrite is performed by this PR.
+
+Nest migration 011 adds nullable `routing_json` to product send intents. Existing
+receipts remain compatible. The upstream pin now accepts bounded task-complexity
+hints and isolates those turns from batching/injection. Nest owns the Jev decision
+call; OrgOps owns enforcement and model execution. No engine database is read by
+Nest and no saved model is migrated. Run the message-boundary tests against this
+exact pin before replacing it with the reviewed upstream merge commit.
