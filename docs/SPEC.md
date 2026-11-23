@@ -1525,9 +1525,14 @@ OrgOps remains untouched.
 
 The runner includes upstream #99 and #103–#106: safe final summaries, channel-aware shells, bounded finalization and image-input rejection recovery. Unsupported images are replaced with an explicit limitation note for one retry; this does not make a text-only model able to see images. Migration 054 adds nullable per-agent compatible reasoning effort, preserving provider defaults.
 
-## Proposed automatic task routing
+## Automatic task model routing
 
-The [automatic task model routing proposal](proposals/automatic-task-model-routing.md)
-describes capability mismatch recovery, task/stage quality routing and an invisible
-Nest experience. It is a draft design, not implemented runtime behavior. There is
-no `/model` command added to the product by this proposal.
+Nest's runner enables upstream OpenRouter Auto Router for native CLASSIC OpenRouter
+agents by default. Ordinary chat and attachments need no command. Routing is local
+to the run; saved defaults and grants are untouched. `NEST_TASK_MODEL_ROUTING=off`
+opts out. `NEST_TASK_MODEL_COST_TIER` defaults to medium, and
+`NEST_TASK_MODEL_ALLOWED_MODELS` is an optional comma-separated hard allowlist.
+Wrapped agents and other providers are unchanged. External runners need the same
+upstream policy configured independently. The [research and implementation notes](proposals/automatic-task-model-routing.md)
+record the provider choice, tests and limits. This requires the proposed OrgOps
+#112 engine pin; it is not live until the reviewed dependency is deployed.

@@ -78,3 +78,18 @@ for (const component of ["api", "runner"] as const)
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+for (const policy of [undefined, 'off', 'openrouter-auto']) {
+  test(`runner enables smart routing unless explicitly configured: ${policy}`, () => {
+    const previous={...process.env}, f=fixture();
+    try {
+      delete process.env.ORGOPS_TASK_MODEL_ROUTING;
+      delete process.env.NEST_TASK_MODEL_ROUTING;
+      process.env.NEST_ENGINE_DATA_DIR=f.engine;
+      process.env.NEST_FILES_DIR=f.files;
+      if(policy) process.env.NEST_TASK_MODEL_ROUTING=policy;
+      configureOrgOpsEnv('runner');
+      expect(process.env.ORGOPS_TASK_MODEL_ROUTING).toBe(policy ?? 'openrouter-auto');
+    } finally {process.env=previous;}
+  });
+}

@@ -24,6 +24,8 @@ export function configureOrgOpsEnv(component: 'api' | 'runner' = 'api') {
   for (const [key, value] of Object.entries(process.env)) {
     if (key.startsWith('NEST_') && value !== undefined) process.env[`ORGOPS_${key.slice(5)}`] = value;
   }
+  // Product default: ordinary native OpenRouter chat uses upstream smart routing.
+  if (component === 'runner') process.env.ORGOPS_TASK_MODEL_ROUTING ??= 'openrouter-auto';
   const dataDir = resolve(repoRoot, process.env.NEST_ENGINE_DATA_DIR ?? '.nest-data');
   const projectRoot = resolve(dataDir, 'engine');
   mkdirSync(projectRoot, {recursive: true});
