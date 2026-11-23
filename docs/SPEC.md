@@ -1527,12 +1527,28 @@ The runner includes upstream #99 and #103–#106: safe final summaries, channel-
 
 ## Automatic task model routing
 
-Nest's runner enables upstream OpenRouter Auto Router for native CLASSIC OpenRouter
-agents by default. Ordinary chat and attachments need no command. Routing is local
-to the run; saved defaults and grants are untouched. `NEST_TASK_MODEL_ROUTING=off`
-opts out. `NEST_TASK_MODEL_COST_TIER` defaults to medium, and
-`NEST_TASK_MODEL_ALLOWED_MODELS` is an optional comma-separated hard allowlist.
-Wrapped agents and other providers are unchanged. External runners need the same
-upstream policy configured independently. The [research and implementation notes](proposals/automatic-task-model-routing.md)
-record the provider choice, tests and limits. This requires the proposed OrgOps
-#112 engine pin; it is not live until the reviewed dependency is deployed.
+Nest classifies ordinary messages for visible native OpenRouter agents with the
+OpenRouter Decisions API (Jev). No command or model selector is required. The task
+text (bounded to 8,000 characters), optional reply text (2,000 characters), and
+attachment MIME types determine routine/standard/complex difficulty. Missing
+context, low confidence, refusal or a 1.5-second deadline produce a default hint;
+they do not block message delivery. Classification uses only the server key or
+configured system manager's public provider key, never a participant's private key.
+
+Migration 011 saves the bounded decision beside the send intent, without storing
+message text. Unchanged retries reuse it; concurrent sends use the first committed
+decision. OrgOps treats classified messages as separate tasks. Routine/default text
+work retains the saved model. Standard work uses the medium Auto Router tier;
+complex work uses high (`NEST_TASK_MODEL_COMPLEX_COST_TIER`). Image compatibility
+is checked separately in the runner, including composed history. The optional hard
+model allowlist applies to all routed tiers. Saved agent settings and grants do not
+change. Wrapped and non-OpenRouter agents do not use this classifier.
+
+`NEST_TASK_MODEL_ROUTING=off` disables automatic routing;
+`NEST_TASK_CLASSIFIER=off` skips classification and emits the default hint.
+`NEST_TASK_CLASSIFIER_MODEL` defaults to `typesafe/jev-1.14`. Classifier inference
+is a separately billed request, not free provider failover. The current policy
+optimizes via provider tiers; it does not prove a measured Pareto optimum or detect
+poor answers after generation. Provider availability remains OpenRouter's job.
+External runners require the matching upstream policy and version. Requires
+OrgOps #112; neither PR changes the live deployment by itself.

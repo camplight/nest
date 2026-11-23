@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, it, expect } from "vitest";
+import { beforeEach, afterEach, it, expect, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,7 @@ import { createApp as createEngine } from "../../../vendor/orgops/apps/api/src/a
 import { shouldHandleEventForAgent } from "../../../vendor/orgops/apps/agent-runner/src/event-routing";
 import { createOrgOpsClient } from "@nest/orgops-client";
 import { createApp } from "./app";
+const classify=vi.fn(async()=>({tier:'complex' as const,reason:'classified' as const,confidence:0.95}));
 let dir: string,
   engine: ReturnType<typeof createEngine>,
   product: ReturnType<typeof createApp>,
@@ -43,6 +44,7 @@ const message = (
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), "nest-message-"));
   lose = false;
+  classify.mockClear();
   engine = createEngine({
     dbPath: join(dir, "engine.sqlite"),
     projectRoot: dir,
@@ -65,6 +67,7 @@ beforeEach(async () => {
   });
   product = createApp({
     orgops: client,
+    taskClassifier:classify,
     dbPath: join(dir, "product.sqlite"),
     connections: null,
   });
@@ -366,4 +369,25 @@ it("delivers one recoverable message to multiple selected agents and one human n
   expect(shouldHandleEventForAgent({name:"Outsider"} as any,event)).toBe(false);
   expect(await (await call("/api/events?channelId="+channel+"&type=message.created")).json()).toHaveLength(1);
   expect((await (await call("/api/mentions","GET",undefined,other)).json()).items).toHaveLength(1);
+});
+
+it('persists classification through lost responses, sends it to the real runner contract, and leaves defaults alone',async()=>{
+ const input=message();
+ lose=true;
+ expect((await call('/api/messages','POST',input)).status).toBe(502);
+ const response=await call('/api/messages','POST',input);
+ expect(response.status).toBe(201);
+ const event=await response.json();
+ expect(event.payload.taskRouting).toEqual({tier:'complex',reason:'classified',confidence:0.95});
+ expect(classify).toHaveBeenCalledTimes(1);
+ const {automaticTaskModel}=await import('../../../vendor/orgops/apps/agent-runner/src/automatic-model');
+ const saved=await (await call('/api/agents/Puff')).json();
+ expect(automaticTaskModel(saved,channel,{ORGOPS_TASK_MODEL_ROUTING:'openrouter-auto'},event.payload.taskRouting)?.routing.costTier).toBe('high');
+ expect(saved.modelId).toBe('openrouter:test');
+ expect((await call('/api/messages','POST',{...input,text:'different'})).status).toBe(409);
+ expect(classify).toHaveBeenCalledTimes(1);
+});
+it('does not classify a rejected message',async()=>{
+ expect((await call('/api/messages','POST',{...message(),channelId:'missing'})).status).toBe(403);
+ expect(classify).not.toHaveBeenCalled();
 });
