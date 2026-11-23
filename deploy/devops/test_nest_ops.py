@@ -130,6 +130,19 @@ class NativeDeploymentTests(unittest.TestCase):
                 ops.execute(self.job, 'deploy', 'b' * 40)
         self.assertFalse(any('curl' in c.args or 'bash' in c.args for c in command.call_args_list))
 
+    def test_low_disk_aborts_before_download_or_installer(self):
+        sha = 'b' * 40
+        def command(*args, **kwargs):
+            if args[0] == 'python3' and args[-1] == 'download':
+                raise RuntimeError('Insufficient deployment space')
+            return sha
+        with patch.object(ops, 'run', side_effect=command) as run:
+            with self.assertRaisesRegex(RuntimeError, 'Insufficient deployment space'):
+                ops.execute(self.job, 'deploy', sha)
+        self.assertFalse(any('curl' in c.args or 'bash' in c.args or 'systemctl' in c.args
+                             for c in run.call_args_list))
+        self.assertEqual(json.loads((ops.STATE / (self.job + '.json')).read_text())['state'], 'failed')
+
     def test_native_restart_respects_same_mutation_lock_as_docker_and_installer(self):
         import fcntl
         with (ops.STATE / 'deployment.lock').open('w') as lock, patch.object(ops, 'run') as command:

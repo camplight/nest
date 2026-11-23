@@ -726,17 +726,13 @@ does not grant roles automatically; an instance owner/admin must grant the
 manager role explicitly if delegated creation should remain enabled. Existing
 request-bound capabilities and project-owner invitation checks remain in force.
 
-### Context and completion synchronization
+## Deployment capacity and rollback recovery
 
-Advance the untouched engine from `e64fc064` to `b294ea4`, bringing upstream
-#94–#98 and the #99 final-summary markup guard. Context lifecycle and explicit
-completion are runner-owned; Nest keeps its product chat and authentication
-adapters. Price refresh uses the upstream static provider catalog. No additional
-database migrations or configured model/credential changes are part of this bump.
-
-A model that returns serialized tool calls during the tool-free final summary
-now produces the deterministic incomplete-work notice instead of exposing
-protocol text in chat. Native release checks include this regression alongside
-context lifecycle, completion, shell-exit, memory, routing and schema tests.
-Deploy only after the upstream fix is merged and both product and native release
-checks pass; normal host rollback and database snapshots remain in use.
+No engine pin, schema, credentials or runtime paths change for deployment storage
+safety. Install the updated host controller to activate pre-download space checks;
+the installer independently checks extraction and paired snapshot headroom. Old
+immutable release directories are retained according to the documented native
+policy; data backups remain untouched. Rollback health failure no longer skips
+watchdog restoration. Partial DB/configuration restoration requires operator
+recovery before any automatic restart; preserve the recovery marker until the
+matching DB/release pair is restored.

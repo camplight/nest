@@ -33,7 +33,9 @@ const image=process.argv[2]??'nest:check';
 const fixture=`const fs=require('node:fs');const file='/data/sentinel';if(!fs.existsSync(file)){fs.writeFileSync(file,'durable-fixture');console.log('allocating within bounded fixture');const blocks=[];while(true)blocks.push(Buffer.alloc(4*1024*1024,1));}else{console.log('recovered');setInterval(()=>{},1000);}`;
 const since=String(Math.floor(Date.now()/1000));
 try{
- docker(['run','--detach','--name',container,'--network','none','--memory','64m','--memory-swap','64m','--cpus','0.25','--pids-limit','32','--restart','on-failure:1','--mount',`type=volume,source=${volume},target=/data`,'--entrypoint','node',image,'-e',fixture]);
+ // Keep V8's heap ceiling above the cgroup limit so Node cannot abort first
+ // under small-container heap auto-sizing; the kernel must enforce 64 MiB.
+ docker(['run','--detach','--name',container,'--network','none','--memory','64m','--memory-swap','64m','--cpus','0.25','--pids-limit','32','--restart','on-failure:1','--mount',`type=volume,source=${volume},target=/data`,'--entrypoint','node',image,'--max-old-space-size=256','-e',fixture]);
  let recovered=false;
  for(let attempt=0;attempt<40;attempt++){
   const [info]=JSON.parse(docker(['inspect',container]));
@@ -46,7 +48,14 @@ try{
  assert.equal(docker(['exec',container,'cat','/data/sentinel']),'durable-fixture');
  // Preserve milliseconds: truncating --until to seconds omits a fast OOM/restart
  // that happened in the same current second, despite a real cgroup OOM.
- const events=docker(['events','--since',since,'--until',new Date().toISOString(),'--filter',`container=${container}`,'--filter','event=oom','--format','{{.Action}}']);
+ // Docker may publish the OOM event after the restarted process is ready.
+ let events='';
+ for(let attempt=0;attempt<20;attempt++){
+  events=docker(['events','--since',since,'--until',new Date().toISOString(),'--filter',`container=${container}`,'--filter','event=oom','--format','{{.Action}}']);
+  if(events.includes('oom'))break;
+  await new Promise(resolve=>setTimeout(resolve,250));
+ }
+ if(!events.includes('oom'))console.error('Bounded fixture logs:',docker(['logs',container]));
  assert.ok(events.includes('oom'),'Docker must record an actual cgroup OOM event');
  console.log('PASS: actual cgroup OOM stayed within 64 MiB; Docker restart and durable data survived');
 }finally{

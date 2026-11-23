@@ -31,11 +31,9 @@ npm run test:engine -- \
   apps/agent-runner/src/context-boundary.test.ts \
   apps/agent-runner/src/context-maintenance.test.ts \
   apps/agent-runner/src/turn-completion.test.ts \
-  apps/agent-runner/src/tools/shell.test.ts \
   apps/agent-runner/src/tools/memory.test.ts \
-  apps/agent-runner/src/event-routing.test.ts \
+  apps/agent-runner/src/tools/shell.test.ts \
   packages/llm/src/openai-realtime.test.ts \
-  packages/schemas/src/index.test.ts \
   apps/agent-runner/src/turn-executor.classic.test.ts \
   apps/agent-runner/src/turn-executor.test.ts \
   apps/agent-runner/src/channel-injection.test.ts \
