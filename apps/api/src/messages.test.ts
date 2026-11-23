@@ -384,7 +384,7 @@ it('persists classification through lost responses, sends it to the real runner 
  const saved=await (await call('/api/agents/Puff')).json();
  expect(automaticTaskModel(saved,channel,{ORGOPS_TASK_MODEL_ROUTING:'openrouter-auto'},event.payload.taskRouting)?.routing.costTier).toBe('high');
  expect(saved.modelId).toBe('openrouter:test');
- expect((await call('/api/messages','POST',{...input,text:'different'})).status).toBe(409);
+ expect((await call('/api/messages','POST',{...input,text:input.text+' different'})).status).toBe(409);
  expect(classify).toHaveBeenCalledTimes(1);
 });
 it('does not classify a rejected message',async()=>{
