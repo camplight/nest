@@ -3,7 +3,7 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The reviewed engine pin is upstream `b294ea4`, including OrgOps #76
+The reviewed engine pin is upstream `0837472`, including OrgOps #76
 voice/realtime support, #79 restart metadata, #80 byte-budget compatibility,
 the merged security fixes and #82 realtime maintenance environment handling.
 It also includes #83 runner socket wakeups with HTTP catch-up, #84 private invite
@@ -1522,3 +1522,5 @@ check. Incomplete DB/configuration recovery blocks automatic restarts with a
 persistent operator-recovery marker. See `deploy/native/README.md` for the exact
 budgets and restoration procedure. This is Nest deployment infrastructure only;
 OrgOps remains untouched.
+
+The runner includes upstream #99 and #103–#106: safe final summaries, channel-aware shells, bounded finalization and image-input rejection recovery. Unsupported images are replaced with an explicit limitation note for one retry; this does not make a text-only model able to see images. Migration 054 adds nullable per-agent compatible reasoning effort, preserving provider defaults.

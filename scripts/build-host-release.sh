@@ -28,6 +28,8 @@ npm run test:engine -- \
   apps/api/src/agent-starts.test.ts \
   apps/api/src/runner-socket.test.ts \
   apps/agent-runner/src/runner/socket.test.ts \
+  apps/agent-runner/src/image-input.test.ts \
+  apps/agent-runner/src/event-routing.test.ts \
   apps/agent-runner/src/context-boundary.test.ts \
   apps/agent-runner/src/context-maintenance.test.ts \
   apps/agent-runner/src/turn-completion.test.ts \
