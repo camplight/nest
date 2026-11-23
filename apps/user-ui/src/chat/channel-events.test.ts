@@ -146,6 +146,18 @@ describe('createChannelEventsCore',()=>{
   expect(core.snapshot()).toBe(before);
  });
 
+ it('scheduled runs: read and taken live only with the canvas flag (R20)',async()=>{
+  const trigger=ev('s1','agent.scheduled.trigger',150,{source:'agent:Switchyard'});
+  for(const flag of [false,true]){
+   const api=fakeApi([ev('m1','message.created',100),trigger]);
+   const core=createChannelEventsCore({fetchJson:api.fetchJson,limit:()=>30,scheduledRuns:()=>flag});
+   await core.switchTo('c1');
+   expect(api.requests.some(url=>url.includes('type=agent.scheduled.trigger'))).toBe(flag);
+   expect(ids(core.snapshot().events)).toEqual(flag?['m1','s1']:['m1']);
+   expect(core.ingest(ev('s2','agent.scheduled.trigger',200,{source:'agent:Switchyard'}))).toEqual({accepted:flag});
+  }
+ });
+
  it('refresh reports new timeline events',async()=>{
   const {api,core}=setup([ev('m1','message.created',100),ev('t1','tool.started',110)]);
   await core.switchTo('c1');

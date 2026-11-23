@@ -28,7 +28,8 @@ button {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr) 280px;
+  /* --sidebar-width is the per-browser width from SidebarResizer. */
+  grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr) 280px;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
@@ -700,6 +701,10 @@ button {
   opacity: 0.45;
 }
 
+/* Once messages scroll under the Sharing/Huddle/Export row, mark where the row ends. */
+/* A plain rule like the header divider above; a shadow's faded ends read as a floating card. */
+.nest-chat .chat-header-actions { border-bottom: 1px solid transparent; transition: border-color .15s ease; }
+.nest-chat.is-scrolled .chat-header-actions { border-bottom-color: var(--nest-border); }
 .messages-panel {
   display: flex;
   flex-direction: column;
@@ -742,6 +747,29 @@ button {
   background: rgba(255, 251, 235, 0.7);
 }
 
+/* Agent activity under a reply: app changes as lines, a plain failure, raw events under Details. */
+.turn-activity { display:grid; gap:4px; min-width:0; max-width:760px; }
+.turn-activity-lines { display:grid; gap:2px; margin:0; padding:0; list-style:none; }
+.turn-activity-line { display:flex; align-items:center; gap:8px; min-width:0; color:var(--nest-text); font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.turn-activity-line .connection-app-logo { flex:0 0 auto; width:18px; height:18px; border-radius:4px; }
+.turn-activity-line .connection-app-logo img { width:16px; height:16px; }
+.turn-activity-line .connection-app-logo svg { width:14px; height:14px; }
+.turn-activity-line.is-danger { color:#b42332; }
+.turn-activity-line.is-muted { color:var(--nest-muted); }
+.turn-activity-failure { margin:0; color:#b42332; font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.turn-activity-details > summary { width:max-content; color:var(--nest-muted); font-size:12px; cursor:pointer; }
+.turn-activity-details > summary:focus-visible { outline:2px solid var(--nest-forest); outline-offset:2px; border-radius:4px; }
+.turn-activity-details[open] > summary { margin-bottom:4px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .turn-activity-line.is-danger, :root:not([data-theme="light"]) .turn-activity-failure { color:#fda4af; } }
+:root[data-theme="dark"] .turn-activity-line.is-danger, :root[data-theme="dark"] .turn-activity-failure { color:#fda4af; }
+/* Working ring: failed stations, entries and pulses use the same danger colours as the reply lines. */
+.working-ring { --ring-danger:#b42332; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .working-ring { --ring-danger:#fda4af; } }
+:root[data-theme="dark"] .working-ring { --ring-danger:#fda4af; }
+.working-ring li.is-failed { color:var(--ring-danger); }
+.working-ring .working-ring-station .is-failed { border-color:var(--ring-danger); }
+.working-ring .ring-pulse.is-failed { fill:var(--ring-danger); }
+.working-ring-station .connection-app-logo, .working-ring-station .connection-app-logo img { width:24px; height:24px; }
 .trace-chips { display:flex; flex-wrap:wrap; gap:4px; }
 .trace-progress { margin:2px 0; color:var(--nest-muted); font-size:12px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
 .trace-chip { display:inline-grid; place-items:center; flex-shrink:0; width:22px; height:22px; padding:0; border:1px solid var(--nest-border); border-radius:6px; background:var(--nest-muted-surface); color:var(--nest-muted); cursor:pointer; }
@@ -777,9 +805,28 @@ button {
 }
 
 .trace-detail-meta span {
+  margin-left: auto;
   color: var(--nest-muted);
   font-size: 11px;
 }
+
+.trace-detail-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: -4px -4px -4px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--nest-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.trace-detail-close:hover { background: var(--nest-muted-surface); color: var(--nest-text); }
+.trace-detail-close:focus-visible { outline: 2px solid var(--nest-focus, #8b55bb); outline-offset: 1px; }
 
 .trace-detail-card summary { width:fit-content; margin-top:6px; cursor:pointer; color:var(--nest-muted); font-size:12px; }
 
@@ -1309,6 +1356,32 @@ button {
   font-weight: 600;
 }
 
+.channel-manage-delete-confirm {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, #a63016 35%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, #a63016 7%, var(--nest-surface));
+  color: var(--nest-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.channel-manage-delete-confirm p {
+  margin: 0 0 10px;
+}
+
+.channel-manage-delete-confirm > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.channel-manage-delete-confirm .channel-manage-delete-button {
+  margin-top: 0;
+}
+
 .channel-manage-delete-button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
@@ -1466,7 +1539,7 @@ button {
 
 @media (max-width: 900px) {
   .app-shell {
-    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-columns: var(--sidebar-width, 248px) minmax(0, 1fr);
   }
 
   .activity-panel {
@@ -1733,6 +1806,10 @@ button {
 .nest-chat-composer .composer .composer-actions .composer-secondary:enabled:hover { background: var(--nest-muted-surface) !important; color: var(--nest-text) !important; }
 .nest-chat-composer .composer .composer-actions .composer-send { border: 0; background: var(--nest-forest); color: var(--nest-white); }
 .nest-chat-composer .composer .composer-actions .composer-send:enabled:hover { background: color-mix(in srgb, var(--nest-forest) 85%, var(--nest-white)); }
+.nest-chat-composer .composer .composer-actions .composer-submit { display: inline-flex; align-items: center; gap: 6px; }
+.nest-chat-composer .composer .composer-actions .composer-stop { border: 0; background: var(--nest-text); color: var(--nest-white); }
+.nest-chat-composer .composer .composer-actions .composer-stop:enabled:hover { background: color-mix(in srgb, var(--nest-text) 85%, var(--nest-white)); }
+.nest-chat-composer .composer .composer-actions .composer-stop-compact { width: 32px; padding: 0; }
 .nest-chat-composer .composer .composer-actions button:disabled { opacity: .5; }
 .nest-chat-composer .composer .composer-actions button:focus-visible { outline: 2px solid color-mix(in srgb, var(--nest-text) 40%, transparent); outline-offset: 2px; }
 .nest-chat-composer .composer-compact { padding: 8px 8px 6px; }
@@ -1769,3 +1846,122 @@ button {
 .mention-popup-chat .mention-at { font-size: 13px; }
 .mention-popup-chat .mention-empty { padding: 12px 8px; }
 .mention-popup-chat .mention-help { margin-top: 4px; padding: 6px 8px 4px; }
+
+/* "Apps here": compact chips under the chat header. Wraps on narrow widths and caps its height so the composer stays in view. */
+.apps-here { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; flex-shrink:0; box-sizing:border-box; max-height:7.5rem; overflow-y:auto; margin:0 12px 8px; padding:6px 10px; border:1px solid var(--nest-border); border-radius:8px; background:var(--nest-muted-surface); color:var(--nest-text); font-size:12px; line-height:1.4; }
+.apps-here-title { font-size:12px; font-weight:600; }
+.apps-here-chips { display:flex; flex-wrap:wrap; gap:6px; margin:0; padding:0; list-style:none; }
+.apps-here-chip { position:relative; display:inline-flex; align-items:center; gap:6px; padding:2px 8px 2px 4px; border:1px solid var(--nest-border); border-radius:8px; background:var(--nest-surface); }
+.apps-here-chip .connection-app-logo { display:inline-grid; place-items:center; width:18px; height:18px; }
+.apps-here-chip .connection-app-logo img { width:15px; height:15px; }
+.apps-here-chip .connection-app-logo svg { width:14px; height:14px; }
+.apps-here-toggle { display:inline-flex; align-items:center; gap:6px; margin:-2px -8px -2px -4px; padding:2px 8px 2px 4px; border:0; border-radius:8px; background:transparent; color:inherit; font:inherit; cursor:pointer; }
+.apps-here-toggle:focus-visible { outline:2px solid var(--nest-forest); outline-offset:1px; }
+.apps-here-chip:has(.apps-here-toggle[aria-pressed="true"]) { background:var(--nest-muted-surface); border-color:var(--nest-text); }
+.apps-here-filter { flex-basis:100%; display:flex; align-items:center; gap:8px; margin:0; }
+.apps-here-clear { padding:0; border:0; background:transparent; color:inherit; font:inherit; text-decoration:underline; cursor:pointer; }
+.apps-here-name { font-weight:500; }
+.apps-here-count { min-width:1.2em; text-align:center; font-variant-numeric:tabular-nums; color:var(--nest-muted); }
+.apps-here-chip.is-live { border-color:#1f7f6c; }
+:root[data-theme="dark"] .apps-here-chip.is-live { border-color:#4fc3a8; }
+.apps-here-chip.is-live::after { content:""; position:absolute; top:-3px; right:-3px; width:7px; height:7px; border-radius:50%; background:#1f7f6c; box-shadow:0 0 0 2px var(--nest-surface); }
+:root[data-theme="dark"] .apps-here-chip.is-live::after { background:#4fc3a8; }
+.apps-here-total { color:var(--nest-muted); }
+.apps-here-total b { color:var(--nest-coral); font-weight:600; }
+.apps-here-limit { flex-basis:100%; margin:0; color:var(--nest-muted); }
+@media (prefers-reduced-motion: no-preference) { .apps-here-chip.is-live::after { animation:apps-here-pulse 1.6s ease-in-out infinite; } }
+@keyframes apps-here-pulse { 50% { opacity:.35; } }
+
+/* App calls as slim timeline lines (the mock's .act, .act-l, .act-d). Only agent, app, action, state and time. */
+.app-line { display:flex; gap:10px; align-items:flex-start; min-width:0; }
+.app-line > .agent-portrait { flex:none; }
+.app-line-main { flex:1; min-width:0; }
+.app-line-row { display:flex; gap:7px; align-items:center; width:100%; min-width:0; box-sizing:border-box; padding:4px 8px 4px 4px; border:0; border-radius:8px; background:transparent; color:var(--nest-muted); font:inherit; font-size:12.5px; text-align:left; cursor:pointer; }
+.app-line-row:hover { background:var(--nest-muted-surface); }
+.app-line-row:focus-visible { outline:2px solid var(--nest-forest); outline-offset:2px; }
+.app-line-row .connection-app-logo { display:inline-grid; place-items:center; flex:none; width:18px; height:18px; }
+.app-line-row .connection-app-logo img { width:15px; height:15px; }
+.app-line-row .connection-app-logo svg { width:14px; height:14px; }
+.app-line-text { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.app-line-text b { color:var(--nest-text); font-weight:600; }
+.app-line-changed, .app-line-failed, .app-line-live { flex:none; font-size:10.5px; font-weight:600; border:1px solid color-mix(in srgb,currentColor 45%,transparent); border-radius:999px; padding:0 6px; }
+.app-line-changed { color:var(--nest-coral); }
+.app-line-failed { color:#b42332; }
+.app-line-live { display:inline-flex; align-items:center; gap:4px; color:#1f7f6c; }
+:root[data-theme="dark"] .app-line-live { color:#4fc3a8; }
+.app-line-dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+@media (prefers-reduced-motion: no-preference) { .app-line-dot { animation:apps-here-pulse 1.6s ease-in-out infinite; } }
+.app-line-time { margin-left:auto; flex:none; font-size:11px; color:var(--nest-muted); opacity:.8; font-variant-numeric:tabular-nums; }
+.app-line-details { margin:2px 0 4px 4px; padding:6px 9px; border:1px solid var(--nest-border); border-radius:8px; background:var(--nest-muted-surface); color:var(--nest-muted); font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
+
+/* Who a message mentions: the picked people and agents read as a tinted chip in the text, in both themes. */
+.chat-mention { padding:0 4px; border-radius:6px; background:color-mix(in srgb, var(--nest-accent) 14%, transparent); color:var(--nest-accent); font-weight:600; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
+
+.chat-settings-part {
+  display: grid;
+  gap: 8px;
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 1px solid var(--nest-border);
+}
+
+.chat-settings-part:first-of-type {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: 0;
+}
+
+.chat-settings-part h3 {
+  margin: 0;
+  color: var(--nest-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chat-settings-part > p {
+  margin: 0;
+  color: var(--nest-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.chat-settings-part .channel-manage-delete-button,
+.chat-settings-part .channel-manage-save-button {
+  margin-top: 0;
+}
+
+.chat-archived {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+}
+
+.chat-archived-tag {
+  border: 1px solid var(--nest-border);
+  border-radius: 6px;
+  padding: 1px 7px;
+  color: var(--nest-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.chat-archived-undo {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--nest-forest);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.chat-settings-error {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, #a63016 8%, var(--nest-surface));
+  color: #a63016;
+  font-size: 13px;
+}

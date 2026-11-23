@@ -1,13 +1,13 @@
 import {describe,expect,it} from 'vitest';
-import {CHAT_EVENT_QUERIES,adaptiveMessageBatchSize,chatQueryUrls,fetchChannelPage,type Cursors} from './history';
+import {CHAT_EVENT_QUERIES,adaptiveMessageBatchSize,chatEventQueries,chatQueryUrls,fetchChannelPage,type Cursors} from './history';
 import {upsertEvents} from './timeline';
 import type {EventRow} from '../types';
 
 const ev=(id:string,type:string,createdAt:number,extra:Partial<EventRow>={}):EventRow=>
  ({id,type,source:'agent:Pip',payload:{},createdAt,channelId:'c1',...extra});
-const KEYS=['messages','failed','turns','tools','telemetry','wrapper','process'];
+const KEYS=['messages','failed','turns','tools','telemetry','wrapper','process','connections'];
 const FILTERS=['type=message.created','type=agent.turn.failed','typePrefix=agent.turn.','typePrefix=tool.',
- 'type=telemetry.context.window.updated','typePrefix=wrapper.turn.','typePrefix=process.'];
+ 'type=telemetry.context.window.updated','typePrefix=wrapper.turn.','typePrefix=process.','type=telemetry.nest.connection.action'];
 const allNull=(over:Record<string,number|null>):Cursors=>({...Object.fromEntries(KEYS.map(key=>[key,null])),...over});
 
 // Fake engine listing (vendor events route): channelId, type or typePrefix, strict after/before on createdAt, desc, limit.
@@ -32,11 +32,17 @@ const filterOf=(url:string)=>FILTERS.find(filter=>new URL(url,'http://nest.test'
 const mainRequests=(requests:string[])=>requests.filter(url=>!url.includes('after='));
 
 describe('chatQueryUrls',()=>{
+ it('an eighth query for scheduled runs, only with the canvas flag (R20)',()=>{
+  expect(chatEventQueries(false)).toBe(CHAT_EVENT_QUERIES);
+  const urls=chatQueryUrls('c1',30,undefined,chatEventQueries(true));
+  expect(urls.map(entry=>entry.key)).toEqual([...KEYS,'scheduled']);
+  expect(urls.at(-1)!.url).toBe('/api/events?channelId=c1&limit=30&order=desc&type=agent.scheduled.trigger');
+ });
  it('seven queries',()=>{
   const urls=chatQueryUrls('c1',30);
   expect(urls.map(entry=>entry.key)).toEqual(KEYS);
   expect(urls.map(entry=>entry.url)).toEqual(FILTERS.map(filter=>`/api/events?channelId=c1&limit=30&order=desc&${filter}`));
-  expect(CHAT_EVENT_QUERIES).toHaveLength(7);
+  expect(CHAT_EVENT_QUERIES).toHaveLength(8);
  });
 
  it('per-type cursors',()=>{
@@ -49,7 +55,7 @@ describe('chatQueryUrls',()=>{
 
  it('treats a key missing from the cursors as not started',()=>{
   const urls=chatQueryUrls('c1',30,{messages:500,tools:null});
-  expect(urls.map(entry=>entry.key)).toEqual(['messages','failed','turns','telemetry','wrapper','process']);
+  expect(urls.map(entry=>entry.key)).toEqual(['messages','failed','turns','telemetry','wrapper','process','connections']);
   expect(urls.filter(entry=>entry.url.includes('before='))).toEqual([
    {key:'messages',url:'/api/events?channelId=c1&limit=30&order=desc&type=message.created&before=500'},
   ]);
@@ -67,7 +73,7 @@ describe('fetchChannelPage',()=>{
   const messages=Array.from({length:5},(_,index)=>ev(`m${index}`,'message.created',10+index));
   const full=fakeServer([...tools,...messages]);
   const page=await fetchChannelPage('c1',30,undefined,full.fetchJson);
-  expect(page.cursors).toEqual({messages:null,failed:null,turns:null,tools:120,telemetry:null,wrapper:null,process:null});
+  expect(page.cursors).toEqual({messages:null,failed:null,turns:null,tools:120,telemetry:null,wrapper:null,process:null,connections:null});
   expect(page.hasMore).toBe(true);
   expect(page.events.map(event=>event.id).sort()).toEqual([...tools,...messages].map(event=>event.id).sort());
 
@@ -116,10 +122,10 @@ describe('fetchChannelPage',()=>{
   expect(cursors.messages).toBeNull();
  });
 
- it('every page uses all 7 queries',async()=>{
+ it('every page uses all 8 queries',async()=>{
   const rows=KEYS.flatMap((_,queryIndex)=>Array.from({length:4},(__,index)=>
    ev(`q${queryIndex}-${index}`,['message.created','agent.turn.failed','agent.turn.started','tool.started',
-    'telemetry.context.window.updated','wrapper.turn.started','process.output'][queryIndex]!,100+index)));
+    'telemetry.context.window.updated','wrapper.turn.started','process.output','telemetry.nest.connection.action'][queryIndex]!,100+index)));
   const server=fakeServer(rows);
   const first=await fetchChannelPage('c1',2,undefined,server.fetchJson);
   expect(mainRequests(server.requests).map(filterOf)).toEqual(FILTERS);

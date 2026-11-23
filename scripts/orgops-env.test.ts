@@ -3,7 +3,7 @@ import {execFileSync} from 'node:child_process';
 import {mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
-import {configureOrgOpsEnv} from './orgops-env';
+import {configureOrgOpsEnv, refreshBundledSkill} from './orgops-env';
 
 const roots: string[] = [];
 afterEach(() => {for (const root of roots.splice(0)) rmSync(root, {recursive: true, force: true});});
@@ -72,9 +72,32 @@ for (const component of ["api", "runner"] as const)
           "utf8",
         ),
       ).toContain("name: nest-connections");
+      const contextSkill = join(result.projectRoot, "skills/nest-context/SKILL.md");
+      expect(readFileSync(contextSkill, "utf8")).toContain("name: nest-context");
+      // Runtime copies are copy-if-missing: an existing copy is never overwritten.
+      writeFileSync(contextSkill, "runtime copy");
+      configureOrgOpsEnv(component);
+      expect(readFileSync(contextSkill, "utf8")).toBe("runtime copy");
     } finally {
       process.env = previous;
       vi.unstubAllEnvs();
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+test('replaces the runtime nest-connections copy only when the bundled version changes', () => {
+  const root = mkdtempSync(join(tmpdir(), 'nest-skill-refresh-')); roots.push(root);
+  const source = join(root, 'bundled'), target = join(root, 'runtime');
+  mkdirSync(source); mkdirSync(target);
+  writeFileSync(join(source, 'skill.json'), JSON.stringify({version: '1.1.0'})); writeFileSync(join(source, 'SKILL.md'), 'new');
+  writeFileSync(join(target, 'skill.json'), JSON.stringify({version: '1.1.0'})); writeFileSync(join(target, 'SKILL.md'), 'same version');
+  refreshBundledSkill(source, target);
+  expect(readFileSync(join(target, 'SKILL.md'), 'utf8')).toBe('same version');
+  writeFileSync(join(target, 'skill.json'), JSON.stringify({version: '1.0.0'})); writeFileSync(join(target, 'stale.txt'), 'old');
+  refreshBundledSkill(source, target);
+  expect(readFileSync(join(target, 'SKILL.md'), 'utf8')).toBe('new');
+  expect(() => readFileSync(join(target, 'stale.txt'))).toThrow();
+  rmSync(target, {recursive: true});
+  refreshBundledSkill(source, target);
+  expect(readFileSync(join(target, 'SKILL.md'), 'utf8')).toBe('new');
+});

@@ -1,0 +1,949 @@
+// The infinite canvas: pan and zoom (mouse, trackpad, touch), culling, area drawing and card/area moves.
+// One transformed container holds every mounted item; only items near the viewport mount.
+import {useCallback,useEffect,useId,useLayoutEffect,useMemo,useReducer,useRef,useState,type DragEvent as ReactDragEvent,type KeyboardEvent as ReactKeyboardEvent,type MutableRefObject,type PointerEvent as ReactPointerEvent} from 'react';
+import {CanvasTint,areaFor,type BoardCard,type BoardLink,type CanvasArea,type CanvasBoard,type ContextLink} from '@nest/schemas';
+import type {BoardOp} from './board-store';
+import {Area,type AreaContext,type AreaSummary} from './Area';
+import {Card,cardTitle} from './Card';
+import {droppedFiles,outsideFileDropTargets} from '../components/file-drop';
+import {AgentAvatar} from '../components/AgentAvatar';
+import {areaSummaries,type CardPulse} from './pulse';
+import type {NeedsItem} from './needs';
+import type {ScheduleJob} from './schedule-jobs';
+import {ORIGIN,areaMembers,cardCentre,clampZoom,fit,growToFit,isCompact,toCanvas,visible,zoomAt,type Point,type Rect,type Size,type View} from './geometry';
+import {CARD_PLACE_HEIGHT} from './loose';
+import {clearOfDrawer,presentView,stageBounds} from './sheet';
+import {Links} from './Links';
+import {createPortal} from 'react-dom';
+import {draggedAgent,setDraggedAgent} from './invite-label';
+import {agentDragPlan} from './agent-drop';
+import {linkRelease,tempLinkPath} from './link-geometry';
+import {createMoveBurst,moveAnnouncement,nudge as arrowStep,pressArmsMove,type MoveBurst} from './keyboard-move';
+
+export type SurfaceProps = {
+  board: CanvasBoard;
+  humanId: string;
+  onApply(op: BoardOp): Promise<boolean>;
+  /** Live state per channel id; each card gets its own pulse object, stable while unchanged. */
+  pulses?: ReadonlyMap<string, CardPulse>;
+  onNudge?(channelId: string, agent: string): Promise<void>;
+  /** Loose chats dragged from the drawer (one, or every selected row) and dropped here, at this canvas point. */
+  onDropChat?(channelIds: string[], at: Point): void;
+  /** Filled in by the surface so its owner can ask where the viewport is. */
+  controls?: MutableRefObject<SurfaceControls | null>;
+  /** A click (not a drag) on an open card's body. */
+  onOpenChat?(channelId: string): void;
+  /** The chat open beside or over the canvas, marked on its card. */
+  openChannelId?: string | null;
+  /** Chats with a window over the canvas (desktop floating mode): their cards get a lighter open ring. */
+  windowChannelIds?: ReadonlySet<string>;
+  /** An agent from the tray or picker dropped on an open card. Locked and unavailable cards take no drop. */
+  onDropAgent?(channelId: string, agent: string): void;
+  /**
+   * Editors: an agent from the tray dropped on empty canvas (no card under the pointer), at this canvas point, inside
+   * the area `areaId` or none. Without it, agent drags off a card take no drop.
+   */
+  onDropAgentAt?(agent: string, at: Point, areaId: string | null): void;
+  /** An agent's face dragged more than REMOVE_DISTANCE outside its card. */
+  onRemoveAgent?(channelId: string, agent: string): void;
+  /** Whether the person may add and remove this card's agents; without it no face drags. */
+  canManageCard?(card: BoardCard): boolean;
+  /** A press on a card selects it (the agent tray suggests for the selected card). */
+  onSelectCard?(channelId: string): void;
+  selectedChannelId?: string | null;
+  /** Each area's context markers (dot and `↳` chips), from one summary request per board load. */
+  areaContext?: ReadonlyMap<string, AreaContext>;
+  /** Opens (or closes) an area's context popover under the control that was pressed. */
+  onAreaContext?(areaId: string, opener: HTMLElement): void;
+  /** The area whose context popover is open: its chip is expanded and its link lines are drawn. */
+  contextAreaId?: string | null;
+  /** A link chip whose source is on another canvas the person can read was pressed: open that canvas. */
+  onOpenCanvas?(canvasId: string): void;
+  /**
+   * Files dropped on an open card or, for editors, on an area. A file drag highlights the card or area under it.
+   * Anywhere else on the canvas, file drags are left to the bottom box or the open chat.
+   */
+  onDropFiles?(target: FileDropTarget, files: File[], folders: boolean): void;
+  /** Each open card's Needs you items (mentions and reviews), newest first; a card's array is stable while unchanged. */
+  needs?: ReadonlyMap<string, NeedsItem[]>;
+  /** The signed-in person's username: their own row on a card reads `You`. */
+  viewer?: string;
+  /** Guidance while drawing an area, and after one is drawn (the mock's toasts). */
+  onNotice?(text: string): void;
+  /** An area was just drawn: the owner asks for its title to open (renameAreaId). */
+  onAreaCreated?(areaId: string): void;
+  /** The new area whose title opens for typing once it is shown. */
+  renameAreaId?: string | null;
+  onRenameStarted?(areaId: string): void;
+  /** Editors: the toolbar's `Chat` was pressed (a new chat at the view's centre). */
+  onNewChat?(): void;
+  /** Editors: an area's `+ Chat` (or New chat here) was pressed. */
+  onNewChatInArea?(areaId: string): void;
+  /** After any render that moved the view, resized the surface or moved or measured a card: an open sheet re-reads its card. */
+  onViewChange?(): void;
+  /** A press on empty canvas (not a card, a control or a drag past the drag threshold): an open sheet closes. */
+  onEmptyPress?(): void;
+  /** Fit was pressed; it fits once this returns (an open sheet closes first). */
+  onFit?(): void;
+  /** Links between chats on this canvas, drawn under the cards; absent when hand-offs are not set up here. */
+  links?: readonly BoardLink[];
+  /** A link's label was pressed: open its Hand-off popover under it. */
+  onOpenLink?(linkId: string, anchor: HTMLElement): void;
+  /** A fork line's label was pressed: pause or resume its findings. */
+  onToggleFork?(linkId: string): void;
+  /** Cards that offer hand-offs (open cards, with flows set up): the `+` port and the footer's connect button. */
+  canConnect?(card: BoardCard): boolean;
+  /** A card's `+` port was dragged onto another open card. */
+  onConnect?(from: string, to: string): void;
+  /** A card's `+` port was dragged onto empty canvas and released at this canvas point; editors only (absent otherwise). */
+  onNewStep?(from: string, at: Point): void;
+  /** A card's connect button was pressed: open the chat picker under it. */
+  onLinkPick?(from: string, anchor: HTMLElement): void;
+  /** Each chat's scheduled jobs (flows set up): an open card's badge under its last activity. */
+  schedules?: ReadonlyMap<string, readonly ScheduleJob[]>;
+  /** The zoom buttons and Fit (default shown); a phone's canvas has none and pinches instead. */
+  zoomButtons?: boolean;
+};
+const NO_RECTS: ReadonlyMap<string, Rect> = new Map();
+export type FileDropTarget = {kind: 'card'; channelId: string} | {kind: 'area'; areaId: string};
+const carriesFiles = (event: ReactDragEvent) => event.dataTransfer.types.includes('Files');
+export type SurfaceControls = {
+  /** The canvas point at the centre of the viewport. */
+  centre(): Point;
+  /** Animates the view to a card (at zoom 0.8 or more) or fits an area. False when it is not on this canvas. */
+  reveal(target: {channelId: string} | {areaId: string}): boolean;
+  /**
+   * Animates the view so a card opened in place sits where its chat sheet fits (zoom 1 or less): `sheetHeight` tall, and
+   * above the bottom box `dockTop` px down the surface (null without one), and right of an open Loose chats drawer whose
+   * right edge is `drawerEdge` px across the surface when the sheet fits there. False when the card is not on this canvas.
+   */
+  present(channelId: string, sheetHeight: number, dockTop: number | null, drawerEdge?: number | null): boolean;
+  /** A card's measured height in canvas units, once it has been mounted; undefined before that. */
+  cardHeight(channelId: string): number | undefined;
+};
+/** A reveal reads at a comfortable size: never smaller than this. */
+const REVEAL_MIN_ZOOM = 0.8;
+/** How long a reveal's move of the view takes. */
+export const REVEAL_MS = 320;
+/** How long a pressed link chip keeps its dotted line drawn after framing the two areas. */
+const LINK_FLASH_MS = 2600;
+const prefersReducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+/** The drag data type a Loose chats row carries: the chat's channel id, or several ids on separate lines. */
+export const CHAT_DRAG_TYPE = 'application/x-nest-chat';
+/** The drag data type a tray or picker face carries: the agent's name. */
+export const AGENT_DRAG_TYPE = 'application/x-nest-agent';
+/** The face ghost's label once a drop would remove the agent, as in the mock. */
+const removeLabel = (agent: string, card: BoardCard | undefined) => card ? `Remove ${agent} from "${cardTitle(card)}"` : `Remove ${agent}`;
+const NO_PULSES: ReadonlyMap<string, CardPulse> = new Map();
+const NO_NEEDS: ReadonlyMap<string, NeedsItem[]> = new Map();
+const NONE: NeedsItem[] = [];
+const NO_WINDOWS: ReadonlySet<string> = new Set();
+/** The mock's drawing guidance, shown when the Area tool is armed. */
+export const DRAW_HINT = 'Drag on the canvas to draw an area. Chats in it can share its context. Esc cancels.';
+/**
+ * After drawing. Drawing never moves a card, so a chat's home (and the context it reads) changes only when a member moves
+ * it or picks "Use this area's context"; the toast says so instead of the mock's "They now share its context".
+ */
+export function drawnNotice(inside: number) {
+  return inside
+    ? `New area around ${inside} conversation${inside === 1 ? '' : 's'}. Name it. Chats share its context once a member moves them in or picks "Use this area's context".`
+    : 'New area. Name it, then drop chats into it.';
+}
+
+type Tool = 'select' | 'area';
+type Mode = 'pan' | 'card' | 'area' | 'resize' | 'draw' | 'face' | 'link';
+type Gesture = {pointerId: number; mode: Mode; id?: string; agent?: string; start: Point; startView: View; active: boolean; members?: {cards: Set<string>; areas: Set<string>}; base?: {w: number; h: number};
+  /** Pressed on empty canvas (an area's inside counts; a card does not). */
+  empty?: boolean};
+type Preview =
+  | {kind: 'card'; id: string; dx: number; dy: number}
+  | {kind: 'area'; id: string; dx: number; dy: number; cards: Set<string>; areas: Set<string>}
+  | {kind: 'resize'; id: string; w: number; h: number}
+  | {kind: 'draw'; rect: Rect}
+  | {kind: 'face'; id: string; agent: string; x: number; y: number; away: boolean}
+  /** A card's `+` port dragged to canvas point `p`; `over` is the open card a release would connect to. */
+  | {kind: 'link'; id: string; p: Point; over: string | null};
+type Pinch = {ids: [number, number]; dist: number; mid: Point; view: View};
+
+const DRAG_THRESHOLD = 3;
+const ZOOM_STEP = 1.25;
+const WHEEL_ZOOM_RATE = 0.0025;
+const TWIG_TILE = 260;
+const MIN_AREA = 160, MAX_AREA = 20_000, MAX_COORD = 1_000_000;
+const TINTS = CanvasTint.options;
+const SAVE_DELAY_MS = 250;
+/** A face released more than this many screen pixels outside its card's bounds leaves the chat. */
+export const REMOVE_DISTANCE = 80;
+
+const viewKey = (humanId: string, canvasId: string) => `nest-canvas-view:${humanId}:${canvasId}`;
+function readView(key: string): View | null {
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) ?? 'null') as Partial<View> | null;
+    if (!raw || ![raw.x, raw.y, raw.zoom].every(n => typeof n === 'number' && Number.isFinite(n))) return null;
+    return {x: raw.x!, y: raw.y!, zoom: clampZoom(raw.zoom!)};
+  } catch { return null; }
+}
+function writeView(key: string, view: View) {
+  try { localStorage.setItem(key, JSON.stringify(view)); } catch {}
+}
+const clampCoord = (n: number) => Math.round(Math.min(MAX_COORD, Math.max(-MAX_COORD, n)));
+const clampSize = (n: number) => Math.round(Math.min(MAX_AREA, Math.max(MIN_AREA, n)));
+/** What the arrow-key hint says to screen readers on a focused card or area. */
+const MOVE_HINT = 'Arrow keys move it, Shift moves further, Escape puts it back.';
+type KeyMove = {kind: 'card' | 'area'; id: string; members?: {cards: Set<string>; areas: Set<string>}; burst: MoveBurst};
+const isEditable = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
+const midpoint = (a: Point, b: Point): Point => ({x: (a.x + b.x) / 2, y: (a.y + b.y) / 2});
+
+export function Surface({board, humanId, onApply, pulses = NO_PULSES, onNudge, onDropChat, controls, onOpenChat, openChannelId = null, windowChannelIds = NO_WINDOWS,
+  onDropAgent, onDropAgentAt, onRemoveAgent, canManageCard, onSelectCard, selectedChannelId = null, areaContext, onAreaContext, contextAreaId = null, onOpenCanvas, onDropFiles,
+  needs = NO_NEEDS, viewer = '', onNotice, onAreaCreated, renameAreaId = null, onRenameStarted, onNewChat, onNewChatInArea, onViewChange, onEmptyPress, onFit,
+  links, onOpenLink, onToggleFork, canConnect, onConnect, onNewStep, onLinkPick, schedules, zoomButtons = true}: SurfaceProps) {
+  const canEdit = board.canvas.role !== 'view';
+  // Without a known human the view is not remembered, so it can never land under another person's key.
+  const key = humanId ? viewKey(humanId, board.canvas.id) : null;
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const [saved] = useState(() => key ? readView(key) : null);
+  const [view, setViewState] = useState<View>(saved ?? ORIGIN);
+  const [ready, setReady] = useState(Boolean(saved));
+  const [size, setSize] = useState<Size>({w: 0, h: 0});
+  const [tool, setTool] = useState<Tool>('select');
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+
+  // Latest values for the native and pointer handlers, which are bound once.
+  const viewRef = useRef(view);
+  const boardRef = useRef(board); boardRef.current = board;
+  const applyRef = useRef(onApply); applyRef.current = onApply;
+  const toolRef = useRef(tool); toolRef.current = tool;
+  const spaceRef = useRef(false);
+  const pointerOver = useRef(false);
+  /** Set by a drag's pointerup so the click that follows it does not open the card. */
+  const dragged = useRef(false);
+  const gesture = useRef<Gesture | null>(null);
+  const touches = useRef(new Map<number, Point>());
+  const pinch = useRef<Pinch | null>(null);
+  const frame = useRef(0);
+
+  /** View changes from gestures land at most once per frame. */
+  const setView = useCallback((next: View) => {
+    viewRef.current = next;
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => { frame.current = 0; setViewState(viewRef.current); });
+  }, []);
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+
+  // Card heights are not stored: measure the mounted ones and keep the last known value.
+  const heights = useRef(new Map<string, number>());
+  const elements = useRef(new Map<string, HTMLElement>());
+  const [heightTick, bumpHeights] = useReducer((n: number) => n + 1, 0);
+  const observer = useMemo(() => typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(entries => {
+    let changed = false;
+    for (const entry of entries) {
+      const element = entry.target as HTMLElement, id = element.dataset.channelId, height = element.offsetHeight;
+      if (id && height && heights.current.get(id) !== height) { heights.current.set(id, height); changed = true; }
+    }
+    if (changed) bumpHeights();
+  }), []);
+  // Re-observes what is mounted: StrictMode's rehearsal unmount disconnects the observer after the cards' refs attached.
+  useEffect(() => {
+    for (const element of elements.current.values()) observer?.observe(element);
+    return () => observer?.disconnect();
+  }, [observer]);
+  const measure = useCallback((id: string, element: HTMLElement | null) => {
+    const previous = elements.current.get(id);
+    if (previous && previous !== element) { observer?.unobserve(previous); elements.current.delete(id); }
+    if (element && previous !== element) { elements.current.set(id, element); observer?.observe(element); }
+  }, [observer]);
+
+  const cardRects = useMemo(() => board.cards.map(card => ({card, x: card.x, y: card.y, w: card.w, h: heights.current.get(card.channelId) ?? CARD_PLACE_HEIGHT})), [board.cards, heightTick]);
+  const contentRects = useCallback((): Rect[] => [...cardRects, ...boardRef.current.areas], [cardRects]);
+
+  useLayoutEffect(() => {
+    const element = surfaceRef.current;
+    if (!element) return;
+    const read = () => setSize({w: element.clientWidth, h: element.clientHeight});
+    read();
+    const watch = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(read);
+    watch?.observe(element);
+    return () => watch?.disconnect();
+  }, []);
+
+  // Without a saved view, the first view frames whatever is on the canvas.
+  useLayoutEffect(() => {
+    if (ready || !size.w || !size.h) return;
+    const first = fit(contentRects(), size);
+    viewRef.current = first;
+    setViewState(first);
+    setReady(true);
+  }, [ready, size, contentRects]);
+
+  useEffect(() => {
+    if (!ready || !key) return;
+    const timer = setTimeout(() => writeView(key, view), SAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [ready, key, view]);
+
+  const local = (event: {clientX: number; clientY: number}): Point => {
+    const rect = surfaceRef.current!.getBoundingClientRect();
+    return {x: event.clientX - rect.left, y: event.clientY - rect.top};
+  };
+
+  // An animated move of the view. Any gesture that sets the view meanwhile takes over, and the animation stops.
+  const tween = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(tween.current), []);
+  const animateTo = useCallback((target: View) => {
+    cancelAnimationFrame(tween.current);
+    if (prefersReducedMotion() || typeof requestAnimationFrame !== 'function') { viewRef.current = target; setViewState(target); return; }
+    const from = viewRef.current, started = performance.now();
+    let last = from;
+    const step = (time: number) => {
+      if (viewRef.current !== last) return;
+      const t = Math.min(1, (time - started) / REVEAL_MS), e = 1 - (1 - t) ** 3;
+      last = {x: from.x + (target.x - from.x) * e, y: from.y + (target.y - from.y) * e, zoom: from.zoom + (target.zoom - from.zoom) * e};
+      viewRef.current = last;
+      setViewState(last);
+      if (t < 1) tween.current = requestAnimationFrame(step);
+    };
+    tween.current = requestAnimationFrame(step);
+  }, []);
+  const cardRectsRef = useRef(cardRects); cardRectsRef.current = cardRects;
+  const viewChangeRef = useRef(onViewChange); viewChangeRef.current = onViewChange;
+  useLayoutEffect(() => { viewChangeRef.current?.(); }, [view, size, cardRects]);
+  useEffect(() => {
+    if (!controls) return;
+    controls.current = {
+      centre: () => {
+        const element = surfaceRef.current;
+        return toCanvas(viewRef.current, {x: (element?.clientWidth ?? 0) / 2, y: (element?.clientHeight ?? 0) / 2});
+      },
+      reveal: target => {
+        const element = surfaceRef.current;
+        if (!element?.clientWidth || !element.clientHeight) return false;
+        const viewport = {w: element.clientWidth, h: element.clientHeight};
+        const card = 'channelId' in target;
+        const rect: Rect | undefined = card ? cardRectsRef.current.find(c => c.card.channelId === target.channelId) : boardRef.current.areas.find(a => a.id === target.areaId);
+        if (!rect) return false;
+        let next = fit([rect], viewport);
+        if (card && next.zoom < REVEAL_MIN_ZOOM) {
+          const zoom = REVEAL_MIN_ZOOM;
+          next = {zoom, x: viewport.w / 2 - (rect.x + rect.w / 2) * zoom, y: viewport.h / 2 - (rect.y + rect.h / 2) * zoom};
+        }
+        animateTo(next);
+        return true;
+      },
+      present: (channelId, sheetHeight, dockTop, drawerEdge = null) => {
+        const element = surfaceRef.current;
+        const rect = cardRectsRef.current.find(c => c.card.channelId === channelId);
+        if (!rect || !element?.clientWidth || !element.clientHeight) return false;
+        animateTo(presentView(rect, clearOfDrawer(stageBounds({w: element.clientWidth, h: element.clientHeight}, dockTop), drawerEdge), sheetHeight));
+        return true;
+      },
+      cardHeight: channelId => heights.current.get(channelId),
+    };
+    return () => { controls.current = null; };
+  }, [controls, animateTo]);
+
+  const dropRef = useRef(onDropChat); dropRef.current = onDropChat;
+  const carriesChat = (event: ReactDragEvent) => canEdit && Boolean(dropRef.current) && event.dataTransfer.types.includes(CHAT_DRAG_TYPE);
+  // An agent drag targets the open card under the pointer (locked and unavailable cards take no drop); off any card,
+  // editors drop it on empty canvas to start a chat with it there.
+  const agentDropRef = useRef(onDropAgent); agentDropRef.current = onDropAgent;
+  const startRef = useRef(onDropAgentAt); startRef.current = onDropAgentAt;
+  const [dropId, setDropId] = useState<string | null>(null);
+  /** The area a loose chat would land in if dropped now. */
+  const [chatDropArea, setDropArea] = useState<{id: string; kind: 'chat' | 'files'} | null>(null);
+  const setChatDropArea = (id: string | null, kind: 'chat' | 'files' = 'chat') => setDropArea(current => id ? (current?.id === id && current.kind === kind ? current : {id, kind}) : null);
+  // The label that follows an agent dragged over a card or empty canvas (its target says what dropping does).
+  const [inviteTip, setInviteTip] = useState<{x: number; y: number; text: string} | null>(null);
+  const carriesAgent = (event: ReactDragEvent) => Boolean(agentDropRef.current || startRef.current) && event.dataTransfer.types.includes(AGENT_DRAG_TYPE);
+  /** What an agent drag does at the pointer (agentDragPlan): invite to the card under it, start a chat on empty canvas, or nothing. */
+  const agentPlanAt = (event: ReactDragEvent) => {
+    const cardId = (event.target instanceof Element ? event.target.closest<HTMLElement>('.canvas-card') : null)?.dataset.channelId;
+    const found = cardId ? boardRef.current.cards.find(c => c.channelId === cardId) : undefined;
+    const at = toCanvas(viewRef.current, local(event));
+    const area = cardId ? undefined : areaFor(at, boardRef.current.areas);
+    const card = found ? {channelId: found.channelId, title: cardTitle(found), access: found.access, manageable: Boolean(canManageCard?.(found)),
+      members: found.access === 'open' ? found.participants.filter(p => p.subscriberType === 'AGENT').map(p => p.subscriberId) : []} : null;
+    return {at, plan: agentDragPlan({agent: draggedAgent(), cardId, card, areaId: area?.id ?? null, areaTitle: area?.title,
+      canEdit, starts: Boolean(startRef.current), invites: Boolean(agentDropRef.current)})};
+  };
+  useEffect(() => {
+    const end = () => { setDropId(null); setChatDropArea(null); setInviteTip(null); setDraggedAgent(null); };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') end(); };
+    window.addEventListener('dragend', end, true);
+    // A drop that lands elsewhere (the bottom box, the panel) or a drag that leaves the window ends the highlight too.
+    window.addEventListener('drop', end, true);
+    window.addEventListener('blur', end);
+    window.addEventListener('keydown', escape);
+    return () => {
+      window.removeEventListener('dragend', end, true);
+      window.removeEventListener('drop', end, true);
+      window.removeEventListener('blur', end);
+      window.removeEventListener('keydown', escape);
+    };
+  }, []);
+  // A file drag targets the open card (anyone with chat access) or the area (editors) under the pointer.
+  const filesRef = useRef(onDropFiles); filesRef.current = onDropFiles;
+  const fileTargetAt = (event: ReactDragEvent): FileDropTarget | null => {
+    if (!filesRef.current || !(event.target instanceof Element)) return null;
+    const cardId = event.target.closest<HTMLElement>('.canvas-card')?.dataset.channelId;
+    if (cardId) return boardRef.current.cards.some(c => c.channelId === cardId && c.access === 'open') ? {kind: 'card', channelId: cardId} : null;
+    const areaId = event.target.closest<HTMLElement>('.canvas-area')?.dataset.areaId;
+    return areaId ? {kind: 'area', areaId} : null;
+  };
+  const ownsFiles = (event: ReactDragEvent) => carriesFiles(event) && !outsideFileDropTargets(event.target);
+  function dragOver(event: ReactDragEvent<HTMLDivElement>) {
+    if (carriesFiles(event)) {
+      // Over a card or area the browser must not open the file, even where nothing takes it (a locked card, a viewer's area).
+      if (!ownsFiles(event)) { setDropId(null); setChatDropArea(null); return; }
+      event.preventDefault();
+      const target = fileTargetAt(event);
+      event.dataTransfer.dropEffect = target && (target.kind === 'card' || canEdit) ? 'copy' : 'none';
+      setDropId(target?.kind === 'card' ? target.channelId : null);
+      // A viewer's area takes no files: no highlight, and the drop only says why.
+      setChatDropArea(target?.kind === 'area' && canEdit ? target.areaId : null, 'files');
+      return;
+    }
+    if (carriesAgent(event)) {
+      const {plan} = agentPlanAt(event);
+      setDropId(plan.card);
+      setChatDropArea(plan.area);
+      setInviteTip(plan.label ? {x: event.clientX, y: event.clientY, text: plan.label} : null);
+      if (!plan.dropEffect) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = plan.dropEffect;
+      return;
+    }
+    if (!carriesChat(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setChatDropArea(areaFor(toCanvas(viewRef.current, local(event)), boardRef.current.areas)?.id ?? null);
+  }
+  function drop(event: ReactDragEvent<HTMLDivElement>) {
+    if (carriesFiles(event)) {
+      setDropId(null); setChatDropArea(null);
+      if (!ownsFiles(event)) return;
+      event.preventDefault();
+      const target = fileTargetAt(event), {files, folders} = droppedFiles(event.dataTransfer);
+      if (target && (files.length || folders)) filesRef.current?.(target, files, folders);
+      return;
+    }
+    if (carriesAgent(event)) {
+      setDropId(null); setInviteTip(null); setChatDropArea(null);
+      const {plan, at} = agentPlanAt(event);
+      if (!plan.drop) return;
+      event.preventDefault();
+      const agent = event.dataTransfer.getData(AGENT_DRAG_TYPE);
+      if (!agent) return;
+      if (plan.drop.kind === 'start') startRef.current?.(agent, at, plan.drop.areaId);
+      else agentDropRef.current?.(plan.drop.channelId, agent);
+      return;
+    }
+    if (!carriesChat(event)) return;
+    event.preventDefault();
+    setChatDropArea(null);
+    const channelIds = event.dataTransfer.getData(CHAT_DRAG_TYPE).split('\n').map(id => id.trim()).filter(Boolean);
+    if (channelIds.length) dropRef.current?.(channelIds, toCanvas(viewRef.current, local(event)));
+  }
+
+  // Wheel: Ctrl/Cmd (and trackpad pinch, which arrives as a ctrlKey wheel) zooms; a plain wheel pans.
+  useEffect(() => {
+    const element = surfaceRef.current;
+    if (!element) return;
+    const wheel = (event: WheelEvent) => {
+      if (isEditable(event.target)) return;
+      event.preventDefault();
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientHeight : 1;
+      const current = viewRef.current;
+      if (event.ctrlKey || event.metaKey) {
+        setView(zoomAt(current, Math.exp(-event.deltaY * unit * WHEEL_ZOOM_RATE), local(event)));
+      } else {
+        const dx = event.shiftKey && !event.deltaX ? event.deltaY : event.deltaX, dy = event.shiftKey && !event.deltaX ? 0 : event.deltaY;
+        setView({...current, x: current.x - dx * unit, y: current.y - dy * unit});
+      }
+    };
+    element.addEventListener('wheel', wheel, {passive: false});
+    return () => element.removeEventListener('wheel', wheel);
+  }, [setView]);
+
+  const cancel = useCallback(() => {
+    gesture.current = null;
+    setPreview(null);
+  }, []);
+
+  // Space+drag pans while focus is on the canvas, or nowhere with the pointer over it; Escape drops the tool and any gesture.
+  useEffect(() => {
+    const down = (event: KeyboardEvent) => {
+      // Space still presses a focused button or link; only a free Space arms panning.
+      if (isEditable(event.target) || (event.target instanceof Element && event.target.closest('button, a'))) return;
+      if (event.key === ' ') {
+        // A split-screen chat (or anything else beside the canvas) keeps its own Space.
+        const surface = surfaceRef.current, focus = document.activeElement;
+        const onSurface = Boolean(surface && focus && surface.contains(focus));
+        if (!onSurface && !((!focus || focus === document.body) && pointerOver.current)) return;
+        event.preventDefault(); if (!spaceRef.current) { spaceRef.current = true; setSpaceHeld(true); }
+      }
+      else if (event.key === 'Escape') { setTool('select'); if (gesture.current?.active) cancel(); }
+    };
+    const up = (event: KeyboardEvent) => { if (event.key === ' ') { spaceRef.current = false; setSpaceHeld(false); } };
+    const blur = () => { spaceRef.current = false; setSpaceHeld(false); };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', blur);
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', blur); };
+  }, [cancel]);
+
+  const removeAgentRef = useRef(onRemoveAgent); removeAgentRef.current = onRemoveAgent;
+  const emptyPressRef = useRef(onEmptyPress); emptyPressRef.current = onEmptyPress;
+  const selectRef = useRef(onSelectCard); selectRef.current = onSelectCard;
+  /** Whether a screen point is more than REMOVE_DISTANCE outside the card's on-screen bounds. */
+  const awayFrom = (channelId: string, at: {clientX: number; clientY: number}) => {
+    const r = elements.current.get(channelId)?.getBoundingClientRect();
+    if (!r) return false;
+    return at.clientX < r.left - REMOVE_DISTANCE || at.clientX > r.right + REMOVE_DISTANCE
+      || at.clientY < r.top - REMOVE_DISTANCE || at.clientY > r.bottom + REMOVE_DISTANCE;
+  };
+
+  const connectRef = useRef(onConnect); connectRef.current = onConnect;
+  const newStepRef = useRef(onNewStep); newStepRef.current = onNewStep;
+  const canConnectRef = useRef(canConnect); canConnectRef.current = canConnect;
+  /** What a dragged port is over: hit-tested against what is drawn there, so chrome over the surface never counts. */
+  const releaseAt = (from: string, at: {clientX: number; clientY: number}) => linkRelease(document.elementFromPoint(at.clientX, at.clientY), surfaceRef.current, from,
+    id => boardRef.current.cards.some(card => card.channelId === id && card.access === 'open'));
+
+  /**
+   * Stores a card moved by (dx, dy) world px, from a pointer drop or an arrow-key burst. A card that lands in an area that
+   * does not quite hold it grows the area to fit. Answers the card's area before and after, or undefined without the card.
+   */
+  const commitCardMove = useCallback((channelId: string, dx: number, dy: number) => {
+    const current = boardRef.current, apply = (op: BoardOp) => void applyRef.current(op);
+    const card = current.cards.find(c => c.channelId === channelId);
+    if (!card) return undefined;
+    const moved = {x: clampCoord(card.x + dx), y: clampCoord(card.y + dy), w: card.w, h: heights.current.get(card.channelId) ?? CARD_PLACE_HEIGHT};
+    apply({kind: 'moveCard', channelId: card.channelId, x: moved.x, y: moved.y});
+    const target = areaFor(cardCentre(moved), current.areas);
+    const grown = target ? growToFit(target, [moved]) : null;
+    if (target && grown) apply({kind: 'patchArea', areaId: target.id, patch: grown});
+    return {before: areaFor(cardCentre(card), current.areas) ?? null, after: target ?? null};
+  }, []);
+  /** Stores an area moved by (dx, dy) world px; the cards and areas inside it move with it. False when the area is gone. */
+  const commitAreaMove = useCallback((areaId: string, dx: number, dy: number) => {
+    const area = boardRef.current.areas.find(a => a.id === areaId);
+    if (!area) return false;
+    void applyRef.current({kind: 'patchArea', areaId: area.id, patch: {x: clampCoord(area.x + dx), y: clampCoord(area.y + dy)}, moveCards: true});
+    return true;
+  }, []);
+
+  /**
+   * Arrow keys on a focused card or area (editors): presses preview at once and form one move that is stored, like a
+   * drop, 400 ms after the last; Escape puts the burst back. The live region says where it went.
+   */
+  const keyMove = useRef<KeyMove | null>(null);
+  const [said, setSaid] = useState<{id: number; text: string} | null>(null);
+  const saidId = useRef(0);
+  const say = useCallback((text: string) => setSaid({id: ++saidId.current, text}), []);
+  /** The item last moved by keyboard stays mounted when it leaves the culled view, so its focus is never lost. */
+  const [held, setHeld] = useState<string | null>(null);
+  useEffect(() => () => keyMove.current?.burst.cancel(), []);
+  const moveByKey = useCallback((kind: KeyMove['kind'], id: string, event: ReactKeyboardEvent<HTMLElement>) => {
+    if (boardRef.current.canvas.role === 'view') return;
+    const active = keyMove.current?.kind === kind && keyMove.current.id === id ? keyMove.current : null;
+    if (event.key === 'Escape') {
+      if (!active) return;
+      // Only the move: an open chat or the tool keep their Escape for the next press.
+      event.preventDefault();
+      event.stopPropagation();
+      active.burst.cancel();
+      return;
+    }
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    const step = arrowStep(event.key, event.shiftKey);
+    if (!step) return;
+    event.preventDefault();
+    if (gesture.current?.active) return;
+    let entry = active;
+    if (!entry) {
+      keyMove.current?.burst.flush();
+      const current = boardRef.current;
+      if (kind === 'card' ? !current.cards.some(c => c.channelId === id) : !current.areas.some(a => a.id === id)) return;
+      const members = kind === 'area' ? areaMembers(id, current.cards, current.areas) : undefined;
+      /** Ends the burst; nothing is said when the item left the board meanwhile and nothing was stored. */
+      const done = (text: string | null) => {
+        if (keyMove.current === made) keyMove.current = null;
+        setPreview(null);
+        if (text) say(text);
+      };
+      const made: KeyMove = {kind, id, members, burst: createMoveBurst({
+        commit: (dx, dy) => {
+          if (kind === 'area') { done(commitAreaMove(id, dx, dy) ? 'Moved' : null); return; }
+          const areas = commitCardMove(id, dx, dy);
+          done(areas ? moveAnnouncement(areas.before, areas.after) : null);
+        },
+        revert: () => done('Move cancelled'),
+      })};
+      keyMove.current = entry = made;
+      setHeld(`${kind}:${id}`);
+    }
+    const {dx, dy} = entry.burst.step(step.dx, step.dy);
+    setPreview(kind === 'card' ? {kind: 'card', id, dx, dy} : {kind: 'area', id, dx, dy, cards: entry.members!.cards, areas: entry.members!.areas});
+  }, [commitCardMove, commitAreaMove, say]);
+  const moveCardByKey = useCallback((channelId: string, event: ReactKeyboardEvent<HTMLElement>) => moveByKey('card', channelId, event), [moveByKey]);
+  const moveAreaByKey = useCallback((areaId: string, event: ReactKeyboardEvent<HTMLElement>) => moveByKey('area', areaId, event), [moveByKey]);
+  const moveHint = useId();
+
+  function startPinch() {
+    const [[a, pa], [b, pb]] = [...touches.current.entries()];
+    pinch.current = {ids: [a, b], dist: Math.max(1, distance(pa, pb)), mid: midpoint(pa, pb), view: viewRef.current};
+  }
+
+  function pointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    // A new press always ends the previous gesture, even when this one is ignored below; an arrow-key move is stored first.
+    if (gesture.current) cancel();
+    keyMove.current?.burst.flush();
+    if (event.pointerType === 'touch') {
+      touches.current.set(event.pointerId, local(event));
+      if (touches.current.size === 2) { cancel(); startPinch(); return; }
+      if (touches.current.size > 2) return;
+    } else if (event.button !== 0 && event.button !== 1) return;
+    const target = event.target as HTMLElement;
+    const pan = spaceRef.current || event.button === 1;
+    const pressed = pan ? undefined : target.closest<HTMLElement>('.canvas-card')?.dataset.channelId;
+    if (pressed) selectRef.current?.(pressed);
+    if (!pan && target.closest('button, input, textarea, select, a, .canvas-menu, .canvas-chrome')) return;
+    const onPort = pan || !pressed ? null : target.closest('[data-port]');
+    // Touch never drags the `+` port (the chat picker links instead): a finger on it pans, never moving the card under it.
+    const touchPort = Boolean(onPort) && event.pointerType === 'touch';
+    const handle = pan || touchPort ? null : target.closest<HTMLElement>('[data-drag]');
+    const port = touchPort ? null : onPort;
+    const portCard = port ? boardRef.current.cards.find(card => card.channelId === pressed) : undefined;
+    const start = local(event), startView = viewRef.current;
+    const current = boardRef.current;
+    let next: Gesture = {pointerId: event.pointerId, mode: 'pan', start, startView, active: false, empty: !pan && !pressed && !target.closest('.canvas-card')};
+    if (portCard && connectRef.current && canConnectRef.current?.(portCard)) {
+      next = {...next, mode: 'link', id: pressed};
+    } else if (handle?.dataset.drag === 'face' && pressed && handle.dataset.agent) {
+      next = {...next, mode: 'face', id: pressed, agent: handle.dataset.agent};
+    } else if (handle?.dataset.drag === 'card') {
+      next = {...next, mode: 'card', id: handle.dataset.channelId};
+    } else if (handle?.dataset.drag === 'area' || handle?.dataset.drag === 'area-resize') {
+      const id = handle.closest<HTMLElement>('[data-area-id]')?.dataset.areaId;
+      const area = current.areas.find(a => a.id === id);
+      if (area && handle.dataset.drag === 'area') next = {...next, mode: 'area', id, members: areaMembers(area.id, current.cards, current.areas)};
+      else if (area) next = {...next, mode: 'resize', id, base: {w: area.w, h: area.h}};
+    } else if (!pan && toolRef.current === 'area' && canEdit) {
+      next = {...next, mode: 'draw'};
+    }
+    gesture.current = next;
+  }
+
+  function pointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === 'touch' && touches.current.has(event.pointerId)) {
+      touches.current.set(event.pointerId, local(event));
+      const p = pinch.current;
+      if (p) {
+        const a = touches.current.get(p.ids[0]), b = touches.current.get(p.ids[1]);
+        if (!a || !b) return;
+        const mid = midpoint(a, b), zoomed = zoomAt(p.view, distance(a, b) / p.dist, p.mid);
+        setView({...zoomed, x: zoomed.x + mid.x - p.mid.x, y: zoomed.y + mid.y - p.mid.y});
+        return;
+      }
+    }
+    const g = gesture.current;
+    if (!g || g.pointerId !== event.pointerId) return;
+    // A press released outside the surface before the drag began sends no pointerup here:
+    // hovering with no button down ends that gesture instead of resuming it.
+    if (event.pointerType !== 'touch' && event.buttons === 0) { cancel(); return; }
+    const point = local(event);
+    const dx = point.x - g.start.x, dy = point.y - g.start.y;
+    if (!g.active) {
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      g.active = true;
+      try { surfaceRef.current?.setPointerCapture(event.pointerId); } catch {}
+    }
+    const zoom = g.startView.zoom;
+    switch (g.mode) {
+      case 'pan': setView({...g.startView, x: g.startView.x + dx, y: g.startView.y + dy}); return;
+      case 'card': setPreview({kind: 'card', id: g.id!, dx: dx / zoom, dy: dy / zoom}); return;
+      case 'face': setPreview({kind: 'face', id: g.id!, agent: g.agent!, x: point.x, y: point.y, away: awayFrom(g.id!, event)}); return;
+      case 'area': setPreview({kind: 'area', id: g.id!, dx: dx / zoom, dy: dy / zoom, cards: g.members!.cards, areas: g.members!.areas}); return;
+      case 'resize': setPreview({kind: 'resize', id: g.id!, w: clampSize(g.base!.w + dx / zoom), h: clampSize(g.base!.h + dy / zoom)}); return;
+      case 'link': {
+        const target = releaseAt(g.id!, event);
+        setPreview({kind: 'link', id: g.id!, p: toCanvas(viewRef.current, point), over: target?.kind === 'card' ? target.channelId : null});
+        return;
+      }
+      case 'draw': {
+        const a = toCanvas(g.startView, g.start), b = toCanvas(viewRef.current, point);
+        setPreview({kind: 'draw', rect: {x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y)}});
+      }
+    }
+  }
+
+  function pointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === 'touch') {
+      touches.current.delete(event.pointerId);
+      if (pinch.current) { if (touches.current.size < 2) pinch.current = null; return; }
+    }
+    const g = gesture.current;
+    if (!g || g.pointerId !== event.pointerId) return;
+    gesture.current = null;
+    setPreview(null);
+    if (g.active) { dragged.current = true; setTimeout(() => { dragged.current = false; }, 0); }
+    // A press that never moved past the drag threshold, on empty canvas: the mock closes an open chat on it.
+    if (!g.active && g.mode === 'pan' && g.empty && event.type === 'pointerup') emptyPressRef.current?.();
+    if (!g.active || event.type === 'pointercancel') return;
+    if (g.mode === 'face') {
+      if (awayFrom(g.id!, event)) removeAgentRef.current?.(g.id!, g.agent!);
+      return;
+    }
+    if (g.mode === 'link') {
+      // Another open card connects; empty canvas (never chrome, the top bar or a drawer) adds a new step for editors.
+      const target = releaseAt(g.id!, event);
+      if (target?.kind === 'card') connectRef.current?.(g.id!, target.channelId);
+      else if (target?.kind === 'empty') newStepRef.current?.(g.id!, toCanvas(viewRef.current, local(event)));
+      return;
+    }
+    const point = local(event), zoom = g.startView.zoom;
+    const dx = (point.x - g.start.x) / zoom, dy = (point.y - g.start.y) / zoom;
+    const current = boardRef.current;
+    const apply = (op: BoardOp) => void applyRef.current(op);
+    if (g.mode === 'card') commitCardMove(g.id!, dx, dy);
+    else if (g.mode === 'area') commitAreaMove(g.id!, dx, dy);
+    else if (g.mode === 'resize') {
+      const area = current.areas.find(a => a.id === g.id);
+      if (area) apply({kind: 'patchArea', areaId: area.id, patch: {w: clampSize(g.base!.w + dx), h: clampSize(g.base!.h + dy)}});
+    } else if (g.mode === 'draw') {
+      const a = toCanvas(g.startView, g.start), b = toCanvas(viewRef.current, point);
+      const area = {
+        id: crypto.randomUUID(), title: 'New area',
+        x: clampCoord(Math.min(a.x, b.x)), y: clampCoord(Math.min(a.y, b.y)),
+        w: clampSize(Math.abs(b.x - a.x)), h: clampSize(Math.abs(b.y - a.y)),
+        tint: TINTS[current.areas.length % TINTS.length],
+      };
+      apply({kind: 'createArea', area});
+      setTool('select');
+      // The mock's createArea: say what happened, then open the title for typing.
+      noticeRef.current?.(drawnNotice(current.cards.filter(card => areaFor(cardCentre(card), [{...area, canvasId: current.canvas.id, version: 0}])).length));
+      createdRef.current?.(area.id);
+    }
+  }
+
+  const zoomBy = (factor: number) => setView(zoomAt(viewRef.current, factor, {x: size.w / 2, y: size.h / 2}));
+  const fitAll = () => { onFit?.(); setView(fit(contentRects(), size)); };
+  const rename = useCallback((areaId: string, title: string) => void applyRef.current({kind: 'patchArea', areaId, patch: {title}}), []);
+  const remove = useCallback((areaId: string) => {
+    // The area and its focused Delete button unmount: keep keyboard focus on the canvas.
+    surfaceRef.current?.focus({preventScroll: true});
+    void applyRef.current({kind: 'deleteArea', areaId});
+  }, []);
+
+  // A hovered or focused `↳` chip draws a dotted line to its source area when that area is on this canvas.
+  const [linkHover, setLinkHover] = useState<{from: string; to: string} | null>(null);
+  const hoverLink = useCallback((areaId: string, sourceAreaId: string | null) =>
+    setLinkHover(current => sourceAreaId ? {from: areaId, to: sourceAreaId} : current?.from === areaId ? null : current), []);
+  const areaContextRef = useRef(onAreaContext); areaContextRef.current = onAreaContext;
+  const openAreaContext = useCallback((areaId: string, opener: HTMLElement) => areaContextRef.current?.(areaId, opener), []);
+  /**
+   * A pressed link chip shows its source, as the mock's goref does: a source on this canvas is framed together with the
+   * linking area and their dotted line stays drawn for a moment; one on another readable canvas opens that canvas.
+   * A source the person cannot read (or a missing one) opens this area's context, which says it is unavailable.
+   */
+  const [flash, setFlash] = useState<{from: string; to: string} | null>(null);
+  useEffect(() => {
+    if (!flash) return;
+    const timer = setTimeout(() => setFlash(null), LINK_FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [flash]);
+  const openCanvasRef = useRef(onOpenCanvas); openCanvasRef.current = onOpenCanvas;
+  const openLink = useCallback((areaId: string, link: ContextLink, opener: HTMLElement) => {
+    const areas = boardRef.current.areas, from = areas.find(a => a.id === areaId), to = areas.find(a => a.id === link.sourceAreaId);
+    const element = surfaceRef.current;
+    if (from && to && element?.clientWidth && element.clientHeight) {
+      animateTo(fit([from, to], {w: element.clientWidth, h: element.clientHeight}));
+      setFlash({from: areaId, to: link.sourceAreaId});
+      return;
+    }
+    if (link.canvasId && link.canvasId !== boardRef.current.canvas.id && openCanvasRef.current) { openCanvasRef.current(link.canvasId); return; }
+    areaContextRef.current?.(areaId, opener);
+  }, [animateTo]);
+
+  const noticeRef = useRef(onNotice); noticeRef.current = onNotice;
+  const createdRef = useRef(onAreaCreated); createdRef.current = onAreaCreated;
+  const renameStartedRef = useRef(onRenameStarted); renameStartedRef.current = onRenameStarted;
+  const renameStarted = useCallback((areaId: string) => renameStartedRef.current?.(areaId), []);
+  const nudgeRef = useRef(onNudge); nudgeRef.current = onNudge;
+  const nudge = useCallback(async (channelId: string, agent: string) => { await nudgeRef.current?.(channelId, agent); }, []);
+  const openRef = useRef(onOpenChat); openRef.current = onOpenChat;
+  // Stable while the surface lives, so memoized cards do not re-render; a drag or Space-pan never opens.
+  const openCard = useCallback((channelId: string) => {
+    if (dragged.current || spaceRef.current) return;
+    openRef.current?.(channelId);
+  }, []);
+  const removeCard = useCallback((channelId: string) => {
+    surfaceRef.current?.focus({preventScroll: true});
+    void applyRef.current({kind: 'removeCard', channelId});
+  }, []);
+
+  const compact = isCompact(view);
+  // Summaries show only at compact zoom; an unchanged count keeps its object so the area does not re-render.
+  const summaryCache = useRef(new Map<string, AreaSummary>());
+  const summaries = useMemo(() => {
+    if (!compact) return null;
+    const next = new Map<string, AreaSummary>();
+    for (const [id, summary] of areaSummaries(board.cards, board.areas, pulses, needs)) {
+      const previous = summaryCache.current.get(id);
+      next.set(id, previous && previous.needYou === summary.needYou && previous.moving === summary.moving && previous.quiet === summary.quiet && previous.chats === summary.chats ? previous : summary);
+    }
+    summaryCache.current = next;
+    return next;
+  }, [compact, board.cards, board.areas, pulses, needs]);
+  const shownCards = useMemo(() => new Set(visible(cardRects, view, size).map(r => r.card.channelId)), [cardRects, view, size]);
+  const shownAreas = useMemo(() => new Set(visible(board.areas, view, size).map(a => a.id)), [board.areas, view, size]);
+  // Which area each card sits in (by centre, like the API), for the tinted stripe on cards in an area.
+  const homes = useMemo(() => new Map(board.cards.map(card => [card.channelId, areaFor(cardCentre(card), board.areas)])), [board.cards, board.areas]);
+  const movingCard = preview?.kind === 'card' ? board.cards.find(c => c.channelId === preview.id) : undefined;
+  // The area a dragged card or loose chat would join if dropped now: it lights up while the pointer is over it.
+  const cardTarget = movingCard && preview?.kind === 'card'
+    ? areaFor(cardCentre({x: movingCard.x + preview.dx, y: movingCard.y + preview.dy, w: movingCard.w}), board.areas) : undefined;
+  const dropArea: {id: string; kind: 'chat' | 'files'} | null = cardTarget !== undefined ? cardTarget ? {id: cardTarget.id, kind: 'chat'} : null : chatDropArea;
+  // Areas with a card in them; the others show their context files on a shelf.
+  const occupied = useMemo(() => new Set([...homes.values()].flatMap(area => area ? [area.id] : [])), [homes]);
+  const homeOf = (card: BoardCard) => card === movingCard ? cardTarget ?? null : homes.get(card.channelId) ?? null;
+  const cardShift = (card: BoardCard) =>
+    preview?.kind === 'card' && preview.id === card.channelId ? preview
+      : preview?.kind === 'area' && preview.cards.has(card.channelId) ? preview : null;
+  const areaShift = (area: CanvasArea) =>
+    preview?.kind === 'area' && (preview.id === area.id || preview.areas.has(area.id)) ? preview : null;
+
+  // A hovered chip draws its line; an open area popover draws every line to or from that area (the mock's drawRefs).
+  // Only links between areas on this canvas draw, and a removed link draws nothing, even when its chip went away under the pointer.
+  const lines = useMemo(() => {
+    const byId = new Map(board.areas.map(area => [area.id, area]));
+    const pairs = linkHover ? [linkHover] : flash ? [flash] : contextAreaId ? [...(areaContext ?? new Map<string, AreaContext>())].flatMap(([from, context]) =>
+      context.links.filter(link => from === contextAreaId || link.sourceAreaId === contextAreaId).map(link => ({from, to: link.sourceAreaId}))) : [];
+    return pairs.flatMap(({from, to}) => {
+      const a = byId.get(from), b = byId.get(to);
+      return a && b && areaContext?.get(from)?.links.some(link => link.sourceAreaId === to) ? [{key: `${from}:${to}`, from: a, to: b}] : [];
+    });
+  }, [linkHover, flash, contextAreaId, areaContext, board.areas]);
+  // Link lines follow every card, mounted or not, and a card being dragged.
+  // A port drag moves no card, so the lines stay put (and their labels unmeasured) while it runs.
+  const moving = preview?.kind === 'card' || preview?.kind === 'area' ? preview : null;
+  const linkRects = useMemo(() => {
+    if (!links?.length) return NO_RECTS;
+    const rects = new Map<string, Rect>();
+    for (const r of cardRects) {
+      const shift = moving?.kind === 'card' && moving.id === r.card.channelId ? moving
+        : moving?.kind === 'area' && moving.cards.has(r.card.channelId) ? moving : null;
+      rects.set(r.card.channelId, {x: r.x + (shift?.dx ?? 0), y: r.y + (shift?.dy ?? 0), w: r.w, h: r.h});
+    }
+    return rects;
+  }, [links, cardRects, moving]);
+  const openLinkRef = useRef(onOpenLink); openLinkRef.current = onOpenLink;
+  const toggleForkRef = useRef(onToggleFork); toggleForkRef.current = onToggleFork;
+  const openFlow = useCallback((linkId: string, anchor: HTMLElement) => openLinkRef.current?.(linkId, anchor), []);
+  const linkPickRef = useRef(onLinkPick); linkPickRef.current = onLinkPick;
+  // Stable, so memoized cards do not re-render; only cards canConnect allows get it.
+  const pickLink = useCallback((channelId: string, anchor: HTMLElement) => linkPickRef.current?.(channelId, anchor), []);
+  const linkFrom = preview?.kind === 'link' ? linkRects.get(preview.id) ?? cardRects.find(r => r.card.channelId === preview.id) : undefined;
+  const toggleFork = useCallback((linkId: string) => toggleForkRef.current?.(linkId), []);
+  const tile = TWIG_TILE * view.zoom;
+  const classes = ['canvas-surface', tool === 'area' ? 'is-drawing' : '', spaceHeld ? 'is-panning-key' : '', preview ? 'is-gesturing' : '', preview?.kind === 'link' ? 'is-linking' : ''].filter(Boolean).join(' ');
+  return <div
+    ref={surfaceRef}
+    tabIndex={-1}
+    className={classes}
+    aria-label={`Canvas ${board.canvas.name}`}
+    data-role={board.canvas.role}
+    style={{backgroundSize: `${tile}px ${tile}px`, backgroundPosition: `${view.x}px ${view.y}px`}}
+    onPointerDown={pointerDown}
+    // A mouse or touch press on an editor's card or area keeps focus on the surface: only Tab arms arrow-key moves.
+    onMouseDown={event => { if (pressArmsMove(event.target as Element)) { event.preventDefault(); surfaceRef.current?.focus({preventScroll: true}); } }}
+    onPointerMove={pointerMove}
+    onPointerUp={pointerUp}
+    onPointerCancel={pointerUp}
+    onPointerEnter={() => { pointerOver.current = true; }}
+    onPointerLeave={() => { pointerOver.current = false; }}
+    // A press on a face's image or a file chip would start the browser's own drag and cancel the pointer gesture.
+    onDragStart={event => event.preventDefault()}
+    onDragOver={dragOver}
+    onDrop={drop}
+    onDragLeave={event => { if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) { setDropId(null); setChatDropArea(null); setInviteTip(null); } }}
+    onLostPointerCapture={event => {
+      // Only the surface's own capture counts; a touch target losing its implicit capture to the surface bubbles here too.
+      if (event.target === surfaceRef.current && gesture.current?.pointerId === event.pointerId && gesture.current.active) cancel();
+    }}>
+    <div className={`canvas-world${compact ? ' is-compact' : ''}`} style={{transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, visibility: ready ? undefined : 'hidden'}}>
+      {board.areas.map(area => {
+        const shift = areaShift(area), resize = preview?.kind === 'resize' && preview.id === area.id ? preview : null;
+        if (!shift && !resize && !shownAreas.has(area.id) && held !== `area:${area.id}`) return null;
+        return <Area key={area.id} area={area} dx={shift?.dx ?? 0} dy={shift?.dy ?? 0} w={resize?.w ?? area.w} h={resize?.h ?? area.h}
+          canEdit={canEdit} compact={compact} summary={summaries?.get(area.id)} dropTarget={dropArea?.id === area.id ? dropArea.kind : null} onRename={rename} onDelete={remove}
+          empty={!occupied.has(area.id)} contextOpen={area.id === contextAreaId}
+          context={areaContext?.get(area.id)} onContext={onAreaContext ? openAreaContext : undefined} onLinkOpen={openLink} onLinkHover={hoverLink}
+          renaming={area.id === renameAreaId} onRenameStarted={renameStarted} onNewChat={onNewChatInArea} onMoveKey={moveAreaByKey} moveHint={moveHint}/>;
+      })}
+      {lines.map(line => <ContextLine key={line.key} from={line.from} to={line.to}/>)}
+      {links?.length ? <Links links={links} rects={linkRects} selected={selectedChannelId} onOpen={openFlow} onToggleFork={toggleFork}/> : null}
+      {preview?.kind === 'link' && linkFrom ? <svg className="canvas-links" width="1" height="1" aria-hidden="true">
+        <path className="lk temp" d={tempLinkPath(linkFrom, preview.p)}/>
+      </svg> : null}
+      {preview?.kind === 'draw' ? <div className="canvas-area-draft" style={{transform: `translate(${preview.rect.x}px, ${preview.rect.y}px)`, width: Math.max(MIN_AREA, preview.rect.w), height: Math.max(MIN_AREA, preview.rect.h)}}/> : null}
+      {board.cards.map(card => {
+        const shift = cardShift(card), home = homeOf(card);
+        if (!shift && !shownCards.has(card.channelId) && held !== `card:${card.channelId}`) return null;
+        return <Card key={card.channelId} card={card} draggable={canEdit} dx={shift?.dx ?? 0} dy={shift?.dy ?? 0}
+          dragging={preview?.kind === 'card' && preview.id === card.channelId} measure={measure}
+          pulse={card.access === 'open' ? pulses.get(card.channelId) : undefined}
+          needs={card.access === 'open' ? needs.get(card.channelId) ?? NONE : NONE} viewer={viewer}
+          onNudge={onNudge ? nudge : undefined} onRemove={canEdit ? removeCard : undefined}
+          onOpen={onOpenChat ? openCard : undefined} open={card.channelId === openChannelId}
+          windowed={windowChannelIds.has(card.channelId)}
+          facesDraggable={Boolean(onRemoveAgent && canManageCard?.(card))}
+          draggingFace={preview?.kind === 'face' && preview.id === card.channelId ? preview.agent : null}
+          dropping={dropId === card.channelId} selected={card.channelId === selectedChannelId}
+          areaTitle={home?.title} areaTint={home?.tint} schedules={card.access === 'open' ? schedules?.get(card.channelId) : undefined}
+          onConnect={onLinkPick && canConnect?.(card) ? pickLink : undefined} linkTarget={preview?.kind === 'link' && preview.over === card.channelId}
+          onMoveKey={moveCardByKey} moveHint={moveHint}/>;
+      })}
+    </div>
+    {preview?.kind === 'face' ? <div className={`canvas-face-ghost${preview.away ? ' is-away' : ''}`} aria-hidden="true"
+      style={{transform: `translate(${preview.x}px, ${preview.y}px)`}}>
+      <AgentAvatar name={preview.agent} size={34}/>
+      {preview.away ? <span className="canvas-face-ghost-label">{removeLabel(preview.agent, board.cards.find(card => card.channelId === preview.id))}</span> : null}
+    </div> : null}
+    {canEdit ? <p id={moveHint} className="canvas-visually-hidden">{MOVE_HINT}</p> : null}
+    {/* Arrow-key moves only; a pointer drop shows where it went. */}
+    <div className="canvas-visually-hidden" role="status">{said ? <span key={said.id}>{said.text}</span> : null}</div>
+    {inviteTip ? createPortal(<div className="canvas-invite-tip" aria-hidden="true" style={{left: inviteTip.x + 14, top: inviteTip.y + 16}}>{inviteTip.text}</div>, document.body) : null}
+    <div className="canvas-chrome canvas-tools" role="toolbar" aria-label="Canvas tools">
+      <button type="button" className="canvas-tool" aria-pressed={tool === 'area'} disabled={!canEdit}
+        title={canEdit ? 'Drag on the canvas to draw an area' : 'You can view this canvas but not change it.'}
+        onClick={() => { const arming = toolRef.current !== 'area'; setTool(arming ? 'area' : 'select'); if (arming) onNotice?.(DRAW_HINT); }}>Area</button>
+      {onNewChat ? <button type="button" className="canvas-tool" title="Start a new chat at the centre of the view" onClick={() => { setTool('select'); onNewChat(); }}>Chat</button> : null}
+    </div>
+    {zoomButtons ? <div className="canvas-chrome canvas-zoom" role="group" aria-label="Zoom">
+      <button type="button" aria-label="Zoom out" onClick={() => zoomBy(1 / ZOOM_STEP)}><span aria-hidden="true">−</span></button>
+      {/* Not live: a pinch or wheel zoom would announce every step. */}
+      <output aria-label="Zoom level" aria-live="off">{Math.round(view.zoom * 100)}%</output>
+      <button type="button" aria-label="Zoom in" onClick={() => zoomBy(ZOOM_STEP)}><span aria-hidden="true">+</span></button>
+      <button type="button" className="canvas-fit" onClick={fitAll}>Fit</button>
+    </div> : null}
+  </div>;
+}
+
+/** The dotted line from an area's title bar to the area whose context it uses, bowed so it reads as a link, not an edge. */
+function ContextLine({from, to}: {from: Rect; to: Rect}) {
+  // From the using area's top edge to the source's, over its title (the mock's drawRefs), clear of the chips on both bars.
+  const a = {x: from.x + Math.min(from.w - 40, 300), y: from.y + 4}, b = {x: to.x + 60, y: to.y + 4};
+  const lift = Math.max(60, Math.hypot(b.x - a.x, b.y - a.y) / 4);
+  // Side by side: arch over the top. Stacked: bow out to the right.
+  const control = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y)
+    ? {x: (a.x + b.x) / 2, y: Math.min(a.y, b.y) - lift}
+    : {x: Math.max(a.x, b.x) + lift, y: (a.y + b.y) / 2};
+  return <svg className="canvas-context-lines" aria-hidden="true" width="1" height="1">
+    <path className="canvas-context-line" d={`M ${a.x} ${a.y} Q ${control.x} ${control.y} ${b.x} ${b.y}`}/>
+    <circle className="canvas-context-line-end" cx={b.x} cy={b.y} r="5"/>
+  </svg>;
+}

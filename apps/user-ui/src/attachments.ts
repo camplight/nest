@@ -8,6 +8,8 @@ export type PendingAttachment={localId:string;name:string;mime:string;size:numbe
 export function restoreAttachments(files:SendMessage['attachments']):PendingAttachment[]{
   return files.map(file=>({localId:file.fileId,name:file.name,mime:file.mime??'application/octet-stream',size:file.size??0,status:'ready',uploaded:{...file,localId:file.fileId,mime:file.mime??'application/octet-stream',size:file.size??0}}));
 }
+/** The file link chat attachments open; the canvas artifact chips reuse it. */
+export const fileHref=(fileId:string)=>`/api/files/${encodeURIComponent(fileId)}`;
 export function formatAttachmentSize(size?:number){
   if(typeof size!=='number'||!Number.isFinite(size)||size<=0)return null;
   if(size<1024)return `${size} B`;
@@ -19,7 +21,7 @@ export function formatAttachmentSize(size?:number){
  * POST /api/files through XMLHttpRequest for upload progress, with apiFetch's contract: the apiUrl() URL, credentials
  * included, and a non-2xx answer thrown as Error(responseText || 'Request failed: <status>').
  */
-function postFile(body:FormData,onProgress:(fraction:number)=>void){
+export function postFile(body:FormData,onProgress:(fraction:number)=>void){
   return new Promise<{id:string}>((resolve,reject)=>{
     const request=new XMLHttpRequest();
     request.open('POST',apiUrl('/api/files'));

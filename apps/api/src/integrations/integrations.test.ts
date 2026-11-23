@@ -6,6 +6,7 @@ import { createApp as createEngine } from "../../../../vendor/orgops/apps/api/sr
 import { createOrgOpsClient } from "@nest/orgops-client";
 import { createApp } from "../app";
 import { createComposioProvider } from "./composio";
+import { actionChange } from "./action-lines";
 import { MAX_CONNECTION_ACTIONS, MAX_CONNECTION_GRANT_BYTES, MAX_CONNECTION_CATALOG_PAGES } from "@nest/schemas";
 import { generate } from "@orgops/llm";
 import { createTurnExecutor } from "../../../../vendor/orgops/apps/agent-runner/src/turn-executor";
@@ -28,7 +29,14 @@ let executionCount = 0,
   foreign = false,
   disabled = false,
   failExecute = false;
-let catalogTools: {slug:string;toolkit:{slug:string}}[] = [];
+let toolTags: string[] = ["readOnlyHint"],
+  providerSaysNo = false,
+  providerThrows = false,
+  failStatus = 500,
+  engineDown = false;
+let catalogTools: {slug:string;toolkit:{slug:string};input_parameters?:unknown}[] = [];
+let linkStatus = 200;
+let extraAccounts: Record<string, unknown>[] = [];
 let catalogMode: "normal" | "failure" | "repeated" | "endless" = "normal";
 let duringTool: (()=>Promise<void>) | undefined;
 let duringCatalog: (()=>Promise<void>) | undefined;
@@ -58,8 +66,11 @@ beforeEach(async () => {
   foreign = false;
   disabled = false;
   failExecute = false;
+  toolTags = ["readOnlyHint"]; providerSaysNo = false; providerThrows = false; failStatus = 500; engineDown = false;
+  // The skill's event shapes import zod, so the engine reads them where the repo's packages resolve.
+  vi.stubEnv("ORGOPS_SKILL_ROOTS", join(process.cwd(), "skills"));
   requests.length = 0;
-  catalogTools = []; catalogMode = "normal"; duringCatalog = undefined; duringTool = undefined;
+  catalogTools = []; catalogMode = "normal"; linkStatus = 200; extraAccounts = []; duringCatalog = undefined; duringTool = undefined;
   engine = createEngine({
     projectRoot: dir,
     dataDir: dir,
@@ -88,27 +99,47 @@ beforeEach(async () => {
           items: [
             account(),
             { ...account(), id: "foreign-account", user_id: "foreign" },
+            ...extraAccounts,
           ],
         });
       if (path === "/connected_accounts/provider-account")
         return Response.json(account());
       if (path === "/connected_accounts/link")
+        return linkStatus === 200
+          ? Response.json({ redirect_url: "https://connect.composio.dev/fixture" })
+          : Response.json(
+              { error: { slug: "APIKey_InsufficientPermissions", message: "secret-provider-detail" } },
+              { status: linkStatus },
+            );
+      if (path === "/toolkits") {
+        // The provider rejects an empty search parameter.
+        if (u.searchParams.get("search") === "") return Response.json({}, { status: 400 });
         return Response.json({
-          redirect_url: "https://connect.composio.dev/fixture",
+          items: [
+            { slug: "trello", name: "Trello", meta: { description: "Boards" } },
+            { slug: "asana", name: "Asana", meta: { description: "Tasks" } },
+          ],
+          next_cursor: "next-page",
         });
+      }
+      if (path === "/toolkits/trello")
+        return Response.json({ slug: "trello", name: "Trello", meta: { description: "Boards" } });
       if (path.endsWith("/revoke")) return Response.json({ ok: true });
       if (path === "/tools") {
         const cursor = Number(u.searchParams.get("cursor") ?? 0);
         if (duringCatalog) { const action = duringCatalog; duringCatalog = undefined; await action(); }
         if (catalogMode === "failure" && cursor >= 50) return Response.json({}, {status:503});
         return Response.json({items:catalogMode === "endless" ? [] : catalogTools.slice(cursor,cursor+50),
+          ...(catalogMode === "endless" ? {} : {total_items: catalogTools.length}),
           next_cursor: catalogMode === "endless" ? String(cursor+50) : catalogMode === "repeated" ? "50" : catalogTools.length>cursor+50 ? String(cursor+50) : null});
       }
       if (path === "/tools/TRELLO_GET_BOARDS") {
         if (duringTool) {const action=duringTool; duringTool=undefined; await action();}
         return Response.json({
           slug: "TRELLO_GET_BOARDS",
+          name: "Get boards",
           toolkit: { slug: "trello" },
+          tags: toolTags,
           input_parameters: { type: "object" },
         });
       }
@@ -119,11 +150,14 @@ beforeEach(async () => {
         });
       if (path === "/tools/execute/TRELLO_GET_BOARDS") {
         executionCount++;
+        if (providerThrows) throw new TypeError("fetch failed");
+        if (providerSaysNo)
+          return Response.json({ data: {}, successful: false, error: "secret-provider-detail" });
         return Response.json(
           failExecute
             ? { error: "secret-provider-detail" }
             : { data: { boards: ["private-result"] } },
-          { status: failExecute ? 500 : 200 },
+          { status: failExecute ? failStatus : 200 },
         );
       }
       throw Error("Unexpected provider request " + path);
@@ -133,6 +167,8 @@ beforeEach(async () => {
     expect(new URL(String(url)).pathname.startsWith("/api/composio")).toBe(
       false,
     );
+    if (engineDown && init?.method === "POST" && new URL(String(url)).pathname === "/api/events")
+      throw new TypeError("engine unreachable");
     return engine.app.fetch(new Request(url, init));
   });
   product = createApp({
@@ -286,6 +322,32 @@ it("keeps user sessions, provider account IDs and agent credentials separate", a
   expect(row.token_hash).toHaveLength(64);
   expect(JSON.stringify(row)).not.toContain(h.authorization.slice(7));
 });
+it("lists granted actions with their argument names and still lists them without the catalog", async () => {
+  const h = await enable();
+  catalogTools = [
+    {slug:"TRELLO_OTHER", toolkit:{slug:"trello"}, input_parameters:{properties:{secret_flag:{}}}},
+    ...Array.from({length:50}, (_, i) => ({slug:`TRELLO_FILLER_${i}`, toolkit:{slug:"trello"}})),
+    {slug:"TRELLO_GET_BOARDS", toolkit:{slug:"trello"}, input_parameters:{type:"object", properties:{board_id:{type:"string"}, limit:{type:"integer"}}, required:["board_id"]}},
+  ];
+  const before = requests.filter(request => request.path === "/tools").length;
+  const listed = await (await call("/api/integrations/skill/tools", "GET", undefined, h)).json() as any;
+  expect(listed.connections).toEqual([{connectionId: localId, app: "trello", tools: ["TRELLO_GET_BOARDS"], arguments: {TRELLO_GET_BOARDS: "board_id*, limit"}}]);
+  expect(listed.help).toContain("* marks a required");
+  // Catalog pages are followed until every granted action is found, then cached.
+  expect(requests.filter(request => request.path === "/tools").length - before).toBe(2);
+  await call("/api/integrations/skill/tools", "GET", undefined, h);
+  expect(requests.filter(request => request.path === "/tools").length - before).toBe(2);
+  // Ungranted actions in the catalog are never listed.
+  expect(JSON.stringify(listed)).not.toContain("secret_flag");
+});
+it("still lists granted actions when the provider catalog fails", async () => {
+  const h = await enable();
+  catalogMode = "failure";
+  catalogTools = Array.from({length:60}, (_, i) => ({slug:`TRELLO_FILLER_${i}`, toolkit:{slug:"trello"}}));
+  const listed = await call("/api/integrations/skill/tools", "GET", undefined, h);
+  expect(listed.status).toBe(200);
+  expect((await listed.json() as any).connections[0]).toMatchObject({tools: ["TRELLO_GET_BOARDS"], arguments: {}});
+});
 it("validates exact grants, cross-toolkit tools, provider ownership and revocation", async () => {
   expect(
     (
@@ -337,6 +399,14 @@ it("saves a 2,000-action catalog over 64 KB using pages rather than individual l
   expect((await (await call("/api/integrations/agents/PuffOwner/grants")).json())[0].tools).toEqual(tools);
   // Future additions and forged IDs are never implicitly granted.
   expect((await call("/api/integrations/skill/execute","POST",{connectionId:localId,tool:"TRELLO_FUTURE_ACTION",arguments:{}}, capabilityHeaders)).status).toBe(403);
+});
+it("reports the provider's action count only for the unsearched catalog", async () => {
+  catalogTools = largeTools(60);
+  const path = "/api/integrations/connections/"+localId+"/tools";
+  const first = await (await call(path+"?search=")).json() as any;
+  expect(first.items).toHaveLength(50);
+  expect(first.total).toBe(60);
+  expect((await (await call(path+"?search=board")).json() as any).total).toBeUndefined();
 });
 it("rejects unknown and foreign tools in large lists without changing saved grants", async () => {
   const path = "/api/integrations/agents/PuffOwner/grants/"+localId;
@@ -610,11 +680,11 @@ it("renewal preserves other skills and preloads the helper through the real engi
   vi.mocked(generate).mockImplementation(async (_model,messages,options) => {
     const prompt=JSON.stringify(messages);
     expect(prompt).toContain("Always pre-loaded skills (full SKILL.md contents)");
-    expect(prompt).toContain("node scripts/connections.mjs list");
+    expect(prompt).toContain("node SKILL_DIR/scripts/connections.mjs list");
     expect(prompt).toContain("Never try another account");
     expect(prompt).not.toContain(options?.env?.NEST_CONNECTION_TOKEN);
     expect(options?.env?.NEST_CONNECTION_TOKEN).toMatch(/^nest_connection_/);
-    return {text:JSON.stringify({turnStatus:"DONE",type:"message.created",payload:{text:"Synthetic connected-tool reply."}}),toolCalls:[],toolResults:[]};
+    return {text:JSON.stringify({turnStatus:"WORK_FULLY_COMPLETE",type:"message.created",payload:{text:"Synthetic connected-tool reply."}}),toolCalls:[],toolResults:[]};
   });
   await createTurnExecutor({projectRoot:dir,skillRoots:[{path:roots}],llmCallTimeoutMs:5000,api})(
     {...refreshed,memoryContextMode:"OFF"},
@@ -695,4 +765,149 @@ it('trusts ordinary group chats but still enforces tool revocation',async()=>{
   expect((await execute(h)).status).toBe(200);
   await call('/api/integrations/agents/PuffOwner/grants/'+localId,'DELETE');
   expect((await execute(h)).status).toBe(403);expect(executionCount).toBe(1);
+});
+
+it("lists the configured apps before any search and searches the full catalog on request", async () => {
+  const configured = await call("/api/integrations/toolkits?search=");
+  expect(configured.status).toBe(200);
+  expect(await configured.json()).toEqual({
+    items: [{ slug: "trello", name: "Trello", description: "Boards", connectable: true }],
+    nextCursor: null,
+  });
+  expect(requests.some((r) => r.path === "/toolkits")).toBe(false);
+  const searched = await call("/api/integrations/toolkits?search=a");
+  expect(searched.status).toBe(200);
+  expect(await searched.json()).toEqual({
+    items: [
+      { slug: "trello", name: "Trello", description: "Boards", connectable: true },
+      { slug: "asana", name: "Asana", description: "Tasks", connectable: false },
+    ],
+    nextCursor: "next-page",
+  });
+});
+it("reports a provider key without link permission as a setup problem and logs it without secrets", async () => {
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  linkStatus = 403;
+  const linked = await call("/api/integrations/connections/link", "POST", { toolkit: "trello" });
+  expect(linked.status).toBe(503);
+  expect(await linked.json()).toEqual({
+    error: "The connection service key is missing a permission. Ask an administrator to check it.",
+  });
+  const logged = JSON.stringify(log.mock.calls);
+  expect(logged).toContain("403");
+  expect(logged).toContain("APIKey_InsufficientPermissions");
+  expect(logged).not.toContain("secret-service-key");
+  expect(logged).not.toContain("secret-provider-detail");
+  log.mockRestore();
+});
+it("answers an app without an administrator configuration as a client error", async () => {
+  const linked = await call("/api/integrations/connections/link", "POST", { toolkit: "asana" });
+  expect(linked.status).toBe(409);
+  expect(await linked.json()).toEqual({ error: "This app needs administrator setup before you can connect it." });
+});
+
+it("lists neither disconnected accounts nor unfinished tries for an app that is connected", async () => {
+  extraAccounts = [
+    { ...account(), id: "abandoned-try", status: "INITIATED" },
+    { ...account(), id: "slack-try", toolkit: { slug: "slack" }, status: "INITIATED" },
+  ];
+  const listed = async () =>
+    ((await (await call("/api/integrations/connections")).json()).items as { toolkit: string; status: string }[])
+      .map(({ toolkit, status }) => `${toolkit}:${status}`);
+  // An unfinished try still shows while it is the only account for its app.
+  expect(await listed()).toEqual(["trello:ACTIVE", "slack:INITIATED"]);
+  expect((await call("/api/integrations/connections/" + localId + "/revoke", "POST", {})).status).toBe(200);
+  // The provider keeps returning the disconnected account; Nest no longer lists it.
+  expect(await listed()).toEqual(["trello:INITIATED", "slack:INITIATED"]);
+});
+const actionLines = async (channelId: string) =>
+  ((await (await call("/api/events?channelId=" + encodeURIComponent(channelId) + "&limit=200")).json()) as any[])
+    .filter((event) => event.type === "telemetry.nest.connection.action");
+const executeIn = (h: Record<string, string>, channelId?: string) =>
+  call(
+    "/api/integrations/skill/execute",
+    "POST",
+    { connectionId: localId, tool: "TRELLO_GET_BOARDS", arguments: { board: "private-argument" } },
+    channelId ? { ...h, "x-nest-channel-id": channelId } : h,
+  );
+it("posts one line for a change in the agent's chat", async () => {
+  const h = await enable();
+  toolTags = ["createHint", "openWorldHint"];
+  const response = await executeIn(h, channel);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ data: { boards: ["private-result"] } });
+  const lines = await actionLines(channel);
+  expect(lines).toHaveLength(1);
+  expect(lines[0]).toMatchObject({ source: "system:nest-connections", status: "DELIVERED", channelId: channel });
+  expect(lines[0].payload).toEqual({
+    agentName: "PuffOwner", connectionId: localId, app: "trello", tool: "TRELLO_GET_BOARDS",
+    title: "Get boards", change: "create", outcome: "ok", requestId: expect.any(String),
+  });
+  expect(JSON.stringify(lines[0])).not.toMatch(/private-argument|private-result/);
+});
+it("classifies delete over update over create", () => {
+  expect(actionChange(["createHint", "updateHint", "destructiveHint"])).toBe("delete");
+  expect(actionChange(["createHint", "updateHint"])).toBe("update");
+  expect(actionChange(["createHint"])).toBe("create");
+  expect(actionChange(["readOnlyHint", "createHint"])).toBe("read");
+  expect(actionChange(["readOnlyHint"])).toBe("read");
+  expect(actionChange([])).toBe("other");
+});
+it("records reads and untagged tools for the working ring", async () => {
+  const h = await enable();
+  expect((await executeIn(h, channel)).status).toBe(200);
+  toolTags = [];
+  expect((await executeIn(h, channel)).status).toBe(200);
+  const recorded = await actionLines(channel);
+  expect(recorded.map((line) => line.payload.change)).toEqual(["read", "other"]);
+  expect(Object.keys(recorded[0].payload).sort()).toEqual(["agentName", "app", "change", "connectionId", "outcome", "requestId", "title", "tool"]);
+  expect(JSON.stringify(recorded)).not.toMatch(/private-argument|private-result/);
+});
+it("records nothing for a call without a chat", async () => {
+  const h = await enable();
+  toolTags = ["createHint"];
+  const unattributed = await executeIn(h);
+  expect(unattributed.status).toBe(200);
+  expect(await unattributed.json()).toEqual({ data: { boards: ["private-result"] } });
+  expect(await actionLines(channel)).toHaveLength(0);
+});
+it("posts no line into a chat the agent is not in, an archived chat or an unknown chat", async () => {
+  const h = await enable();
+  toolTags = ["readOnlyHint"]; // reads follow the same chat checks as changes
+  const other = (await (await call("/api/channels", "POST", { name: "other", visibility: "PRIVATE" })).json()).id;
+  const archived = (await (await call("/api/channels", "POST", { name: "archived", visibility: "PRIVATE" })).json()).id;
+  expect((await call("/api/channels/" + archived + "/subscribe", "POST", { subscriberType: "AGENT", subscriberId: "PuffOwner" })).ok).toBe(true);
+  expect((await call("/api/channels/" + archived + "/archive", "POST", {})).ok).toBe(true);
+  for (const target of [other, archived, "no-such-channel"]) expect((await executeIn(h, target)).status).toBe(200);
+  expect(executionCount).toBe(3);
+  for (const target of [channel, other, archived]) expect(await actionLines(target)).toHaveLength(0);
+  const rejected = (product.store.db.prepare("SELECT payload_json FROM product_audit WHERE type='audit.connection.tool.line_rejected'").all() as { payload_json: string }[])
+    .map((row) => JSON.parse(row.payload_json).reason);
+  expect(rejected).toEqual(["not_participant", "archived", "missing"]);
+});
+it("marks provider refusals as failed and lost responses as unknown", async () => {
+  const h = await enable();
+  toolTags = ["updateHint"];
+  failExecute = true; failStatus = 422;
+  expect((await executeIn(h, channel)).status).toBe(502);
+  // A provider-side 5xx or timeout may have run the change: never shown as a plain failure.
+  failStatus = 504;
+  expect((await executeIn(h, channel)).status).toBe(502);
+  failExecute = false; providerSaysNo = true;
+  const refused = await executeIn(h, channel);
+  expect(refused.status).toBe(200);
+  expect((await refused.json()).successful).toBe(false);
+  providerSaysNo = false; providerThrows = true;
+  expect((await executeIn(h, channel)).status).toBe(502);
+  expect((await actionLines(channel)).map((line) => line.payload.outcome)).toEqual(["failed", "unknown", "failed", "unknown"]);
+});
+it("returns the tool result even when the line cannot be posted", async () => {
+  const h = await enable();
+  toolTags = ["destructiveHint"];
+  engineDown = true;
+  const response = await executeIn(h, channel);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ data: { boards: ["private-result"] } });
+  engineDown = false;
+  expect(await actionLines(channel)).toHaveLength(0);
 });

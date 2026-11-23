@@ -543,6 +543,209 @@ Deferred:
 
 Remaining gap: CI does not yet run `npm run test:ui:chat-next`.
 
+## Switchyard canvas — Phase 1 implemented for review
+
+A board for laying out chats: each chat is a card, cards sit in rounded areas, and
+each card shows who is in the chat and how its agents are doing (working, quiet for
+N min, stopped, done, files and last activity). People can draw, rename, move and
+resize areas, place chats from the Loose chats pile, start a chat from the bottom
+box, open a chat in focus or split screen, add or remove agents by dragging, Nudge a
+quiet agent, search with Ctrl/Cmd+K, see what needs them, and switch, share and
+delete canvases. Shared canvases stay in sync by refreshing every 5 seconds.
+Teammates who are not in a chat see a locked "Private chat" card. Phones first got a list
+with Areas, Needs you and Loose chats; they now get the canvas, with a List toggle. Light and dark
+themes keep card text at 4.5:1 contrast or more.
+
+It is off unless `NEST_ENABLE_CANVAS=1` is set. Nest stores only the layout
+(migration `011_canvases.sql`); chats, people, agents and files stay in OrgOps, and
+no engine change was needed. Design:
+[Switchyard canvas design](superpowers/specs/2026-11-08-switchyard-canvas-design.md).
+Plan: [Phase 1 plan](superpowers/plans/2026-11-08-switchyard-canvas-phase1.md).
+Behaviour and routes: [SPEC.md, Switchyard canvas](SPEC.md#switchyard-canvas-phase-1).
+CI runs `npm run test:ui:canvas` (desktop, tablet and phone, with a 150-card,
+30-agent scale check). Pull request: to be added by the operator. Not deployed.
+
+Deferred to later phases, as the design sets out: links between chats, forks,
+schedules and triggers (these arrived with Phase 3), per-chat agent setup,
+sandboxes and repos. Needs you covered unread mentions and tasks waiting for review
+only; approvals and missed runs have since arrived with Phase 3, and picks arrive
+with Phase 4. Inviting agents
+on the canvas first worked by drag only; drag labels and an Add agent picker have
+since arrived (see Phase 2 below). Moving cards and areas by keyboard has also
+arrived: an editor's focused card or area moves with the arrow keys (8 px, 40 with
+Shift), stored once per burst like a drop. Ctrl/Cmd+K now always finds archived loose
+chats, labelled Archived and listed after other matches.
+
+## Switchyard canvas — Phase 2 implemented on the branch
+
+Areas and canvases hold notes, files and links to other areas' context, which agents
+in the chats homed there read on demand through the `nest-context` skill. Files
+dropped on a card go into that chat's reply box, voice notes can be recorded and
+transcribed, and cards and chats show which apps agents used and whether each use
+read or changed something outside Nest. Still behind `NEST_ENABLE_CANVAS=1`; Nest
+stores context in migration `012_canvas_context.sql` and its files under
+`.nest-product/context-files`. Behaviour and routes:
+[SPEC.md, Switchyard canvas (Phase 2)](SPEC.md#switchyard-canvas-phase-2). Plan:
+[Phase 2 plan](superpowers/plans/2026-11-09-switchyard-canvas-phase2.md). Implemented
+on `feat/switchyard-canvas`; not yet deployed. App counts cover the loaded history
+only, and Codex and Claude Code agents neither read context nor show app use.
+
+The canvas was then reworked to match the design mockup
+(`switchyard-nest-vision.html`).
+
+- **Areas:** each area header has a context chip with counts, which opens an
+  anchored popover. Areas also show a file shelf and a "Used by" footer.
+- **Cards:** cards show a row per participant, with the needs-you reason as a pill.
+- **Chats:**
+  - A chat opens in place over its card.
+  - App calls read as timeline lines.
+  - Agents can be pinned to the tray; pins are stored per person in migration
+    `013`.
+  - Loose chats open in a left drawer from the top bar.
+  - New chat buttons: the toolbar's Chat and each area's `+ Chat`.
+  - Rename a chat from its window title (owner only).
+- **Context:** paste links and files into the context popover, which has a Links
+  section; agents read the links through `nest-context`.
+
+Done since, in the 2026-11-19 overnight batch (local, not pushed or deployed):
+
+- A flat 1.5 px area-tinted card border replaces the 4 px top stripe.
+- The legend (working, waiting on you, gone quiet, plus the tray hint), the summary
+  line (`N chats · X moving · Y quiet`) and share avatars (up to three initials then
+  `+N`; membership, not live presence).
+- Drag labels ("Invite Moss to …") and an Add agent picker in the chat's More menu.
+- The Apps here chips filter an open chat's timeline to one app.
+- Chat naming and hand-off summaries fall back to the Switchyard agent's provider keys
+  when no naming or management agent is configured. Jobs that already failed are not
+  re-run.
+
+Smaller differences from the mockup are left as follow-ups:
+
+- **Areas:**
+  - organic area shapes
+  - link chips use the mockup's glyphs and fly the camera to both areas
+  - rename by double-click instead of the ⋯ menu
+  - the drag hint reads "Place in {area} · shares its context"
+- **Context popover:**
+  - a `Context · {title}` heading and explainer
+  - a `Done` footer
+- **Cards:**
+  - compact last activity (`2m`) in the title row
+  - an app-logo row under the title
+  - sleepy styling for quiet agents (`z z`)
+  - the mockup's compact far-zoom card
+- **Chats:**
+  - changes outside Nest are emphasised in coral
+  - a single bottom-centre toast for notices, with "Moved into {area}" wording
+  - an icon-only mic with a pulsing recording state
+- **Agents:**
+  - a hint when the Pinned tray is empty
+- **Top bar:**
+  - a floating top-bar pill holding New area, Loose chats, Scheduled and Search
+  - Needs you cycles through chats
+  - live presence on the share pill (Nest has no presence signal)
+
+## Switchyard canvas — Phase 3 implemented on the branch
+
+Flows between chats, still behind `NEST_ENABLE_CANVAS=1`:
+
+- **Links** hand one chat's results, a summary or the whole conversation to another
+  chat, when an agent finishes, after the creator's OK, or on Send now. They are
+  drawn as lines with labels and a Hand-off popover, and made by dragging a card's
+  `+` port, from the chat picker, or as a new step.
+- **Forks** start a new chat from any message, seeded with a summary, with findings
+  flowing back to the parent.
+- **Schedules** run an agent in a chat once, daily, on weekdays, weekly, monthly or
+  every few minutes, in the creator's time zone. They are set from the open chat's
+  clock or typed in the bottom box (`every Monday at 9 …`). Missed runs show in Needs
+  you with Run now.
+- **Webhooks** run an agent when `POST /api/hooks/<token>` is called. The token is
+  stored as a hash, shown once and can be rotated; bodies are limited to 64 KiB and
+  calls to 30 a minute per process.
+- Approvals, paused links and schedules, and missed runs join Needs you and the open
+  chat's Where it stands.
+
+Background posts come from a stopped engine agent, `Switchyard`
+(`NEST_SWITCHYARD_AGENT_NAME`), that Nest posts as with its service token; no engine
+change was needed. Nest stores flows in migrations `014_links_forks.sql`,
+`015_schedules.sql` and `016_triggers.sql`, so deployments must snapshot both
+databases. Plan:
+[Phase 3 plan](superpowers/plans/2026-11-11-switchyard-canvas-phase3.md). Behaviour,
+routes, thresholds and the deliberate differences from the mockup:
+[SPEC.md, Switchyard canvas (Phase 3)](SPEC.md#switchyard-canvas-phase-3).
+Implemented on `feat/switchyard-canvas`; not pushed or deployed.
+
+Done in the overnight batch (local, not pushed or deployed):
+
+- Team and viewer-share access in flows follows the engine: post is the owner, a
+  human subscription or a team subscription the creator belongs to; read adds public
+  chats and viewer shares. Forking needs post access to the parent.
+- App-event triggers through Composio. The operator sets
+  `NEST_COMPOSIO_WEBHOOK_SECRET` from the Composio project's webhook subscription
+  and the install needs a public origin for events to arrive; the kind is offered
+  only then. Nest never changes the Composio subscription itself.
+
+Follow-ups:
+
+- Engine recurrence (upstream proposal U3), as an optional simplification of Nest
+  booking one run at a time.
+- Fork history (upstream proposal U6), so a fork can carry its parent's history
+  rather than a seeded summary.
+- Re-running naming jobs that failed before the Switchyard fallback.
+- Chat id in native agent shells: done upstream (OrgOps #103, in 0.0.91, adopted on
+  this branch). Native agents' connected-app calls now produce action lines; the
+  working ring's command fallback stays for older history.
+- Reasoning effort per agent: OrgOps 0.0.91 stores an optional
+  `openai_compatible_reasoning_effort` per agent and sends it to OpenAI-compatible
+  hosts (this install's default model is one). Nest's agent settings do not offer it
+  yet; the engine admin UI does.
+- A CI run of the canvas browser suite (including the rewritten phone scenarios) and
+  a check on a real phone. The phone canvas itself is implemented on the branch: at
+  760 px and below it shows with pinch and pan, without the legend or zoom buttons,
+  with a `List` toggle remembered per browser; the `+` port is hidden there.
+
+## Switchyard canvas — Phase 5 candidates (from the original Switchyard canvas)
+
+Building blocks from the original Switchyard canvas prototype (`Switchyard Canvas.html`,
+kept outside the repo), mapped to Nest, where the chat is the unit. Each item is
+unordered; the owner picks the next one. Phase 4 (per-chat agent setup, sandboxes and
+repos; see the canvas design) is unchanged.
+
+Done on the branch:
+
+- **Start a chat by dropping an agent:** dropping a tray agent on empty canvas creates
+  a chat with that agent there (inside an area, it joins the area and its context)
+  and opens it, like `+ Chat`.
+- **Open files in place:** a plain click on a file tile (cards, messages, area shelves,
+  context popover) opens a viewer: images zoom, audio and voice notes play, video
+  plays, PDFs show, text and CSV display; anything else offers Download.
+
+Candidates:
+
+- **Agent templates in the tray** (original: agent library with harness, skills, skill
+  packs and subagents): "Claude Code + superpowers", "Reviewer", "Researcher"… create a
+  real agent with that setup. Overlaps Phase 4's per-chat skill packs.
+- **Result strip on a card** (original: task block with run log and output card, e.g.
+  "Triage summary · 23 tickets · 2 escalated"): pin a chat's deliverable to its card.
+  Nest already has projects, tasks and reviews in the product DB. Needs design.
+- **Voice note transcripts** (original: voice input with waveform and transcript): a
+  transcript under the voice-note player, from a speech model. Needs a provider choice.
+- **Text in images** (original: image input with OCR chips): read the text in an image
+  file on the canvas, through the agent or a vision model.
+- **App feeds on an area** (original: Gmail, Slack, Linear, GitHub… input blocks with
+  their newest items): a connected app as an area source its agents use, showing its
+  three newest items. Needs Composio reads per viewer.
+- **Webhook and schedule inputs** (original: webhook and schedule blocks): done as chat
+  triggers and App event triggers in Phase 3; a block-style view is not planned.
+- **Wires** (original: edges between inputs, tasks, agents and sandboxes): done as links
+  between chats in Phase 2.
+- **Sandbox block** (original: image, CPU, memory, network and a terminal): covered by
+  Phase 4 "Where it runs"; needs upstream U5. Showing terminal output on the canvas
+  conflicts with the working ring's rule of never showing command output, so it stays
+  inside the chat, read-only, as Phase 4 says.
+- **Repo input** (original: repository block): covered by Phase 4's repo footprint and
+  by GitHub through connected apps.
+
 ## First-visit visual orientation
 
 Implemented for review: a replayable three-step spotlight tour in the workspace
@@ -553,3 +756,12 @@ personal-agent onboarding; it does not provision an agent or require completion.
 - Project naming reliability: first-send inference moves from a browser request to
   a durable core job, with bounded retry, restart recovery and manual-edit priority.
   The existing chat-first UI and editable project details remain the entry points.
+
+## Canvas chat windows: a full chat session per window
+
+Desktop floating mode shows up to four chat windows with one message box, in the
+active window; the others are live read-only threads (see
+`docs/superpowers/specs/2026-11-19-canvas-chat-windows-design.md`). If one box
+proves limiting (drafts, attachments or a reply in progress in several chats at
+once), the follow-up is option 1 of that design: a full chat session, with its own
+composer, per window.

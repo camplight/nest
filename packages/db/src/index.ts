@@ -1,5 +1,11 @@
+import { createAgentPinStore } from './agent-pins';
 import { createAgentRequestStore } from './agent-requests';
+import { createCanvasStore } from './canvases';
+import { createCanvasContextStore } from './canvas-context';
 import { createCommunityStore } from './community';
+import { createFlowStore } from './flows';
+import { createScheduleStore } from './schedules';
+import { createContextCompactionStore } from './context-compaction';
 import Database from 'better-sqlite3';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { createProjectStore } from './projects';
@@ -22,7 +28,7 @@ export function openProductDb(path = '.nest-product/nest.sqlite') {
   db.pragma('foreign_keys = ON');
   db.exec('CREATE TABLE IF NOT EXISTS product_migrations (name TEXT PRIMARY KEY)');
   db.transaction(() => {
-    for (const name of ['001_projects', '002_project_chats', '003_community', '004_personal_agents', '005_integrations', '006_mentions', '007_agent_requests', '008_project_collaboration', '009_connection_projects', '010_project_naming']) {
+    for (const name of ['001_projects', '002_project_chats', '003_community', '004_personal_agents', '005_integrations', '006_mentions', '007_agent_requests', '008_project_collaboration', '009_connection_projects', '010_project_naming', '011_canvases', '012_canvas_context', '013_agent_pins', '014_links_forks', '015_schedules', '016_triggers', '017_context_compaction', '018_context_web_links', '019_app_triggers']) {
       if (!db.prepare('SELECT name FROM product_migrations WHERE name=?').get(name)) {
         db.exec(readFileSync(new URL(`../migrations/${name}.sql`, import.meta.url), 'utf8'));
         db.prepare('INSERT INTO product_migrations VALUES (?)').run(name);
@@ -30,6 +36,7 @@ export function openProductDb(path = '.nest-product/nest.sqlite') {
     }
   })();
   const projects = createProjectStore(db);
+  const canvases = createCanvasStore(db);
   function branding(): Branding {
     const row = db.prepare('SELECT value_json FROM product_settings WHERE key = ?').get('branding') as {value_json: string} | undefined;
     try { return row ? BrandingSchema.parse(JSON.parse(row.value_json)) : DEFAULT_BRANDING; }
@@ -43,8 +50,14 @@ export function openProductDb(path = '.nest-product/nest.sqlite') {
     })();
     return parsed;
   }
-  return { db, projects, agentRequests:createAgentRequestStore(db), community:createCommunityStore(db), branding, saveBranding, close: () => db.close() };
+  return { db, projects, canvases, agentPins:createAgentPinStore(db), canvasContext:createCanvasContextStore(db),  flows:createFlowStore(db), schedules:createScheduleStore(db), agentRequests:createAgentRequestStore(db), community:createCommunityStore(db), contextCompaction:createContextCompactionStore(db), branding, saveBranding, close: () => db.close() };
 }
 export type ProductDb = ReturnType<typeof openProductDb>;
 
+export { CanvasConflictError, CanvasForbiddenError, CanvasLimitError, type CanvasStore, type PlacedCard } from './canvases';
+export { ContextWebLinksFullError, type CanvasContextStore } from './canvas-context';
+export { type AgentPinStore } from './agent-pins';
+export { type FlowStore, type Delivery, type Fork } from './flows';
+export { type ScheduleStore, type ScheduleRecord, type AppTriggerRecord } from './schedules';
 export type { AgentRequestRow, OfferRow } from './agent-requests';
+export type { CompactionJob, ContextCompactionStore } from './context-compaction';

@@ -18,7 +18,7 @@ type AgentForm = {
   modelId: string;
   visibility: "PUBLIC" | "PRIVATE";
   mode: "CLASSIC" | "RLM_REPL" | "WRAPPED";
-  memoryContextMode: "PER_CHANNEL_CROSS_CHANNEL" | "FULL_CHANNEL_EVENTS" | "OFF";
+  memoryContextMode: "PER_CHANNEL_CROSS_CHANNEL" | "FULL_CHANNEL_EVENTS" | "FULL_CHANNEL_EVENTS_AUTO_COMPACT" | "OFF";
   emitAuditEvents: boolean;
   llmCallTimeoutMs: string;
   contextSessionGapMs: string;
@@ -1201,8 +1201,8 @@ export function AgentsScreen({
                           setForm((prev) => ({
                             ...prev,
                             memoryContextMode:
-                              mode === "FULL_CHANNEL_EVENTS"
-                                ? "FULL_CHANNEL_EVENTS"
+                              mode === "FULL_CHANNEL_EVENTS" || mode === "FULL_CHANNEL_EVENTS_AUTO_COMPACT"
+                                ? mode
                                 : mode === "OFF"
                                   ? "OFF"
                                   : "PER_CHANNEL_CROSS_CHANNEL"
@@ -1214,6 +1214,9 @@ export function AgentsScreen({
                           PER_CHANNEL_CROSS_CHANNEL
                         </option>
                         <option value="FULL_CHANNEL_EVENTS">FULL_CHANNEL_EVENTS</option>
+                        <option value="FULL_CHANNEL_EVENTS_AUTO_COMPACT">
+                          FULL_CHANNEL_EVENTS, summarized by Nest when long
+                        </option>
                         <option value="OFF">OFF</option>
                       </select>
                     </div>

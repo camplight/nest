@@ -506,7 +506,7 @@ try {
       await page.getByRole("textbox", {name:"Message",exact:true}).waitFor();
       assert.equal(await page.locator(".workspace-topbar").count(),1);
       assert.equal(await controls.getByRole("button").count(), 5);
-      await page.getByRole("button", {name:"Manage channel",exact:true}).waitFor();
+      await page.getByRole("button", {name:"Chat settings",exact:true}).waitFor();
       assert.equal(await page.locator(".sidebar .mention-inbox,.sidebar .account-actions").count(),0);
       await page.getByRole("textbox", {name:"Search channels",exact:true}).fill("unmatched-channel");
       await page.getByText('No channels match "unmatched-channel".',{exact:true}).waitFor();

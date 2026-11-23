@@ -1,0 +1,219 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
+import { CanvasConflictError, CanvasLimitError, openProductDb } from './index';
+
+let dir: string;
+let store: ReturnType<typeof openProductDb>;
+beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'nest-schedules-')); store = openProductDb(join(dir, 'product.sqlite')); });
+afterEach(() => { store.close(); rmSync(dir, { recursive: true, force: true }); });
+const mk = (channelId: string, extra: Record<string, unknown> = {}) => store.schedules.createSchedule({
+  id: randomUUID(), channelId, agent: 'Pip', prompt: 'Recap', rule: { kind: 'daily', time: '09:00' }, timezone: 'UTC',
+  createdBy: 'u', now: 1000, nextAt: 5000, ...extra,
+});
+
+describe('schedule store', () => {
+  it('applies the 015_schedules migration, with the triggers table for webhooks', () => {
+    const names = (store.db.prepare('SELECT name FROM product_migrations').all() as { name: string }[]).map(r => r.name);
+    expect(names).toContain('015_schedules');
+    expect(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='product_triggers'").get()).toBeTruthy();
+  });
+  it('creates a schedule, idempotent by id', () => {
+    const s = mk('c1');
+    expect(s).toMatchObject({ channelId: 'c1', agent: 'Pip', on: true, nextAt: 5000, pausedReason: null, version: 0, rule: { kind: 'daily', time: '09:00' } });
+    expect(store.schedules.createSchedule({ id: s.id, channelId: 'c1', agent: 'Pip', prompt: 'Recap', rule: { kind: 'daily', time: '09:00' }, timezone: 'UTC', createdBy: 'u', now: 9, nextAt: 9 })).toEqual(s);
+    expect(() => store.schedules.createSchedule({ id: s.id, channelId: 'c1', agent: 'Pom', prompt: 'Recap', rule: { kind: 'daily', time: '09:00' }, timezone: 'UTC', createdBy: 'u', now: 9, nextAt: 9 })).toThrow(CanvasConflictError);
+  });
+  it('caps schedules at 10 per chat and 100 per creator', () => {
+    for (let i = 0; i < 10; i++) mk('hub');
+    expect(() => mk('hub')).toThrow(CanvasLimitError);
+    for (let i = 0; i < 90; i++) mk(`c${i % 9}`, { createdBy: 'u' });
+    expect(() => mk('fresh')).toThrow(CanvasLimitError);
+    expect(mk('fresh', { createdBy: 'other' })).toBeTruthy();
+  });
+  it('keeps one run per (schedule, kind, due_at)', () => {
+    const s = mk('c1');
+    expect(store.schedules.insertRun({ scheduleId: s.id, dueAt: 5000, kind: 'scheduled', status: 'booked', eventId: 'e1', now: 1 })).not.toBeNull();
+    expect(store.schedules.insertRun({ scheduleId: s.id, dueAt: 5000, kind: 'scheduled', status: 'missed', now: 2 })).toBeNull();
+    expect(store.schedules.insertRun({ scheduleId: s.id, dueAt: 5000, kind: 'manual', status: 'booked', now: 3 })).not.toBeNull();
+  });
+  it('removes the runs with their schedule', () => {
+    const s = mk('c1');
+    store.schedules.insertRun({ scheduleId: s.id, dueAt: 5000, kind: 'scheduled', status: 'missed', reason: 'agent stopped', now: 1 });
+    store.schedules.removeSchedule(s.id, 'u');
+    expect(store.db.prepare('SELECT COUNT(*) n FROM product_schedule_runs').get()).toEqual({ n: 0 });
+  });
+  it('books only the schedule as it was read, then moves it on', () => {
+    const s = mk('c1');
+    expect(store.schedules.unbooked().map(x => x.id)).toEqual([s.id]);
+    expect(store.schedules.markBooked(s.id, 4000, 'e0', 2)).toBe(false);
+    expect(store.schedules.markBooked(s.id, 5000, 'e1', 2)).toBe(true);
+    expect(store.schedules.markBooked(s.id, 5000, 'e2', 2)).toBe(false);
+    expect(store.schedules.schedule(s.id)?.nextEventId).toBe('e1');
+    expect(store.schedules.runsDue(5000)).toMatchObject([{ scheduleId: s.id, dueAt: 5000, eventId: 'e1', status: 'booked' }]);
+    expect(store.schedules.unbooked()).toEqual([]);
+    expect(store.schedules.bookedDue(4999)).toEqual([]);
+    expect(store.schedules.moveOn(s.id, { nextAt: 5000, eventId: 'e1' }, 9000, false)).toBe(true);
+    expect(store.schedules.schedule(s.id)).toMatchObject({ nextAt: 9000, nextEventId: null, on: true });
+  });
+  it('turns a once schedule off after its run', () => {
+    const s = mk('c1', { rule: { kind: 'once', day: 2, time: '10:00' } });
+    expect(store.schedules.moveOn(s.id, { nextAt: 5000, eventId: null }, null, true)).toBe(true);
+    expect(store.schedules.schedule(s.id)).toMatchObject({ on: false, nextAt: null, pausedReason: null });
+  });
+  it('lists the newest missed run per schedule for its creator until a later run starts', () => {
+    const s = mk('c1');
+    const old = store.schedules.insertRun({ scheduleId: s.id, dueAt: 100, kind: 'scheduled', status: 'missed', reason: 'agent stopped', now: 1 })!;
+    const newer = store.schedules.insertRun({ scheduleId: s.id, dueAt: 200, kind: 'scheduled', status: 'missed', reason: 'runner offline', now: 2 })!;
+    expect(store.schedules.missedFor('u').map(m => m.run.id)).toEqual([newer.id]);
+    expect(store.schedules.missedFor('other')).toEqual([]);
+    expect(store.schedules.supersedeMissed(s.id)).toBe(2);
+    expect(store.schedules.run(old.id)?.status).toBe('superseded');
+    expect(store.schedules.missedFor('u')).toEqual([]);
+    store.schedules.insertRun({ scheduleId: s.id, dueAt: 300, kind: 'scheduled', status: 'missed', reason: 'agent stopped', now: 3 });
+    store.schedules.insertRun({ scheduleId: s.id, dueAt: 400, kind: 'scheduled', status: 'started', now: 4 });
+    expect(store.schedules.missedFor('u')).toEqual([]);
+  });
+  it('settles a run only from the statuses given', () => {
+    const s = mk('c1');
+    const run = store.schedules.insertRun({ scheduleId: s.id, dueAt: 100, kind: 'scheduled', status: 'booked', eventId: 'e', now: 1 })!;
+    expect(store.schedules.settleRun(run.id, 'started', null, ['missed'])).toBe(false);
+    expect(store.schedules.settleRun(run.id, 'missed', 'agent stopped', ['booked'])).toBe(true);
+    expect(store.schedules.run(run.id)).toMatchObject({ status: 'missed', reason: 'agent stopped' });
+    expect(store.schedules.lastRun(s.id, 100)).toMatchObject({ id: run.id });
+    expect(store.schedules.lastRun(s.id, 99)).toBeNull();
+  });
+  it('changes settings by version and records the booking it cancelled', () => {
+    const s = mk('c1');
+    store.schedules.markBooked(s.id, 5000, 'e1', 2);
+    expect(store.schedules.unbook(s.id, 'e1', true)).toBe(true);
+    expect(store.schedules.runsDue(10_000)).toEqual([]);
+    expect(() => store.schedules.patchSchedule(s.id, { prompt: 'x' }, 7, 'u', 1)).toThrow(CanvasConflictError);
+    const p = store.schedules.patchSchedule(s.id, { prompt: 'Weekly recap', on: false }, 0, 'u', null);
+    expect(p).toMatchObject({ schedule: { prompt: 'Weekly recap', on: false, nextAt: null, version: 1 }, dropped: null });
+    expect(store.schedules.patchSchedule(s.id, { on: true }, 1, 'u', 6000).schedule).toMatchObject({ on: true, nextAt: 6000, version: 2 });
+    // Booked meanwhile: the patch reports the event it dropped, and a stale version no longer books.
+    expect(store.schedules.markBooked(s.id, 6000, 'e9', 3, 1)).toBe(false);
+    expect(store.schedules.markBooked(s.id, 6000, 'e9', 3, 2)).toBe(true);
+    expect(store.schedules.patchSchedule(s.id, { prompt: 'Again' }, 2, 'u', 6000).dropped).toBe('e9');
+    expect(store.schedules.removeSchedule(s.id, 'u')).toBeNull();
+    expect(store.schedules.schedule(s.id)).toBeNull();
+  });
+  it('lists bookings due soon and the schedules Nest paused', () => {
+    const s = mk('c1');
+    store.schedules.markBooked(s.id, 5000, 'e1', 2);
+    expect(store.schedules.bookedBetween(4000, 5000).map(x => x.id)).toEqual([s.id]);
+    expect(store.schedules.bookedBetween(5000, 6000)).toEqual([]);
+    expect(store.schedules.pausedFor('u')).toEqual([]);
+    store.schedules.pause(s.id, 'agent-left', 'system');
+    expect(store.schedules.pausedFor('u')).toEqual([expect.objectContaining({ id: s.id, pausedReason: 'agent-left' })]);
+    expect(() => store.schedules.checkLimits('c1', 'u')).not.toThrow();
+  });
+  it('pauses and resumes', () => {
+    const s = mk('c1');
+    store.schedules.pause(s.id, 'access', 'system');
+    expect(store.schedules.schedule(s.id)).toMatchObject({ on: false, pausedReason: 'access', nextAt: null, version: 1 });
+    expect(store.schedules.patchSchedule(s.id, { on: true }, 1, 'u', 7000).schedule).toMatchObject({ on: true, pausedReason: null, nextAt: 7000 });
+  });
+});
+
+describe('webhook trigger store', () => {
+  const hook = (channelId: string, extra: Record<string, unknown> = {}) => store.schedules.createTrigger({
+    id: randomUUID(), channelId, agent: 'Pip', prompt: 'Triage it', label: 'Sentry', tokenHash: randomUUID(), tokenHint: 'abcd',
+    createdBy: 'u', now: 1000, ...extra,
+  });
+  it('applies 016_triggers: a paused reason and the creator index', () => {
+    const names = (store.db.prepare('SELECT name FROM product_migrations').all() as { name: string }[]).map(r => r.name);
+    // Later migrations (017_context_compaction, …) follow it; only that it is applied matters here.
+    expect(names).toContain('016_triggers');
+    const columns = (store.db.prepare('PRAGMA table_info(product_triggers)').all() as { name: string }[]).map(c => c.name);
+    expect(columns).toEqual(expect.arrayContaining(['paused_reason', 'updated_at', 'token_hash', 'token_hint']));
+    expect(columns).not.toContain('token');
+  });
+  it('creates by hash, finds by hash only, and caps a chat at 5', () => {
+    const { trigger: t, rotated } = hook('c1', { tokenHash: 'h1' });
+    expect(rotated).toBe(false);
+    expect(t).toMatchObject({ channelId: 'c1', agent: 'Pip', label: 'Sentry', on: true, pausedReason: null, tokenHint: 'abcd', lastAt: null, version: 0 });
+    expect(store.schedules.triggerByHash('h1')?.id).toBe(t.id);
+    expect(store.schedules.triggerByHash('h2')).toBeNull();
+    for (let i = 0; i < 4; i++) hook('c1');
+    expect(() => hook('c1')).toThrow(CanvasLimitError);
+    expect(store.schedules.triggersIn(['c1']).length).toBe(5);
+  });
+  it('a retry with the same settings rotates; other settings conflict', () => {
+    const { trigger: t } = hook('c1', { tokenHash: 'h1' });
+    const again = store.schedules.createTrigger({ id: t.id, channelId: 'c1', agent: 'Pip', prompt: 'Triage it', label: 'Sentry', tokenHash: 'h2', tokenHint: 'wxyz', createdBy: 'u', now: 2000 });
+    expect(again).toMatchObject({ rotated: true, trigger: { id: t.id, tokenHint: 'wxyz', rotatedAt: 2000 } });
+    expect(store.schedules.triggerByHash('h1')).toBeNull();
+    expect(() => store.schedules.createTrigger({ id: t.id, channelId: 'c1', agent: 'Pom', prompt: 'Triage it', label: 'Sentry', tokenHash: 'h3', tokenHint: 'x', createdBy: 'u', now: 3 })).toThrow(CanvasConflictError);
+  });
+  it('rotates, patches by version, pauses with a reason, resumes and removes', () => {
+    const { trigger: t } = hook('c1', { tokenHash: 'h1' });
+    expect(store.schedules.rotateTrigger(t.id, 'h2', 'wxyz', 5000, 'u')).toMatchObject({ tokenHint: 'wxyz', rotatedAt: 5000, version: 0 });
+    expect(store.schedules.triggerByHash('h1')).toBeNull();
+    expect(store.schedules.triggerByHash('h2')?.id).toBe(t.id);
+    expect(store.schedules.patchTrigger(t.id, { label: 'GitHub' }, 0, 'u')).toMatchObject({ label: 'GitHub', version: 1 });
+    expect(() => store.schedules.patchTrigger(t.id, { on: false }, 0, 'u')).toThrow(CanvasConflictError);
+    expect(store.schedules.pausedTriggersFor('u')).toEqual([]);
+    expect(store.schedules.pauseTrigger(t.id, 'access', 'system')).toBe(true);
+    expect(store.schedules.pauseTrigger(t.id, 'access', 'system')).toBe(false);
+    expect(store.schedules.pausedTriggersFor('u')).toEqual([expect.objectContaining({ id: t.id, on: false, pausedReason: 'access', version: 2 })]);
+    expect(store.schedules.patchTrigger(t.id, { on: true }, 2, 'u')).toMatchObject({ on: true, pausedReason: null });
+    store.schedules.touchTrigger(t.id, 7000);
+    expect(store.schedules.trigger(t.id)?.lastAt).toBe(7000);
+    expect(store.schedules.removeTrigger(t.id, 'u')).toBe(true);
+    expect(store.schedules.trigger(t.id)).toBeNull();
+    const audit = (store.db.prepare("SELECT payload_json FROM product_audit WHERE type LIKE 'audit.flows.trigger-%'").all() as { payload_json: string }[]).map(r => r.payload_json).join();
+    expect(audit).not.toMatch(/h1|h2|wxyz/);
+  });
+});
+
+describe('app-event trigger store', () => {
+  const DAY = 86_400_000;
+  const appTrigger = (channelId: string, extra: Record<string, unknown> = {}) => store.schedules.createAppTrigger({
+    id: randomUUID(), channelId, agent: 'Pip', prompt: 'Summarise the commit', label: 'GitHub', app: 'github',
+    triggerSlug: 'GITHUB_COMMIT_EVENT', config: { owner: 'acme', repo: 'web' }, composioTriggerId: `ti_${randomUUID()}`,
+    connectedAccountId: 'ca_private', createdBy: 'u', now: 1000, ...extra,
+  });
+  it('applies 019_app_triggers: the kind and Composio columns, and the event table', () => {
+    const names = (store.db.prepare('SELECT name FROM product_migrations').all() as { name: string }[]).map(r => r.name);
+    expect(names).toContain('019_app_triggers');
+    const columns = (store.db.prepare('PRAGMA table_info(product_triggers)').all() as { name: string }[]).map(c => c.name);
+    expect(columns).toEqual(expect.arrayContaining(['kind', 'app_slug', 'trigger_slug', 'composio_trigger_id', 'connected_account_id', 'trigger_config_json']));
+    expect(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='product_app_trigger_events'").get()).toBeTruthy();
+    // A webhook made the old way is a webhook.
+    const { trigger } = store.schedules.createTrigger({ id: randomUUID(), channelId: 'c1', agent: 'Pip', prompt: 'x', label: 'y', tokenHash: 'h1', tokenHint: 'abcd', createdBy: 'u', now: 1 });
+    expect(trigger).toMatchObject({ kind: 'webhook', app: null, triggerSlug: null, config: null });
+  });
+  it('keeps the Composio ids out of the trigger, finds it by its Composio id only, and shares the per-chat cap', () => {
+    const t = appTrigger('c1', { composioTriggerId: 'ti_1' });
+    expect(t).toMatchObject({ kind: 'app', app: 'github', triggerSlug: 'GITHUB_COMMIT_EVENT', config: { owner: 'acme', repo: 'web' }, on: true, tokenHint: '', lastAt: null, version: 0 });
+    expect(JSON.stringify(t)).not.toMatch(/ti_1|ca_private/);
+    expect(store.schedules.appTrigger(t.id)).toMatchObject({ id: t.id, composioTriggerId: 'ti_1', connectedAccountId: 'ca_private' });
+    expect(store.schedules.triggerByComposioId('ti_1')).toMatchObject({ id: t.id, composioTriggerId: 'ti_1' });
+    expect(store.schedules.triggerByComposioId('ti_2')).toBeNull();
+    // No token hash a webhook call can produce (64 hex characters) finds it.
+    const row = store.db.prepare('SELECT token_hash FROM product_triggers WHERE id=?').get(t.id) as { token_hash: string };
+    expect(row.token_hash).not.toMatch(/^[0-9a-f]{64}$/);
+    // One Composio instance belongs to one Nest trigger.
+    expect(() => appTrigger('c2', { composioTriggerId: 'ti_1' })).toThrow(CanvasConflictError);
+    store.schedules.createTrigger({ id: randomUUID(), channelId: 'c1', agent: 'Pip', prompt: 'x', label: 'y', tokenHash: 'h1', tokenHint: 'abcd', createdBy: 'u', now: 1 });
+    for (let i = 0; i < 3; i++) appTrigger('c1');
+    expect(() => appTrigger('c1')).toThrow(CanvasLimitError);
+  });
+  it('marks an event with the delivery in one write, once, and forgets it after 7 days', () => {
+    const t = appTrigger('c1');
+    expect(store.schedules.seenAppEvent('evt_1')).toBe(false);
+    expect(store.schedules.markAppEvent(t.id, 'evt_1', 5_000)).toBe(true);
+    expect(store.schedules.seenAppEvent('evt_1')).toBe(true);
+    expect(store.schedules.trigger(t.id)?.lastAt).toBe(5_000);
+    expect(store.schedules.markAppEvent(t.id, 'evt_1', 6_000)).toBe(false);
+    expect(store.schedules.trigger(t.id)?.lastAt).toBe(5_000);
+    // A later delivery prunes events older than 7 days.
+    expect(store.schedules.markAppEvent(t.id, 'evt_2', 5_000 + 7 * DAY + 1)).toBe(true);
+    expect(store.schedules.seenAppEvent('evt_1')).toBe(false);
+    expect(store.schedules.seenAppEvent('evt_2')).toBe(true);
+  });
+});

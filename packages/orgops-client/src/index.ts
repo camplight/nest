@@ -4,6 +4,26 @@ export function defaultModelReference(id:string|undefined,models:{id:string;refe
 }
 import {agentInstructionBody, agentInstructionResponse, isAgentSettingsPath} from './agent-instructions';
 import {voiceJoinBody} from './voice-request';
+import {serviceClient} from './service';
+export {serviceClient, EngineError, EngineUnreachableError, isEngineOutage, type EngineEvent, type EngineChannel, type ServiceAgent, type ServiceClient, type ServicePost} from './service';
+
+/** Engine providers Nest offers as native agent models (the upstream LLM library supports each). */
+export const NATIVE_MODEL_PROVIDERS = ['openai','anthropic','openrouter','or','openai-compatible'] as const;
+const openRouterKeys = ['OPENROUTER_API_KEY','OPENROUTER_BASE_URL','OPENROUTER_HTTP_REFERER','OPENROUTER_APP_TITLE'];
+/**
+ * Engine secret names a provider's model calls read. `required` must all be set
+ * for a call to work; the rest are optional overrides.
+ */
+export function providerEnvKeys(providerOrReference: string): {required:string[]; keys:string[]} {
+  const provider = providerOrReference.split(':')[0];
+  if (provider === 'anthropic') return {required:['ANTHROPIC_API_KEY'], keys:['ANTHROPIC_API_KEY']};
+  if (provider === 'openrouter' || provider === 'or') return {required:['OPENROUTER_API_KEY'], keys:openRouterKeys};
+  if (provider === 'openai-compatible') {
+    const keys = ['OPENAI_COMPATIBLE_API_KEY','OPENAI_COMPATIBLE_BASE_URL'];
+    return {required:keys, keys};
+  }
+  return {required:['OPENAI_API_KEY'], keys:['OPENAI_API_KEY']};
+}
 
 export type Human = { id: string; username: string; mustChangePassword: boolean; createdAt?: number };
 const hopHeaders = ['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length'];
@@ -33,6 +53,11 @@ export function productHeaders(input: Headers): Headers {
   headers.delete('set-cookie');
   for (const cookie of input.getSetCookie()) headers.append('set-cookie', cookie.replace(/^orgops_session=/, 'nest_session='));
   return headers;
+}
+
+/** The configured naming model is not an enabled native model; lets callers categorise the failure without reading messages. */
+export class ProjectNamingModelUnavailableError extends Error {
+  constructor(){super('Project naming model unavailable');this.name='ProjectNamingModelUnavailableError';}
 }
 
 export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fetch) {
@@ -92,19 +117,20 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     return request(path, {headers, method, ...(body !== undefined ? {body:JSON.stringify(body)} : {})});
   }
   function nativeModels(rows: {id:string; provider:string; modelName:string; enabled:boolean}[]) {
-    return rows.filter(m => m.enabled && ['openai','anthropic','openrouter','or'].includes(m.provider) && m.modelName && !m.modelName.includes(':'))
+    return rows.filter(m => m.enabled && (NATIVE_MODEL_PROVIDERS as readonly string[]).includes(m.provider) && m.modelName && !m.modelName.includes(':'))
       .map(m => ({id:m.id, provider:m.provider, name:m.modelName, reference:`${m.provider}:${m.modelName}`}));
   }
   async function nativeModelReference(id: string, headers: HeadersInit) {
     const models = await humanJson<{id:string; provider:string; modelName:string; enabled:boolean}[]>('/api/models', headers);
     return defaultModelReference(id,nativeModels(models));
   }
-  async function agentModelEnv(agentName: string, serviceToken: string) {
+  /** Provider keys only, for the provider of `model` (default OpenRouter); never other agent secrets. */
+  async function agentModelEnv(agentName: string, serviceToken: string, model = 'openrouter') {
     if (!serviceToken) throw Error('Model checks are not configured');
     const response = await request('/api/secrets/env', {headers:{'x-orgops-runner-token':serviceToken,'x-orgops-agent-name':agentName}});
     if (!response.ok) throw Error('Agent provider credentials are unavailable');
     const env = await response.json() as Record<string,string>;
-    return Object.fromEntries(['OPENROUTER_API_KEY','OPENROUTER_BASE_URL','OPENROUTER_HTTP_REFERER','OPENROUTER_APP_TITLE'].map(key => [key,env[key]]));
+    return Object.fromEntries(providerEnvKeys(model).keys.map(key => [key,env[key]])) as Record<string,string|undefined>;
   }
   async function connectionContext(agentName:string, serviceToken:string) {
     if(!serviceToken)throw Error('Integration engine metadata access is not configured');
@@ -132,10 +158,9 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     return {agents,humans};
   }
   async function projectNamingEnv({token,agentName,agentId,model}:{token?:string;agentName?:string;agentId?:string;model:string}) {
-    const provider=model.split(':')[0];
-    const secret=provider==='anthropic'?'ANTHROPIC_API_KEY':['openrouter','or'].includes(provider)?'OPENROUTER_API_KEY':'OPENAI_API_KEY';
-    const keys=[secret,...(secret==='OPENROUTER_API_KEY'?['OPENROUTER_BASE_URL','OPENROUTER_HTTP_REFERER','OPENROUTER_APP_TITLE']:[])];
-    if(process.env[secret])return Object.fromEntries(keys.map(key=>[key,process.env[key]]));
+    const {required,keys}=providerEnvKeys(model);
+    // The process-env shortcut applies only when every required key is present there.
+    if(required.every(key=>process.env[key]))return Object.fromEntries(keys.map(key=>[key,process.env[key]]));
     if(!token||!agentName)throw Error('Project naming provider is unavailable');
     const headers={'x-orgops-runner-token':token};
     const agentResponse=await request(`/api/agents/${encodeURIComponent(agentName)}`,{headers});
@@ -166,7 +191,7 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
     const available=nativeModels(models??[]);
     const fast=input.preferFastModel?available.find(m=>m.reference==='openrouter:google/gemini-2.5-flash'):undefined;
     const model=fast??available.find(m=>m.id===input.modelId||m.reference===input.modelId);
-    if(!model)throw Error('Project naming model unavailable');
+    if(!model)throw new ProjectNamingModelUnavailableError();
     return {text:event.payload.text,model:model.reference};
   }
   function agentManagement(serviceToken: string, sourceAgentName?: string) {
@@ -197,8 +222,108 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
       create: (body:Record<string,unknown>) => request('/api/agents',{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(body)}),
     };
   }
-  return { request, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, agentModelEnv, connectionContext, assistantDirectory, agentManagement, projectNamingEnv, projectNamingContext, baseUrl: base.origin };
+  /** Engine calls made as Nest's service identity (the global runner token). */
+  const service = (token: string) => serviceClient(request, token);
+  /** Service access for recording connected-app activity in an agent's chat. */
+  function connectionActivity(serviceToken: string) {
+    if (!serviceToken) throw Error('Connection activity is not configured');
+    const headers = {'x-orgops-runner-token':serviceToken};
+    return {
+      async channel(id:string,signal?:AbortSignal):Promise<ActivityChannel|null> {
+        const response = await request('/api/channels?includeArchived=1',{headers,signal});
+        if (!response.ok) throw Error('Engine channels unavailable');
+        return ((await response.json()) as ActivityChannel[]).find(channel=>channel.id===id)??null;
+      },
+      async post(event:{type:string;source:string;channelId:string;status:'DELIVERED';idempotencyKey:string;payload:Record<string,unknown>},signal?:AbortSignal) {
+        const response = await request('/api/events',{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(event),signal});
+        if (!response.ok) throw Error(`Engine rejected the activity event (${response.status})`);
+      },
+    };
+  }
+  /** Service access for Nest's chat compaction through the engine's context API. */
+  function contextCompaction(serviceToken: string) {
+    if (!serviceToken) throw Error('Context compaction is not configured');
+    const headers = {'x-orgops-runner-token':serviceToken};
+    async function read<T>(path:string):Promise<T|null> {
+      const response = await request(path,{headers});
+      if (response.status === 404) return null;
+      if (!response.ok) throw Error('Engine context unavailable');
+      return response.json() as Promise<T>;
+    }
+    const events = async (query:Record<string,string|string[]>) => {
+      const params = new URLSearchParams();
+      for (const [key,value] of Object.entries(query)) for (const item of [value].flat()) params.append(key,item);
+      return (await read<CompactionEvent[]>(`/api/events?${params}`)) ?? [];
+    };
+    return {
+      /** Context-window telemetry the runner records each turn, oldest first. */
+      telemetry: (after:number, limit=500) => events({type:'telemetry.context.window.updated',after:String(after),order:'asc',limit:String(limit)}),
+      async latestTelemetryAt() {
+        return (await events({type:'telemetry.context.window.updated',order:'desc',limit:'1'}))[0]?.createdAt ?? 0;
+      },
+      agent: (name:string) => read<{id:string;name:string;mode?:string;modelId:string;memoryContextMode?:string}>(`/api/agents/${encodeURIComponent(name)}`),
+      async modelReference(modelId:string) {
+        const models = nativeModels((await read<{id:string;provider:string;modelName:string;enabled:boolean}[]>('/api/models')) ?? []);
+        return models.find(m => m.id === modelId || m.reference === modelId)?.reference ?? null;
+      },
+      /** The agent's provider keys, or this process's when the agent has none; never other secrets. */
+      async modelEnv(agentName:string, model:string) {
+        const {required,keys} = providerEnvKeys(model);
+        const env = await agentModelEnv(agentName, serviceToken, model).catch(() => ({} as Record<string,string|undefined>));
+        if (required.every(key => env[key])) return Object.fromEntries(keys.filter(key => env[key]).map(key => [key,env[key]]));
+        if (required.every(key => process.env[key])) return Object.fromEntries(keys.filter(key => process.env[key]).map(key => [key,process.env[key]]));
+        throw Error('Agent provider credentials are unavailable');
+      },
+      async subscribed(agentName:string, channelId:string) {
+        const channels = (await read<ActivityChannel[]>('/api/channels?includeArchived=1')) ?? [];
+        const channel = channels.find(item => item.id === channelId);
+        return Boolean(channel && !channel.archivedAt && channel.participants.some(p => p.subscriberType === 'AGENT' && p.subscriberId === agentName));
+      },
+      /** The latest boundary, found the same way the engine runner finds it. */
+      async boundary(agentName:string, channelId:string) {
+        const latest = (await events({channelId,typePrefix:'agent.context.',source:`agent:${agentName}`,order:'desc',limit:'10'}))
+          .filter(event => event.type === 'agent.context.compacted' || event.type === 'agent.context.cleared')
+          .sort((a,b) => b.createdAt - a.createdAt)[0];
+        if (!latest) return null;
+        const payload = (latest.payload ?? {}) as {cutoffAt?:unknown;summary?:unknown};
+        const cutoffAt = latest.type === 'agent.context.compacted' && typeof payload.cutoffAt === 'number' ? Math.floor(payload.cutoffAt) : latest.createdAt;
+        const summary = latest.type === 'agent.context.compacted' && typeof payload.summary === 'string' ? payload.summary.trim() : '';
+        return {eventId:latest.id, cutoffAt, ...(summary ? {summary} : {})};
+      },
+      /** Chat events after a time, oldest first, without the event types the runner leaves out of history. */
+      async channelEvents(channelId:string, afterExclusive:number|undefined, excludeTypePrefix:string[], {pageSize=500,maxPages=10}={}) {
+        const all:CompactionEvent[] = [];
+        let after = afterExclusive;
+        for (let pageNumber = 0; pageNumber < maxPages; pageNumber++) {
+          const page = await events({channelId,order:'asc',limit:String(pageSize),excludeTypePrefix,...(after !== undefined ? {after:String(after)} : {})});
+          for (const event of page) {
+            // Listings cut large payloads; read those events in full.
+            all.push(event.payloadTruncated ? (await read<CompactionEvent>(`/api/events/${encodeURIComponent(event.id)}`)) ?? event : event);
+          }
+          if (page.length < pageSize) return {events:all, truncated:false};
+          // Events sharing the last timestamp may continue on the next page; stop before them.
+          const last = page.at(-1)!.createdAt;
+          if (page[0]!.createdAt === last) return {events:all, truncated:true};
+          while (all.at(-1)?.createdAt === last) all.pop();
+          after = all.at(-1)!.createdAt;
+        }
+        return {events:all, truncated:true};
+      },
+      async compact(agentName:string, body:{channelId:string;summary:string;cutoffAt:number;cutoffEventId:string;reason:string;idempotencyKey:string}) {
+        const response = await request(`/api/agents/${encodeURIComponent(agentName)}/context/compact`,{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(body)});
+        if (response.status === 409) return 'stale' as const;
+        // Not subscribed, not allowed or invalid: retrying would only repeat the summary.
+        if ([400,403,404].includes(response.status)) return 'rejected' as const;
+        if (!response.ok) throw Error(`Engine rejected the compaction (${response.status})`);
+        return 'compacted' as const;
+      },
+    };
+  }
+  return { request, service, currentHuman, isOwner, humanJson, humanRequest, nativeModels, nativeModelReference, agentModelEnv, connectionContext, assistantDirectory, agentManagement, connectionActivity, contextCompaction, projectNamingEnv, projectNamingContext, baseUrl: base.origin };
 }
 export type OrgOpsClient = ReturnType<typeof createOrgOpsClient>;
+export type ActivityChannel = {id:string;archivedAt?:number|null;participants:{subscriberType:string;subscriberId:string}[]};
 
 export type ManagedEngineAgent = {agentRole?:'STANDARD'|'SYSTEM';id:string;name:string;mode:string;ownerHumanId:string|null;visibility:string;assignedRunnerId:string|null;workspacePath:string;modelId:string;description:string;systemInstructions:string;allowOutsideWorkspace:boolean;allowOwnerHumanSecrets:boolean};
+export type CompactionEvent = {id:string;type:string;source:string;channelId?:string;createdAt:number;payload:unknown;payloadTruncated?:boolean};
+export type ContextCompactionEngine = ReturnType<OrgOpsClient['contextCompaction']>;

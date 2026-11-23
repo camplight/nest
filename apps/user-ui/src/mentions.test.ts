@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {findMention,insertMention,mentionCandidates,rankMentions} from './mentions';
+import {findMention,insertMention,joiningOnSend,mentionCandidates,rankMentions,type MentionCandidate} from './mentions';
 describe('inline mention completion',()=>{
  it('opens only for a mention at the caret, outside emails, URLs, code and selections',()=>{
   expect(findMention('Hello @pff',10)).toEqual({start:6,end:10,query:'pff'});
@@ -19,6 +19,11 @@ describe('inline mention completion',()=>{
   expect(candidates).toHaveLength(3);
   expect(rankMentions(candidates,'')[0]).toMatchObject({kind:'Agent',name:'same',inConversation:true});
  });
+ it('never offers the Switchyard service agent, from the roster or the chat\'s members',()=>{
+  const candidates=mentionCandidates([{name:'Pip'},{name:'Switchyard'}],[],[{subscriberType:'AGENT',subscriberId:'Switchyard'}],'Switchyard');
+  expect(candidates.map(c=>c.name)).toEqual(['Pip']);
+  expect(mentionCandidates([{name:'Switchyard'}],[],[]).map(c=>c.name)).toEqual(['Switchyard']);
+ });
  it('inserts at the caret without losing following text, punctuation, names with spaces or email handles',()=>{
   expect(insertMention('Hi @pu, thanks',findMention('Hi @pu, thanks',6)!,'Puff')).toEqual({value:'Hi @Puff, thanks',caret:8});
   expect(insertMention('Hi @puff later',findMention('Hi @puff later',6)!,'PuffVitaliy').value).toBe('Hi @PuffVitaliy later');
@@ -34,4 +39,19 @@ it('keeps structured mentions across surrounding edits and drops edited or delet
  expect(reconcileMentions(original,original+' now',[mention])).toEqual([mention]);
  expect(reconcileMentions(original,'Ask @Research & Develop, please',[mention])).toEqual([]);
  expect(reconcileMentions(original,'Ask , please',[mention])).toEqual([]);
+});
+
+describe('joiningOnSend',()=>{
+ const candidate=(name:string,kind:'Agent'|'Person',inConversation:boolean,extra={}):MentionCandidate=>({id:kind+name,name,kind,inConversation,...extra});
+ const mention=(name:string,kind:'AGENT'|'HUMAN',start=0)=>({kind,name,start,end:start+name.length+1});
+ it('lists each picked agent or person not yet in the chat once',()=>{
+  const candidates=[candidate('Marlo','Agent',false),candidate('Pip','Agent',true),candidate('sara','Person',false)];
+  expect(joiningOnSend([mention('Marlo','AGENT'),mention('Pip','AGENT',8),mention('Marlo','AGENT',13),mention('sara','HUMAN',20)],candidates).map(c=>c.name)).toEqual(['Marlo','sara']);
+ });
+ it('matches the kind, so an agent and a person with one name stay apart',()=>{
+  expect(joiningOnSend([mention('Sam','HUMAN')],[candidate('Sam','Agent',false),candidate('Sam','Person',true)])).toEqual([]);
+ });
+ it('skips blocked candidates and names it no longer knows',()=>{
+  expect(joiningOnSend([mention('Gone','AGENT'),mention('Locked','AGENT',6)],[candidate('Locked','Agent',false,{inviteBlockedReason:'Owner only'})])).toEqual([]);
+ });
 });

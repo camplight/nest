@@ -14,7 +14,12 @@ import {
 } from "@nest/schemas";
 import type { ProductDb } from "@nest/db";
 import type { OrgOpsClient, Human } from "@nest/orgops-client";
-import type { ConnectionProvider } from "./provider";
+import {
+  AppSetupRequiredError,
+  ProviderRequestError,
+  type ConnectionProvider,
+} from "./provider";
+import { createActionLines, type ActionOutcome } from "./action-lines";
 const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 type Connection = {
@@ -67,11 +72,37 @@ export function registerIntegrationRoutes(
         "INSERT INTO product_audit(type,actor_id,payload_json,created_at) VALUES(?,?,?,?)",
       )
       .run(type, owner, JSON.stringify(payload), Date.now());
-  routes.onError((error, c) =>
-    error instanceof HTTPException
-      ? c.json({ error: error.message }, error.status)
-      : c.json({ error: "Connection service unavailable. Retry later." }, 502),
-  );
+  const lines = createActionLines({ orgops, engineToken, audit });
+  routes.onError((error, c) => {
+    if (error instanceof HTTPException)
+      return c.json({ error: error.message }, error.status);
+    if (error instanceof AppSetupRequiredError)
+      return c.json(
+        { error: "This app needs administrator setup before you can connect it." },
+        409,
+      );
+    // Status and slug only: provider messages and request details can carry private data.
+    console.error(
+      "Connection provider request failed:",
+      error instanceof ProviderRequestError
+        ? `${error.status}${error.code ? ` ${error.code}` : ""}`
+        : error.name,
+      c.req.method,
+      c.req.routePath,
+    );
+    if (
+      error instanceof ProviderRequestError &&
+      (error.status === 401 || error.status === 403)
+    )
+      return c.json(
+        {
+          error:
+            "The connection service key is missing a permission. Ask an administrator to check it.",
+        },
+        503,
+      );
+    return c.json({ error: "Connection service unavailable. Retry later." }, 502);
+  });
   routes.use(
     "*",
     (c, next) => bodyLimit({
@@ -221,7 +252,7 @@ export function registerIntegrationRoutes(
     const owner = human(c).id,
       p = service();
     const page = await p.accounts(owner, c.req.query("cursor")?.slice(0, 500));
-    const items = [];
+    const listed = [];
     for (const a of page.items) {
       if (a.subject !== p.subject(owner) || a.shared) continue;
       db.prepare(
@@ -232,13 +263,17 @@ export function registerIntegrationRoutes(
           "SELECT * FROM product_connections WHERE provider=? AND account_id=? AND owner_id=?",
         )
         .get(p.id, a.id, owner) as Connection | undefined;
-      if (r && r.subject === a.subject && r.toolkit === a.toolkit)
-        items.push({
-          id: r.id,
-          toolkit: r.toolkit,
-          status: r.revoked_at ? "REVOKED" : a.status,
-        });
+      // A disconnected account stays at the provider but is gone for the person.
+      if (r && !r.revoked_at && r.subject === a.subject && r.toolkit === a.toolkit)
+        listed.push({ id: r.id, toolkit: r.toolkit, status: a.status });
     }
+    // Unfinished sign-ins linger at the provider; once the app is connected they are noise.
+    const connected = new Set(
+      listed.filter((i) => i.status === "ACTIVE").map((i) => i.toolkit),
+    );
+    const items = listed.filter(
+      (i) => i.status === "ACTIVE" || !connected.has(i.toolkit),
+    );
     return c.json({ items, nextCursor: page.nextCursor });
   });
   routes.post("/connections/link", async (c) => {
@@ -266,9 +301,10 @@ export function registerIntegrationRoutes(
   routes.get("/connections/:id/tools", async (c) => {
     const r = connection(c.req.param("id"), human(c).id);
     await account(r);
+    const search = (c.req.query("search") ?? "").slice(0, 120);
     const page = await service().tools(
       r.toolkit,
-      (c.req.query("search") ?? "").slice(0, 120),
+      search,
       c.req.query("cursor")?.slice(0, 500),
     );
     return c.json({
@@ -278,6 +314,7 @@ export function registerIntegrationRoutes(
         description,
       })),
       nextCursor: page.nextCursor,
+      ...(!search && page.total !== undefined ? { total: page.total } : {}),
     });
   });
   routes.put("/agents/:name/grants/:id", async (c) => {
@@ -497,21 +534,75 @@ export function registerIntegrationRoutes(
     if (conn.revoked_at) fail(403, "Connection revoked");
     return conn;
   }
+  // Argument names per action, so an agent can usually call a granted action
+  // without a separate schema request. Action definitions are not per user.
+  const argumentCache = new Map<string, { at: number; args: Map<string, string> }>();
+  function argumentSummary(parameters: unknown) {
+    const schema = (parameters ?? {}) as { properties?: unknown; required?: unknown };
+    const names =
+      schema.properties && typeof schema.properties === "object"
+        ? Object.keys(schema.properties)
+        : [];
+    const required = new Set(Array.isArray(schema.required) ? schema.required : []);
+    const text = names.map((name) => (required.has(name) ? `${name}*` : name)).join(", ");
+    return text.length > 240 ? `${text.slice(0, 239)}…` : text;
+  }
+  async function toolkitArguments(toolkit: string, granted: string[]) {
+    const hit = argumentCache.get(toolkit);
+    if (hit && Date.now() - hit.at < 10 * 60_000 && granted.every((slug) => hit.args.has(slug)))
+      return hit.args;
+    const args = new Map<string, string>();
+    const remaining = new Set(granted);
+    const visited = new Set<string>();
+    let cursor: string | undefined;
+    for (let pages = 0; pages < MAX_CONNECTION_CATALOG_PAGES && remaining.size; pages++) {
+      const page = await service().tools(toolkit, "", cursor);
+      for (const tool of page.items)
+        if (tool.toolkit === toolkit) {
+          args.set(tool.slug, argumentSummary(tool.inputParameters));
+          remaining.delete(tool.slug);
+        }
+      if (!page.nextCursor || visited.has(page.nextCursor)) break;
+      visited.add(page.nextCursor);
+      cursor = page.nextCursor;
+    }
+    if (argumentCache.size >= 50 && !argumentCache.has(toolkit))
+      argumentCache.delete(argumentCache.keys().next().value!);
+    argumentCache.set(toolkit, { at: Date.now(), args });
+    return args;
+  }
   routes.get("/skill/tools", async (c) => {
     const t = await skill(c);
     const rows = db
       .prepare(
-        "SELECT connection_id,tools_json FROM product_connection_grants WHERE agent_id=? AND owner_id=?",
+        "SELECT g.connection_id,g.tools_json,c.toolkit FROM product_connection_grants g LEFT JOIN product_connections c ON c.id=g.connection_id WHERE g.agent_id=? AND g.owner_id=?",
       )
       .all(t.agent_id, t.owner_id) as {
       connection_id: string;
       tools_json: string;
+      toolkit: string | null;
     }[];
+    const connections = await Promise.all(
+      rows.map(async (r) => {
+        const tools = JSON.parse(r.tools_json) as string[];
+        // Arguments are a shortcut; the list still works when the catalog is unavailable.
+        const known = r.toolkit
+          ? await toolkitArguments(r.toolkit, tools).catch(() => undefined)
+          : undefined;
+        const args = Object.fromEntries(
+          tools.flatMap((slug) => (known?.has(slug) ? [[slug, known.get(slug)!]] : [])),
+        );
+        return {
+          connectionId: r.connection_id,
+          ...(r.toolkit ? { app: r.toolkit } : {}),
+          tools,
+          arguments: args,
+        };
+      }),
+    );
     return c.json({
-      connections: rows.map((r) => ({
-        connectionId: r.connection_id,
-        tools: JSON.parse(r.tools_json),
-      })),
+      connections,
+      help: "arguments lists each action's argument names; * marks a required one. Run schema CONNECTION TOOL for types and descriptions.",
     });
   });
   for (const action of ["schema", "execute"] as const)
@@ -541,6 +632,18 @@ export function registerIntegrationRoutes(
         connectionId: conn.id,
         tool: input.tool,
       });
+      // Recorded before answering the helper, so the line lands inside the agent's turn.
+      const line = (outcome: ActionOutcome) =>
+        lines.record({
+          channelId: c.req.header("x-nest-channel-id")?.slice(0, 200) || undefined,
+          ownerId: t.owner_id,
+          agentId: t.agent_id,
+          agentName: t.agent_name,
+          connectionId: conn.id,
+          tool,
+          outcome,
+          requestId,
+        });
       try {
         const result = await service().execute(
           a,
@@ -550,6 +653,9 @@ export function registerIntegrationRoutes(
             : {},
         );
         audit("audit.connection.tool.completed", t.owner_id, { requestId });
+        await line(
+          (result as { successful?: unknown } | null)?.successful === false ? "failed" : "ok",
+        );
         return new Response(JSON.stringify(result), {
           headers: {
             "content-type": "application/json",
@@ -558,6 +664,12 @@ export function registerIntegrationRoutes(
         });
       } catch (error) {
         audit("audit.connection.tool.failed", t.owner_id, { requestId });
+        // The provider refused (4xx) → failed. Its own 5xx or a timeout may have run the change → unknown.
+        await line(
+          error instanceof ProviderRequestError && error.status < 500 && error.status !== 408
+            ? "failed"
+            : "unknown",
+        );
         throw new HTTPException(502, {
           message:
             "Tool execution failed or its response was lost. It may have completed; verify before retrying.",

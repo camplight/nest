@@ -184,21 +184,24 @@ await runChatTest('composer parity: a held upload and a held send survive a File
 });
 
 // T10-V2: the mention picker lives with the session, so an invite in flight survives Chat -> Files -> Chat.
-await runChatTest('composer parity: a held mention invite survives a Files tab switch',async h=>{
+await runChatTest('composer parity: a held join-on-send invite survives a Files tab switch',async h=>{
   const {page}=h;
   const agent=await h.post('/api/agents',{name:'Quill',icon:'pip',visibility:'PUBLIC',modelId:'wrapped:none',workspacePath:'/private/tmp/claude-501/nest-chat-ui-synthetic-quill'});
   assert.ok(agent.ok,'the synthetic agent Quill is created');
   await page.goto(`${h.base}/?view=projects&project=${h.project.id}`);
   await textbox(page).waitFor();
   await textbox(page).fill('Synthetic invite draft');
-  const invite=h.holdNext(`/api/projects/${h.project.id}/members`);
   await textbox(page).pressSequentially(' @Qu');
   await page.getByRole('listbox',{name:'Mention people and agents'}).getByRole('option').filter({hasText:'Quill'}).click();
+  // Picking only marks Quill; the invite is sent with the message.
+  await page.getByLabel('Message recipients').getByText('Ask @Quill · joins on send').waitFor({timeout:5000});
+  assert.equal(await textbox(page).inputValue(),'Synthetic invite draft @Quill ','the picked mention is inserted at once');
+  const invite=h.holdNext(`/api/projects/${h.project.id}/members`);
+  await sendButton(page).click();
   await invite.started;
   await viaFilesTab(page);
   assert.equal(await sendButton(page).isDisabled(),true,'Send stays disabled while the invite is in flight after the tab switch');
-  assert.notEqual(await textbox(page).getAttribute('readonly'),null,'the textbox stays read-only while the invite is in flight');
   invite.release();
-  await page.getByLabel('Message recipients').getByText('Ask @Quill').waitFor({timeout:5000});
-  assert.equal(await textbox(page).inputValue(),'Synthetic invite draft @Quill ','the picked mention is inserted after the invite resolves');
+  await page.getByText('Synthetic invite draft',{exact:false}).first().waitFor({timeout:5000});
+  await page.waitForFunction(()=>(document.querySelector('textarea[aria-label="Message"]') as HTMLTextAreaElement|null)?.value==='');
 });

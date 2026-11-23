@@ -1,8 +1,11 @@
+import {rosterChange} from './chat/members';
+import { createWindowCores, type WindowCores } from "./chat/window-cores";
 import {rememberWorkspaceLoginReturn, consumeWorkspaceLoginReturn} from './workspace-login-return';
 import {canonicalWorkspaceEntry, isOnboardingEntry} from './workspace-entry';
-import {AgentNavigation, AgentWorkspaceTabs, type AgentTab} from './components/AgentNavigation';
+import {AgentNavigation, AgentWorkspaceTabs, canConnectApps, type AgentTab} from './components/AgentNavigation';
 import {conversationAgent, recentAgentChat, rememberAgentChat} from './agent-conversations';
 import {QuickTour, tourSeen, rememberTour} from './components/QuickTour';
+import {SidebarResizer, readSidebarWidth, sidebarWidthStyle} from './components/SidebarResizer';
 import {demoReturnTo, pendingDemoReturnTo, rememberDemoReturnTo, clearDemoReturnTo} from './demo-return';
 
 import {DemoArtifact} from './components/DemoArtifact';
@@ -11,9 +14,13 @@ import {createChannelEventsCore,type ChannelEventsCore} from './chat/channel-eve
 import {fetchAgentStarts} from './chat/lifecycles';
 import {useChannelEvents} from './chat/useChannelEvents';
 import {adaptiveMessageBatchSize} from './chat/history';
-import {ChatThread, type ChatThreadHandle} from './chat/ChatThread';
+import {ChatThread, type ChatFlows, type ChatThreadHandle} from './chat/ChatThread';
+import {activeTurns as workingTurns} from './chat/working';
+import {useEngineCapabilities} from './engine-capabilities';
 import {ChatComposer,ComposerSessionProvider,type ComposerSessionOptions,type ChatComposerHandle} from './chat/ChatComposer';
-import {Share2} from 'lucide-react';
+import {CanvasChatFilesBridge,mergeChatFiles,type CanvasChatFiles} from './canvas/ChatFilesBridge';
+import {ArchivedTag, ChatSettingsButton, ChatSettingsDialog} from './components/ChatSettingsDialog';
+import {keepsProjectPage} from './project-archive';
 import {HuddleButton} from './huddle/HuddleButton';
 import './huddle/huddle.css';
 import type {ChannelEventsSnapshot} from './chat/channel-events';
@@ -27,7 +34,17 @@ import type { OnboardingSummary } from "@nest/schemas";
 import {apiUrl} from './config';
 import {GoogleSignIn} from '../../nest-brand/GoogleSignIn';
 import { Community } from "./Community";
-import type { Project } from "@nest/schemas";
+import { CanvasView, type CanvasChatMode, type CanvasForks } from "./canvas/CanvasView";
+import { useFlowsEnabled, useServiceAgent } from "./canvas/useFlows";
+import { flowError, getForks } from "./canvas/flows-api";
+import { startFork, type ForkSource } from "./canvas/fork";
+import { appDropAccept } from "./components/file-drop";
+import { canvasAvailability } from "./canvas/api";
+import { usePhoneLayout } from "./canvas/PhoneList";
+import { unseenAppAgents } from "./chat/wrapped";
+import { serverClock } from "./server-clock";
+import { createCanvasLive, type CanvasLive } from "./canvas/live";
+import type { ForkView, Project } from "@nest/schemas";
 import { Projects } from "./Projects";
 import { ProjectNavigation } from "./components/ProjectNavigation";
 import { Agents } from "./Agents";
@@ -44,7 +61,8 @@ import {
   useRef,
   useState
 } from "react";
-import { apiFetch, apiJson, getApiHeaders } from "./api";
+import { apiFetch, apiJson, getApiHeaders, readableError } from "./api";
+import { addChatMember, removeChatMember, type ChatMember } from "./chat-members";
 import { wsUrl } from "./config";
 import type { Agent, AuthMe, Channel, ChannelParticipant, ChannelShare, EventRow, Team } from "./types";
 
@@ -116,7 +134,10 @@ function isTraceEvent(event: EventRow) {
     event.type === "tool.started" ||
     event.type === "tool.executed" ||
     event.type === "tool.failed" ||
-    event.type === "telemetry.context.window.updated"
+    event.type === "telemetry.context.window.updated" ||
+    event.type === "agent.turn.cancel_requested" ||
+    event.type === "agent.context.compacted" ||
+    event.type === "telemetry.nest.connection.action"
   );
 }
 
@@ -261,6 +282,7 @@ function updateChannelDeepLink(channelId: string | null, replace = false, dashbo
   url.searchParams.delete("agent"); url.searchParams.delete("skill");
   url.searchParams.delete("project");
   url.searchParams.delete("task"); url.searchParams.delete("tab"); url.searchParams.delete("create");
+  clearCanvasParams(url);
   if (channelId) {
     url.searchParams.set("channel", channelId);
   } else {
@@ -269,6 +291,16 @@ function updateChannelDeepLink(channelId: string | null, replace = false, dashbo
   }
   const method = replace ? "replaceState" : "pushState";
   window.history[method](null, "", url);
+}
+
+function clearCanvasParams(url: URL) {
+  for (const key of ["canvas", "chat", "mode"]) url.searchParams.delete(key);
+}
+
+function readCanvasChat(): { channelId: string | null; mode: CanvasChatMode | null } {
+  const url = new URL(window.location.href);
+  const channelId = url.searchParams.get("chat"), mode = url.searchParams.get("mode");
+  return channelId && (mode === "focus" || mode === "split") ? { channelId, mode } : { channelId: null, mode: null };
 }
 
 function consumeShareToken(channelId?: string | null) {
@@ -280,6 +312,9 @@ function consumeShareToken(channelId?: string | null) {
   window.history.replaceState(null, "", url);
 }
 
+// The canvas flag as the channel core reads it (scheduled runs in the chat, R20): App mirrors canvasAvailable here.
+const chatFlags = { scheduledRuns: false };
+
 function createSessionChannelEvents() {
   const limit = () =>
     adaptiveMessageBatchSize(
@@ -289,7 +324,7 @@ function createSessionChannelEvents() {
         }
       ).connection
     );
-  return createChannelEventsCore({ fetchJson: apiJson, limit, loadAgentStarts:()=>fetchAgentStarts(apiJson) });
+  return createChannelEventsCore({ fetchJson: apiJson, limit, loadAgentStarts:()=>fetchAgentStarts(apiJson), scheduledRuns:()=>chatFlags.scheduledRuns });
 }
 
 const NO_EVENTS: EventRow[] = [];
@@ -302,6 +337,7 @@ export default function App() {
   const activeChannelIdRef = useRef<string | null>(null);
   const lastSeenByChannelRef = useRef<Record<string, number>>({});
   const channelsRef = useRef<Channel[]>([]);
+  const rosterReloadsRef = useRef<Set<string>>(new Set());
   const usernameRef = useRef("");
   const userIdRef = useRef<string | null>(null);
   const viewerTeamIdsRef = useRef<Set<string>>(new Set());
@@ -315,9 +351,13 @@ export default function App() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [personalSetup, setPersonalSetup] = useState<OnboardingSummary | null>(null);
   const [creatingPersonalAgent, setCreatingPersonalAgent] = useState(() => new URL(window.location.href).searchParams.get("create") === "personal");
-  const [humans, setHumans] = useState<Array<{ username: string }>>([]);
+  const [humans, setHumans] = useState<Array<{ id?: string; username: string }>>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [channelEvents, setChannelEvents] = useState<ChannelEventsCore>(createSessionChannelEvents);
+  // Live cores for passive canvas windows; replaced with channelEvents so one session's cores never serve the next.
+  const [windowCores, setWindowCores] = useState<WindowCores>(() => createWindowCores(createSessionChannelEvents));
+  const windowCoresRef = useRef(windowCores);
+  windowCoresRef.current = windowCores;
   const channelEventsRef = useRef(channelEvents);
   channelEventsRef.current = channelEvents;
   const channelSnapshot = useChannelEvents(channelEvents);
@@ -328,14 +368,25 @@ export default function App() {
   const threadSnapshot = useMemo<ChannelEventsSnapshot>(() => channelEventsCurrent ? channelSnapshot : {
     channelId: activeChannelId, events: NO_EVENTS, detachedIds: NO_DETACHED, loading: Boolean(activeChannelId), loadingOlder: false, hasOlder: false, error: null
   }, [channelEventsCurrent, channelSnapshot, activeChannelId]);
-  const [view, setView] = useState<"dashboard" | "workspace" | "agents" | "projects" | "community">(() => readLinkedChannelId() ? "workspace" : isOnboardingEntry(new URL(window.location.href)) ? "agents" : new URL(window.location.href).searchParams.get("view") === "agents" ? "agents" : new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : "dashboard");
+  const [view, setView] = useState<"dashboard" | "workspace" | "agents" | "projects" | "community" | "canvas">(() => readLinkedChannelId() ? "workspace" : isOnboardingEntry(new URL(window.location.href)) ? "agents" : new URL(window.location.href).searchParams.get("view") === "agents" ? "agents" : new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : new URL(window.location.href).searchParams.get("view") === "canvas" ? "canvas" : "dashboard");
+  const [selectedCanvas, setSelectedCanvas] = useState<string | null>(() => new URL(window.location.href).searchParams.get("canvas"));
+  const [canvasChat, setCanvasChat] = useState(readCanvasChat);
+  // null until the product API answers; the Canvas entry shows only when it says available.
+  const [canvasAvailable, setCanvasAvailable] = useState<boolean | null>(null);
+  chatFlags.scheduledRuns = canvasAvailable === true;
   const [selectedCommunitySkill, setSelectedCommunitySkill] = useState<string|null>(()=>new URL(window.location.href).searchParams.get("skill"));
   const [projectIndex, setProjectIndex] = useState<Project[]>([]);
   const [projectTab, setProjectTab] = useState(readProjectTab);
   const chatVisibleRef = useRef(false);
-  chatVisibleRef.current = view === "workspace" || (view === "projects" && projectTab === "chat");
+  // One live card store per session; CanvasView starts and stops its refresh.
+  const canvasLiveRef = useRef<CanvasLive | null>(null);
+  canvasLiveRef.current ??= createCanvasLive({ fetchJson: apiJson, now: Date.now, clock: serverClock });
+  const canvasViewRef = useRef(false);
+  canvasViewRef.current = view === "canvas";
+  // A chat open over or beside the canvas is as visible as the workspace one: live events, seen and unread follow it.
+  chatVisibleRef.current = view === "workspace" || (view === "projects" && projectTab === "chat") || (view === "canvas" && canvasChat.mode !== null);
   const onProjectLoaded = useCallback((project: Project) => {
-    setProjectIndex(current => current.some(p => p.id === project.id && p.channelId === project.channelId && p.name === project.name && p.description === project.description) ? current : [...current.filter(p => p.id !== project.id), project]);
+    setProjectIndex(current => current.some(p => p.id === project.id && p.channelId === project.channelId && p.name === project.name && p.description === project.description && Boolean(p.archived) === Boolean(project.archived)) ? current : [...current.filter(p => p.id !== project.id), project]);
     void apiJson<Channel[]>("/api/channels?includeArchived=1").then(setChannels).catch(() => {});
   }, []);
   const [selectedProject, setSelectedProject] = useState<string | null>(() => new URL(window.location.href).searchParams.get("project"));
@@ -359,6 +410,10 @@ export default function App() {
   const [showConversationDialog, setShowConversationDialog] = useState(false);
   const [showParticipantsDialog, setShowParticipantsDialog] = useState(false);
   const [showChannelManageDialog, setShowChannelManageDialog] = useState(false);
+  const [confirmingChannelDelete, setConfirmingChannelDelete] = useState(false);
+  useEffect(() => {
+    if (!showChannelManageDialog) setConfirmingChannelDelete(false);
+  }, [showChannelManageDialog, activeChannelId]);
   const [focusedMessage,setFocusedMessage]=useState<string|null>(()=>new URL(window.location.href).searchParams.get('message'));
   const [username, setUsername] = useState("");
   const [userId, setUserId] = useState<string | null>(null);
@@ -384,10 +439,28 @@ export default function App() {
   const [shareRemovingKey, setShareRemovingKey] = useState<string | null>(null);
   const [channelVisibilityDraft, setChannelVisibilityDraft] = useState<"PUBLIC" | "PRIVATE">("PRIVATE");
   const [updatingChannelVisibility, setUpdatingChannelVisibility] = useState(false);
-  const [archiveDraft, setArchiveDraft] = useState(false);
+  const [archivingChannel, setArchivingChannel] = useState(false);
+  const [channelSettingsError, setChannelSettingsError] = useState<string | null>(null);
+  const [projectReload, setProjectReload] = useState(0);
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  // Desktop icon-only sidebar, remembered per browser (a per-viewer convenience, not product state).
+  // The canvas keeps its own setting and starts collapsed so the surface gets the room; other views start expanded.
+  const [sidebarPrefs, setSidebarPrefs] = useState(() => {
+    const read = (key: string, fallback: boolean) => { try { const v = localStorage.getItem(key); return v === null ? fallback : v === "1"; } catch { return fallback; } };
+    return {canvas: read("nest-sidebar-collapsed-canvas", true), other: read("nest-sidebar-collapsed", false)};
+  });
+  const sidebarScope = view === "canvas" ? "canvas" : "other";
+  // Phones use the slide-in menu at full width, so the icon rail is a desktop-only state.
+  const phoneLayout = usePhoneLayout();
+  const sidebarCollapsed = !phoneLayout && sidebarPrefs[sidebarScope];
+  const toggleSidebar = () => setSidebarPrefs(current => {
+    const next = !current[sidebarScope];
+    try { localStorage.setItem(sidebarScope === "canvas" ? "nest-sidebar-collapsed-canvas" : "nest-sidebar-collapsed", next ? "1" : "0"); } catch { /* storage may be unavailable */ }
+    return {...current, [sidebarScope]: next};
+  });
+  const [sidebarWidth, setSidebarWidth] = useState<number | null>(readSidebarWidth);
   const [tourOpen,setTourOpen]=useState(false);
   const tourSidebarWasOpen=useRef(false);
   function startTour(){tourSidebarWasOpen.current=mobileSidebarOpen;setMobileSidebarOpen(true);setTourOpen(true);}
@@ -483,8 +556,25 @@ export default function App() {
     void apiJson<{items:import("@nest/schemas").AssistantOffer[]}>("/api/assistants",{signal:abort.signal}).then(value=>{if(!abort.signal.aborted)setSharedAssistants(Array.isArray(value.items)?value.items:[]);}).catch(()=>{if(!abort.signal.aborted)setSharedAssistants([]);});
     return ()=>abort.abort();
   },[authenticated,activeChannelId,userId]);
+  // The Switchyard service agent (flows, behind the canvas flag) is never offered as a mention.
+  const serviceAgent = useServiceAgent(canvasAvailable === true);
+  // Forks (flows, behind the canvas flag; R20: no flows prop, so no Fork from here or fork chips, with it off). The canvas
+  // registers its own fork (placement under the parent's card); elsewhere the fork opens as its project's chat.
+  const flowsOn = useFlowsEnabled(canvasAvailable === true) && canvasAvailable === true && serviceAgent !== null;
+  const canvasForks = useRef<CanvasForks | null>(null);
+  const [forkList, setForkList] = useState<{ channelId: string; forks: ForkView[] } | null>(null);
+  const [forksRead, setForksRead] = useState(0);
+  useEffect(() => {
+    if (!flowsOn || !activeChannelId) return;
+    let live = true;
+    getForks(activeChannelId).then(forks => { if (live) setForkList({ channelId: activeChannelId, forks }); }).catch(() => {});
+    return () => { live = false; };
+  }, [flowsOn, activeChannelId, forksRead]);
+  const forkMap = useMemo(() => new Map((forkList?.channelId === activeChannelId ? forkList.forks : [])
+    .map(fork => [fork.parentEventId, { channelId: fork.childChannelId, title: fork.title }] as const)), [forkList, activeChannelId]);
+  const forking = useRef(new Set<string>());
   const mentionOptions = useMemo(() => {
-    const candidates=mentionCandidates(visibleAgents, humans, activeChannel?.participants ?? []);
+    const candidates=mentionCandidates(visibleAgents, humans, activeChannel?.participants ?? [], serviceAgent);
     for(const offer of sharedAssistants.filter(item=>!item.yours)){
       const existing=candidates.find(item=>item.kind==='Agent'&&item.name===offer.agentName);
       if(existing?.inConversation)continue;
@@ -492,7 +582,7 @@ export default function App() {
       else candidates.push({id:'ASSISTANT:'+offer.agentName,name:offer.agentName,kind:'Agent',inConversation:false,assistantOwner:offer.ownerName});
     }
     return candidates;
-  }, [visibleAgents, humans, activeChannel?.participants,sharedAssistants,userId]);
+  }, [visibleAgents, humans, activeChannel?.participants,sharedAssistants,userId,serviceAgent]);
 
   const filteredChannels = useMemo(() => {
     const query = channelQuery.trim().toLowerCase();
@@ -531,6 +621,13 @@ export default function App() {
   const isSearchingChannels = Boolean(channelQuery.trim());
   const activeChannelManageable = canManageUserChannel(activeChannel, userId);
   const activeChannelCanPost = activeChannel ? activeChannel.canPost !== false : false;
+  const wrappedParticipants = useMemo(() => unseenAppAgents(activeChannel?.participants, agents), [activeChannel?.participants, agents]);
+  // Native agent turns running in the open chat; the composer's Stop asks the engine to end them.
+  // Only engines that declare turn cancellation get a Stop button.
+  const engineCapabilities = useEngineCapabilities(authenticated);
+  const stoppableTurns = useMemo(() => activeChannelCanPost && engineCapabilities.cancelTurn
+    ? workingTurns(threadSnapshot.events, agents, threadSnapshot.agentStarts).filter(turn => !turn.wrapped && !turn.interrupted)
+    : [], [activeChannelCanPost, engineCapabilities.cancelTurn, threadSnapshot.events, threadSnapshot.agentStarts, agents]);
   const activeConversationName = activeChannel ? projectIndex.find(project => project.channelId === activeChannel.id)?.name ?? channelLabel(activeChannel, username) : "";
   const mentionProject=projectIndex.find(project=>project.channelId===activeChannelId);
   const canInviteMention=activeChannelManageable&&(!mentionProject||mentionProject.ownerId===userId);
@@ -547,16 +644,17 @@ export default function App() {
     onInvite: inviteMention,
     onAskAssistant: askAssistant,
   };
+  // Files dropped on a canvas card wait here until that chat is the active one and its draft is loaded, then queue and send themselves.
+  // CanvasChatFilesBridge (inside the composer provider) sends them; it also lends the canvas cancelRequestChanges.
+  const [chatFiles,setChatFiles]=useState<CanvasChatFiles>(null);
+  const cancelChangesRef=useRef<(()=>void)|null>(null);
   async function inviteMention(candidate:import('./mentions').MentionCandidate){
     const channelId=activeChannelId,ownerId=userId;
     if(!channelId||!ownerId||!canInviteMention||!activeChannelCanPost||activeChannel?.archivedAt||candidate.inviteBlockedReason)throw Error('Invitation unavailable');
-    const member={subscriberType:candidate.kind==='Agent'?'AGENT':'HUMAN',subscriberId:candidate.name};
-    try{
-      await apiFetch(mentionProject?`/api/projects/${encodeURIComponent(mentionProject.id)}/members`:`/api/channels/${encodeURIComponent(channelId)}/subscribe`,{method:'POST',headers:getApiHeaders(),body:JSON.stringify(member)});
-    }catch{/* Re-read membership to reconcile a response lost after subscription. */}
-    const fresh=await apiJson<Channel[]>('/api/channels?includeArchived=1');
+    const member:ChatMember={subscriberType:candidate.kind==='Agent'?'AGENT':'HUMAN',subscriberId:candidate.name};
+    const fresh=await addChatMember({channelId,projectId:mentionProject?.id??null,member,fetch:apiFetch,fetchJson:apiJson});
     const channel=fresh.find(channel=>channel.id===channelId);
-    if(!channel||channel.archivedAt||channel.canPost===false||!canManageUserChannel(channel,ownerId)||!channel.participants?.some(participant=>participant.subscriberType===member.subscriberType&&participant.subscriberId===member.subscriberId))throw Error('Invitation unconfirmed');
+    if(!channel||channel.archivedAt||channel.canPost===false||!canManageUserChannel(channel,ownerId))throw Error('Invitation unconfirmed');
     if(userIdRef.current!==ownerId)throw Error('Session changed');
     // Refresh the roster without navigating back if the user changed chats.
     setChannels(fresh);
@@ -580,7 +678,6 @@ export default function App() {
   useEffect(() => {
     if (!activeChannel) return;
     setChannelVisibilityDraft(activeChannel.visibility === "PUBLIC" ? "PUBLIC" : "PRIVATE");
-    setArchiveDraft(Boolean(activeChannel.archivedAt));
   }, [activeChannel?.id, activeChannel?.visibility, activeChannel?.archivedAt]);
 
   function selectCommunity(name:string|null) {
@@ -588,11 +685,35 @@ export default function App() {
     const url = new URL(window.location.href);
     url.searchParams.delete('message');
     for (const key of ['channel','agent','project','task','tab','create','request','assistant']) url.searchParams.delete(key);
+    clearCanvasParams(url);
     url.searchParams.set('view','community');
     url.searchParams.delete('category');
     if (name) url.searchParams.set('skill',name); else url.searchParams.delete('skill');
     window.history.pushState(null,'',url);
     setActiveChannelId(null); setView('community'); setSelectedCommunitySkill(name); setMobileSidebarOpen(false);
+  }
+
+  function selectCanvas(canvasId:string|null, opts?:{replace?:boolean}) {
+    setFocusedMessage(null);
+    const url = new URL(window.location.href);
+    for (const key of ['message','channel','agent','project','task','tab','create','request','assistant','category','skill']) url.searchParams.delete(key);
+    clearCanvasParams(url);
+    url.searchParams.set('view','canvas');
+    if (canvasId) url.searchParams.set('canvas',canvasId);
+    window.history[opts?.replace ? 'replaceState' : 'pushState'](null,'',url);
+    setActiveChannelId(null); setView('canvas'); setSelectedCanvas(canvasId); setCanvasChat({channelId:null,mode:null}); setMobileSidebarOpen(false);
+  }
+
+  /** Opens a chat over (focus) or beside (split) the canvas, or closes it with null. Like selectChannel, the session core switches to it, but the view stays the canvas. */
+  function openCanvasChat(channelId:string|null, mode:CanvasChatMode|null, opts?:{replace?:boolean}) {
+    setFocusedMessage(null);
+    const open = channelId && mode ? {channelId,mode} : {channelId:null,mode:null};
+    const url = new URL(window.location.href);
+    url.searchParams.delete('message');
+    if (open.channelId && open.mode) { url.searchParams.set('chat',open.channelId); url.searchParams.set('mode',open.mode); }
+    else { url.searchParams.delete('chat'); url.searchParams.delete('mode'); }
+    window.history[opts?.replace ? 'replaceState' : 'pushState'](null,'',url);
+    setCanvasChat(open); setActiveChannelId(open.channelId); setMobileSidebarOpen(false);
   }
 
   function selectProject(project: string | null, task: string | null = null, tab = task ? "tasks" : "chat", replace = false) {
@@ -603,6 +724,7 @@ export default function App() {
     url.searchParams.delete('request');url.searchParams.delete('assistant');
     url.searchParams.delete('category');
     url.searchParams.delete("channel"); url.searchParams.delete("agent"); url.searchParams.delete("skill");
+    clearCanvasParams(url);
     url.searchParams.set("view", "projects");
     if (project) url.searchParams.set("project", project); else url.searchParams.delete("project");
     if (task) url.searchParams.set("task", task); else url.searchParams.delete("task"); url.searchParams.delete("tab"); url.searchParams.delete("create");
@@ -622,6 +744,7 @@ export default function App() {
     url.searchParams.delete("project"); url.searchParams.delete("task"); url.searchParams.delete("tab"); url.searchParams.delete("create");
     url.searchParams.delete("skill");
     url.pathname = "/";
+    clearCanvasParams(url);
     url.searchParams.set("view", "agents");
     url.searchParams.delete("request");url.searchParams.delete("assistant");
     if(options.requests){url.searchParams.set("tab","requests");if(options.request)url.searchParams.set("request",options.request);if(options.assistant)url.searchParams.set("assistant",options.assistant);}
@@ -676,6 +799,23 @@ export default function App() {
       url.searchParams.set("message", eventId);
       window.history.replaceState(null, "", url);
     });
+  }
+
+  // Asks the engine to stop each agent still working here. A turn that just finished answers 409; nothing to report.
+  function stopTurns() {
+    const channelId = activeChannelId;
+    if (!channelId) return;
+    for (const agent of new Set(stoppableTurns.filter(turn => !turn.stopping).map(turn => turn.agent))) {
+      void apiFetch(`/api/agents/${encodeURIComponent(agent)}/turns/cancel`, {
+        method: "POST",
+        headers: getApiHeaders(),
+        body: JSON.stringify({ channelId }),
+      }).catch((reason: unknown) => {
+        if (!String(reason instanceof Error ? reason.message : reason).includes("no running turn")) {
+          setError(`Could not stop ${agent}. Try again.`);
+        }
+      });
+    }
   }
 
   async function loadSession() {
@@ -742,7 +882,7 @@ export default function App() {
       const [nextChannels, nextAgents, nextHumans, nextTeams, nextProjects, nextOnboarding] = await Promise.all([
         apiJson<Channel[]>("/api/channels?includeArchived=1"),
         apiJson<Agent[]>("/api/agents"),
-        apiJson<Array<{ username: string }>>("/api/humans").catch(() => []),
+        apiJson<Array<{ id?: string; username: string }>>("/api/humans").catch(() => []),
         apiJson<Team[]>("/api/teams/me").catch(() => []),
         apiJson<Project[]>("/api/projects"),
         apiJson<OnboardingSummary>("/api/onboarding/summary").catch(() => null)
@@ -790,8 +930,12 @@ export default function App() {
       } else if (!claimedShareChannelId && !linkedChannelId && (isOnboardingEntry(entry) || (!urlView && nextOnboarding && !nextOnboarding.setup?.completedAt && (nextOnboarding.setup || (!nextProjects.length && !nextAgents.some(a=>a.ownerHumanId===userId)))))) {
         const legacySetupLink = isOnboardingEntry(entry);
         selectAgent(nextOnboarding?.setup?.channelId ? nextOnboarding.setup.name : null, {replace:true,create:legacySetupLink && !nextOnboarding?.setup?.channelId,tab:new URL(window.location.href).searchParams.has('connected_account_id')?'connections':'settings'});
-      } else if (!claimedShareChannelId && ["agents", "projects", "community"].includes(new URL(window.location.href).searchParams.get("view") ?? "") && !linkedChannelId) {
-        setActiveChannelId(nextProjects.find(p => p.id === new URL(window.location.href).searchParams.get("project"))?.channelId ?? null); setView(new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : "agents");
+      } else if (!claimedShareChannelId && ["agents", "projects", "community", "canvas"].includes(new URL(window.location.href).searchParams.get("view") ?? "") && !linkedChannelId) {
+        setActiveChannelId(nextProjects.find(p => p.id === new URL(window.location.href).searchParams.get("project"))?.channelId ?? null); setView(new URL(window.location.href).searchParams.get("view") === "projects" ? "projects" : new URL(window.location.href).searchParams.get("view") === "community" ? "community" : new URL(window.location.href).searchParams.get("view") === "canvas" ? "canvas" : "agents");
+        // A reload restores the chat open on the canvas, if this person can still read it.
+        const canvasOpen = urlView === "canvas" ? readCanvasChat() : null;
+        if (canvasOpen?.channelId && visibleChannels.some(channel => channel.id === canvasOpen.channelId)) setActiveChannelId(canvasOpen.channelId);
+        else if (canvasOpen?.channelId) openCanvasChat(null, null, { replace: true });
       } else {
         const linkedMessage=new URL(window.location.href).searchParams.get('message');
         const project = nextProjects.find(p => p.channelId === nextActiveChannelId);
@@ -847,6 +991,23 @@ export default function App() {
     const result = await core.refresh();
     if (channelId !== activeChannelIdRef.current || core.snapshot().channelId !== channelId) return;
     markChannelSeen(channelId, result.newestMessageAt);
+    noticeRosterChanges(core.snapshot().events);
+  }
+
+  // The engine announces no joins, so member lists reload when an agent's add/remove tool succeeds or someone the chat
+  // does not list posts. Each add/remove counts once, and each new sender once per chat, so a member reached through a
+  // team never reloads on every message; several changes at once share one reload.
+  function noticeRosterChanges(events: readonly EventRow[]) {
+    let changed = false;
+    for (const event of events) {
+      const channelId = rosterChange(event, channelsRef.current);
+      if (!channelId) continue;
+      const key = event.type === "message.created" ? `${channelId}|${event.source}` : event.id;
+      if (rosterReloadsRef.current.has(key)) continue;
+      rosterReloadsRef.current.add(key);
+      changed = true;
+    }
+    if (changed) void apiJson<Channel[]>("/api/channels?includeArchived=1").then(setChannels).catch(() => {});
   }
 
   async function loadMessageNotifications(options?: { initialize?: boolean }) {
@@ -886,6 +1047,11 @@ export default function App() {
     if (!event.id) return;
     const core = channelEventsRef.current;
     core.observeLifecycle(event);
+    // A realtime tool event was created a moment ago: it reads the server's clock, in either direction.
+    if (event.type.startsWith("tool.") && event.createdAt !== undefined) serverClock.noteServerTime(event.createdAt, { fresh: true });
+    // Before the duplicate check: a status republish of a turn event still updates the card pulse.
+    if (canvasViewRef.current) canvasLiveRef.current?.ingest(event);
+    windowCoresRef.current.ingest(event);
     // Only a first sighting counts for unread and nest-message; a status republish just updates the store.
     const sighting = core.seen(event.id, event.status);
     if (sighting === "duplicate") return;
@@ -895,12 +1061,13 @@ export default function App() {
       chatVisibleRef.current &&
       Boolean(eventChannelId) &&
       eventChannelId === currentActiveId &&
-      (event.type === "message.created" || isTraceEvent(event));
+      (event.type === "message.created" || isTraceEvent(event) || (chatFlags.scheduledRuns && event.type === "agent.scheduled.trigger"));
     if (sighting === "update") {
       if (activeTimelineEvent) core.ingest(event);
       return;
     }
     if(event.type==='message.created')window.dispatchEvent(new Event('nest-message'));
+    noticeRosterChanges([event]);
     if (!eventChannelId) return;
 
     if (activeTimelineEvent) {
@@ -1047,7 +1214,10 @@ export default function App() {
           ws.send(JSON.stringify({ type: "subscribe", topic }));
         }
         void refreshChannelEvents();
+        windowCoresRef.current.refreshAll();
         void loadMessageNotifications();
+        // Events missed while disconnected: reseed the canvas cards too.
+        if (canvasViewRef.current) void canvasLiveRef.current?.refresh();
       };
       ws.onmessage = (raw) => {
         try {
@@ -1112,6 +1282,8 @@ export default function App() {
     if (!authenticated || mustChangePassword || wsConnected) return;
     const interval = window.setInterval(() => {
       void refreshChannelEvents();
+      // Passive canvas chat windows poll with the open chat, so none goes stale while the socket is down.
+      windowCoresRef.current.refreshAll();
       void loadMessageNotifications();
     }, 10000);
     return () => window.clearInterval(interval);
@@ -1120,7 +1292,8 @@ export default function App() {
   useEffect(() => {
     if (!authenticated || mustChangePassword) return;
     function handleShortcut(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      // On the canvas, Ctrl/Cmd+K is the canvas search (CanvasView), and it leaves composers alone.
+      if (view !== "canvas" && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         selectProject(null, null, "new");
       }
@@ -1130,7 +1303,25 @@ export default function App() {
     }
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
+  }, [authenticated, mustChangePassword, view]);
+
+  useEffect(() => {
+    if (!authenticated || mustChangePassword) return;
+    let current = true;
+    // A failed re-check on focus keeps the last answer, so a network blip does not close an open canvas.
+    const probe = () => void canvasAvailability().then(result => { if (current) setCanvasAvailable(result.available === true); }).catch(() => { if (current) setCanvasAvailable(previous => previous ?? false); });
+    probe();
+    window.addEventListener("focus", probe);
+    return () => { current = false; window.removeEventListener("focus", probe); };
   }, [authenticated, mustChangePassword]);
+
+  useEffect(() => {
+    if (view === "canvas" && canvasAvailable === false) selectChannel(null, { replace: true });
+  }, [view, canvasAvailable]);
+  // A chat loaded before the flag's answer reads its scheduled runs once the canvas turns out to be on.
+  useEffect(() => {
+    if (canvasAvailable === true) void refreshChannelEvents();
+  }, [canvasAvailable]);
 
   useEffect(() => {
     if (!authenticated || mustChangePassword) return;
@@ -1145,7 +1336,8 @@ export default function App() {
       setActiveChannelId(linkedChannel?.id ?? null);
       const url = new URL(window.location.href);
       setFocusedMessage(url.searchParams.get("message"));
-      setView(linkedChannel ? "workspace" : url.searchParams.get("view") === "onboarding" ? "agents" : url.searchParams.get("view") === "agents" ? "agents" : url.searchParams.get("view") === "projects" ? "projects" : url.searchParams.get("view") === "community" ? "community" : "dashboard");
+      setView(linkedChannel ? "workspace" : url.searchParams.get("view") === "onboarding" ? "agents" : url.searchParams.get("view") === "agents" ? "agents" : url.searchParams.get("view") === "projects" ? "projects" : url.searchParams.get("view") === "community" ? "community" : url.searchParams.get("view") === "canvas" ? "canvas" : "dashboard");
+      setSelectedCanvas(url.searchParams.get("canvas")); setCanvasChat(readCanvasChat());
       setSelectedAgent(url.searchParams.get("agent"));
       setAgentTab(url.searchParams.get("tab")==='connections'?'connections':'settings');
       setRequestLocation(readAgentRequestLocation());
@@ -1154,6 +1346,11 @@ export default function App() {
       setSelectedProject(url.searchParams.get("project")); setSelectedTask(url.searchParams.get("task"));
       setProjectTab(readProjectTab());
       if (!linkedChannel && url.searchParams.get("view") === "projects") setActiveChannelId(projectIndex.find(p => p.id === url.searchParams.get("project"))?.channelId ?? null);
+      // Back to the canvas reopens the chat that was open there.
+      if (!linkedChannel && url.searchParams.get("view") === "canvas") {
+        const open = readCanvasChat().channelId;
+        setActiveChannelId(channels.some(channel => channel.id === open && channelVisibleToUserUi(channel, userId, username, viewerTeamIds)) ? open : null);
+      }
       const project = projectIndex.find(p => p.channelId === linkedChannelId);
       if (project) selectProject(project.id, null, "chat", true);
     }
@@ -1200,6 +1397,9 @@ export default function App() {
     const nextChannelEvents = createSessionChannelEvents();
     channelEventsRef.current = nextChannelEvents;
     setChannelEvents(nextChannelEvents);
+    const nextWindowCores = createWindowCores(createSessionChannelEvents);
+    windowCoresRef.current = nextWindowCores;
+    setWindowCores(nextWindowCores);
     setActiveChannelId(null);
     updateChannelDeepLink(null, true);
     setChannelQuery("");
@@ -1264,9 +1464,14 @@ export default function App() {
     setSelectedConversationAgents((current) => current.filter((name) => name !== agentName));
   }
 
-  async function refreshChannels(nextActiveChannelId?: string | null) {
+  /** `select: false` only updates the lists, leaving the current view and selection alone (the canvas uses it). */
+  async function refreshChannels(nextActiveChannelId?: string | null, options: { select?: boolean } = {}) {
     const nextChannels = await apiJson<Channel[]>("/api/channels?includeArchived=1");
     setChannels(nextChannels);
+    if (options.select === false) return nextChannels;
+    // Over the canvas, a refresh keeps the open chat in place; one that goes away (archived, left) just closes.
+    if (view === "canvas" && canvasChat.channelId && (nextActiveChannelId === undefined || nextActiveChannelId === canvasChat.channelId)) return nextChannels;
+    if (view === "canvas" && canvasChat.channelId && nextActiveChannelId === null) { openCanvasChat(null, null, { replace: true }); return nextChannels; }
     const visibleChannels = nextChannels.filter((channel) =>
       channelVisibleToUserUi(channel, userId, username, viewerTeamIds)
     );
@@ -1277,7 +1482,8 @@ export default function App() {
             visibleChannels.some((channel) => channel.id === activeChannelId && !channel.archivedAt)
           ? activeChannelId
           : visibleChannels.find((channel) => !channel.archivedAt)?.id ?? null;
-    if (view === "projects" && projectIndex.some(project => project.id === selectedProject && project.channelId === nextSelectedChannelId) && visibleChannels.some(channel => channel.id === nextSelectedChannelId && !channel.archivedAt)) {
+    // A listed project keeps its page when its chat is archived: it shows there tagged Archived.
+    if (view === "projects" && keepsProjectPage({selectedProject, channelId: nextSelectedChannelId, projects: projectIndex, channels: visibleChannels})) {
       setActiveChannelId(nextSelectedChannelId);
     } else selectChannel(nextSelectedChannelId, { replace: true });
     return nextChannels;
@@ -1337,7 +1543,7 @@ export default function App() {
           // This empty channel was created by this action. Do not leave a successful-looking
           // conversation without its requested participants, or duplicate it on retry.
           try { await apiFetch(`/api/channels/${encodeURIComponent(created.id)}`,{method:'DELETE'}); }
-          catch { await refreshChannels(created.id);throw Error('The chat was created, but participants could not be added. Use Manage channel to finish setup.'); }
+          catch { await refreshChannels(created.id);throw Error('The chat was created, but participants could not be added. Use Settings to finish setup.'); }
           throw Error('Could not add the participants. No new chat was kept; try again.');
         }
         setCollapsedChannelGroups((current) => ({ ...current, channels: false }));
@@ -1362,14 +1568,20 @@ export default function App() {
   }
 
   async function handleDeleteChannel(channel: Channel) {
-    if (!window.confirm(`Permanently delete ${channelLabel(channel, username)}?`)) return;
     setError(null);
+    setChannelSettingsError(null);
     setLoading(true);
     try {
       await apiFetch(`/api/channels/${encodeURIComponent(channel.id)}`, { method: "DELETE" });
+      setShowChannelManageDialog(false);
+      // A deleted project chat leaves its project unavailable: go back to the Projects list instead of an error.
+      if (projectIndex.some(project => project.channelId === channel.id)) {
+        setProjectIndex(await apiJson<Project[]>("/api/projects"));
+        if (view === "projects") { selectProject(null); await refreshChannels(undefined, { select: false }); return; }
+      }
       await refreshChannels(activeChannelId === channel.id ? null : undefined);
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Unable to delete channel");
+      setChannelSettingsError(readableError(deleteError, "Unable to delete the chat"));
     } finally {
       setLoading(false);
     }
@@ -1388,20 +1600,39 @@ export default function App() {
           body: JSON.stringify({ visibility: channelVisibilityDraft })
         });
       }
-      const currentlyArchived = Boolean(activeChannel.archivedAt);
-      if (archiveDraft !== currentlyArchived) {
-        await apiFetch(
-          `/api/channels/${encodeURIComponent(activeChannel.id)}/${archiveDraft ? "archive" : "unarchive"}`,
-          { method: "POST" }
-        );
-        if (archiveDraft) setShowArchivedChannels(true);
-      }
       await refreshChannels(activeChannel.id);
       setShowChannelManageDialog(false);
     } catch (updateError) {
-      setError(updateError instanceof Error ? updateError.message : "Unable to update channel settings");
+      setChannelSettingsError(readableError(updateError, "Unable to save chat settings"));
     } finally {
       setUpdatingChannelVisibility(false);
+    }
+  }
+
+  /**
+   * Archive acts at once: the engine archives the chat for everyone (Nest pauses its hand-offs), or unarchives it.
+   * Returns what went wrong, also shown in Chat settings when it is open, else in the page notice.
+   */
+  async function setChannelArchived(channel: Pick<Channel, "id">, archived: boolean): Promise<string | null> {
+    setArchivingChannel(true);
+    setError(null);
+    setChannelSettingsError(null);
+    try {
+      await apiFetch(`/api/channels/${encodeURIComponent(channel.id)}/${archived ? "archive" : "unarchive"}`, { method: "POST" });
+      if (archived) setShowArchivedChannels(true);
+      // A project chat's project stays listed, now tagged (or no longer tagged) archived.
+      if (projectIndex.some(project => project.channelId === channel.id)) {
+        setProjectIndex(await apiJson<Project[]>("/api/projects"));
+        setProjectReload(n => n + 1);
+      }
+      await refreshChannels(channel.id);
+      return null;
+    } catch (archiveError) {
+      const message = readableError(archiveError, archived ? "Unable to archive the chat" : "Unable to unarchive the chat");
+      if (showChannelManageDialog) setChannelSettingsError(message); else setError(message);
+      return message;
+    } finally {
+      setArchivingChannel(false);
     }
   }
 
@@ -1434,13 +1665,11 @@ export default function App() {
     setParticipantRemovingKey(participantKey);
     setError(null);
     try {
-      await apiFetch(`/api/channels/${encodeURIComponent(activeChannelId)}/unsubscribe`, {
-        method: "POST",
-        headers: getApiHeaders(),
-        body: JSON.stringify({
-          subscriberType: participant.subscriberType,
-          subscriberId: participant.subscriberId
-        })
+      await removeChatMember({
+        channelId: activeChannelId,
+        member: participant,
+        fetch: apiFetch,
+        fetchJson: apiJson
       });
       await refreshChannels(activeChannelId);
     } catch (removeError) {
@@ -1624,8 +1853,34 @@ export default function App() {
     );
   }
 
+  /** A fork outside the canvas: made, then opened as its project's chat. */
+  async function forkOutsideCanvas(source: ForkSource, parentChannelId: string) {
+    try {
+      const fork = await startFork({ ownerId: userId ?? "", parentChannelId, source });
+      setProjectIndex(await apiJson<Project[]>("/api/projects"));
+      await refreshChannels(undefined, { select: false });
+      selectProject(fork.projectId, null, "chat");
+    } catch (failure) { setError(flowError(failure, "Could not fork this chat. Try again.")); }
+  }
+  const chatFlows: ChatFlows | undefined = flowsOn && serviceAgent && activeChannelId ? {
+    serviceAgent, forks: forkMap,
+    onFork: item => {
+      const key = item.meta.eventId;
+      // One fork per message at a time: a second press while it is made does nothing.
+      if (forking.current.has(key)) return;
+      forking.current.add(key);
+      const source: ForkSource = { eventId: key, text: item.text, author: item.meta.authorName, authorKind: item.meta.authorKind };
+      const canvas = view === "canvas" ? canvasForks.current : null;
+      const run: Promise<unknown> = canvas ? canvas.fork(source, activeChannelId) : forkOutsideCanvas(source, activeChannelId);
+      void run.finally(() => { forking.current.delete(key); setForksRead(n => n + 1); });
+    },
+    onOpenChat: channelId => {
+      const canvas = view === "canvas" ? canvasForks.current : null;
+      if (canvas) canvas.open(channelId); else selectChannel(channelId);
+    },
+  } : undefined;
   const chatWorkspace = <section className={`workspace${view === "workspace" ? " standalone-workspace" : ""}`}>
-        <ChatFileDrop scope={`${userId??''}:${activeChannelId??''}`} onFiles={files=>composerRef.current?.enqueueFiles(files)} disabledReason={!activeChannel?'Choose a conversation before attaching files.':activeChannel.archivedAt?'Restore this conversation before attaching files.':!activeChannelCanPost?'This conversation is read-only.':sending?'Wait for this message to finish sending.':undefined}/>
+        <ChatFileDrop scope={`${userId??''}:${activeChannelId??''}`} accept={appDropAccept({canvasChatMode:view==="canvas"?canvasChat.mode:null,phone:phoneLayout,chatReady:channelSnapshot.channelId===canvasChat.channelId&&!channelSnapshot.loading})} overlay={!(view==="canvas"&&canvasChat.mode!==null)} onFiles={files=>composerRef.current?.enqueueFiles(files)} disabledReason={!activeChannel?'Choose a conversation before attaching files.':activeChannel.archivedAt?'Restore this conversation before attaching files.':!activeChannelCanPost?'This conversation is read-only.':sending?'Wait for this message to finish sending.':undefined}/>
         {view === "workspace" && <WorkspaceTopbar
           onMenu={() => setMobileSidebarOpen(true)}
           search={<label className="dashboard-search"><DesignIcon name="search" /><input
@@ -1633,7 +1888,7 @@ export default function App() {
             onChange={event => setChannelQuery(event.target.value)}
           /></label>}
         />}
-        {activeChatAgent&&<AgentWorkspaceTabs name={activeChatAgent} tab="chat" onChat={()=>{}} onTab={tab=>selectAgent(activeChatAgent,{tab})}/>}
+        {activeChatAgent&&<AgentWorkspaceTabs name={activeChatAgent} tab="chat" connections={canConnectApps(agents.find(agent=>agent.name===activeChatAgent),userId)} onChat={()=>{}} onTab={tab=>selectAgent(activeChatAgent,{tab})}/>}
         <header className="workspace-header">
           <div>
             <span>Workspace</span>
@@ -1648,13 +1903,6 @@ export default function App() {
                 : activeChannel?.description || "Talk to the team and agents in plain language."}
             </p>
           </div>
-          {activeChannel && activeChannelManageable ? (
-            <div className="channel-actions">
-              <button type="button" onClick={() => setShowChannelManageDialog(true)}>
-                Manage channel
-              </button>
-            </div>
-          ) : null}
         </header>
 
         {error ? <div className="notice error" role="alert">{error}</div> : null}
@@ -1671,10 +1919,12 @@ export default function App() {
             focusedMessageId={focusedMessage}
             isConversationEmpty={isConversationEmpty}
             channelLabel={activeConversationName}
-            headerActions={activeChannel && <>
-              {activeChannelManageable && <button type="button" className="huddle-launch channel-sharing-launch" aria-haspopup="dialog" aria-expanded={showChannelManageDialog} onClick={() => setShowChannelManageDialog(true)}><Share2 size={17} aria-hidden="true"/>Sharing</button>}
-              <HuddleButton key={activeChannel.id} channel={activeChannel} label={activeConversationName} username={username} agents={agents} events={threadSnapshot.events} canPost={activeChannelCanPost}/>
-            </>}
+            wrappedAgents={wrappedParticipants}
+            appActivity={canvasAvailable === true}
+            flows={chatFlows}
+            headerMore={activeChannel && activeChannelManageable && <ChatSettingsButton open={showChannelManageDialog} onOpen={() => { setChannelSettingsError(null); setShowChannelManageDialog(true); }}/>}
+            headerStatus={activeChannel?.archivedAt && view !== "projects" ? <ArchivedTag canUnarchive={activeChannelManageable} busy={archivingChannel} onUnarchive={() => void setChannelArchived(activeChannel, false)}/> : null}
+            headerActions={activeChannel && <HuddleButton key={activeChannel.id} channel={activeChannel} label={activeConversationName} username={username} agents={agents} events={threadSnapshot.events} canPost={activeChannelCanPost}/>}
             onPreviewDemo={path => setDemoPreview({channel: activeChannelId!, path})}
             onQuote={(target, quotedText) => {composerRef.current?.setReplyTarget(target, quotedText);composerRef.current?.focus();}}
             onFocusMessage={focusMessage}
@@ -1683,6 +1933,11 @@ export default function App() {
           />
           <ChatComposer
             ref={composerRef}
+            stop={stoppableTurns.length ? {
+              agents: [...new Set(stoppableTurns.map(turn => turn.agent))],
+              stopping: stoppableTurns.every(turn => turn.stopping),
+              onStop: stopTurns,
+            } : undefined}
             conversationName={activeConversationName}
             isConversationEmpty={isConversationEmpty}
             inProject={Boolean(mentionProject)}
@@ -1692,6 +1947,7 @@ export default function App() {
             onAskAssistant={askAssistant}
             openInvite={() => setShowParticipantsDialog(true)}
             openFiles={() => { if (mentionProject) selectProject(mentionProject.id, null, "files"); }}
+            voice={canvasAvailable === true}
           />
         </section>
         {demoPreview?.channel===activeChannelId && <DemoArtifact key={demoPreview.path} path={demoPreview.path} onClose={()=>setDemoPreview(null)} editable={!!activeChannel && !activeChannel.archivedAt && activeChannelCanPost && !sending} onEdit={()=>{composerRef.current?.insertText('Please update '+new URL(demoPreview.path,window.location.origin).href+': ');composerRef.current?.focus();}}/>}
@@ -1752,7 +2008,7 @@ export default function App() {
       </aside>;
 
   return (
-    <ComposerSessionProvider options={composerOptions}><AgentAvatarChoices value={Object.fromEntries(agents.map(agent=>[agent.name, agent.icon]))}><WorkspaceHeaderProvider onTour={startTour} tourNew={!tourSeen(userId??username)} channelLabel={(id,fallback)=>projectIndex.find(project=>project.channelId===id)?.name ?? fallback} username={username} onAgents={()=>selectAgent(null)} onSignOut={()=>void handleLogout()} onMention={(channelId,eventId)=>{selectChannel(channelId);setFocusedMessage(eventId);const url=new URL(window.location.href);url.searchParams.set('message',eventId);window.history.replaceState(null,'',url);}}><main className={`app-shell product-shell ${view !== "workspace" ? "dashboard-shell" : ""}`}>
+    <ComposerSessionProvider options={composerOptions}><CanvasChatFilesBridge chatFiles={chatFiles} clear={()=>setChatFiles(null)} canvasChannelId={canvasChat.channelId} inCanvas={view==="canvas"} activeChannelId={activeChannelId} canPost={activeChannelCanPost} archived={Boolean(activeChannel?.archivedAt)} onError={setError} cancelRef={cancelChangesRef}/><AgentAvatarChoices value={Object.fromEntries(agents.map(agent=>[agent.name, agent.icon]))}><WorkspaceHeaderProvider onTour={startTour} tourNew={!tourSeen(userId??username)} channelLabel={(id,fallback)=>projectIndex.find(project=>project.channelId===id)?.name ?? fallback} username={username} onAgents={()=>selectAgent(null)} onSignOut={()=>void handleLogout()} onMention={(channelId,eventId)=>{selectChannel(channelId);setFocusedMessage(eventId);const url=new URL(window.location.href);url.searchParams.set('message',eventId);window.history.replaceState(null,'',url);}}><main className={`app-shell product-shell ${view !== "workspace" ? "dashboard-shell" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={sidebarCollapsed ? undefined : sidebarWidthStyle(sidebarWidth)}>
       <aside className={`sidebar ${mobileSidebarOpen ? "sidebar-mobile-open" : ""} ${tourOpen ? "tour-navigation" : ""}`}>
         <button
           type="button"
@@ -1761,12 +2017,18 @@ export default function App() {
         >
           Close
         </button>
-        <InstanceBrand />
+        <div className="sidebar-head">
+          <InstanceBrand />
+          <button type="button" className="sidebar-collapse-toggle" aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!sidebarCollapsed} title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={toggleSidebar}>
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{transform: sidebarCollapsed ? "rotate(180deg)" : undefined}}><path d="m10 3-5 5 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </button>
+        </div>
         <nav className="product-nav" aria-label="Main navigation">
-          <button aria-current={view === "dashboard" ? "page" : undefined} onClick={() => selectChannel(null)}><DesignIcon name="dashboard" />Dashboard</button>
-          <ProjectNavigation projects={projectIndex} currentProjectId={view === "projects" ? selectedProject : null} inProjects={view === "projects" || view === "workspace"} creating={view === "projects" && !selectedProject && projectTab === "new"} unreadCounts={unreadCounts} onBrowse={() => selectProject(null)} onSelect={id => selectProject(id)} onCreate={() => selectProject(null, null, "new")} />
-          <AgentNavigation agents={visibleAgents} chats={agentChats} activeAgent={activeChatAgent??(view==='agents'?selectedAgent:null)} activeChannelId={activeChannelId} inAgents={view==='agents'||!!activeChatAgent} busy={agentOpening} error={agentNavigationError} unread={unreadCounts} label={c=>isHumanAgentDirectChannel(c)?'First conversation':channelLabel(c,username)} onBrowse={()=>selectAgent(null)} onOpen={name=>void openAgentChat(name)} onChat={selectChannel} onNew={newAgentChat}/>
-          <button data-tour="community" aria-current={view === "community" ? "page" : undefined} onClick={()=>selectCommunity(null)}><DesignIcon name="community" />Community</button>
+          <button aria-current={view === "dashboard" ? "page" : undefined} title={sidebarCollapsed ? "Dashboard" : undefined} onClick={() => selectChannel(null)}><DesignIcon name="dashboard" /><span className="sidebar-label">Dashboard</span></button>
+          {canvasAvailable ? <button aria-current={view === "canvas" ? "page" : undefined} title={sidebarCollapsed ? "Canvas" : undefined} onClick={() => selectCanvas(null, { replace: view === "canvas" && Boolean(selectedCanvas) })}><DesignIcon name="canvas" /><span className="sidebar-label">Canvas</span></button> : null}
+          <ProjectNavigation projects={projectIndex} currentProjectId={view === "projects" ? selectedProject : null} inProjects={view === "projects" || view === "workspace"} creating={view === "projects" && !selectedProject && projectTab === "new"} unreadCounts={unreadCounts} onBrowse={() => selectProject(null)} onSelect={id => selectProject(id)} onCreate={() => selectProject(null, null, "new")} collapsed={sidebarCollapsed} />
+          <AgentNavigation agents={visibleAgents} chats={agentChats} activeAgent={activeChatAgent??(view==='agents'?selectedAgent:null)} activeChannelId={activeChannelId} inAgents={view==='agents'||!!activeChatAgent} busy={agentOpening} error={agentNavigationError} unread={unreadCounts} label={c=>isHumanAgentDirectChannel(c)?'First conversation':channelLabel(c,username)} collapsed={sidebarCollapsed} onBrowse={()=>selectAgent(null)} onOpen={name=>void openAgentChat(name)} onChat={selectChannel} onNew={newAgentChat}/>
+          <button data-tour="community" aria-current={view === "community" ? "page" : undefined} title={sidebarCollapsed ? "Community" : undefined} onClick={()=>selectCommunity(null)}><DesignIcon name="community" /><span className="sidebar-label">Community</span></button>
         </nav>
 
         {view === "workspace" && <section className="sidebar-section">
@@ -1849,6 +2111,7 @@ export default function App() {
 
         <div className="instance-sidebar-footer dashboard-attribution"><span>Powered by</span><DesignIcon name="nest-mark" /><img src={`${import.meta.env.BASE_URL}design/nest-wordmark.svg`} alt="Nest" /></div>
       </aside>
+      {sidebarCollapsed ? null : <SidebarResizer width={sidebarWidth} onChange={setSidebarWidth} />}
       {mobileSidebarOpen ? (
         <button
           type="button"
@@ -1858,8 +2121,23 @@ export default function App() {
         />
       ) : null}
 
-      {view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} /> : view === "agents" ? <Agents tab={agentTab} onTab={tab=>selectAgent(selectedAgent,{tab})} onOpenChat={name=>void openAgentChat(name)} requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
-        resumeProject={userId?projectIndex.find(p=>p.id===recentProject(userId)):undefined} channels={visibleChannels} projects={projectIndex} onProject={selectProject} unreadCounts={unreadCounts} onCommunity={selectCommunity}
+      {view === "canvas" ? (canvasAvailable ? <CanvasView canvasId={selectedCanvas} humanId={userId ?? ""} username={username} channels={visibleChannels} projects={projectIndex} agents={visibleAgents} humans={humans}
+        onSelectCanvas={selectCanvas} onMenu={() => setMobileSidebarOpen(true)}
+        chat={chatWorkspace} chatChannelId={canvasChat.channelId} chatMode={canvasChat.mode}
+        chatReady={channelSnapshot.channelId === canvasChat.channelId && !channelSnapshot.loading}
+        onOpenChat={(channelId, mode, options) => openCanvasChat(channelId, mode, { replace: options?.replace ?? channelId === canvasChat.channelId })} onCloseChat={options => openCanvasChat(null, null, options)}
+        onOpenRegular={channelId => selectChannel(channelId)} live={canvasLiveRef.current} windowCores={windowCores}
+        onChatFiles={(channelId, files, autoSend) => setChatFiles(current => mergeChatFiles(current, channelId, files, autoSend))}
+        refreshChannels={async () => {
+          // Projects first, so a new project chat shows in Loose chats under its project name.
+          setProjectIndex(await apiJson<Project[]>("/api/projects"));
+          await refreshChannels(undefined, { select: false });
+        }}
+        onChannels={setChannels}
+        changeRequests={{arm: onSent => composerRef.current?.requestChanges(onSent) ?? false, cancel: () => cancelChangesRef.current?.()}}
+        forks={canvasForks}
+      /> : null) : view === "community" ? <Community skillName={selectedCommunitySkill} onSelect={selectCommunity} onMenu={()=>setMobileSidebarOpen(true)} agents={visibleAgents}/> : view === "projects" ? <Projects participants={activeChannel?.participants ?? []} userId={userId ?? ""} existingChats={standaloneChannels.map(channel => ({id:channel.id,name:channelLabel(channel, username),archived:!!channel.archivedAt}))} onChat={selectChannel} projectId={selectedProject} taskId={selectedTask} tab={projectTab} agents={visibleAgents} onSelect={selectProject} onLoaded={onProjectLoaded} onMenu={() => setMobileSidebarOpen(true)} chat={chatWorkspace} onMembersChanged={async()=>{await refreshChannels();}} onOpenAgent={name=>selectAgent(name)} username={username} onManage={activeChannelManageable?()=>setShowChannelManageDialog(true):undefined} voice={canvasAvailable === true} onUnarchive={channelId=>setChannelArchived({id: channelId}, false)} reload={projectReload} /> : view === "agents" ? <Agents tab={agentTab} onTab={tab=>selectAgent(selectedAgent,{tab})} onOpenChat={name=>void openAgentChat(name)} requestLocation={requestLocation} setup={personalSetup} creating={creatingPersonalAgent} onCreate={()=>selectAgent(null,{create:true})} onCreated={name=>{selectAgent(name);void loadShell();}} onChat={id=>{void refreshChannels(id).then(()=>loadShell()).catch(()=>setError('Could not load the conversation. Reload to try again.'));}} agents={visibleAgents} name={selectedAgent} userId={userId} loading={loading} error={error} onSelect={selectAgent} onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()} onSaved={updated => setAgents(current => current.map(agent => agent.name === updated.name ? { ...agent, ...updated } : agent))} /> : view === "dashboard" ? <Dashboard
+        resumeProject={userId?projectIndex.find(p=>p.id===recentProject(userId)&&!p.archived):undefined} channels={visibleChannels} projects={projectIndex.filter(p=>!p.archived)} onProject={selectProject} unreadCounts={unreadCounts} onCommunity={selectCommunity}
         loading={loading} error={error} label={channel => channelLabel(channel, username)}
         onSelect={selectChannel} onCreate={() => selectProject(null, null, "new")}
         onMenu={() => setMobileSidebarOpen(true)} onRetry={() => void loadShell()}
@@ -2120,104 +2398,27 @@ export default function App() {
       ) : null}
 
       {showChannelManageDialog && activeChannel && activeChannelManageable ? (
-        <div
-          className={`dialog-backdrop${showParticipantsDialog ? " dialog-backdrop-underlay" : ""}`}
-          role="presentation"
-          onMouseDown={() => setShowChannelManageDialog(false)}
-        >
-          <section
-            aria-modal="true"
-            className="conversation-dialog participants-dialog"
-            role="dialog"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <header>
-              <div>
-                <span>Channel settings</span>
-                <h2>Manage channel</h2>
-              </div>
-              <button
-                aria-label="Close dialog"
-                className="dialog-close"
-                onClick={() => setShowChannelManageDialog(false)}
-                type="button"
-              >
-                Close
-              </button>
-            </header>
-
-            <div className="channel-manage-grid">
-              <label>
-                <span id="channel-visibility-label">Visibility</span>
-                <select
-                  aria-labelledby="channel-visibility-label"
-                  value={channelVisibilityDraft}
-                  onChange={(event) =>
-                    setChannelVisibilityDraft(event.target.value === "PUBLIC" ? "PUBLIC" : "PRIVATE")
-                  }
-                  disabled={updatingChannelVisibility}
-                >
-                  <option value="PRIVATE">Private</option>
-                  <option value="PUBLIC">Public</option>
-                </select>
-              </label>
-
-              <label className="archive-checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={archiveDraft}
-                  onChange={(event) => setArchiveDraft(event.target.checked)}
-                  disabled={updatingChannelVisibility}
-                />
-                <span>Archived</span>
-              </label>
-            </div>
-
-            <div className="channel-manage-quick-actions">
-              <button
-                type="button"
-                className="channel-manage-secondary-button"
-                onClick={() => {
-                  setShowChannelManageDialog(false);
-                  setShowParticipantsDialog(true);
-                }}
-                disabled={updatingChannelVisibility}
-              >
-                Manage participants
-              </button>
-              <button
-                type="button"
-                className="channel-manage-secondary-button"
-                onClick={() => void handleCopyShareLink()}
-                disabled={updatingChannelVisibility}
-              >
-                {shareLinkCopied ? "Link copied" : "Copy share link"}
-              </button>
-            </div>
-
-            <button
-              className="channel-manage-save-button"
-              type="button"
-              onClick={() => void handleSaveChannelSettings()}
-              disabled={
-                updatingChannelVisibility ||
-                (channelVisibilityDraft === (activeChannel.visibility === "PUBLIC" ? "PUBLIC" : "PRIVATE") &&
-                  archiveDraft === Boolean(activeChannel.archivedAt))
-              }
-            >
-              {updatingChannelVisibility ? "Saving..." : "Save"}
-            </button>
-
-            <button
-              className="channel-manage-delete-button"
-              type="button"
-              onClick={() => void handleDeleteChannel(activeChannel)}
-              disabled={updatingChannelVisibility}
-            >
-              Delete channel
-            </button>
-          </section>
-        </div>
+        <ChatSettingsDialog
+          label={channelLabel(activeChannel, username)}
+          archived={Boolean(activeChannel.archivedAt)}
+          visibility={channelVisibilityDraft}
+          currentVisibility={activeChannel.visibility === "PUBLIC" ? "PUBLIC" : "PRIVATE"}
+          onVisibility={setChannelVisibilityDraft}
+          saving={updatingChannelVisibility}
+          onSave={() => void handleSaveChannelSettings()}
+          archiving={archivingChannel}
+          onArchive={archived => void setChannelArchived(activeChannel, archived)}
+          onParticipants={() => { setShowChannelManageDialog(false); setShowParticipantsDialog(true); }}
+          onCopyLink={() => void handleCopyShareLink()}
+          linkCopied={shareLinkCopied}
+          confirmingDelete={confirmingChannelDelete}
+          onConfirmDelete={setConfirmingChannelDelete}
+          onDelete={() => void handleDeleteChannel(activeChannel)}
+          deleting={loading}
+          onClose={() => { setShowChannelManageDialog(false); setChannelSettingsError(null); }}
+          underlay={showParticipantsDialog}
+          error={channelSettingsError}
+        />
       ) : null}
     </main></WorkspaceHeaderProvider></AgentAvatarChoices></ComposerSessionProvider>
   );

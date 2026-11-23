@@ -28,6 +28,14 @@ workspace, uploads, runner identity, Codex login and branding were retained.
   Branding was moved into its SQLite DB and matched the old snapshot exactly.
 - Updated host controller installed; NestSystem can query it through its existing
   restricted DevOps key. Future deployments snapshot both databases.
+- Canvas context files (Switchyard canvas Phase 2) live in the product volume at
+  `/app/.nest-product/context-files` (`NEST_CONTEXT_FILES_DIR`'s default). The DevOps
+  controller (`deploy/devops/nest-ops.py`) copies that directory into
+  `/opt/nest/backups/ops-<id>/context-files` next to `product.sqlite` on every deploy
+  and restores it with the product DB on rollback; the DB rows alone do not restore
+  the files. A `NEST_CONTEXT_FILES_DIR` outside the product volume is not covered and
+  must be backed up with the product DB by the operator. The controller on the host
+  must be reinstalled from this source before it takes this snapshot.
 - Pre-update backup: `/opt/nest/backups/whitelabel-20260923-213519`
   (stopped database/uploads archive, environment, deployment configuration, previous image ID)
 - Original runner identity restored and persisted at `/app/.nest-data/runner-id`

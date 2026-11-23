@@ -7,11 +7,12 @@ export function findMention(value:string, caret:number, selectionEnd=caret): Men
   return trigger?.trigger==='@' ? {start:trigger.start,end:trigger.end,query:trigger.query} : null;
 }
 const normalize=(s:string)=>s.normalize('NFKD').replace(/\p{M}/gu,'').toLocaleLowerCase();
-export function mentionCandidates(agents:Agent[],humans:{username:string}[],participants:ChannelParticipant[]): MentionCandidate[] {
+/** `service`: the Switchyard service agent's name; it posts hand-offs and never replies, so it is never offered. */
+export function mentionCandidates(agents:Agent[],humans:{username:string}[],participants:ChannelParticipant[],service:string|null=null): MentionCandidate[] {
   const members=new Set(participants.map(p=>`${p.subscriberType.toUpperCase()}:${p.subscriberId}`));
   const result=new Map<string,MentionCandidate>();
   const add=(name:string,kind:'Agent'|'Person')=>{
-    if (!name || /[\r\n\0]/.test(name)) return;
+    if (!name || /[\r\n\0]/.test(name) || (kind==='Agent'&&name===service)) return;
     const id=`${kind==='Agent'?'AGENT':'HUMAN'}:${name}`;
     result.set(id,{id,name,kind,inConversation:members.has(id)});
   };
@@ -55,4 +56,14 @@ export function reconcileMentions(before:string,after:string,mentions:import('@n
   const next=m.end<=start?m:m.start>=oldEnd?{...m,start:m.start+delta,end:m.end+delta}:null;
   return next&&after.slice(next.start,next.end)==='@'+next.name?[next]:[];
  });
+}
+
+/** The picked people and agents who are not in the chat yet, once each, in draft order: the composer adds them on send. */
+export function joiningOnSend(mentions:readonly import('@nest/schemas').SelectedMention[],candidates:readonly MentionCandidate[]):MentionCandidate[]{
+  const joining=new Map<string,MentionCandidate>();
+  for(const mention of mentions){
+    const candidate=candidates.find(item=>item.name===mention.name&&(item.kind==='Agent')===(mention.kind==='AGENT'));
+    if(candidate&&!candidate.inConversation&&!candidate.inviteBlockedReason)joining.set(mention.kind+':'+mention.name,candidate);
+  }
+  return [...joining.values()];
 }

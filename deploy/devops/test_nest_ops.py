@@ -84,6 +84,46 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(record['rollback'], 'succeeded')
         self.assertEqual(count, 2)
 
+    def test_deploy_snapshots_context_files_with_the_product_database(self):
+        with closing(sqlite3.connect(str(ops.PRODUCT_DATA / 'nest.sqlite'))) as db, db:
+            db.execute('CREATE TABLE product_canvas_context_files (storage_key TEXT)')
+        files = ops.PRODUCT_DATA / 'context-files'
+        files.mkdir()
+        (files / 'key-1').write_bytes(b'context file')
+        with patch.object(ops, 'run', return_value=self.sha + '\n'), patch.object(ops, 'health'):
+            ops.execute(self.job, 'deploy', self.sha)
+        backup = ops.ROOT / 'backups' / ('ops-' + self.job)
+        self.assertTrue((backup / 'product.sqlite').exists())
+        self.assertEqual((backup / 'context-files' / 'key-1').read_bytes(), b'context file')
+
+    def test_failed_start_restores_context_files_with_the_product_database(self):
+        with closing(sqlite3.connect(str(ops.PRODUCT_DATA / 'nest.sqlite'))) as db, db:
+            db.execute('CREATE TABLE product_canvas_context_files (storage_key TEXT)')
+        files = ops.PRODUCT_DATA / 'context-files'
+        files.mkdir()
+        (files / 'key-1').write_bytes(b'context file')
+        count = 0
+
+        def health():
+            nonlocal count
+            count += 1
+            if count == 1:
+                (files / 'key-1').unlink()
+                (files / 'key-2').write_bytes(b'written by the failed image')
+                raise RuntimeError('New image failed health check')
+
+        with patch.object(ops, 'run', return_value=self.sha + '\n'), patch.object(ops, 'health', side_effect=health):
+            with self.assertRaisesRegex(RuntimeError, 'failed health'):
+                ops.execute(self.job, 'deploy', self.sha)
+        self.assertEqual(sorted(p.name for p in files.iterdir()), ['key-1'])
+        self.assertEqual((files / 'key-1').read_bytes(), b'context file')
+        self.assertEqual(json.loads((ops.STATE / (self.job + '.json')).read_text())['rollback'], 'succeeded')
+
+    def test_deploy_without_context_files_snapshots_none(self):
+        with patch.object(ops, 'run', return_value=self.sha + '\n'), patch.object(ops, 'health'):
+            ops.execute(self.job, 'deploy', self.sha)
+        self.assertFalse((ops.ROOT / 'backups' / ('ops-' + self.job) / 'context-files').exists())
+
     def test_forced_endpoint_rejects_shell_and_internal_run(self):
         for command in ('sh', 'deploy main', 'restart; id', 'run abc restart', 'logs ../../etc/passwd'):
             with self.subTest(command=command), patch.dict(os.environ, {'SSH_ORIGINAL_COMMAND': command}), patch.object(ops, 'run') as run:

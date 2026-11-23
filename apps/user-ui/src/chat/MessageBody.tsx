@@ -1,13 +1,14 @@
 // One message's parts (spec 6.5 to 6.7), each through its slot: text, demo previews, attachments, reply link, activity.
 import type {ReactNode} from 'react';
 import {demoArtifacts} from '../demo-artifacts';
-import {MessageAttachments} from './attachments-view';
+import {MessageAttachments,MessageFiles} from './attachments-view';
 import type {ChannelEventsCore} from './channel-events';
 import {ReplyLink} from './ReplyLink';
 import type {TimelineItem} from './timeline';
 import {Button} from './ui/button';
 import {cn} from './ui/lib/utils';
 import {MarkdownText} from './ui/MarkdownText';
+import {mentionNames,splitMentions} from './mentions-highlight';
 
 type MessageItem=Extract<TimelineItem,{kind:'message'}>;
 
@@ -19,17 +20,20 @@ const TEXT='text-base leading-relaxed text-foreground [overflow-wrap:anywhere] [
 const BUBBLE='w-fit max-w-full rounded-2xl bg-bubble px-4 py-2';
 
 // `activity` is the agent activity group that directly follows this message; it renders under the message's own parts.
-export function MessageBody({item,channelId,core,onPreviewDemo,onFocusMessage,onQuote,activity}:{
+// `fileTiles` (canvas flag) shows files as artifact tiles instead of the Attachments list.
+export function MessageBody({item,channelId,core,onPreviewDemo,onFocusMessage,onQuote,activity,fileTiles=false}:{
  item:MessageItem;channelId:string;core:ChannelEventsCore;
- onPreviewDemo(path:string):void;onFocusMessage(eventId:string):void;onQuote():void;activity?:ReactNode;
+ onPreviewDemo(path:string):void;onFocusMessage(eventId:string):void;onQuote():void;activity?:ReactNode;fileTiles?:boolean;
 }):JSX.Element{
+ const names=mentionNames(item.event.payload,item.meta.targetAgents);
  return <>
   <div className={cn(TEXT,item.meta.authorKind==='human'?cn(BUBBLE,'mt-0.5',item.meta.isMine&&'max-w-[85%]'):'mt-0')}>
-   {item.markdown?<MarkdownText text={item.text}/>:<p className="m-0 whitespace-pre-wrap">{item.text}</p>}
+   {item.markdown?<MarkdownText text={item.text} mentions={names}/>:<p className="m-0 whitespace-pre-wrap">{splitMentions(item.text,names).map((part,index)=>
+    typeof part==='string'?part:<span key={index} className="chat-mention">@{part.mention}</span>)}</p>}
   </div>
   {demoArtifacts(item.text,window.location.origin).map(path=>
    <Button variant="outline" size="sm" className="demo-open me-2 mt-2 rounded-full" type="button" key={path} onClick={()=>onPreviewDemo(path)}>Preview {path.slice(6)}</Button>)}
-  {item.attachments.length>0&&<MessageAttachments attachments={item.attachments}/>}
+  {item.attachments.length>0&&(fileTiles?<MessageFiles attachments={item.attachments}/>:<MessageAttachments attachments={item.attachments}/>)}
   {item.meta.inReplyTo&&<ReplyLink inReplyTo={item.meta.inReplyTo} channelId={channelId} core={core} onFocusMessage={onFocusMessage}/>}
   {activity}
  </>;

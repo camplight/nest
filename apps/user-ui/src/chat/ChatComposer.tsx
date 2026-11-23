@@ -1,5 +1,6 @@
 // The Nest composer (spec 6.8 to 6.12, 7.4), moved out of App.tsx unchanged in behaviour: drafts, the idempotent
 // send path, uploads and the mention picker. Both chats render it; App.tsx drives it through ChatComposerHandle.
+import { pastedImageFile } from "../clipboard-files";
 import {
   createContext,
   useContext,
@@ -14,20 +15,31 @@ import {
   useRef,
   useState
 } from "react";
-import type {SelectedMention} from '@nest/schemas';
+import {MAX_MESSAGE_ATTACHMENTS,type SelectedMention} from '@nest/schemas';
 import {useAttachments,restoreAttachments,type UploadedAttachment} from '../attachments';
 import {ChatAttachments} from '../components/ChatAttachments';
 import {useMentionPicker} from "../components/useMentionPicker";
 import {loadChatDraft,saveChatDraft,clearSentDraft,type ChatDraft} from '../drafts';
-import {reconcileMentions,type MentionCandidate} from "../mentions";
+import {joiningOnSend,reconcileMentions,type MentionCandidate} from "../mentions";
 import {CornerUpLeftIcon,XIcon} from 'lucide-react';
 import {apiFetch,getApiHeaders} from "../api";
 import type {Channel} from "../types";
 import {quoteMarkdown,replyExcerpt} from './quote';
 import type {ReplyTarget} from './quote-types';
 import type {CommandContext} from './commands';
+import {useVoiceNote} from '../voice/useVoiceNote';
+import {voiceCapError} from '../voice/voice-note';
+import {VoiceButton,VoiceStatus} from '../voice/VoiceButton';
 
-export type ChatComposerHandle={insertText(text:string):void;enqueueFiles(files:File[]):void;setReplyTarget(target:ReplyTarget|null,quotedText?:string):void;focus():void};
+export type ChatComposerHandle={insertText(text:string):void;enqueueFiles(files:File[]):void;setReplyTarget(target:ReplyTarget|null,quotedText?:string):void;focus():void;
+  /**
+   * Request changes (the canvas digest): focuses the reply box and asks `What should change?`; the next message sent in
+   * this chat is passed to onSent once, and the placeholder returns. Opening another chat cancels it. Nothing changes until it is called.
+   * False when no chat is open to take it.
+   */
+  requestChanges(onSent:(text:string)=>Promise<void>):boolean;
+  /** Cancels an armed Request changes (the item was decided or went away, or the chat view changed): the placeholder returns. */
+  cancelRequestChanges():void};
 export type ComposerSessionOptions={
   userId:string|null;channel:Channel|null;canPost:boolean;
   // onSent may return a promise; the send stays in progress until it settles (the classic post-send refresh).
@@ -51,6 +63,10 @@ export type ChatComposerProps={
   inProject:boolean;mentionCandidates:MentionCandidate[];canInvite:boolean;
   onInvite(candidate:MentionCandidate):Promise<void>;onAskAssistant(name:string,brief:string):void;
   openInvite():void;openFiles():void;
+  /** Voice notes (Phase 2, canvas flag). Off: no mic and no voice status. */
+  voice?:boolean;
+  // While agents are working in this chat: Stop takes Send's place, or sits beside it once something is typed.
+  stop?:{agents:string[];stopping:boolean;onStop():void};
 };
 
 /**
@@ -66,11 +82,22 @@ export function useComposerSession(options:ComposerSessionOptions){
   const [draftScope,setDraftScope]=useState<{owner:string;channel:string}|null>(null);
   const [draftStored,setDraftStored]=useState(true);
   const draft=draftState.text;
-  function setDraft(text:string){setDraftState(current=>({text,mentions:reconcileMentions(current.text,text,current.mentions)}));}
-  function chooseMention(text:string,mention:SelectedMention){setDraftState(current=>({text,mentions:[...reconcileMentions(current.text,text,current.mentions),mention]}));}
+  // Files dropped on a canvas card send themselves once every upload is done. Typing or removing a file first cancels that.
+  // The channel it was armed for: a chat switch can never send these files elsewhere.
+  const [autoSend,setAutoSend]=useState<string|null>(null);
+  // Every draft change a person makes (typing, a mention, a quote, inserted text) goes through here and cancels the auto-send.
+  function changeDraft(change:Parameters<typeof setDraftState>[0]){setAutoSend(null);setDraftState(change);}
+  function setDraft(text:string){changeDraft(current=>({text,mentions:reconcileMentions(current.text,text,current.mentions)}));}
+  function chooseMention(text:string,mention:SelectedMention){changeDraft(current=>({text,mentions:[...reconcileMentions(current.text,text,current.mentions),mention]}));}
   // The quote-reply target (spec 7.3): stored with the draft, sent as replyTo and part of the send fingerprint.
   const [replyTo,setReplyTo]=useState<ReplyTarget|null>(null);
   const sendRequestRef=useRef<{fingerprint:string;id:string}|null>(null);
+  // Request changes: the chat it was asked in and what to do with the next message sent there.
+  const [changeRequest,setChangeRequest]=useState<{channelId:string;onSent(text:string):Promise<void>}|null>(null);
+  const changeRequestRef=useRef(changeRequest);changeRequestRef.current=changeRequest;
+  useEffect(()=>{setChangeRequest(null);},[activeChannelId]);
+  function requestChanges(onSent:(text:string)=>Promise<void>):boolean{if(!activeChannelId)return false;const next={channelId:activeChannelId,onSent};changeRequestRef.current=next;setChangeRequest(next);return true;}
+  function cancelRequestChanges(){changeRequestRef.current=null;setChangeRequest(null);}
   const [sending, setSendingState] = useState(false);
   function setSending(value:boolean){setSendingState(value);options.onStateChange({sending:value});}
   const {attachments:pendingAttachments,setAttachments:setPendingAttachments,uploadFiles:enqueueFiles,error:attachmentError}=useAttachments(`${userId??''}:${activeChannelId??''}`);
@@ -107,10 +134,14 @@ export function useComposerSession(options:ComposerSessionOptions){
     setDraftStored(saveChatDraft(userId,activeChannelId,{...draftState,attachments:readyAttachments.map(({fileId,name,mime,size})=>({fileId,name,mime,size})),...(sendRequestRef.current?{request:sendRequestRef.current}:{}),...(replyTo?{replyTo}:{})}));
   },[draftState,replyTo,pendingAttachments,draftScope,userId,activeChannelId]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    return send();
+  }
+  async function send() {
+    setAutoSend(null);
     if (!activeChannelId || activeChannel?.archivedAt || !activeChannelCanPost) return;
-    if (uploadingAttachmentCount > 0 || hasAttachmentErrors || mentions.inviting || sending) return;
+    if (uploadingAttachmentCount > 0 || hasAttachmentErrors || sending) return;
     const trimmedText = draft.trim();
     if (!trimmedText && readyAttachments.length === 0) return;
 
@@ -126,10 +157,18 @@ export function useComposerSession(options:ComposerSessionOptions){
       if(sendRequestRef.current?.fingerprint!==fingerprint)sendRequestRef.current={fingerprint,id:crypto.randomUUID()};
       const request=sendRequestRef.current;
       const saved:ChatDraft={...draftState,attachments:message.attachments,request,...(replyTo?{replyTo}:{})};
+      // The request armed when this send began: one armed while it was under way waits for the next message.
+      const asked=changeRequestRef.current;
       if(userId)setDraftStored(saveChatDraft(userId,activeChannelId,saved));
+      // People picked from outside the chat join now, just before the message; if one can't be added, nothing is sent.
+      for(const candidate of joiningOnSend(draftState.mentions,options.mentionCandidates)){
+        try{await options.onInvite(candidate);}
+        catch{options.onError(`Couldn’t add ${candidate.name}. Your message wasn’t sent. Try again.`);return;}
+      }
       await apiFetch('/api/messages',{method:'POST',headers:getApiHeaders(),body:JSON.stringify({id:request.id,...message})});
       if(userId)clearSentDraft(userId,activeChannelId,saved);
       if(activeChannelIdRef.current!==activeChannelId)return;
+      if(asked&&asked===changeRequestRef.current&&asked.channelId===activeChannelId){changeRequestRef.current=null;setChangeRequest(null);void asked.onSent(effectiveText).catch(()=>{});}
       if(activeChannelIdRef.current===activeChannelId){
         if(sendRequestRef.current?.id===request.id)sendRequestRef.current=null;
         setDraftState({text:'',mentions:[]});setPendingAttachments([]);setReplyTo(null);
@@ -145,18 +184,31 @@ export function useComposerSession(options:ComposerSessionOptions){
     }
   }
 
-  function uploadFiles(files: File[]) {
+  function uploadFiles(files: File[], options?: {autoSend?: boolean}) {
     if(!activeChannel || activeChannel.archivedAt || !activeChannelCanPost || sending)return;
+    // Only a bare drop sends itself: not on top of a message being written or files already queued, and not when some
+    // files were cut for the 20-file limit (the person should see that notice before anything goes out). More files
+    // dropped during an auto-send's uploads simply join it.
+    const room=MAX_MESSAGE_ATTACHMENTS-pendingAttachments.length;
+    if(options?.autoSend&&files.length>0&&files.length<=room&&(autoSend===activeChannelId||(!draft.trim()&&pendingAttachments.length===0)))setAutoSend(activeChannelId);
+    else if(options?.autoSend)setAutoSend(null);
     enqueueFiles(files);
   }
+  function removeAttachment(localId:string){setAutoSend(null);setPendingAttachments(items=>items.filter(item=>item.localId!==localId));}
+  useEffect(()=>{setAutoSend(null);},[activeChannelId]);
+  useEffect(()=>{
+    if(!autoSend||autoSend!==activeChannelId||sending)return;
+    if(hasAttachmentErrors){setAutoSend(null);return;}
+    if(uploadingAttachmentCount===0&&readyAttachments.length>0)void send();
+  },[autoSend,sending,hasAttachmentErrors,uploadingAttachmentCount,readyAttachments.length]);
 
   // Appended after a blank line when the draft has text (the demo panel's "Request changes").
-  function insertText(text:string){setDraftState(current=>{const next=current.text+(current.text?'\n\n':'')+text;return {text:next,mentions:reconcileMentions(current.text,next,current.mentions)};});}
+  function insertText(text:string){changeDraft(current=>{const next=current.text+(current.text?'\n\n':'')+text;return {text:next,mentions:reconcileMentions(current.text,next,current.mentions)};});}
 
   // Quote-reply (spec 7.3): the quote goes on top of the text, replacing an earlier one; null cancels and removes the
   // inserted quote while it is still there. The excerpt is cut before it is stored; the reply never adds a mention.
   function setReplyTarget(target:ReplyTarget|null,quotedText?:string){
-    setDraftState(current=>{
+    changeDraft(current=>{
       let next=replyTo?stripQuote(current.text,replyTo.author):current.text;
       if(target)next=quoteMarkdown(target.author,quotedText??target.excerpt)+next;
       return {text:next,mentions:reconcileMentions(current.text,next,current.mentions)};
@@ -166,10 +218,13 @@ export function useComposerSession(options:ComposerSessionOptions){
   }
 
   return {
-    channel:activeChannel,channelId:activeChannelId,canPost:activeChannelCanPost,composerTextareaRef,
+    // The channel's saved draft is loaded: files queued before that would be replaced by it.
+    ready:Boolean(activeChannelId&&draftScope?.channel===activeChannelId&&draftScope.owner===userId),
+    userId,channel:activeChannel,channelId:activeChannelId,canPost:activeChannelCanPost,composerTextareaRef,
     draft,draftState,draftStored,setDraft,chooseMention,sending,disabled,mentions,
     pendingAttachments,setPendingAttachments,attachmentError,uploadingAttachmentCount,readyAttachments,hasAttachmentErrors,
-    handleSubmit,uploadFiles,insertText,bindCommands,replyTo,setReplyTarget,
+    handleSubmit,uploadFiles,removeAttachment,insertText,bindCommands,replyTo,setReplyTarget,
+    requestChanges,cancelRequestChanges,changesAsked:Boolean(activeChannelId&&changeRequest?.channelId===activeChannelId),
   };
 }
 
@@ -184,6 +239,9 @@ export function ComposerSessionProvider({options,children}:{options:ComposerSess
   return <ComposerSessionContext.Provider value={session}>{children}</ComposerSessionContext.Provider>;
 }
 
+/** The provider's session, for helpers that live beside the composer (null outside a provider). */
+export function useComposerSessionContext(){return useContext(ComposerSessionContext);}
+
 export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(function ChatComposer(props,ref){
   const session=useContext(ComposerSessionContext);
   if(!session)throw new Error('ChatComposer requires ComposerSessionProvider');
@@ -191,8 +249,32 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
   const {channel:activeChannel,channelId:activeChannelId,canPost:activeChannelCanPost,composerTextareaRef,draft,draftState,draftStored,setDraft,sending,
     pendingAttachments,setPendingAttachments,attachmentError,uploadingAttachmentCount,readyAttachments,hasAttachmentErrors,uploadFiles,mentions}=session;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // The transcript goes into the draft like typed text (it cancels a pending file auto-send); the audio joins the attachments.
+  const attachedRef=useRef(pendingAttachments);attachedRef.current=pendingAttachments;
+  // The chat each voice note was attached in: the composer is shared by every chat, so a note cancelled after a switch
+  // must be taken out of the chat it was added to (its stored draft), not the one now open.
+  const audioChat=useRef(new Map<string,string>());
+  const voice=useVoiceNote({
+    onTranscript:session.insertText,
+    attachRoom:()=>attachedRef.current.length>=MAX_MESSAGE_ATTACHMENTS?{ok:false,error:voiceCapError(MAX_MESSAGE_ATTACHMENTS)}:{ok:true},
+    onAudio:audio=>{
+      if(activeChannelId)audioChat.current.set(audio.fileId,activeChannelId);
+      setPendingAttachments(items=>[...items,{localId:audio.fileId,name:audio.name,mime:audio.mime,size:audio.size,status:'ready',uploaded:{...audio,localId:audio.fileId}}]);
+    },
+    onDiscard:fileId=>{
+      const home=audioChat.current.get(fileId);audioChat.current.delete(fileId);
+      // The stored draft of the chat it was added in always loses it; the open list only when that chat is still open.
+      if(session.userId&&home){const saved=loadChatDraft(session.userId,home);saveChatDraft(session.userId,home,{...saved,attachments:saved.attachments.filter(file=>file.fileId!==fileId)});}
+      if(!home||home===activeChannelId)setPendingAttachments(items=>items.filter(item=>item.localId!==fileId));
+    }
+  });
+  // Another chat opened: a voice note being recorded or processed belongs to the one it began in. Release the mic and drop it.
+  useEffect(()=>{voice.cancel();},[activeChannelId]);
+
   useLayoutEffect(()=>{session.bindCommands({inProject:props.inProject,openInvite:props.openInvite,openFiles:props.openFiles});});
+  const showSend=!props.stop||Boolean(draft.trim())||pendingAttachments.length>0||sending;
   const draftRecipients=[...new Map(draftState.mentions.map(m=>[m.kind+':'+m.name,m])).values()];
+  const joining=new Set(joiningOnSend(draftState.mentions,props.mentionCandidates).map(candidate=>(candidate.kind==='Agent'?'AGENT':'HUMAN')+':'+candidate.name));
 
   function handlePickFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
@@ -224,12 +306,7 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
       .filter((file): file is File => Boolean(file));
     if (imageFiles.length === 0) return;
     event.preventDefault();
-    const filesToUpload = imageFiles.map((image) => {
-      const ext = image.type.includes("/") ? image.type.split("/")[1] : "png";
-      const safeExt = ext.replace(/[^a-zA-Z0-9]/g, "") || "png";
-      const filename = `pasted-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.${safeExt}`;
-      return new File([image], filename, { type: image.type || "image/png" });
-    });
+    const filesToUpload = imageFiles.map(pastedImageFile);
     uploadFiles(filesToUpload);
   }
 
@@ -250,6 +327,13 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
     enqueueFiles:uploadFiles,
     setReplyTarget:session.setReplyTarget,
     focus(){composerTextareaRef.current?.focus();},
+    requestChanges(onSent){
+      if(!session.requestChanges(onSent))return false;
+      const area=composerTextareaRef.current;
+      area?.focus();area?.scrollIntoView?.({block:'nearest'});
+      return true;
+    },
+    cancelRequestChanges:session.cancelRequestChanges,
   }));
 
   // .nest-chat-composer is the scope for assistant-ui's composer look (spec 7.4); the rules are plain CSS in styles.css,
@@ -271,7 +355,8 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
               <XIcon aria-hidden="true" className="size-3.5"/>
             </button>
           </div>}
-          <ChatAttachments items={pendingAttachments} error={attachmentError} disabled={sending} onRemove={id=>setPendingAttachments(items=>items.filter(item=>item.localId!==id))}/>
+          {props.voice&&<VoiceStatus voice={voice}/>}
+          <ChatAttachments items={pendingAttachments} error={attachmentError} disabled={sending} onRemove={session.removeAttachment}/>
           <div className="mention-input">
           {mentions.popup}
           <textarea
@@ -298,15 +383,17 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
                 ? "Restore this channel to send messages"
                 : activeChannel && !activeChannelCanPost
                   ? "This channel is shared with you as read-only"
+                : voice.state === "recording"
+                  ? "Listening… tap the mic to stop"
                 : activeChannel
-                  ? `Message to ${activeConversationName}`
+                  ? session.changesAsked ? "What should change?" : `Message to ${activeConversationName}`
                   : "Select a channel first"
             }
             disabled={!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending}
             rows={1}
           />
           </div>
-          {draftRecipients.length>0&&<div className="mention-delivery" aria-label="Message recipients">{draftRecipients.map(m=><span key={m.kind+':'+m.name}>{m.kind==='AGENT'?'Ask':'Notify'} @{m.name}<button type="button" aria-label={'Remove mention @'+m.name} onClick={()=>{const spans=draftState.mentions.filter(x=>x.kind===m.kind&&x.name===m.name).sort((a,b)=>b.start-a.start);let next=draft;for(const span of spans)next=next.slice(0,span.start)+next.slice(span.end);setDraft(next);}}>×</button></span>)}</div>}
+          {draftRecipients.length>0&&<div className="mention-delivery" aria-label="Message recipients">{draftRecipients.map(m=><span key={m.kind+':'+m.name}>{m.kind==='AGENT'?'Ask':'Notify'} @{m.name}{joining.has(m.kind+':'+m.name)?' · joins on send':''}<button type="button" aria-label={'Remove mention @'+m.name} onClick={()=>{const spans=draftState.mentions.filter(x=>x.kind===m.kind&&x.name===m.name).sort((a,b)=>b.start-a.start);let next=draft;for(const span of spans)next=next.slice(0,span.start)+next.slice(span.end);setDraft(next);}}>×</button></span>)}</div>}
           <p className="mention-delivery-hint"><span>{draftRecipients.some(m=>m.kind==='AGENT')?'The selected agents receive this request.':'Select an @mention to direct a request or notify a person.'}</span>{draft.trim()&&<span className="draft-storage-status" role="status">{draftStored?'Draft saved on this device':'Draft storage is unavailable. Keep this tab open until you send.'}</span>}</p>
           <div className="composer-actions">
             <button
@@ -318,13 +405,26 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg>
               Attach files
             </button>
-            <button
+            {props.voice&&<VoiceButton voice={voice} variant="composer" disabled={!activeChannel || Boolean(activeChannel.archivedAt) || !activeChannelCanPost || sending}/>}
+            <span className="composer-submit">
+            {props.stop&&<button
+              type="button"
+              className={`composer-stop${showSend?' composer-stop-compact':''}`}
+              disabled={props.stop.stopping}
+              aria-label={props.stop.stopping?'Stopping':`Stop ${props.stop.agents.join(', ')}`}
+              title={props.stop.stopping?'Stopping…':`Stop ${props.stop.agents.join(', ')}`}
+              onClick={props.stop.onStop}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2.5" fill="currentColor"/></svg>
+              {!showSend&&(props.stop.stopping?'Stopping…':'Stop')}
+            </button>}
+            {showSend&&<button
               className="composer-send"
               disabled={
                 !activeChannel ||
                 Boolean(activeChannel.archivedAt) ||
                 !activeChannelCanPost ||
-                sending || Boolean(mentions.inviting) || hasAttachmentErrors ||
+                sending || hasAttachmentErrors ||
                 uploadingAttachmentCount > 0 ||
                 (!draft.trim() && readyAttachments.length === 0)
               }
@@ -335,7 +435,8 @@ export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(funct
                   ? "Sending..."
                   : "Send"}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>
-            </button>
+            </button>}
+            </span>
           </div>
           {hasAttachmentErrors ? (
             <p className="composer-attachment-error">

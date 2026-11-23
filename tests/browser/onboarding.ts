@@ -62,6 +62,8 @@ const composio = {
           connectionActive = false;
           return Response.json({ ok: true });
         }
+        if (path === "/toolkits/trello")
+          return Response.json({ slug: "trello", name: "Trello", meta: { description: "Organize your projects and boards." } });
         if (path === "/toolkits")
           return Response.json({
             items: [
@@ -90,7 +92,7 @@ const composio = {
           const matching = overflow ? Array.from({length:2001}, (_,index)=>({slug:`TRELLO_OVERFLOW_${index}`,name:`Overflow action ${index}`,description:"Synthetic request bound fixture.",toolkit:{slug:"trello"}})) : many ? bulkFixtures : [...actionFixtures,...(fullCatalog ? bulkFixtures : [])].filter(action => `${action.name} ${action.description} ${action.slug}`.toLowerCase().includes(query));
           const size = many || overflow || fullCatalog ? 50 : 3;
           const start = Number(url.searchParams.get("cursor") ?? 0);
-          return Response.json({items:matching.slice(start,start+size),next_cursor:matching.length>start+size ? String(start+size) : null});
+          return Response.json({items:matching.slice(start,start+size),next_cursor:matching.length>start+size ? String(start+size) : null,total_items:matching.length});
         }
         if (path.startsWith("/tools/")) {
           const action=actionFixtures.find(action=>path==="/tools/"+action.slug);
@@ -210,6 +212,7 @@ try {
     let loseCreation = true;
     let rejectAccessSave = false;
     let rejectBulkPage = false;
+    let holdActionCount: Promise<void> | undefined;
     await page.route("**/api/**", async (route) => {
       const request = route.request(),
         url = new URL(request.url());
@@ -218,6 +221,7 @@ try {
         await route.fulfill({status:503,json:{error:"Test: Saving access is temporarily unavailable."}});
         return;
       }
+      if (holdActionCount && url.pathname.endsWith("/tools") && !url.searchParams.has("cursor")) await holdActionCount;
       if (rejectBulkPage && url.pathname.endsWith("/tools") && url.searchParams.has("cursor")) {
         rejectBulkPage=false;
         await route.fulfill({status:503,json:{error:"Test: next action page unavailable."}});
@@ -346,7 +350,13 @@ try {
       }
       await captureConnection("connections-compact-desktop.png");
       for (const image of await page.locator(".onboarding-connections img").all()) assert(await image.evaluate(node=>(node as HTMLImageElement).naturalWidth>0),"App logos load locally");
+      // The default list holds configured apps only; a search reaches the unknown fixture app.
+      const findApp=page.getByLabel("Find an app",{exact:true});
+      await findApp.fill("custom");
+      await page.getByRole("heading",{name:"Custom workspace",exact:true}).waitFor();
       assert.equal(await page.locator(".connection-app-logo.is-generic").count(),1);
+      await findApp.fill("");
+      await page.getByRole("heading",{name:"Custom workspace",exact:true}).waitFor({state:"detached"});
       await page.setViewportSize({width:390,height:844});
       await captureConnection("connections-compact-mobile.png");
       assert((await card.boundingBox())!.height<360,"Default connected account stays compact on mobile");
@@ -360,10 +370,18 @@ try {
       await access.getByRole("button",{name:"Give all access",exact:true}).click();
       await access.getByRole("alert").filter({hasText:"Saving access is temporarily unavailable"}).waitFor();
       assert.equal((await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json()).length,0,"Give all only reports success after saving");
-      assert.equal(await access.getByRole("button",{name:"All access given",exact:true}).count(),0);
+      assert.equal(await access.getByRole("button",{name:"Remove access",exact:true}).count(),0,"No access to remove after a failed save");
       await access.getByRole("button",{name:"Give all access",exact:true}).click();
       await access.getByRole("status").filter({hasText:"4 actions allowed"}).waitFor();
-      assert(await access.getByRole("button",{name:"All access given",exact:true}).isDisabled());
+      // Everything is allowed, so removal is the only quick action left.
+      await access.getByRole("status").filter({hasText:"All 4 actions allowed"}).waitFor();
+      assert(await access.getByRole("button",{name:"Remove access",exact:true}).isEnabled());
+      assert.equal(await access.getByRole("button",{name:"Give all access",exact:true}).count(),0);
+      // The first saved grant points to the remaining step: app access is still off.
+      const accessHint=page.locator(".connection-access-hint");
+      await accessHint.getByText("Saved. One more step: turn on app access so PuffVitaliy can use these actions.",{exact:true}).waitFor();
+      assert(await accessHint.getByRole("button",{name:"Enable app access",exact:true}).isEnabled());
+      await page.locator(".connection-access-control.is-pending").getByText("4 actions are allowed, but PuffVitaliy can't use them until you enable app access.",{exact:true}).waitFor();
       const directGrants=await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any;
       assert.deepEqual(directGrants[0].tools.sort(),actionFixtures.map(action=>action.slug).sort(),"Give all saves all pages in one explicit action");
       assert.equal(await access.getByRole("checkbox").count(),0);
@@ -414,13 +432,23 @@ try {
       await picker.getByRole("button",{name:"Select all results",exact:true}).click();
       await picker.getByRole("status").filter({hasText:"176 actions selected"}).waitFor();
       await picker.getByRole("button",{name:"Save access",exact:true}).click();
-      await access.getByRole("status").filter({hasText:"176 actions allowed"}).waitFor();
+      await access.getByRole("status").filter({hasText:/176( of 179)? actions allowed/}).waitFor();
       const largeSaved=await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any;
       assert.equal(largeSaved[0].tools.length,176,"Advanced selection can save over 100 exact actions");
+      // A partial grant keeps Give all access next to Remove access.
+      await access.getByRole("status").filter({hasText:"176 of 179 actions allowed"}).waitFor();
+      await access.getByText("PuffVitaliy can use 176 of 179 Trello actions.",{exact:true}).waitFor();
+      assert(await access.getByRole("button",{name:"Remove access",exact:true}).isEnabled());
+      await captureConnection("connections-partial-desktop.png");
+      await page.setViewportSize({width:390,height:844});
+      await captureConnection("connections-partial-mobile.png");
+      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      await page.setViewportSize({width:1440,height:1100});
       await query.fill("card");
       await access.getByRole("button",{name:"Give all access",exact:true}).click();
-      await access.getByRole("status").filter({hasText:"179 actions allowed"}).waitFor();
-      assert(await access.getByRole("button",{name:"All access given",exact:true}).isDisabled());
+      await access.getByRole("status").filter({hasText:"All 179 actions allowed"}).waitFor();
+      assert(await access.getByRole("button",{name:"Remove access",exact:true}).isEnabled());
+      assert.equal(await access.getByRole("button",{name:"Give all access",exact:true}).count(),0);
       const largeAll=await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any;
       assert.deepEqual(largeAll[0].tools.sort(),[...actionFixtures,...bulkFixtures].map(action=>action.slug).sort(),"Give all ignores search and saves every page of a large catalog");
       assert.equal(await access.getByRole("checkbox").count(),0);
@@ -429,12 +457,22 @@ try {
       await captureConnection("connections-large-all-mobile.png");
       assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
       await page.setViewportSize({width:1440,height:1100});
+      // Until the action count arrives, neither button shows, so Give all access never flashes.
+      let releaseCount=()=>{};
+      holdActionCount=new Promise<void>(resolve=>{releaseCount=resolve;});
       await page.reload();
-      await access.getByRole("status").filter({hasText:"179 actions allowed"}).waitFor();
+      await access.getByRole("status").filter({hasText:"Checking access…"}).waitFor();
+      await page.waitForTimeout(300);
+      assert.equal(await access.getByRole("button",{name:"Give all access",exact:true}).count(),0,"No give-all flash while counting");
+      assert.equal(await access.getByRole("button",{name:"Remove access",exact:true}).count(),0);
+      holdActionCount=undefined;releaseCount();
+      await access.getByRole("status").filter({hasText:"All 179 actions allowed"}).waitFor();
+      assert(await access.getByRole("button",{name:"Remove access",exact:true}).isEnabled(),"A full grant still shows as complete after a reload");
+      assert.equal(await access.getByRole("button",{name:"Give all access",exact:true}).count(),0);
       await access.getByText("Choose specific actions",{exact:true}).click();
-      await picker.getByRole("button",{name:"Clear all choices",exact:true}).click();
-      await picker.getByRole("button",{name:"Save access",exact:true}).click();
+      await access.getByRole("button",{name:"Remove access",exact:true}).click();
       await access.getByRole("status").filter({hasText:"Not allowed yet"}).waitFor();
+      assert.equal((await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any)[0].tools.length,0,"Remove access saves an empty grant");
       fullCatalog=false;
       await picker.getByRole("checkbox",{name:"List my boards",exact:true}).check();
       await query.fill("too many actions");
@@ -507,8 +545,9 @@ try {
       assert(await picker.getByRole("button",{name:"Save access",exact:true}).isDisabled());
       await query.fill("card");
       await picker.getByRole("checkbox",{name:"Create card",exact:true}).waitFor();
+      await access.getByRole("status").filter({hasText:"1 of 4 actions allowed"}).waitFor();
       await access.getByRole("button",{name:"Give all access",exact:true}).click();
-      await access.getByRole("status").filter({hasText:"4 actions allowed"}).waitFor();
+      await access.getByRole("status").filter({hasText:"All 4 actions allowed"}).waitFor();
       assert.equal(await access.getByRole("textbox").count(),0,"Give all collapses advanced choices after success");
       const bulkGrants = await (await product.app.request("/api/integrations/agents/PuffVitaliy/grants",{headers})).json() as any;
       assert.deepEqual(bulkGrants[0].tools.sort(),actionFixtures.map(action=>action.slug).sort(),"Give all ignores the advanced search and grants the full catalog");
@@ -548,8 +587,11 @@ try {
         body: JSON.stringify({ subscriberType: "AGENT", subscriberId: "PuffVitaliy" }),
       })).ok);
       await page.waitForFunction(()=>!([...document.querySelectorAll('button')].find(button=>button.textContent==='Enable app access') as HTMLButtonElement)?.disabled);
-      await page.getByRole("button",{name:"Enable app access",exact:true}).click();
+      // Saved actions without app access show the hint; its button enables access in place.
+      await page.locator(".connection-access-hint").getByRole("button",{name:"Enable app access",exact:true}).click();
       await page.getByRole("button",{name:"Renew app access",exact:true}).waitFor();
+      await page.locator(".connection-access-hint").waitFor({state:"detached"});
+      assert.equal(await page.locator(".connection-access-control.is-pending").count(),0);
       await page.getByText("Ready for your next message.",{exact:true}).waitFor();
       const enabledAgent=await (await product.app.request("/api/agents/PuffVitaliy",{headers})).json();
       assert(enabledAgent.alwaysPreloadedSkills.includes("nest-connections"));

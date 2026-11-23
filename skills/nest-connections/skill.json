@@ -2,7 +2,7 @@
   "name": "nest-connections",
   "title": "Nest connected apps",
   "description": "Use the accounts and exact tools your owner granted through Nest's connection adapter.",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "category": "skill",
   "license": "MIT",
   "tags": ["integrations", "connections"],

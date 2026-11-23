@@ -1,5 +1,6 @@
 .dashboard-topbar.workspace-topbar {
-  grid-template-columns: minmax(0, 1fr) 240px minmax(191px, 1.3fr);
+  /* Search takes 40% of the bar, never less than 260 px. */
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 40%) minmax(191px, 1.3fr);
   position: relative;
   z-index: 2;
 }
@@ -175,12 +176,10 @@
 @media (max-width: 1100px) and (min-width: 761px) {
   .dashboard-topbar.workspace-topbar {
     /* The controls column takes its content's width: the tour pill and four icons overflowed a fixed 191 px onto the search. */
-    grid-template-columns: minmax(0, 1fr) minmax(120px, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 34%) auto;
     gap: 12px;
     padding-inline: 24px;
   }
-  /* A flexible search column capped by max-width, so the project name shares the room instead of losing it all. */
-  .workspace-topbar-search { max-width: 240px; }
   .workspace-controls .quick-tour-steps { display: none; }
   .workspace-topbar-leading .dashboard-action {
     font-size: 12px;

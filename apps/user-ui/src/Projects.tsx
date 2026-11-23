@@ -10,9 +10,11 @@ import { apiJson, getApiHeaders } from './api';
 import { AgentAvatar } from './components/AgentAvatar';
 import {ProjectStart} from './ProjectStart';
 import {ProjectContext} from './ProjectContext';
+import {ArchivedTag} from './components/ChatSettingsDialog';
+import {inviteNote,splitArchived} from './project-archive';
 import './projects.css';
 
-type Props = {userId:string; participants:ChannelParticipant[]; existingChats: {id:string;name:string;archived:boolean}[]; onChat:(id:string)=>void; projectId: string | null; taskId: string | null; tab: string; agents: Agent[]; onSelect: (project: string | null, task?: string | null, tab?: string) => void; onLoaded: (project: Project) => void; onMenu: () => void; chat: ReactNode; onMembersChanged:()=>Promise<void>};
+type Props = {userId:string; participants:ChannelParticipant[]; existingChats: {id:string;name:string;archived:boolean}[]; onChat:(id:string)=>void; projectId: string | null; taskId: string | null; tab: string; agents: Agent[]; onSelect: (project: string | null, task?: string | null, tab?: string) => void; onLoaded: (project: Project) => void; onMenu: () => void; chat: ReactNode; onMembersChanged:()=>Promise<void>; onManage?:()=>void; voice?:boolean; onUnarchive?:(channelId:string)=>Promise<string|null>; reload?:number; onOpenAgent?:(name:string)=>void; username?:string};
 const statusLabel: Record<Task['status'],string> = {queued:'Ready to send',working:'Awaiting deliverable',needs_review:'Needs review',changes_requested:'Changes requested',done:'Approved'};
 function message(reason: unknown) {
   const text=reason instanceof Error ? reason.message : 'Unable to complete request';
@@ -31,9 +33,12 @@ export function Projects(props: Props) {
   const [creating,setCreating]=useState(false);
   const createTrigger=useRef<HTMLButtonElement>(null);
   const createRequested = !projectId && tab === "new";
+  // A reload of the same project (archive, unarchive) keeps the page in place; another project starts empty.
+  const shownProject=useRef(projectId);
   useEffect(()=>{
     const controller=new AbortController();
-    setLoading(true);setError(null);setDetail(null);setCreating(createRequested);
+    const sameProject=shownProject.current===projectId;shownProject.current=projectId;
+    setLoading(true);setError(null);if(!sameProject||!projectId)setDetail(null);setCreating(createRequested);
     const load=()=>{
       void apiJson<Project[] | ProjectDetail>(projectId ? `/api/projects/${encodeURIComponent(projectId)}` : '/api/projects',{signal:controller.signal})
         .then(value=>{if(controller.signal.aborted)return;if(projectId)setDetail(value as ProjectDetail);else setProjects(value as Project[]);setError(null);})
@@ -43,22 +48,25 @@ export function Projects(props: Props) {
     load();
     const interval=window.setInterval(load,10000);
     return ()=>{controller.abort();window.clearInterval(interval);};
-  },[projectId,refresh,createRequested]);
+  },[projectId,refresh,createRequested,props.reload]);
   useEffect(() => { if (detail) onLoaded(detail); }, [detail?.id, detail?.channelId, detail?.name, detail?.description, onLoaded]);
   const selected=detail?.tasks.find(t=>t.id===taskId);
+  const owner=!!detail&&detail.ownerId===props.userId;
+  const archived=!!detail?.archived;
+  const [unarchiving,setUnarchiving]=useState(false);
+  async function unarchive(){if(!detail||!props.onUnarchive)return;setUnarchiving(true);try{const failure=await props.onUnarchive(detail.channelId);if(failure)setError(failure);else setRefresh(n=>n+1);}finally{setUnarchiving(false);}}
   const filteredProjects=projects.filter(project=>`${project.name} ${project.description}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return <section className={`dashboard projects-page${projectId ? ' project-detail-page' : ''}${projectId && tab === 'chat' ? ' project-chat-page' : ''}${!projectId && createRequested ? ' project-start-page' : ''}`} aria-label="Projects">
-    <WorkspaceTopbar onMenu={onMenu} leading={projectId?<h1 className="workspace-topbar-title" title={detail?.name}>{detail?.name ?? 'Project'}</h1>:undefined} search={<label className="dashboard-search"><DesignIcon name="search"/><input aria-label="Search projects" placeholder="Search…" value={query} onChange={event=>{setQuery(event.target.value);if(projectId||creating)onSelect(null);}}/></label>}/>
+    <WorkspaceTopbar onMenu={onMenu} leading={projectId?<><h1 className="workspace-topbar-title" title={detail?.name}>{detail?.name ?? 'Project'}</h1>{detail?.archived&&<ArchivedTag canUnarchive={owner&&!!props.onUnarchive} busy={unarchiving} onUnarchive={()=>void unarchive()}/>}</>:undefined} search={<label className="dashboard-search"><DesignIcon name="search"/><input aria-label="Search projects" placeholder="Search…" value={query} onChange={event=>{setQuery(event.target.value);if(projectId||creating)onSelect(null);}}/></label>}/>
 
     <div className="dashboard-content">
-      {(!projectId || tab === 'tasks') && <div className="dashboard-title"><h1>{detail?.name ?? (projectId ? 'Project' : creating ? 'New project' : 'Projects')}</h1>{(!projectId || tab === "tasks") && (!creating || !!projectId) && <button ref={createTrigger} className="dashboard-action project-create" onClick={()=>projectId?setCreating(!creating):onSelect(null,null,'new')}>{creating ? 'Cancel' : projectId ? 'New task +' : 'New project +'}</button>}</div>}
+      {(!projectId || tab === 'tasks') && <div className="dashboard-title"><h1>{detail?.name ?? (projectId ? 'Project' : creating ? 'New project' : 'Projects')}</h1>{(!projectId || tab === "tasks") && (!creating || !!projectId) && !archived && <button ref={createTrigger} className="dashboard-action project-create" onClick={()=>projectId?setCreating(!creating):onSelect(null,null,'new')}>{creating ? 'Cancel' : projectId ? 'New task +' : 'New project +'}</button>}</div>}
       {error && <div className="notice error" role="alert">{error} <button onClick={()=>setRefresh(n=>n+1)}>Refresh</button></div>}
       {loading && <p role="status">Loading projects…</p>}
       {!projectId && <>
-        {creating && props.userId && <ProjectStart key={props.userId} ownerId={props.userId} onCreated={p=>{onLoaded(p);onSelect(p.id);}} onCancel={()=>{setCreating(false);onSelect(null);requestAnimationFrame(()=>createTrigger.current?.focus());}} />}
-        {!creating&&<div className="project-grid">{filteredProjects.map(project=><button className="dashboard-card project-summary" key={project.id} onClick={()=>onSelect(project.id)}><h2>{project.name}</h2><p>{project.description || 'Open the conversation and work with your team.'}</p><span>Open project →</span></button>)}</div>}
+        {creating && props.userId && <ProjectStart key={props.userId} ownerId={props.userId} voice={props.voice} onCreated={p=>{onLoaded(p);onSelect(p.id);}} onCancel={()=>{setCreating(false);onSelect(null);requestAnimationFrame(()=>createTrigger.current?.focus());}} />}
+        {!creating&&<ProjectGrid projects={filteredProjects} onSelect={id=>onSelect(id)} empty={!loading && !error && !splitArchived(projects).active.length ? <div className="dashboard-card dashboard-empty"><h2>Your next project starts here</h2><p>Start a conversation and bring your team in with @mentions.</p></div> : null}/>}
         {!creating && !loading && !error && projects.length>0 && !filteredProjects.length && <div className="dashboard-card dashboard-empty"><h2>No matching projects</h2><p>Try a different project name or description.</p></div>}
-        {!loading && !error && !projects.length && !creating && <div className="dashboard-card dashboard-empty"><h2>Your next project starts here</h2><p>Start a conversation and bring your team in with @mentions.</p></div>}
         {!creating && props.existingChats.length > 0 && <details className="project-existing-chats"><summary>Existing conversations ({props.existingChats.length})</summary><p>These conversations are not linked to a project you own. Your history and shared access are preserved.</p><div className="dashboard-list">{props.existingChats.map(channel=><button className="dashboard-card project-summary" key={channel.id} onClick={()=>props.onChat(channel.id)}>{channel.name}{channel.archived ? ' · Archived' : ''} →</button>)}</div></details>}
       </>}
       {detail && <>
@@ -67,16 +75,24 @@ export function Projects(props: Props) {
         {tab === 'chat' && <div className="project-chat">{chat}</div>}
         {tab === 'files' && <><PublishedArtifacts/><ProjectFiles key={detail.channelId} channelId={detail.channelId} /></>}
         {tab === 'tasks' && <>
-        {creating && <TaskForm key={detail.id} project={detail} agents={agents} onCreated={task=>{setCreating(false);setDetail({...detail,tasks:[...detail.tasks,task]});onSelect(detail.id,task.id);}} />}
+        {creating && !archived && <TaskForm key={detail.id} project={detail} agents={agents} onCreated={task=>{setCreating(false);setDetail({...detail,tasks:[...detail.tasks,task]});onSelect(detail.id,task.id);}} />}
         <section aria-label="Project tasks"><div className="dashboard-section-title"><h2>Tasks <span className="dashboard-count">{detail.tasks.length}</span></h2></div><div className="dashboard-list">{detail.tasks.map(task=><button className="dashboard-card project-task-row" aria-current={task.id===taskId ? 'true' : undefined} key={task.id} onClick={()=>onSelect(detail.id,task.id)}><AgentAvatar name={task.agentName} size={36} /><span><strong>{task.title}</strong><small>{task.agentName} · Attempt {task.attempt}</small></span><span className="dashboard-pill">{statusLabel[task.status]}</span></button>)}</div>
           {!detail.tasks.length && <p className="project-muted">Create the first task with a clear brief and acceptance criteria.</p>}
         </section>
         {taskId && !selected && <p role="alert">Task not found in this project.</p>}
         {selected && <TaskPanel key={`${selected.id}:${selected.version}`} task={selected} detail={detail} onChanged={task=>setDetail(current=>current ? {...current,tasks:current.tasks.map(t=>t.id===task.id ? task : t)} : current)} onRefresh={()=>setRefresh(n=>n+1)} />}
       </>}
-      </div><ProjectContext key={detail.id} project={detail} participants={props.participants} agents={agents} owner={detail.ownerId===props.userId} onSaved={updated=>setDetail(current=>current?{...current,...updated}:current)} onMembersChanged={props.onMembersChanged}/></div></>}
+      </div><ProjectContext key={detail.id} project={detail} participants={props.participants} agents={agents} owner={owner&&!archived} note={inviteNote({owner,archived})} onSaved={updated=>setDetail(current=>current?{...current,...updated}:current)} onMembersChanged={props.onMembersChanged} onOpenAgent={props.onOpenAgent} viewer={props.username}/></div></>}
     </div>
   </section>;
+}
+
+/** The Projects grid: active projects, then archived ones in a collapsed Archived section, each tagged. */
+export function ProjectGrid({projects,onSelect,empty}:{projects:Project[];onSelect:(id:string)=>void;empty?:ReactNode}) {
+  const {active,archived}=splitArchived(projects);
+  const card=(project:Project)=><button className="dashboard-card project-summary" key={project.id} onClick={()=>onSelect(project.id)}><h2>{project.name}</h2>{project.archived&&<span className="chat-archived-tag">Archived</span>}<p>{project.description || 'Open the conversation and work with your team.'}</p><span>Open project →</span></button>;
+  return <>{active.length?<div className="project-grid">{active.map(card)}</div>:empty}
+    {archived.length>0&&<details className="project-archived"><summary>Archived ({archived.length})</summary><div className="project-grid">{archived.map(card)}</div></details>}</>;
 }
 
 function ProjectFiles({channelId}:{channelId:string}) {

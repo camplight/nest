@@ -1,4 +1,21 @@
+import type { AppTriggerType } from "@nest/schemas";
+/** A provider answered with an error status; `code` is its short error slug, never its message. */
+export class ProviderRequestError extends Error {
+  constructor(readonly status: number, readonly code?: string) {
+    super(`Connection provider request failed (${status}${code ? ` ${code}` : ""})`);
+    this.name = "ProviderRequestError";
+  }
+}
+/** The app has no administrator configuration, so people cannot connect it yet. */
+export class AppSetupRequiredError extends Error {
+  constructor() {
+    super("App requires administrator configuration");
+    this.name = "AppSetupRequiredError";
+  }
+}
 export type Page<T> = { items: T[]; nextCursor: string | null };
+/** `total` is the provider-reported catalog size for an unsearched listing, when known. */
+export type ToolPage = Page<IntegrationTool> & { total?: number };
 export type AppIntegration = {
   slug: string;
   name: string;
@@ -19,11 +36,25 @@ export type IntegrationTool = {
   description: string;
   toolkit: string;
   inputParameters: unknown;
+  /** Provider hints such as readOnlyHint, createHint, updateHint and destructiveHint. */
+  tags: string[];
 };
+/** App-event triggers: instances that deliver a connected account's events to Nest's receiver. */
+export interface AppTriggerProvider {
+  /** The trigger types the provider offers for a toolkit. */
+  types(toolkit: string): Promise<AppTriggerType[]>;
+  /** Makes (or returns the matching) instance on the account; its events go to `egressUrl`. */
+  create(input: { slug: string; accountId: string; config: Record<string, unknown>; egressUrl: string }): Promise<{ triggerId: string }>;
+  /** Already in that state is success. */
+  setEnabled(triggerId: string, enabled: boolean): Promise<void>;
+  /** Already gone is success. */
+  remove(triggerId: string): Promise<void>;
+}
 /** Only provider-specific transport, payloads and identity namespacing live here. */
 export interface ConnectionProvider {
   id: string;
   subject(ownerId: string): string;
+  /** Without a search or cursor, only the apps an administrator configured. */
   apps(search: string, cursor?: string): Promise<Page<AppIntegration>>;
   accounts(ownerId: string, cursor?: string): Promise<Page<ConnectedAccount>>;
   account(id: string): Promise<ConnectedAccount>;
@@ -33,11 +64,13 @@ export interface ConnectionProvider {
     toolkit: string,
     search: string,
     cursor?: string,
-  ): Promise<Page<IntegrationTool>>;
+  ): Promise<ToolPage>;
   tool(slug: string): Promise<IntegrationTool>;
   execute(
     account: ConnectedAccount,
     tool: string,
     args: Record<string, unknown>,
   ): Promise<unknown>;
+  /** Present when the provider can deliver app events (app-event triggers). */
+  triggers?: AppTriggerProvider;
 }

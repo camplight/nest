@@ -3,42 +3,63 @@
 import {createContext,useCallback,useContext,useEffect,useImperativeHandle,useLayoutEffect,useMemo,useRef,useState,type ReactNode,type Ref} from 'react';
 import {foldAgentTimeline} from './agent-folds';
 import {ArrowDownIcon,ChevronRightIcon} from 'lucide-react';
-import {AgentActivity} from '../components/AgentActivity';
+import {appRedaction,type AppRedaction} from '../activity';
+import {TurnActivity} from '../components/TurnActivity';
 import {AgentAvatar} from '../components/AgentAvatar';
 import type {Agent,EventRow} from '../types';
+import {createPortal} from 'react-dom';
 import {AssistantRuntimeProvider,ThreadPrimitive,useAuiState,useExternalStoreRuntime} from './aui';
 import type {ChannelEventsCore,ChannelEventsSnapshot} from './channel-events';
+import {serverClock} from '../server-clock';
+import {ChatAppsHere,useServerTick} from './AppsHere';
+import {appFilterStays,filterTimelineByApp,latestOwnMessageId} from './filter-app';
 import {ExportButton} from './ExportButton';
+import {ChatHeaderSlotsContext} from './header-slots';
 import {formatTime} from './format';
 import {MessageActions} from './MessageActions';
 import {MessageBody} from './MessageBody';
 import type {ReplyTarget} from './quote-types';
 import {SelectionQuote} from './SelectionQuote';
-import {buildTimeline,dayKey,isContinuation,isTraceEvent,toThreadMessage,type ChatMeta,type TimelineItem} from './timeline';
+import {attachesTo,buildTimeline,dayKey,isContinuation,isTraceEvent,newestTimelineAt,toThreadMessage,type ChatMeta,type TimelineItem} from './timeline';
 import {Button} from './ui/button';
 import {DaySeparator} from './ui/day-separator';
 import {cn} from './ui/lib/utils';
 import {ChatPortalProvider} from './ui/portal';
 import {activeTurns,type WorkingTurn} from './working';
 import {WorkingRow} from './WorkingRow';
+import {useServiceAgent} from '../canvas/useFlows';
+import {ForkIcon} from '../canvas/Links';
+import {ReplyRing} from './ReplyRing';
 import './chat.css';
 
 export type ChatThreadProps={
  snapshot:ChannelEventsSnapshot;core:ChannelEventsCore;currentUsername:string;agents:Agent[];
  focusedMessageId:string|null;isConversationEmpty:boolean;
  onPreviewDemo(path:string):void;onQuote(target:ReplyTarget,quotedText:string):void;footer?:ReactNode;headerActions?:ReactNode;
- channelLabel:string;onFocusMessage(eventId:string):void;handle?:Ref<ChatThreadHandle>;
+ /** Settings: before headerActions in the thread's own row, or in a host's More menu (ChatHeaderSlotsContext). */
+ headerMore?:ReactNode;
+ /** The chat's state (the Archived tag), first in the thread's own row; a host with header slots shows its own. */
+ headerStatus?:ReactNode;
+ channelLabel:string;wrappedAgents?:string[];onFocusMessage(eventId:string):void;handle?:Ref<ChatThreadHandle>;
+ /** Phase 2 (canvas flag): the Apps here bar, the wrapped-agent line, app-call titles and redaction, and file tiles in messages. */
+ appActivity?:boolean;
+ /** Phase 3 (canvas flag and flows set up only, R20): Fork from here on messages, and a chip under each forked message. */
+ flows?:ChatFlows;
 };
+/** Forks in the thread: the service agent (its messages never fork), each forked message's fork by event id, and the actions. */
+export type ChatFlows={serviceAgent:string;forks:ReadonlyMap<string,{channelId:string;title:string}>;onFork(item:ChatMessageItem):void;onOpenChat(channelId:string):void};
+export type ChatMessageItem=Extract<TimelineItem,{kind:'message'}>;
 // What the page may ask of the thread: after a send it follows the new message down (the viewport is the thread's own).
 export type ChatThreadHandle={scrollToBottom():void};
 type MessageItem=Extract<TimelineItem,{kind:'message'}>;
 type ActivityItem=Extract<TimelineItem,{kind:'activity'}>;
-type ThreadView={folding:ReturnType<typeof foldAgentTimeline>;toggleFold(id:string):void;byId:ReadonlyMap<string,TimelineItem>;turns:readonly WorkingTurn[];props:ChatThreadProps;focused(eventId:string):void};
+type ThreadView={folding:ReturnType<typeof foldAgentTimeline>;toggleFold(id:string):void;byId:ReadonlyMap<string,TimelineItem>;turns:readonly WorkingTurn[];props:ChatThreadProps;apps:AppRedaction|null;focused(eventId:string):void};
 
 // Ported from classic isMessagesPanelNearBottom.
 const NEAR_BOTTOM_PX=80;
 const FAR_FROM_BOTTOM_PX=240;
 const AUTO_LOAD_PX=120;
+const NO_AGENTS:string[]=[];
 const NO_ERROR=()=>Promise.reject(new Error('The Nest composer sends messages'));
 
 // Author branch: agents get their portrait, humans their initials, system sources nothing.
@@ -60,8 +81,6 @@ export function arrivedWhileAway(previousNewest:number|null,newest:number,nearBo
  return previousNewest!==null&&newest>previousNewest&&!nearBottom;
 }
 
-const newestTimelineAt=(events:EventRow[])=>events.reduce((newest,event)=>
- event.type==='message.created'||isTraceEvent(event)?Math.max(newest,event.createdAt??0):newest,0);
 const distanceFromBottom=(panel:HTMLElement)=>panel.scrollHeight-panel.scrollTop-panel.clientHeight;
 const dayLabel=(ts:number)=>new Intl.DateTimeFormat(undefined,{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(new Date(ts));
 
@@ -75,11 +94,6 @@ const ThreadContext=createContext<ThreadView|null>(null);
 // Messages carry no bottom padding, so these margins are the whole gap: a small one between authors, tight within a run.
 const spaceAfter=(item:TimelineItem,next:TimelineItem|undefined)=>
  !next?'mb-0':item.kind!=='message'||next.kind!=='message'?'mb-3':isContinuation(item,next)?'mb-0.5':'mb-3';
-// An activity group directly after a message (same day, both in the loaded window) is shown inside that message,
-// under its text; any other group stands on its own in the avatar-gutter column.
-const attachesTo=(previous:TimelineItem|undefined,item:TimelineItem|undefined):boolean=>
- item?.kind==='activity'&&previous?.kind==='message'&&!previous.meta.detached&&!item.meta.detached&&
- dayKey(previous.meta.displayAt)===dayKey(item.meta.displayAt);
 // The classic rgba backgrounds of .trace-group-agent and -system read as a grey bar in dark mode; token-themed here.
 // Chips line up with the message text: no box or inset around the group (the classic .trace-group padding is reset).
 const ACTIVITY_RESET='[&>article]:bg-transparent [&>article]:p-0 [&>article]:rounded-none [&>article]:max-w-none';
@@ -93,6 +107,9 @@ const COLUMN='relative min-w-0 flex-1 pb-0 outline-none';
 // The current user's own messages sit on the right like a chat app's: no avatar or name, the bubble and its actions
 // right-aligned (the operator's call, superseding spec 4.5's left-aligned layout).
 const MINE_COLUMN='flex flex-col items-end';
+// The mock's `.fork-btn` (absolute, 6 px in, shown on hover and keyboard focus within) and `.msg .forked` chip.
+const FORK_BUTTON='fork-btn absolute top-1.5 z-20 flex items-center gap-[5px] rounded-lg border border-border bg-card px-2 py-[3px] text-[11.5px] leading-4 font-normal text-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [&_svg]:size-3';
+const FORKED='forked mt-1.5 inline-flex max-w-full cursor-pointer items-center gap-[5px] rounded-lg border border-[color-mix(in_srgb,var(--nest-accent)_30%,var(--nest-border))] px-2 py-[3px] text-xs leading-4 text-(--nest-accent) hover:bg-muted [&_svg]:size-3 [&_svg]:shrink-0';
 
 function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;previous?:TimelineItem;view:ThreadView;spacing:string;activity?:ActivityItem}){
  const {meta}=item,{props}=view;
@@ -117,22 +134,42 @@ function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;pr
   const frame=window.requestAnimationFrame(reveal);
   return()=>window.cancelAnimationFrame(frame);
  },[highlighted]);
+ // Forks (Phase 3): never from the service agent's own messages; a forked message shows a chip that opens its fork.
+ const flows=props.flows;
+ const fork=Boolean(flows)&&!(meta.authorKind==='agent'&&meta.authorName===flows!.serviceAgent);
+ const forked=flows?.forks.get(meta.eventId);
+ // A Switchyard line (the mock's `.msg.src`): `↳` in the avatar gutter and its first line in muted italics, then the
+ // rest as an ordinary body with its files. No author line, portrait or `To @…` line: it is a note of what moved, not a voice.
+ if(item.switchyard!==undefined)return <article ref={ref} id={`message-${item.id}`} data-message-id={item.id} tabIndex={highlighted?-1:undefined}
+  className={cn('message message-src',SHELL,spacing,highlighted&&'message-highlight bg-accent/40 ring-2 ring-ring')}>
+  <div className="w-8 shrink-0 pt-0.5 text-center text-sm leading-5 text-muted-foreground" aria-hidden="true">↳</div>
+  <div data-slot="message-focus" tabIndex={0} role="group" aria-label={`${meta.authorName}, ${formatTime(meta.displayAt)}`} className={COLUMN}>
+   {actions('absolute top-0 end-0 z-10')}
+   <p className="message-src-line m-0 pe-12 text-[13.5px] italic leading-5 text-muted-foreground [font-synthesis:style] [overflow-wrap:anywhere]">{item.switchyard}</p>
+   {item.text||item.attachments.length?<MessageBody item={item} channelId={props.snapshot.channelId??''} core={props.core} onPreviewDemo={props.onPreviewDemo}
+    onFocusMessage={props.onFocusMessage} onQuote={quote} fileTiles={props.appActivity}/>:null}
+  </div>
+ </article>;
  return <article ref={ref} id={`message-${item.id}`} data-message-id={item.id} tabIndex={highlighted?-1:undefined}
   className={cn('message',`message-${meta.authorKind}`,SHELL,spacing,highlighted&&'message-highlight bg-accent/40 ring-2 ring-ring')}>
-  {!mine&&<div className="w-8 shrink-0 pt-0.5">{author?authorAvatar(meta):time}</div>}
+  {!mine&&<div className="w-8 shrink-0 pt-0.5">{author?(activity&&meta.authorKind==='agent'
+   ?<ReplyRing agent={meta.authorName} events={activity.events}>{authorAvatar(meta)}</ReplyRing>:authorAvatar(meta)):time}</div>}
   <div data-slot="message-focus" tabIndex={0} role="group" aria-label={`${meta.authorName}, ${formatTime(meta.displayAt)}`} className={cn(COLUMN,mine&&MINE_COLUMN)}>
-   {mine?(author?<div className="flex items-center justify-end gap-2">{actions('')}{time}</div>:actions('absolute top-0 start-0 z-10')):author?<div className="flex min-w-0 items-center gap-2">
+   {mine?(author?<div className="flex items-center justify-end gap-2">{actions('')}{time}</div>:actions(cn('absolute top-0 z-10',fork?'start-34':'start-0'))):author?<div className="flex min-w-0 items-center gap-2">
     <strong className="message-author min-w-0 text-sm font-semibold leading-5 text-foreground [overflow-wrap:anywhere]">{meta.authorName}</strong>
     {time}
     {actions('')}
-   </div>:actions('absolute top-0 end-0 z-10')}
+   </div>:actions(cn('absolute top-0 z-10',fork?'end-34':'end-0'))}
    {meta.targetAgents.length>0&&<span className="message-target mt-0.5 mb-0 block text-xs text-muted-foreground">To {meta.targetAgents.map(name=>'@'+name).join(', ')}</span>}
    <MessageBody item={item} channelId={props.snapshot.channelId??''} core={props.core} onPreviewDemo={props.onPreviewDemo}
-    onFocusMessage={props.onFocusMessage} onQuote={quote}
+    onFocusMessage={props.onFocusMessage} onQuote={quote} fileTiles={props.appActivity}
     activity={activity&&<div data-aui-quote-selectable="false" className={ACTIVITY_IN_MESSAGE}>
-     <AgentActivity events={activity.events} tone={activity.tone} formatTime={formatTime}/>
+     <TurnActivity events={activity.events} tone={activity.tone} formatTime={formatTime} apps={view.apps}/>
     </div>}/>
+   {forked&&<button type="button" className={FORKED} title={`Open the fork ${forked.title}`} onClick={()=>flows!.onOpenChat(forked.channelId)}><ForkIcon/>{forked.title}</button>}
   </div>
+  {/* The mock's fork-btn: top right on hover or keyboard focus within (top left on your own messages, whose time is on the right). */}
+  {fork&&<button type="button" className={cn(FORK_BUTTON,mine?'start-1.5':'end-1.5')} onClick={()=>flows!.onFork(item)}><ForkIcon/>Fork from here</button>}
  </article>;
 }
 
@@ -172,10 +209,10 @@ function ThreadItem(){
     <MessageShell item={item} previous={previous} view={view} spacing={spaceAfter(item,next)}/>):
    attachesTo(previous,item)?null:
    <div data-aui-quote-selectable="false" className={cn(ACTIVITY_SLOT,spaceAfter(item,next))}>
-    <AgentActivity events={item.events} tone={item.tone} formatTime={formatTime}/>
+    <TurnActivity events={item.events} tone={item.tone} formatTime={formatTime} standalone apps={view.apps}/>
    </div>}
   {view.turns.filter(turn=>(view.folding.redirects.get(turn.triggerEventId)??turn.triggerEventId)===item.id||(!next&&!view.byId.has(turn.triggerEventId)&&!view.folding.redirects.has(turn.triggerEventId))).map(turn=>
-   <WorkingRow key={turn.agent} turn={turn} activityUnavailable={view.props.snapshot.activityUnavailable}
+   <WorkingRow key={turn.agent} turn={turn} activityUnavailable={view.props.snapshot.activityUnavailable} events={view.props.snapshot.events}
     onReview={()=>view.props.onFocusMessage(turn.triggerEventId)}/>)}
   {item.meta.detached&&next&&!next.meta.detached&&<div data-slot="detached-marker" className="my-3 self-center rounded-full bg-muted/70 px-3 py-1 text-xs text-muted-foreground">Earlier messages not loaded</div>}
  </>;
@@ -213,26 +250,47 @@ function ThreadEmpty(){
 
 export function ChatThread(props:ChatThreadProps):JSX.Element{
  const {snapshot,core,currentUsername,focusedMessageId}=props;
+ // A host with its own header (the canvas sheet) takes Huddle, Sharing and Export; the thread then has no header row.
+ const slots=useContext(ChatHeaderSlotsContext);
  const previousItems=useRef<TimelineItem[]>([]);
+ const serviceAgent=useServiceAgent();
+ // Scheduled runs (the canvas flag, R20): due triggers become `↳` lines; one booked for later stays out until it is due.
+ const scheduledRuns=props.appActivity===true;
  const items=useMemo(()=>{
-  const next=buildTimeline(snapshot.events,{currentUsername,detachedIds:snapshot.detachedIds},previousItems.current);
+  const next=buildTimeline(snapshot.events,{currentUsername,detachedIds:snapshot.detachedIds,serviceAgent,
+   ...(scheduledRuns?{scheduledRuns:{now:serverClock.serverNow()}}:{})},previousItems.current);
   previousItems.current=next;
   return next;
- },[snapshot.events,snapshot.detachedIds,currentUsername]);
+ },[snapshot.events,snapshot.detachedIds,currentUsername,serviceAgent,scheduledRuns]);
  // Each active turn's row follows its trigger message, or the last item when the trigger is not loaded (spec 7.5.1).
  const turns=useMemo(()=>activeTurns(snapshot.events,props.agents,snapshot.agentStarts),[snapshot.events,props.agents,snapshot.agentStarts]);
  // A deep-link focus is pending until it scrolled into view and the reader then scrolled themselves (spec 8.5).
  const focusedRef=useRef<string|null>(null);
  const focused=useCallback((eventId:string)=>{focusedRef.current=eventId;},[]);
+ // App calls and their processes are linked across the whole loaded window, not one activity group.
+ // A tick re-reads the server clock while a call runs, so one stuck for 10 minutes turns failed in a quiet chat.
+ const [tick,setTick]=useState(0);
+ const apps=useMemo(()=>props.appActivity?appRedaction(snapshot.events,serverClock.serverNow()):null,[props.appActivity,snapshot.events,tick]);
+ useServerTick(!!apps&&[...apps.lines.values()].some(call=>call.state==='running'),serverClock,setTick);
  const [expandedFolds,setExpandedFolds]=useState<ReadonlySet<string>>(new Set());
  useEffect(()=>setExpandedFolds(new Set()),[snapshot.channelId]);
- const folding=useMemo(()=>foldAgentTimeline(items,expandedFolds,focusedMessageId),[items,expandedFolds,focusedMessageId]);
+ // The Apps here filter (only where that bar shows): one app per open chat, not saved, cleared when the chat changes.
+ const [appFilter,setAppFilter]=useState<string|null>(null);
+ useEffect(()=>setAppFilter(null),[snapshot.channelId]);
+ // Sending a message clears the filter (it would hide the message); so does an app with no calls left in the loaded events.
+ const ownId=useMemo(()=>latestOwnMessageId(snapshot.events,currentUsername),[snapshot.events,currentUsername]);
+ const ownRef=useRef(ownId);
+ useEffect(()=>{if(ownRef.current!==ownId){ownRef.current=ownId;setAppFilter(null);}},[ownId]);
+ const activeFilter=appFilterStays(appFilter,snapshot.events)?appFilter:null;
+ useEffect(()=>{if(appFilter!==null&&activeFilter===null)setAppFilter(null);},[appFilter,activeFilter]);
+ const shown=useMemo(()=>props.appActivity?filterTimelineByApp(items,activeFilter):items,[items,activeFilter,props.appActivity]);
+ const folding=useMemo(()=>foldAgentTimeline(shown,expandedFolds,focusedMessageId),[shown,expandedFolds,focusedMessageId]);
  const toggleFold=useCallback((id:string)=>{
   const control=[...folding.controls.values()].find(value=>value.fold.id===id);
   if(control?.expanded&&focusedMessageId&&control.fold.hiddenIds.includes(focusedMessageId))props.onFocusMessage(control.fold.latestId);
   setExpandedFolds(previous=>{const next=new Set(previous);if(control?.expanded)next.delete(id);else next.add(id);return next;});
  },[folding,focusedMessageId,props.onFocusMessage]);
- const view=useMemo<ThreadView>(()=>({byId:new Map(folding.items.map(item=>[item.id,item])),turns,props,focused,folding,toggleFold}),[folding,turns,props,focused,toggleFold]);
+ const view=useMemo<ThreadView>(()=>({byId:new Map(folding.items.map(item=>[item.id,item])),turns,props,apps,focused,folding,toggleFold}),[folding,turns,props,apps,focused,toggleFold]);
  const runtime=useExternalStoreRuntime({
   messages:folding.items,convertMessage:toThreadMessage,isRunning:false,onNew:NO_ERROR,
   hasEarlier:snapshot.hasOlder,onLoadEarlier:()=>core.loadOlder(),
@@ -242,6 +300,8 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  const snapshotRef=useRef(snapshot);snapshotRef.current=snapshot;
  const nearBottomRef=useRef(true);
  const [farFromBottom,setFarFromBottom]=useState(false);
+ // Messages scrolled under the header actions: show where the toolbar ends.
+ const [scrolled,setScrolled]=useState(false);
  const [hasNew,setHasNew]=useState(false);
  const [focusPending,setFocusPending]=useState(focusedMessageId!==null);
  const focusPendingRef=useRef(focusPending);focusPendingRef.current=focusPending;
@@ -270,11 +330,12 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
   nearBottomRef.current=distance<NEAR_BOTTOM_PX;
   if(nearBottomRef.current)setHasNew(false);
   setFarFromBottom(distance>=FAR_FROM_BOTTOM_PX);
+  setScrolled(panel.scrollTop>2);
   if(panel.scrollTop<AUTO_LOAD_PX&&!focusPendingRef.current)loadOlder();
  },[loadOlder]);
 
  // New content: pinned at the bottom it follows, scrolled up it offers "New messages below".
- const newest=snapshot.loading?null:newestTimelineAt(snapshot.events);
+ const newest=snapshot.loading?null:newestTimelineAt(snapshot.events,scheduledRuns?{now:serverClock.serverNow()}:null);
  const newestRef=useRef<number|null>(null);
  useLayoutEffect(()=>{
   const previous=newestRef.current;
@@ -305,9 +366,12 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  // No channel selected yet (the shell is still loading): no conversation, so no empty state either.
  const empty=snapshot.channelId!==null&&!snapshot.loading&&items.length===0;
  return <AssistantRuntimeProvider runtime={runtime}><ChatPortalProvider><ThreadContext.Provider value={view}>
-  <div className="nest-chat relative flex min-h-0 flex-1 flex-col">
-   {/* Keep Sharing and Huddle reachable on mobile. Export stays hidden at the existing mobile breakpoint. */}
-   <div className="chat-header-actions flex shrink-0 flex-wrap items-center justify-end gap-3 px-3 pb-2 empty:hidden">{props.headerActions}<span className="max-[761px]:hidden"><ExportButton items={items} channelLabel={props.channelLabel}/></span></div>
+  <div className={cn('nest-chat relative flex min-h-0 flex-1 flex-col',scrolled&&'is-scrolled')}>
+   {/* Keep Settings and Huddle reachable on mobile. Export stays hidden at the existing mobile breakpoint. */}
+   {slots
+    ? <>{slots.actions&&createPortal(props.headerActions,slots.actions)}{slots.more&&createPortal(<>{props.headerMore}<ExportButton items={items} channelLabel={props.channelLabel} menuItem/></>,slots.more)}</>
+    : <div className="chat-header-actions flex shrink-0 flex-wrap items-center justify-end gap-3 px-3 pb-2 empty:hidden">{props.headerStatus}{props.headerMore}{props.headerActions}<span className="max-[761px]:hidden"><ExportButton items={items} channelLabel={props.channelLabel}/></span></div>}
+   {props.appActivity&&<ChatAppsHere events={snapshot.events} wrappedAgents={props.wrappedAgents??NO_AGENTS} selected={activeFilter} onSelect={setAppFilter}/>}
    <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">
     <ThreadPrimitive.Viewport ref={panelRef} turnAnchor="bottom" autoScroll={!focusPending} scrollToBottomOnInitialize={!focusedMessageId}
      onScroll={onScroll} className={cn('messages-panel gap-0 px-1 pt-1 pb-4 sm:ps-2 sm:pe-3',(empty||props.isConversationEmpty)&&'messages-panel-empty')}>

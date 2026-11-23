@@ -1,0 +1,41 @@
+/* Touch screens only (no hover): an agent avatar that opens the working ring shows it can be tapped. A live working
+   row's avatar breathes a lime ring while the agent works; a finished reply's avatar keeps a still, thin lime ring. A press shrinks it a little, and an open card holds the ring steady. */
+@media (hover: none) and (pointer: coarse) {
+  .reply-ring-trigger,
+  .working-row-avatar {
+    position: relative;
+    display: inline-grid;
+    border-radius: 50%;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform .12s ease;
+  }
+  .reply-ring-trigger::after,
+  .working-row-avatar::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border: 2px solid color-mix(in srgb, var(--nest-lime) 75%, transparent);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+  .working-row-avatar::after { animation: tap-hint-breathe 1.8s ease-in-out infinite; }
+  .reply-ring-trigger:active,
+  .working-row:active .working-row-avatar { transform: scale(.92); }
+  .reply-ring-trigger[data-state="open"]::after,
+  .working-row[data-state="open"] .working-row-avatar::after {
+    animation: none;
+    border-color: var(--nest-lime);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--nest-lime) 25%, transparent);
+  }
+}
+@keyframes tap-hint-breathe {
+  0%, 100% { transform: scale(1); opacity: .95; }
+  50% { transform: scale(1.18); opacity: .35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reply-ring-trigger::after,
+  .working-row-avatar::after { animation: none !important; }
+  .reply-ring-trigger,
+  .working-row-avatar { transition: none; }
+}

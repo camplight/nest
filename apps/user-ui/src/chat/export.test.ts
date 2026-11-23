@@ -16,7 +16,7 @@ const items=buildTimeline(events,{currentUsername:'synthetic-owner'});
 
 describe('chatToMarkdown',()=>{
  it('exports messages, one activity count line and attachment links',()=>{
-  expect(items.map(item=>item.kind)).toEqual(['message','activity','message']);
+  expect(items.map(item=>item.kind)).toEqual(['message','message','activity']);
   const markdown=chatToMarkdown(items,{channelLabel:'Synthetic channel',timeZone:'UTC'});
   expect(markdown.split('\n')[0]).toBe('# Synthetic channel');
   expect(markdown).toContain('**synthetic-owner** · 2026-01-02 03:04\nSynthetic **hello**');
@@ -26,9 +26,14 @@ describe('chatToMarkdown',()=>{
   expect(markdown).toBe([
    '# Synthetic channel','',
    '**synthetic-owner** · 2026-01-02 03:04','Synthetic **hello**','',
-   '_Agent activity: 3 events_','',
    '**Pip** · 2026-01-02 03:06','Synthetic reply','[report.txt](/api/files/f1)','',
+   '_Agent activity: 3 events_','',
   ].join('\n'));
+ });
+ it('keeps a Switchyard line\'s first line above its body',()=>{
+  const post:EventRow={id:'h1',type:'message.created',source:'agent:Switchyard',payload:{text:'Hand-off from Launch · set up by synthetic-owner\n\nDraft ready',nestSwitchyard:{kind:'handoff'}},createdAt:T0};
+  const markdown=chatToMarkdown(buildTimeline([post],{currentUsername:'synthetic-owner',serviceAgent:'Switchyard'}),{channelLabel:'Synthetic channel',timeZone:'UTC'});
+  expect(markdown).toContain('**Switchyard** · 2026-01-02 03:04\n_Hand-off from Launch · set up by synthetic-owner_\nDraft ready');
  });
  it('never serialises activity payloads (spec 5.6)',()=>{
   const markdown=chatToMarkdown(items,{channelLabel:'Synthetic channel',timeZone:'UTC'});

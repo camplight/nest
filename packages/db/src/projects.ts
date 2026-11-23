@@ -8,6 +8,16 @@ export function createProjectStore(db: Database.Database) {
     const shared=teamChannels.length?` OR (collaboration='team' AND channel_id IN (${teamChannels.map(()=>'?').join(',')}))`:'';
     return db.prepare(`SELECT ${projectColumns} FROM product_projects WHERE owner_id=?${shared} ORDER BY created_at DESC`).all(ownerId,...teamChannels) as Project[];
   }
+  /** Product project (id, name) per chat channel, for the given channels only. */
+  function byChannels(channelIds: string[]) {
+    const found = new Map<string, { id: string; name: string }>();
+    for (let i = 0; i < channelIds.length; i += 200) {
+      const chunk = channelIds.slice(i, i + 200);
+      const rows = db.prepare(`SELECT channel_id AS channelId, id, name FROM product_projects WHERE channel_id IN (${chunk.map(() => '?').join(',')}) ORDER BY created_at`).all(...chunk) as { channelId: string; id: string; name: string }[];
+      for (const r of rows) if (!found.has(r.channelId)) found.set(r.channelId, { id: r.id, name: r.name });
+    }
+    return found;
+  }
   function task(id: string) {
     const row = db.prepare('SELECT data_json FROM product_tasks WHERE id=?').get(id) as {data_json: string} | undefined;
     return row ? JSON.parse(row.data_json) as Task : undefined;
@@ -67,5 +77,5 @@ export function createProjectStore(db: Database.Database) {
     const reviews = db.prepare('SELECT r.id,r.task_id AS taskId,r.deliverable_id AS deliverableId,r.decision,r.feedback,r.reviewer_id AS reviewerId,r.created_at AS createdAt FROM product_reviews r JOIN product_tasks t ON t.id=r.task_id WHERE t.project_id=? ORDER BY r.created_at').all(value.id) as Review[];
     return {...value,tasks:tasks(value.id),deliverables,reviews};
   }
-  return {project,projects,task,tasks,createProject,updateProject,canNameProject,openingMessage,createTask,changeTask,detail};
+  return {project,projects,byChannels,task,tasks,createProject,updateProject,canNameProject,openingMessage,createTask,changeTask,detail};
 }

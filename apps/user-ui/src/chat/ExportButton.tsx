@@ -7,7 +7,8 @@ import {Button} from './ui/button';
 
 const fileName=(label:string)=>`${label.replace(/[\\/:*?"<>|]+/g,'-').trim()||'chat'}.md`;
 
-export function ExportButton({items,channelLabel}:{items:readonly TimelineItem[];channelLabel:string}):JSX.Element|null{
+/** `menuItem`: a plain row for a host's menu (the canvas chat's More menu), styled by the host, not the chat's utilities. */
+export function ExportButton({items,channelLabel,menuItem=false}:{items:readonly TimelineItem[];channelLabel:string;menuItem?:boolean}):JSX.Element|null{
  if(items.length===0)return null;
  const download=()=>{
   const url=URL.createObjectURL(new Blob([chatToMarkdown(items,{channelLabel})],{type:'text/markdown'}));
@@ -17,6 +18,7 @@ export function ExportButton({items,channelLabel}:{items:readonly TimelineItem[]
   // The download has started from the click; release the blob on the next task.
   setTimeout(()=>URL.revokeObjectURL(url),0);
  };
+ if(menuItem)return <button type="button" className="chat-menu-item" onClick={download}><DownloadIcon aria-hidden="true"/>Export chat</button>;
  return <Button type="button" variant="ghost" size="xs" className="text-muted-foreground" onClick={download}>
   <DownloadIcon aria-hidden="true"/>Export chat
  </Button>;

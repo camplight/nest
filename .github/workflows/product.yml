@@ -25,6 +25,7 @@ jobs:
       - run: npm run test:ui:agents
       - run: npm run test:ui:projects
       - run: npm run test:ui:community
+      - run: npm run test:ui:canvas
       - run: npm run test:ui:auth
       - run: npm run test:ui:onboarding
       - run: python3 -m unittest discover -s deploy/devops -p 'test_*.py'

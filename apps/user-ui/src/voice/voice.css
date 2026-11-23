@@ -1,0 +1,33 @@
+.voice-note-group { display: inline-flex; align-items: center; gap: 4px; }
+.voice-note-button.is-recording { color: var(--nest-coral, #c2410c) !important; }
+.voice-note-button.is-recording svg { animation: voice-note-pulse 1.2s ease-in-out infinite; }
+.voice-note-status { margin: 0; color: var(--nest-muted); font-size: 12px; }
+.voice-note-status:empty { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.voice-note-status.is-recording { color: var(--nest-text); }
+.voice-note-error { margin: 0; padding: 6px 10px; border-radius: 8px; background: var(--nest-muted-surface); color: var(--canvas-alert, #a63016); font-size: 12px; font-weight: 500; }
+:root[data-theme="dark"] .voice-note-error { color: var(--nest-coral, #ff8a70); }
+@keyframes voice-note-pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .voice-note-button.is-recording svg { animation: none; } }
+
+/* The reply box's icon-only mic (the mock's .cbtn): one button that turns coral and pulses while recording. */
+.nest-chat-composer .composer .composer-actions .voice-note-mic,
+.voice-note-mic { width: 34px; height: 34px; padding: 0 !important; border-radius: 9px; display: inline-grid; place-items: center; }
+.nest-chat-composer .composer .composer-actions .voice-note-mic.is-recording,
+.nest-chat-composer .composer .composer-actions .voice-note-mic.is-recording:enabled:hover,
+.voice-note-mic.is-recording { background: var(--nest-coral) !important; color: #fff !important; }
+.voice-note-mic.is-recording svg { animation: none; }
+@media (prefers-reduced-motion: no-preference) { .voice-note-mic.is-recording { animation: voice-note-recpulse 1.4s infinite; } }
+@keyframes voice-note-recpulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--nest-coral) 18%, transparent); } }
+
+/* While recording, the status is the mock's pending chip: coral bars, Listening… and the time. */
+.voice-note-status.is-recording { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; padding: 5px 10px; border: 1px solid var(--nest-border); border-radius: 10px; background: var(--nest-surface); }
+.voice-note-wave { display: inline-flex; align-items: center; gap: 2px; height: 16px; }
+.voice-note-bar { width: 3px; height: 4px; border-radius: 2px; background: var(--nest-coral); }
+.voice-note-time { color: var(--nest-coral); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: no-preference) {
+  .voice-note-bar { animation: voice-note-bar .9s ease-in-out infinite; }
+  .voice-note-bar:nth-child(2n) { animation-delay: .15s; }
+  .voice-note-bar:nth-child(3n) { animation-delay: .3s; }
+  .voice-note-bar:nth-child(4n) { animation-delay: .45s; }
+}
+@keyframes voice-note-bar { 50% { height: 16px; } }

@@ -50,7 +50,9 @@ adapter/engine boundary rather than mocking away the ownership separation.
 
 ## State and compatibility
 
-- `.nest-product/nest.sqlite`: Nest product state.
+- `.nest-product/nest.sqlite`: Nest product state, including canvas flows (links,
+  forks, schedules, runs and webhook token hashes).
+- `.nest-product/context-files/`: canvas context uploads (`NEST_CONTEXT_FILES_DIR`); back up with the product DB.
 - `.nest-data/nest.sqlite`: engine state (legacy location kept intentionally).
 - `.nest-data/engine/skills`: writable runtime skill copies.
 - `files/`: uploads. All runtime directories are gitignored.
@@ -59,6 +61,9 @@ NEST environment variables, headers and cookies are translated at boundaries.
 Offline migration moves old branding and adds aliases to stored wrapped commands;
 never silently migrate a running production DB. Preserve runner IDs, workspaces,
 Codex logins, demos and private deployment credentials during upgrades.
+Also preserve the `switchyard.agent` product setting and the stopped engine agent
+it names (`NEST_SWITCHYARD_AGENT_NAME`, default `Switchyard`): never start, rename
+or delete it, since it has joined every chat with a link, fork, schedule or webhook.
 
 The Docker image can run both APIs and the runner under one supervisor or point
 Nest at an external engine via ORGOPS_URL. Host self-deployment needs recursive

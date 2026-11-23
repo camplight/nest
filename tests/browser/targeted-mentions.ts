@@ -192,30 +192,42 @@ try {
     await input.fill("@Outsider");
     const outsider=popup.getByRole('option').filter({hasText:'Outsider'});
     assert.equal(await outsider.getAttribute('aria-disabled'),'false');
-    await outsider.getByText('Agent · Add to chat and mention',{exact:true}).waitFor();
+    await outsider.getByText('Agent · Joins when you send',{exact:true}).waitFor();
     await page.waitForFunction(()=>getComputedStyle(document.querySelector('.mention-popup')!).opacity==='1');
     await page.screenshot({path:join(screenshots,'invite-desktop.png'),fullPage:true});
     await page.setViewportSize({width:390,height:844});
     await page.screenshot({path:join(screenshots,'invite-mobile.png'),fullPage:true});
     await page.setViewportSize({width:1440,height:1000});
-    denyInvitation=true;await outsider.click();
-    await page.getByRole('alert').filter({hasText:'Couldn’t confirm Outsider was added'}).waitFor();
-    assert.equal(await input.inputValue(),'@Outsider');
-    loseInvitation=true;await input.press('Enter');
+    const members=async(name:string)=>(await(await product.app.request('/api/channels?includeArchived=1',{headers})).json()).find((channel:any)=>channel.id===ch.id).participants.filter((p:any)=>p.subscriberType==='AGENT'&&p.subscriberId===name).length;
+    const sent=async()=>(await(await product.app.request('/api/events?channelId='+ch.id+'&type=message.created',{headers})).json()) as any[];
+    // Picking someone only marks them in the draft; a deleted draft adds nobody.
+    await outsider.click();
     await page.waitForFunction(()=>document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.value==='@Outsider ');
-    const joined=await(await product.app.request('/api/channels?includeArchived=1',{headers})).json();
-    assert.equal(joined.find((channel:any)=>channel.id===ch.id).participants.filter((p:any)=>p.subscriberType==='AGENT'&&p.subscriberId==='Outsider').length,1,'Lost-response retry confirms one subscription');
-    assert.equal((await(await product.app.request('/api/events?channelId='+ch.id+'&type=message.created',{headers})).json()).length,0,'Invitation never sends a message');
-    await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>resolve())));
+    await page.getByLabel('Message recipients').getByText('Ask @Outsider · joins on send').waitFor();
+    assert.equal(await members('Outsider'),0,'Picking someone never adds them');
+    await input.fill('');await page.getByLabel('Message recipients').waitFor({state:'detached'});
+    assert.equal(await members('Outsider'),0,'A deleted draft adds nobody');
+    // Sending adds them first. A refused invitation sends nothing and keeps the draft; a lost response still adds them once.
+    await input.fill('@Outsider');await outsider.click();
+    await page.waitForFunction(()=>document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.value==='@Outsider ');
+    await input.press('End');await input.pressSequentially('please check the copy');
+    denyInvitation=true;await page.getByRole('button',{name:'Send',exact:true}).click();
+    await page.getByRole('alert').filter({hasText:'Couldn’t add Outsider. Your message wasn’t sent.'}).waitFor();
+    assert.equal(await input.inputValue(),'@Outsider please check the copy');
+    assert.equal((await sent()).length,0,'A refused invitation sends nothing');
+    loseInvitation=true;await page.getByRole('button',{name:'Send',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.value==='');
+    assert.equal(await members('Outsider'),1,'Lost-response retry confirms one subscription');
+    const outsiderMessages=await sent();
+    assert.equal(outsiderMessages.length,1);assert.equal(outsiderMessages[0].payload.targetAgentName,'Outsider');
     await input.fill('@PrivateBob');
     const privateAgent=popup.getByRole('option').filter({hasText:'PrivateBob'});
     assert.notEqual(await privateAgent.getAttribute('aria-disabled'),'true');
-    await privateAgent.getByText('Agent · Add to chat and mention',{exact:true}).waitFor();
+    await privateAgent.getByText('Agent · Joins when you send',{exact:true}).waitFor();
     await input.press('Enter');
     await page.waitForFunction(()=>document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.value==='@PrivateBob ');
-    const trustedJoined=await(await product.app.request('/api/channels?includeArchived=1',{headers})).json();
-    assert.equal(trustedJoined.find((channel:any)=>channel.id===ch.id).participants.filter((p:any)=>p.subscriberType==='AGENT'&&p.subscriberId==='PrivateBob').length,1);
-    assert.equal((await(await product.app.request('/api/events?channelId='+ch.id+'&type=message.created',{headers})).json()).length,0,'A trusted invitation does not send a message');
+    assert.equal(await members('PrivateBob'),0,'A trusted agent also joins only on send');
+    await input.fill('');
     await input.press('Escape');
     await input.fill("@pu");
     await input.press("Enter");
@@ -272,9 +284,16 @@ try {
         { headers },
       )
     ).json();
-    assert.equal(events.length, 1);
-    assert.equal(events[0].payload.targetAgentName, "Puff");
+    assert.equal(events.length, 2);
+    const puffEvent=events.find((event:any)=>event.payload.targetAgentName==='Puff');
+    assert(puffEvent,'The Puff request was sent');
     await page.getByText("To @Puff", { exact: true }).waitFor();
+    // The sent message shows who it mentions as highlighted chips, not plain text.
+    const sentMessage=page.locator(`[data-message-id="${puffEvent.id}"]`);
+    await sentMessage.locator('.chat-mention',{hasText:'@Puff'}).waitFor();
+    await sentMessage.locator('.chat-mention',{hasText:'@demo-bob'}).waitFor();
+    assert.notEqual(await sentMessage.locator('.chat-mention').first().evaluate(node=>getComputedStyle(node).backgroundColor),'rgba(0, 0, 0, 0)');
+    await page.screenshot({path:join(screenshots,'mention-chips-desktop.png'),fullPage:true});
     await page.setViewportSize({ width: 1440, height: 1000 });
     await input.fill("@pu");
     await input.press("Enter");
@@ -293,7 +312,7 @@ try {
     await page.screenshot({path:join(screenshots,"multiple-agents-mobile.png"),fullPage:true});
     await page.setViewportSize({width:1440,height:1000});
     const multiEvents=await(await product.app.request("/api/events?channelId="+ch.id+"&type=message.created",{headers})).json();
-    assert.equal(multiEvents.length,2);
+    assert.equal(multiEvents.length,3);
     assert.deepEqual(multiEvents.find((event:any)=>event.payload.targetAgentNames)?.payload.targetAgentNames,["Puff","Moss"]);
     await input.fill("@pu");await input.press("Enter");
     await input.fill("Edited @Puf");
@@ -358,21 +377,21 @@ try {
       .filter({ hasText: "demo-alice mentioned you" })
       .click();
     await receiver
-      .locator("#message-" + events[0].id + ".message-highlight")
+      .locator("#message-" + puffEvent.id + ".message-highlight")
       .waitFor();
     assert.equal(
       new URL(receiver.url()).searchParams.get("message"),
-      events[0].id,
+      puffEvent.id,
     );
     await receiver.reload();
     await receiver
-      .locator("#message-" + events[0].id + ".message-highlight")
+      .locator("#message-" + puffEvent.id + ".message-highlight")
       .waitFor();
     // The product reveals the target in an animation frame (scroll, then focus); let that layout settle first.
-    await receiver.waitForFunction((id)=>new Promise<boolean>((resolve)=>{const node=document.getElementById('message-'+id);if(!node||document.activeElement!==node)return resolve(false);const a=node.getBoundingClientRect();requestAnimationFrame(()=>requestAnimationFrame(()=>{const b=node.getBoundingClientRect();resolve(a.top===b.top&&a.bottom===b.bottom);}));}),events[0].id);
+    await receiver.waitForFunction((id)=>new Promise<boolean>((resolve)=>{const node=document.getElementById('message-'+id);if(!node||document.activeElement!==node)return resolve(false);const a=node.getBoundingClientRect();requestAnimationFrame(()=>requestAnimationFrame(()=>{const b=node.getBoundingClientRect();resolve(a.top===b.top&&a.bottom===b.bottom);}));}),puffEvent.id);
     // The wait above returns a Promise, which Playwright accepts at once; this synchronous predicate is re-polled every frame: true once the target is focused and its box held for two frames.
-    await receiver.waitForFunction((id)=>{const w=window as any;const node=document.getElementById('message-'+id);if(!node||document.activeElement!==node){w.__settle=undefined;return false;}const r=node.getBoundingClientRect();const p=w.__settle;w.__settle={top:r.top,bottom:r.bottom,frames:p&&p.top===r.top&&p.bottom===r.bottom?p.frames+1:0};return w.__settle.frames>=2;},events[0].id);
-    await receiver.waitForFunction((id)=>{const node=document.getElementById('message-'+id);if(!node)return false;const r=node.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;},events[0].id);
+    await receiver.waitForFunction((id)=>{const w=window as any;const node=document.getElementById('message-'+id);if(!node||document.activeElement!==node){w.__settle=undefined;return false;}const r=node.getBoundingClientRect();const p=w.__settle;w.__settle={top:r.top,bottom:r.bottom,frames:p&&p.top===r.top&&p.bottom===r.bottom?p.frames+1:0};return w.__settle.frames>=2;},puffEvent.id);
+    await receiver.waitForFunction((id)=>{const node=document.getElementById('message-'+id);if(!node)return false;const r=node.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;},puffEvent.id);
     // Notifications stay directly available in the mobile chat header.
     await receiver
       .getByRole("button", { name: /^(Mentions|Notifications)$/, exact: true })
@@ -400,18 +419,23 @@ try {
     const projectEvents=await(await product.app.request('/api/events?channelId='+project.channelId+'&type=message.created',{headers})).json();
     assert.equal(projectEvents.length,1);assert.equal(projectEvents[0].payload.targetAgentName,'Visitor');
     await page.screenshot({path:join(screenshots,'invited-project-desktop.png'),fullPage:true});
-    // Changing chats during a pending invitation does not replace another draft.
-    await input.fill('@Slow');holdInvitation=true;
-    const started=new Promise<void>(resolve=>{invitationStarted=resolve;});
-    await input.press('Enter');await started;
-    assert.equal(await input.getAttribute('readonly'),'');
-    assert(await page.getByRole('button',{name:'Send',exact:true}).isDisabled());
+    // Changing chats while a send is still adding someone leaves that chat's own draft alone.
     await page.evaluate(id=>{history.pushState({},'', '/?channel='+id);dispatchEvent(new PopStateEvent('popstate'));},ch.id);
-    await input.fill('A different conversation draft');
+    await input.fill('A different conversation draft');await page.getByText('Draft saved on this device',{exact:true}).waitFor();
+    await page.goto(base+'/?view=projects&project='+project.id);
+    await input.fill('@Slow');await input.press('Enter');
+    await page.waitForFunction(()=>document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.value==='@Slow ');
+    holdInvitation=true;
+    const started=new Promise<void>(resolve=>{invitationStarted=resolve;});
+    await page.getByRole('button',{name:'Send',exact:true}).click();await started;
+    assert(await page.getByRole('button',{name:'Sending...',exact:true}).isDisabled());
+    await page.evaluate(id=>{history.pushState({},'', '/?channel='+id);dispatchEvent(new PopStateEvent('popstate'));},ch.id);
+    await page.waitForFunction(()=>document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.value==='A different conversation draft');
     const invitationResponse=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/projects/'+project.id+'/members'&&response.request().method()==='POST');
     const rosterResponse=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/channels'&&response.request().method()==='GET');
     releaseInvitation!();await invitationResponse;await rosterResponse;
     await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+    await page.waitForFunction(async id=>(await (await fetch('/api/events?channelId='+id+'&type=message.created')).json()).some((event:any)=>event.payload?.targetAgentName==='Slow'),project.channelId);
     assert.equal(await input.inputValue(),'A different conversation draft');
     assert.equal(new URL(page.url()).searchParams.get('channel'),ch.id);
     assert.deepEqual(errors, []);
