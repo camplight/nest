@@ -113,6 +113,6 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   const compactionToken = config.compaction ? config.compaction.engineToken : managementKey;
   const contextCompaction = createContextCompactionWorker({store, engine: compactionToken ? orgops.contextCompaction(compactionToken) : null, summarize: config.compaction?.summarize, now: config.compaction?.now});
   // Same service token as compaction: both read engine events and post as Nest.
-  const replyNudges = createReplyNudgeWorker({store, engine: compactionToken ? orgops.replyNudges(compactionToken) : null});
+  const replyNudges = createReplyNudgeWorker({store, engine: compactionToken ? orgops.replyNudges(compactionToken) : null, now: config.compaction?.now});
   return { app, store, orgops, projectNaming, contextCompaction, replyNudges };
 }

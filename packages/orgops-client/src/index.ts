@@ -333,6 +333,10 @@ export function createOrgOpsClient(baseUrl: string, transport: typeof fetch = fe
         if (!channel || channel.archivedAt) return [];
         return channel.participants.filter(p => p.subscriberType === 'AGENT').map(p => p.subscriberId);
       },
+      /** Whether the agent called a tool in the chat between two times (both exclusive). */
+      async usedTools(channelId:string, agentName:string, afterExclusive:number, beforeExclusive:number) {
+        return (await events({channelId,typePrefix:'tool.',source:`agent:${agentName}`,after:String(afterExclusive),before:String(beforeExclusive),limit:'1'})).length > 0;
+      },
       /** Messages posted in a chat after a time, oldest first. */
       messagesAfter: (channelId:string, afterExclusive:number) => events({channelId,type:'message.created',after:String(afterExclusive),order:'asc',limit:'200'}),
       /** Posts the note at most once per request; the engine answers a repeated key with the first event. */

@@ -72,6 +72,9 @@ Errors are not logged raw.
   Builder's call: only for turns meant for the agent, by the worker's rule (named, or
   the only agent when nobody is named), plus turns Nest asked about and the ask's own
   turn. Otherwise every silent agent in a group chat would get a row.
+- Builder's call after review: in a one-agent chat an unnamed message counts only when
+  the turn called a tool, so a "thanks" the agent lets pass is not nudged. Turns that
+  scheduled their own retry and turns over 10 minutes old are left alone.
 - A `system:nest` message with `nestReplyNudge` renders as a small system line:
   "Nest asked NikiPA to reply."
 

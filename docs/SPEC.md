@@ -1252,13 +1252,17 @@ stored in `product_settings` (`reply_nudge_cursor`). On first start the cursor b
 at the newest completion, so turns that ended earlier are left alone. For each
 completion from `agent:<name>`, it asks the agent to reply when all of these hold:
 
-- the turn was not stopped (`payload.cancelled` is not true). Failed turns emit
+- the turn was not stopped (`payload.cancelled` is not true) and did not schedule its
+  own retry (`payload.scheduledContinuation` is not true). Failed turns emit
   `agent.turn.failed` instead and are never read;
+- it ended less than 10 minutes ago, so a stale cursor never revives old questions;
 - its trigger (`payload.triggerEventId`) is a `message.created` from `human:<name>`
   in the same chat;
 - the message was meant for this agent: it names the agent (`targetAgentName`,
-  `targetAgentNames` or an `AGENT` mention), or it names nobody and the agent is the
-  chat's only agent. A message that names someone else is never nudged;
+  `targetAgentNames` or an `AGENT` mention). Or it names nobody, the agent is the chat's
+  only agent, and the agent called a tool during the turn. In a one-agent chat every
+  message reaches the agent, and a "thanks" it lets pass without doing anything is not
+  a question left unanswered. A message that names someone else is never nudged;
 - neither the agent nor any person has posted a message in the chat since the
   trigger. A person's follow-up means the agent is already handling it.
 
@@ -1271,13 +1275,17 @@ request across passes and API processes. The ask's own turn is never nudged, bec
 its trigger is not from a person. An error on one completion skips it. Raw errors are
 never logged.
 
-In the chat, a finished turn with no reply (not stopped, not failed) shows as that
-agent's row when its trigger was meant for the agent. That means one of these: a
-person's message naming the agent, or naming nobody in a one-agent chat; a person's
-message Nest asked the agent to answer; or Nest's ask itself. The row has the
+In the chat, a finished turn with no reply (not stopped, not failed, no scheduled
+retry) shows as that agent's row when its trigger was meant for the agent, by the
+worker's rule. That means one of these: a person's message naming the agent; a
+person's message naming nobody in a one-agent chat, when the turn called a tool; a
+person's message Nest asked the agent to answer; or Nest's ask itself. The row has the
 avatar, the name, the completion time, "Ended without replying", "It said: “…”" with
-the reason from the turn's `noop` event, and the turn's Details. Silent turns of
-agents nobody addressed stay hidden as before. Nest's ask shows as a small centred
+the reason from the turn's `noop` event, and the turn's Details. History loads `noop`
+events with the other chat event types. A `noop` alone does not make a turn visible,
+so silent turns of agents nobody addressed stay hidden as before. Agents on the
+plain-text reply contract end with a `noop` tool call that records no event, so their
+rows have no reason line. Nest's ask shows as a small centred
 line: "Nest asked <agent> to reply."
 
 ## Background AI project naming

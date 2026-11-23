@@ -37,7 +37,7 @@ const isTurnEvent=(event:EventRow)=>event.type.startsWith('agent.turn.')||event.
 // Events that say only that an agent woke up and went back to sleep. Every message in a chat wakes each agent in
 // it; a turn made of nothing else, with no reply, has nothing to show (spec: agent activity lines).
 const QUIET_TYPES=new Set(['agent.turn.started','agent.turn.phase','agent.turn.completed','wrapper.turn.started','wrapper.turn.completed',
- 'telemetry.context.window.updated','agent.context.compacted']);
+ 'telemetry.context.window.updated','agent.context.compacted','noop']);
 const quiet=(event:EventRow)=>{
  if(QUIET_TYPES.has(event.type))return event.type!=='agent.turn.completed'||record(event.payload)?.cancelled!==true;
  if(event.type!=='process.exited')return false;
@@ -154,24 +154,28 @@ export function replyNudgeLine(event:EventRow):string|null{
  * message meant for that agent: a person's message naming it (or naming nobody, in a chat where it is the only
  * agent), Nest's ask to reply, or a person's message Nest asked it to answer. Silent turns of agents nobody addressed stay as they are.
  */
-function meantFor(trigger:EventRow,agent:string,soleAgent:string|null|undefined){
+// Same rule as Nest's reply-nudge worker (docs/SPEC.md).
+function meantFor(trigger:EventRow,agent:string,soleAgent:string|null|undefined,events:EventRow[]){
  const targets=targetAgents(trigger.payload);
  if(targets.includes(agent))return true;
  const mentions=record(trigger.payload)?.mentions;
  // A message naming someone else is not this agent's to answer.
- return targets.length===0&&!(Array.isArray(mentions)&&mentions.length>0)&&soleAgent===agent;
+ if(targets.length>0||(Array.isArray(mentions)&&mentions.length>0)||soleAgent!==agent)return false;
+ // In a one-agent chat every message reaches the agent: a "thanks" it let pass without doing anything is fine.
+ return events.some(event=>event.type.startsWith('tool.'));
 }
 
 function unansweredTurn(events:EventRow[],messages:ReadonlyMap<string,EventRow>,nudged:ReadonlySet<string>,soleAgent:string|null|undefined):Unanswered|undefined{
  if(events.some(event=>event.type==='agent.turn.failed'||event.type==='wrapper.turn.failed'))return undefined;
  const completed=events.find(event=>event.type==='agent.turn.completed'&&event.source.startsWith('agent:'));
  const payload=record(completed?.payload);
- if(!completed||payload?.cancelled===true||typeof payload?.triggerEventId!=='string')return undefined;
+ // Stopped, or the agent scheduled its own retry.
+ if(!completed||payload?.cancelled===true||payload?.scheduledContinuation===true||typeof payload?.triggerEventId!=='string')return undefined;
  const agent=completed.source.slice('agent:'.length);
  const trigger=messages.get(payload.triggerEventId);
  if(!trigger)return undefined;
  const meant=trigger.source.startsWith('human:')
-  ?meantFor(trigger,agent,soleAgent)||nudged.has(`${agent}\n${trigger.id}`)
+  ?meantFor(trigger,agent,soleAgent,events)||nudged.has(`${agent}\n${trigger.id}`)
   :nudgeTarget(trigger)?.agent===agent;
  if(!meant)return undefined;
  const reason=[...events].reverse().map(event=>event.type==='noop'?record(event.payload)?.reason:undefined).find(value=>typeof value==='string'&&value.trim());

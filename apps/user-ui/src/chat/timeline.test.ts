@@ -437,15 +437,23 @@ describe('a turn that ended without replying',()=>{
    // A wrapped agent whose wrapper failed: the engine still reports its own turn as completed.
    asked('q6',50),...turn('q6',51,[ev('wf','wrapper.turn.failed','system:runner:wrapper',52,{targetAgentName:'Pip',triggerEventId:'q6'})]),
    asked('q5',40),...turn('q5',41,[ev('t5','tool.executed','agent:Rex',42)],{noReply:true},'Rex'),
+   asked('q7',60),...turn('q7',61,[ev('t7','tool.executed','agent:Pip',62)],{noReply:true,scheduledContinuation:true}),
   ],opts);
   expect(activity(items).length).toBeGreaterThan(0);
   expect(activity(items).filter(item=>item.kind==='activity'&&item.unanswered)).toEqual([]);
  });
  it("a person's unaddressed message in a chat whose only agent this is counts, unless it names someone else",()=>{
   const sole={...opts,soleAgent:'Pip'};
-  expect(activity(buildTimeline([msg('q','human:alek',{text:'Hi'},1),...turn('q',10)],sole))).toMatchObject([{unanswered:{agent:'Pip'}}]);
+  const worked=[ev('t','tool.executed','agent:Pip',11)];
+  expect(activity(buildTimeline([msg('q','human:alek',{text:'What is on the board?'},1),...turn('q',10,worked)],sole))).toMatchObject([{unanswered:{agent:'Pip'}}]);
+  // An acknowledgment the agent rightly let pass, without doing anything, stays hidden.
+  expect(buildTimeline([msg('q','human:alek',{text:'Thanks!'},1),...turn('q',10,[ev('n','noop','agent:Pip',11,{reason:'Only thanks'})])],sole).map(item=>item.id)).toEqual(['q']);
   expect(buildTimeline([msg('q','human:alek',{text:'@alice look',mentions:[{kind:'HUMAN',name:'alice'}]},1),...turn('q',10)],sole).map(item=>item.id)).toEqual(['q']);
   expect(buildTimeline([msg('q','human:alek',{text:'Hi'},1),...turn('q',10,[],{noReply:true},'Rex')],sole).map(item=>item.id)).toEqual(['q']);
+ });
+ it("an unaddressed agent's noop does not show its silent turn",()=>{
+  const items=buildTimeline([msg('q','human:alek',{text:'Morning everyone'},1),...turn('q',10,[ev('n','noop','agent:Rex',11,{reason:'Not for me'})],{noReply:true},'Rex')],opts);
+  expect(items.map(item=>item.id)).toEqual(['q']);
  });
  it("describes Nest's ask to reply",()=>{
   expect(replyNudgeLine(nudge('ask','q',1))).toBe('Nest asked Pip to reply.');
