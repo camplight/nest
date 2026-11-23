@@ -14,8 +14,6 @@ import {fetchAgentStarts} from './chat/lifecycles';
 import {useChannelEvents} from './chat/useChannelEvents';
 import {adaptiveMessageBatchSize} from './chat/history';
 import {ChatThread, type ChatThreadHandle} from './chat/ChatThread';
-import {activeTurns as workingTurns} from './chat/working';
-import {useEngineCapabilities} from './engine-capabilities';
 import {ChatComposer,ComposerSessionProvider,type ComposerSessionOptions,type ChatComposerHandle} from './chat/ChatComposer';
 import {Share2} from 'lucide-react';
 import {HuddleButton} from './huddle/HuddleButton';
@@ -544,12 +542,6 @@ export default function App() {
   const isSearchingChannels = Boolean(channelQuery.trim());
   const activeChannelManageable = canManageUserChannel(activeChannel, userId);
   const activeChannelCanPost = activeChannel ? activeChannel.canPost !== false : false;
-  // Native agent turns running in the open chat; the composer's Stop asks the engine to end them.
-  // Only engines that declare turn cancellation get a Stop button.
-  const engineCapabilities = useEngineCapabilities(authenticated);
-  const stoppableTurns = useMemo(() => activeChannelCanPost && engineCapabilities.cancelTurn
-    ? workingTurns(threadSnapshot.events, agents, threadSnapshot.agentStarts).filter(turn => !turn.wrapped && !turn.interrupted)
-    : [], [activeChannelCanPost, engineCapabilities.cancelTurn, threadSnapshot.events, threadSnapshot.agentStarts, agents]);
   const activeConversationName = activeChannel ? projectIndex.find(project => project.channelId === activeChannel.id)?.name ?? channelLabel(activeChannel, username) : "";
   const mentionProject=projectIndex.find(project=>project.channelId===activeChannelId);
   const canInviteMention=activeChannelManageable&&(!mentionProject||mentionProject.ownerId===userId);
@@ -695,23 +687,6 @@ export default function App() {
       url.searchParams.set("message", eventId);
       window.history.replaceState(null, "", url);
     });
-  }
-
-  // Asks the engine to stop each agent still working here. A turn that just finished answers 409; nothing to report.
-  function stopTurns() {
-    const channelId = activeChannelId;
-    if (!channelId) return;
-    for (const agent of new Set(stoppableTurns.filter(turn => !turn.stopping).map(turn => turn.agent))) {
-      void apiFetch(`/api/agents/${encodeURIComponent(agent)}/turns/cancel`, {
-        method: "POST",
-        headers: getApiHeaders(),
-        body: JSON.stringify({ channelId }),
-      }).catch((reason: unknown) => {
-        if (!String(reason instanceof Error ? reason.message : reason).includes("no running turn")) {
-          setError(`Could not stop ${agent}. Try again.`);
-        }
-      });
-    }
   }
 
   async function loadSession() {
@@ -1737,11 +1712,6 @@ export default function App() {
           />
           <ChatComposer
             ref={composerRef}
-            stop={stoppableTurns.length ? {
-              agents: [...new Set(stoppableTurns.map(turn => turn.agent))],
-              stopping: stoppableTurns.every(turn => turn.stopping),
-              onStop: stopTurns,
-            } : undefined}
             conversationName={activeConversationName}
             isConversationEmpty={isConversationEmpty}
             inProject={Boolean(mentionProject)}

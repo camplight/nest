@@ -1806,10 +1806,6 @@ button {
 .nest-chat-composer .composer .composer-actions .composer-secondary:enabled:hover { background: var(--nest-muted-surface) !important; color: var(--nest-text) !important; }
 .nest-chat-composer .composer .composer-actions .composer-send { border: 0; background: var(--nest-forest); color: var(--nest-white); }
 .nest-chat-composer .composer .composer-actions .composer-send:enabled:hover { background: color-mix(in srgb, var(--nest-forest) 85%, var(--nest-white)); }
-.nest-chat-composer .composer .composer-actions .composer-submit { display: inline-flex; align-items: center; gap: 6px; }
-.nest-chat-composer .composer .composer-actions .composer-stop { border: 0; background: var(--nest-text); color: var(--nest-white); }
-.nest-chat-composer .composer .composer-actions .composer-stop:enabled:hover { background: color-mix(in srgb, var(--nest-text) 85%, var(--nest-white)); }
-.nest-chat-composer .composer .composer-actions .composer-stop-compact { width: 32px; padding: 0; }
 .nest-chat-composer .composer .composer-actions button:disabled { opacity: .5; }
 .nest-chat-composer .composer .composer-actions button:focus-visible { outline: 2px solid color-mix(in srgb, var(--nest-text) 40%, transparent); outline-offset: 2px; }
 .nest-chat-composer .composer-compact { padding: 8px 8px 6px; }
