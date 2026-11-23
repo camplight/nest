@@ -1524,3 +1524,32 @@ budgets and restoration procedure. This is Nest deployment infrastructure only;
 OrgOps remains untouched.
 
 The runner includes upstream #99 and #103–#106: safe final summaries, channel-aware shells, bounded finalization and image-input rejection recovery. Unsupported images are replaced with an explicit limitation note for one retry; this does not make a text-only model able to see images. Migration 054 adds nullable per-agent compatible reasoning effort, preserving provider defaults.
+
+### One-message model overrides
+
+A chat message may start with a `/model` command on its own first line:
+
+```
+/model openrouter:vendor/model
+@PuffVitaliy inspect this image
+```
+
+For benchmark-based economy routing:
+
+```
+/model auto 70 2
+@PuffVitaliy review this proposal
+```
+
+`70` is the minimum Artificial Analysis intelligence score; `2` is the maximum
+estimated USD per million tokens (3:1 input/output blend), not a whole-task budget.
+Select a single agent mention; a conversation with exactly one agent can omit it.
+Multiple targets are rejected rather than routing other agents unexpectedly.
+The next line must contain the task. Ordinary messages use the saved model.
+
+Nest preserves the original command text and mention offsets and includes the
+resolved `taskModel` in the existing idempotent event payload/receipt hash. OrgOps
+owns authorization, capability checks, Pareto selection and execution; requests
+require the agent owner's management authority. No agent setting is changed.
+The upstream engine must include OrgOps #112. This initial interface is a text
+command, not a new settings panel or an automatic LLM task classifier.
