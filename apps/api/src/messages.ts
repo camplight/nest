@@ -237,7 +237,7 @@ export function registerMessageRoutes(
         if(!response.ok)continue;
         const agent=await response.json() as {mode?:string;modelId?:string};
         if((agent.mode??'CLASSIC')==='CLASSIC'&&/^(openrouter|or):/.test(agent.modelId??'')){
-          decision=await classify({text:input.text,replyText,attachmentTypes:input.attachments.map(a=>a.mime)});
+          decision=await classify({text:input.text,replyText,attachmentTypes:input.attachments.map(a=>a.mime??'application/octet-stream')});
           break;
         }
       }

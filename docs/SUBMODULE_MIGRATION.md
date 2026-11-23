@@ -743,7 +743,7 @@ Advance from `5986761` to merged upstream `0837472` (#99, #103–#106). This fix
 
 ## Automatic task routing dependency
 
-The proposed pin is OrgOps `939e86b` from [#112](https://github.com/camplight/orgops/pull/112).
+The proposed pin is OrgOps `84d3102` from [#112](https://github.com/camplight/orgops/pull/112).
 It adds explicit task model requests and automatic native OpenRouter routing.
 Nest enables the latter through its launcher without modifying upstream files.
 Before merge, replace the proposed pin with its reviewed upstream main commit.

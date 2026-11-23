@@ -391,3 +391,14 @@ it('does not classify a rejected message',async()=>{
  expect((await call('/api/messages','POST',{...message(),channelId:'missing'})).status).toBe(403);
  expect(classify).not.toHaveBeenCalled();
 });
+it('concurrent identical sends keep a single stable classification receipt',async()=>{
+ const input=message();
+ const responses=await Promise.all([call('/api/messages','POST',input),call('/api/messages','POST',input)]);
+ expect(responses.map(r=>r.status)).toEqual([201,201]);
+ const [a,b]=await Promise.all(responses.map(r=>r.json()));
+ expect(a.id).toBe(b.id);
+ expect(a.payload.taskRouting).toEqual(b.payload.taskRouting);
+ const rows=product.store.db.prepare('SELECT routing_json FROM product_message_requests WHERE id=?').all(input.id);
+ expect(rows).toHaveLength(1);
+ expect(JSON.parse((rows[0] as {routing_json:string}).routing_json)).toEqual(a.payload.taskRouting);
+});
