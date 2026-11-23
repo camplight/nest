@@ -5,11 +5,17 @@ import type {ThreadMessageLike} from './aui';
 export type AuthorKind='human'|'agent'|'system'|'activity';
 export type MessageAttachment={fileId:string;name:string;mime?:string;size?:number};
 export type ChatMeta={eventId:string;authorKind:AuthorKind;authorName:string;isMine:boolean;
- displayAt:number;targetAgents:string[];inReplyTo?:string;detached?:boolean};
+ displayAt:number;targetAgents:string[];inReplyTo?:string;detached?:boolean;
+ /** Activity only: the reply this group belongs to, shown inside that reply. */
+ belongsTo?:string};
 export type TimelineItem=
  |{kind:'message';id:string;meta:ChatMeta;text:string;markdown:boolean;attachments:MessageAttachment[];event:EventRow}
- |{kind:'activity';id:string;meta:ChatMeta;tone:'agent'|'system';events:EventRow[]};
-type BuildOptions={currentUsername:string;detachedIds?:ReadonlySet<string>};
+ |{kind:'activity';id:string;meta:ChatMeta;tone:'agent'|'system';events:EventRow[];unanswered?:Unanswered};
+/** A finished turn that did not answer a person waiting for this agent: shown as the agent's row. */
+export type Unanswered={agent:string;at:number;reason?:string};
+type BuildOptions={currentUsername:string;detachedIds?:ReadonlySet<string>;
+ /** The chat's only agent, if it has exactly one: a person's message naming nobody is meant for it. */
+ soleAgent?:string|null};
 
 // Ported from classic App.tsx (MARKDOWN_HINT_RE, URL_RE).
 const MARKDOWN_HINT_RE=
@@ -21,7 +27,23 @@ const TRACE_TYPES=new Set([
  'process.started','process.output','process.exited',
  'tool.started','tool.executed','tool.failed',
  'telemetry.context.window.updated',
+ 'agent.turn.cancel_requested','agent.context.compacted',
+ 'telemetry.nest.connection.action',
+ 'noop',
 ]);
+const TURN_STARTS=new Set(['agent.turn.started','wrapper.turn.started']);
+const TURN_ENDS=new Set(['agent.turn.completed','agent.turn.failed','wrapper.turn.completed','wrapper.turn.failed']);
+const isTurnEvent=(event:EventRow)=>event.type.startsWith('agent.turn.')||event.type.startsWith('wrapper.turn.');
+// Events that say only that an agent woke up and went back to sleep. Every message in a chat wakes each agent in
+// it; a turn made of nothing else, with no reply, has nothing to show (spec: agent activity lines).
+const QUIET_TYPES=new Set(['agent.turn.started','agent.turn.phase','agent.turn.completed','wrapper.turn.started','wrapper.turn.completed',
+ 'telemetry.context.window.updated','agent.context.compacted','noop']);
+const quiet=(event:EventRow)=>{
+ if(QUIET_TYPES.has(event.type))return event.type!=='agent.turn.completed'||record(event.payload)?.cancelled!==true;
+ if(event.type!=='process.exited')return false;
+ const payload=record(event.payload);
+ return payload?.exitCode===0&&payload.timedOut!==true;
+};
 const CONTINUATION_MS=5*60_000;
 
 const record=(payload:unknown):Record<string,unknown>|undefined=>
@@ -98,7 +120,7 @@ export function upsertEvents(current:EventRow[],incoming:EventRow[]):EventRow[]{
  });
 }
 
-function messageItem(event:EventRow,opts:BuildOptions):TimelineItem{
+function messageItem(event:EventRow,opts:BuildOptions,previousMessageId?:string):TimelineItem{
  const kind=authorKind(event.source);
  const authorName=sourceLabel(event.source);
  const payload=record(event.payload);
@@ -106,17 +128,68 @@ function messageItem(event:EventRow,opts:BuildOptions):TimelineItem{
  const meta:ChatMeta={eventId:event.id,authorKind:kind,authorName,isMine:kind==='human'&&authorName===opts.currentUsername,
   displayAt:displayTime(event),targetAgents:targetAgents(payload)};
  if(typeof payload?.inReplyTo==='string')meta.inReplyTo=payload.inReplyTo;
+ // An agent's reply names the message that started its turn. When other messages came in between, the reply
+ // shows which one it answers; directly after its question it needs no link.
+ else if(kind==='agent'&&event.parentEventId&&event.parentEventId!==previousMessageId)meta.inReplyTo=event.parentEventId;
  if(opts.detachedIds?.has(event.id))meta.detached=true;
  return {kind:'message',id:event.id,meta,text,markdown:shouldRenderMarkdown(text),attachments:parseMessageAttachments(payload),event};
 }
 
-function activityItem(events:EventRow[],id:string,opts:BuildOptions):TimelineItem{
+/** Nest's note asking an agent to reply (see docs/SPEC.md, agents that end without replying). */
+function nudgeTarget(event:EventRow):{agent:string;trigger:string}|undefined{
+ if(event.type!=='message.created'||event.source!=='system:nest')return undefined;
+ const payload=record(event.payload);
+ const nudge=record(payload?.nestReplyNudge);
+ if(typeof payload?.targetAgentName!=='string'||typeof nudge?.triggerEventId!=='string')return undefined;
+ return {agent:payload.targetAgentName,trigger:nudge.triggerEventId};
+}
+
+export function replyNudgeLine(event:EventRow):string|null{
+ const nudge=nudgeTarget(event);
+ return nudge?`Nest asked ${nudge.agent} to reply.`:null;
+}
+
+/**
+ * A reply-less group is unanswered when its turn finished (not stopped, not failed) and it was started by a
+ * message meant for that agent: a person's message naming it (or naming nobody, in a chat where it is the only
+ * agent), Nest's ask to reply, or a person's message Nest asked it to answer. Silent turns of agents nobody addressed stay as they are.
+ */
+// Same rule as Nest's reply-nudge worker (docs/SPEC.md).
+function meantFor(trigger:EventRow,agent:string,soleAgent:string|null|undefined,events:EventRow[]){
+ const targets=targetAgents(trigger.payload);
+ if(targets.includes(agent))return true;
+ const mentions=record(trigger.payload)?.mentions;
+ // A message naming someone else is not this agent's to answer.
+ if(targets.length>0||(Array.isArray(mentions)&&mentions.length>0)||soleAgent!==agent)return false;
+ // In a one-agent chat every message reaches the agent: a "thanks" it let pass without doing anything is fine.
+ return events.some(event=>event.type.startsWith('tool.'));
+}
+
+function unansweredTurn(events:EventRow[],messages:ReadonlyMap<string,EventRow>,nudged:ReadonlySet<string>,soleAgent:string|null|undefined):Unanswered|undefined{
+ if(events.some(event=>event.type==='agent.turn.failed'||event.type==='wrapper.turn.failed'))return undefined;
+ const completed=events.find(event=>event.type==='agent.turn.completed'&&event.source.startsWith('agent:'));
+ const payload=record(completed?.payload);
+ // Stopped, or the agent scheduled its own retry.
+ if(!completed||payload?.cancelled===true||payload?.scheduledContinuation===true||typeof payload?.triggerEventId!=='string')return undefined;
+ const agent=completed.source.slice('agent:'.length);
+ const trigger=messages.get(payload.triggerEventId);
+ if(!trigger)return undefined;
+ const meant=trigger.source.startsWith('human:')
+  ?meantFor(trigger,agent,soleAgent,events)||nudged.has(`${agent}\n${trigger.id}`)
+  :nudgeTarget(trigger)?.agent===agent;
+ if(!meant)return undefined;
+ const reason=[...events].reverse().map(event=>event.type==='noop'?record(event.payload)?.reason:undefined).find(value=>typeof value==='string'&&value.trim());
+ return {agent,at:displayTime(completed),...(typeof reason==='string'?{reason:reason.trim()}:{})};
+}
+
+function activityItem(events:EventRow[],id:string,opts:BuildOptions,belongsTo?:string,unanswered?:Unanswered):TimelineItem{
  const first=events[0]!;
  const tone=events.some(event=>event.type==='agent.turn.failed'||event.type==='tool.failed')?'system':'agent';
  const meta:ChatMeta={eventId:first.id,authorKind:'activity',authorName:sourceLabel(first.source),isMine:false,
   displayAt:displayTime(first),targetAgents:[]};
+ if(belongsTo)meta.belongsTo=belongsTo;
  if(events.some(event=>opts.detachedIds?.has(event.id)))meta.detached=true;
- return {kind:'activity',id,meta,tone,events};
+ return {kind:'activity',id,meta,tone,events,...(unanswered?{unanswered}:{})};
 }
 
 // A group keeps the id of the earliest previous activity item that shares one of its events and is not yet taken
@@ -137,7 +210,7 @@ const sameEvent=(left:EventRow,right:EventRow)=>left===right&&left.id===right.id
 
 function sameMeta(left:ChatMeta,right:ChatMeta){
  return left.eventId===right.eventId&&left.authorKind===right.authorKind&&left.authorName===right.authorName&&
-  left.isMine===right.isMine&&left.displayAt===right.displayAt&&left.inReplyTo===right.inReplyTo&&
+  left.isMine===right.isMine&&left.displayAt===right.displayAt&&left.inReplyTo===right.inReplyTo&&left.belongsTo===right.belongsTo&&
   Boolean(left.detached)===Boolean(right.detached)&&left.targetAgents.length===right.targetAgents.length&&
   left.targetAgents.every((name,index)=>name===right.targetAgents[index]);
 }
@@ -146,7 +219,8 @@ function unchanged(prev:TimelineItem,next:TimelineItem){
  if(!sameMeta(prev.meta,next.meta))return false;
  if(prev.kind==='message'&&next.kind==='message')return sameEvent(prev.event,next.event);
  if(prev.kind==='activity'&&next.kind==='activity')
-  return prev.events.length===next.events.length&&prev.events.every((event,index)=>sameEvent(event,next.events[index]!));
+  return prev.unanswered?.agent===next.unanswered?.agent&&prev.unanswered?.at===next.unanswered?.at&&prev.unanswered?.reason===next.unanswered?.reason&&
+   prev.events.length===next.events.length&&prev.events.every((event,index)=>sameEvent(event,next.events[index]!));
  return false;
 }
 
@@ -160,20 +234,115 @@ export function buildTimeline(events:EventRow[],opts:BuildOptions,previous?:read
   taken.add(item.id);
   items.push(prev&&unchanged(prev,item)?prev:item);
  };
- let trace:EventRow[]=[];
- const flush=()=>{
-  if(trace.length===0)return;
-  reuse(activityItem(trace,groupId(trace,previousActivity,taken),opts));
-  trace=[];
+ // A turn's events go with the agent's reply in that turn (spec: agent activity lines). Slots keep the
+ // display order; a group sits directly after the reply it belongs to and records it, so ChatThread shows it inside.
+ type Group={events:EventRow[]};
+ type Slot={message:EventRow}|{group:Group;reply?:string};
+ // A wrapped agent's turn is reported twice, by the engine (agent.turn.*) and by its wrapper (wrapper.turn.*), for
+ // the same trigger. Both layers make one turn; it ends when every layer that started has ended.
+ type Turn={group:Group;reply?:EventRow;slotted?:boolean;trigger?:unknown;layers:Set<string>};
+ const slots:Slot[]=[];
+ const open=new Map<string,Turn>();
+ const replyGroups=new Map<string,Group>(); // reply event id → its group
+ const lastReply=new Map<string,EventRow>(); // agent → most recent reply
+ let loose:Group|undefined; // consecutive events with no known agent and no earlier reply
+ // History loads each event type in its own pages, so older tool and action events can arrive without their
+ // turn's boundaries. Before the oldest loaded turn event, an agent's events are taken as a turn whose start
+ // is not loaded: they go with that agent's next reply, or stay where they are when it has none.
+ const turnsFrom=Math.min(...events.filter(isTurnEvent).map(event=>event.createdAt??0));
+ const placeAfter=(reply:EventRow,group:Group)=>{
+  const index=slots.findIndex(slot=>'message' in slot&&slot.message===reply);
+  slots.splice(index+1,0,{group,reply:reply.id});
+  replyGroups.set(reply.id,group);
+ };
+ const finish=(agent:string)=>{
+  const turn=open.get(agent);
+  if(!turn)return;
+  open.delete(agent);
+  if(turn.slotted&&turn.reply)slots.splice(slots.findIndex(slot=>'group' in slot&&slot.group===turn.group),1);
+  const existing=turn.reply&&replyGroups.get(turn.reply.id);
+  if(existing)existing.events.push(...turn.group.events);
+  else if(turn.reply)placeAfter(turn.reply,turn.group);
+  else if(!turn.slotted)slots.push({group:turn.group});
+ };
+ const agentOf=(event:EventRow):string|undefined=>{
+  const payload=record(event.payload);
+  // Actions name the agent; process, Stop and wrapped-turn events name it as owner or target.
+  for(const key of ['agentName','ownerAgentName','targetAgentName']){
+   const named=payload?.[key];
+   if(typeof named==='string'&&named)return named;
+  }
+  if(event.source.startsWith('agent:'))return event.source.slice(6);
+  // Runner events that name no agent belong to the most recently started open turn.
+  return [...open.keys()].at(-1);
  };
  for(const event of events){
   if(event.type==='message.created'){
-   flush();
-   reuse(messageItem(event,opts));
-  }else if(isTraceEvent(event))trace.push(event);
+   loose=undefined;
+   slots.push({message:event});
+   const agent=event.source.startsWith('agent:')?event.source.slice(6):undefined;
+   if(agent){lastReply.set(agent,event);const turn=open.get(agent);if(turn)turn.reply=event;}
+   continue;
+  }
+  if(!isTraceEvent(event))continue;
+  const agent=agentOf(event);
+  const layer=event.type.split('.')[0]!;
+  if(TURN_STARTS.has(event.type)&&agent){
+   const trigger=record(event.payload)?.triggerEventId;
+   const current=open.get(agent);
+   if(current&&trigger!==undefined&&current.trigger===trigger&&!current.layers.has(layer)){
+    current.layers.add(layer);
+    current.group.events.push(event);
+    continue;
+   }
+   finish(agent);
+   loose=undefined;
+   open.set(agent,{group:{events:[event]},trigger,layers:new Set([layer])});
+   continue;
+  }
+  const turn=agent?open.get(agent):undefined;
+  if(turn){
+   turn.group.events.push(event);
+   if(TURN_ENDS.has(event.type)){
+    turn.layers.delete(layer);
+    if(turn.layers.size===0)finish(agent!);
+   }
+   continue;
+  }
+  if(agent&&(event.createdAt??0)<turnsFrom){
+   const group={events:[event]};
+   slots.push({group});
+   open.set(agent,{group,slotted:true,layers:new Set()});
+   continue;
+  }
+  const reply=agent?lastReply.get(agent):undefined;
+  if(reply){
+   const group=replyGroups.get(reply.id);
+   if(group)group.events.push(event);else placeAfter(reply,{events:[event]});
+   continue;
+  }
+  if(!loose){loose={events:[]};slots.push({group:loose});}
+  loose.events.push(event);
  }
- flush();
+ for(const agent of [...open.keys()])finish(agent);
+ const messages=new Map(events.filter(event=>event.type==='message.created').map(event=>[event.id,event]));
+ const nudged=new Set(events.flatMap(event=>{const nudge=nudgeTarget(event);return nudge?[`${nudge.agent}\n${nudge.trigger}`]:[];}));
+ let previousMessageId:string|undefined;
+ for(const slot of slots){
+  if('message' in slot){reuse(messageItem(slot.message,opts,previousMessageId));previousMessageId=slot.message.id;}
+  else if(slot.group.events.length){
+   const unanswered=slot.reply?undefined:unansweredTurn(slot.group.events,messages,nudged,opts.soleAgent);
+   if(slot.reply||unanswered||!slot.group.events.every(quiet))
+    reuse(activityItem(slot.group.events,groupId(slot.group.events,previousActivity,taken),opts,slot.reply,unanswered));
+  }
+ }
  return items;
+}
+
+/** A group is shown inside the message it belongs to when it follows it directly, both loaded, same day. */
+export function attachesTo(previous:TimelineItem|undefined,item:TimelineItem|undefined):boolean{
+ return item?.kind==='activity'&&previous?.kind==='message'&&item.meta.belongsTo===previous.id&&
+  !previous.meta.detached&&!item.meta.detached&&dayKey(previous.meta.displayAt)===dayKey(item.meta.displayAt);
 }
 
 export function dayKey(ts:number):string{

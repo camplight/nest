@@ -16,10 +16,6 @@ export function useMentionPicker({value,onChange,onChoose,onAskAssistant,onInvit
   const [composing,setComposing]=useState(false);
   const [dismissed,setDismissed]=useState('');
   const [highlight,setHighlight]=useState(0);
-  const [inviting,setInviting]=useState<string|null>(null),[inviteError,setInviteError]=useState<string|null>(null);
-  const pending=useRef<{cancelled:boolean}|null>(null);
-  const latest=useRef({value,channelId,disabled});latest.current={value,channelId,disabled};
-  useEffect(()=>{setInviting(null);setInviteError(null);return()=>{pending.current=null;};},[channelId]);
   const listRef=useRef<HTMLDivElement>(null);
   const stamp=`${channelId}:${value}:${selection.start}:${selection.end}`;
   const trigger=focused && !disabled && !composing && dismissed!==stamp ? findTrigger(value,selection.start,selection.end) : null;
@@ -41,19 +37,12 @@ export function useMentionPicker({value,onChange,onChoose,onAskAssistant,onInvit
   },[channelId,textareaRef]);
   const sync=(node:HTMLTextAreaElement)=>setSelection({start:node.selectionStart,end:node.selectionEnd});
   async function choose(candidate:MentionCandidate) {
-    if(!query||pending.current||disabled)return;
+    if(!query||disabled)return;
     if(candidate.assistantOwner && onAskAssistant && !onInvite){
       setDismissed(stamp);onAskAssistant(candidate.name,(value.slice(0,query.start)+value.slice(query.end)).trim());return;
     }
-    if(targeted&&!candidate.inConversation){
-      if(!onInvite||candidate.inviteBlockedReason)return;
-      const operation={cancelled:false};pending.current=operation;setInviting(candidate.name);setInviteError(null);
-      try{await onInvite(candidate);if(pending.current!==operation)return;}catch{
-        if(pending.current===operation)setInviteError(`Couldn’t confirm ${candidate.name} was added. Your draft is unchanged. Select again to retry.`);
-        return;
-      }finally{if(pending.current===operation){setInviting(null);pending.current=null;}}
-      if(operation.cancelled||latest.current.channelId!==channelId||latest.current.value!==value||latest.current.disabled)return;
-    }
+    // Someone outside the chat is only marked in the draft; the composer adds them when the message is sent.
+    if(targeted&&!candidate.inConversation&&(!onInvite||candidate.inviteBlockedReason))return;
     const inserted=insertMention(value,query,candidate.name);
     if(onChoose)onChoose(inserted.value,{kind:candidate.kind==='Agent'?'AGENT':'HUMAN',name:candidate.name,start:query.start,end:query.start+candidate.name.length+1});else onChange(inserted.value);
     setDismissed(`${channelId}:${inserted.value}:${inserted.caret}:${inserted.caret}`);
@@ -63,7 +52,7 @@ export function useMentionPicker({value,onChange,onChoose,onAskAssistant,onInvit
     });
   }
   function runCommand(command:SlashCommand) {
-    if(!query||!commands||pending.current||disabled)return;
+    if(!query||!commands||disabled)return;
     const next=value.slice(0,query.start)+value.slice(query.end),caret=query.start;
     onChange(next);
     setDismissed(`${channelId}:${next}:${caret}:${caret}`);
@@ -80,8 +69,7 @@ export function useMentionPicker({value,onChange,onChoose,onAskAssistant,onInvit
   }
   function onKeyDown(event:KeyboardEvent<HTMLTextAreaElement>) {
     if(!open || event.nativeEvent.isComposing || event.keyCode===229 || event.ctrlKey || event.metaKey || event.altKey)return false;
-    if(event.key==='Escape'){event.preventDefault();event.stopPropagation();if(pending.current)pending.current.cancelled=true;setDismissed(stamp);return true;}
-    if(inviting&&(event.key==='Enter'||event.key==='Tab')){event.preventDefault();return true;}
+    if(event.key==='Escape'){event.preventDefault();event.stopPropagation();setDismissed(stamp);return true;}
     if(event.key==='ArrowDown'||event.key==='ArrowUp'){
       event.preventDefault();setHighlight(count ? (index+(event.key==='ArrowDown'?1:-1)+count)%count : 0);return true;
     }
@@ -92,8 +80,6 @@ export function useMentionPicker({value,onChange,onChoose,onAskAssistant,onInvit
     return false;
   }
   const textareaProps={
-    readOnly:Boolean(inviting),
-    'aria-busy':Boolean(inviting),
     'aria-autocomplete':'list' as const,
     'aria-controls':open ? id : undefined,
     'aria-activedescendant':open && index<count ? `${id}-${index}` : undefined,
@@ -120,17 +106,15 @@ export function useMentionPicker({value,onChange,onChoose,onAskAssistant,onInvit
   </motion.div> : open ? <motion.div className={popupClass} initial={reduced ? false : {opacity:0,y:4}} animate={{opacity:1,y:0}} transition={{duration:reduced?0:0.12}}>
     <div className="mention-heading">Mention someone <span>{results.length} {results.length===1?'match':'matches'}</span></div>
     <div ref={listRef} id={id} role="listbox" aria-label="Mention people and agents" className="mention-options">
-      {shown.map((candidate,i)=><div key={candidate.id} id={`${id}-${i}`} role="option" aria-disabled={Boolean(inviting)||(targeted&&!candidate.inConversation&&!candidate.assistantOwner&&(!onInvite||Boolean(candidate.inviteBlockedReason)))} aria-selected={i===index} className="mention-option"
+      {shown.map((candidate,i)=><div key={candidate.id} id={`${id}-${i}`} role="option" aria-disabled={(targeted&&!candidate.inConversation&&!candidate.assistantOwner&&(!onInvite||Boolean(candidate.inviteBlockedReason)))} aria-selected={i===index} className="mention-option"
         onPointerDown={event=>event.preventDefault()} onPointerMove={()=>setHighlight(i)} onClick={()=>{void choose(candidate);}}>
         {candidate.kind==='Agent' ? <AgentAvatar name={candidate.name} size={34}/> : <span className="mention-person" aria-hidden="true">{candidate.name.slice(0,2).toUpperCase()}</span>}
-        <span className="mention-identity"><strong>{candidate.name}</strong><small>{candidate.assistantOwner?`Personal agent of ${candidate.assistantOwner} · ${onInvite?'Add to chat and mention':'Open conversation'}`:<>{candidate.kind} · {candidate.inConversation?(targeted?(candidate.kind==='Agent'?'Direct request':'Notify person'):'In this chat'):(projectDraft?'Add to this project':targeted?(candidate.inviteBlockedReason??(onInvite?'Add to chat and mention':'Ask a chat manager to add them')):'Not in this chat')}</>}</small></span>
+        <span className="mention-identity"><strong>{candidate.name}</strong><small>{candidate.assistantOwner?`Personal agent of ${candidate.assistantOwner} · ${onInvite?'Add to chat and mention':'Open conversation'}`:<>{candidate.kind} · {candidate.inConversation?(targeted?(candidate.kind==='Agent'?'Direct request':'Notify person'):'In this chat'):(projectDraft?'Add to this project':targeted?(candidate.inviteBlockedReason??(onInvite?'Joins when you send':'Ask a chat manager to add them')):'Not in this chat')}</>}</small></span>
         <span className="mention-at" aria-hidden="true">@</span>
       </div>)}
     </div>
-    {inviting&&<p className="mention-empty" role="status">Adding {inviting}…</p>}
-    {inviteError&&<p className="mention-empty" role="alert">{inviteError}</p>}
     {!shown.length && <p className="mention-empty" role="status">No matches. Try another name.</p>}
-    <div id={`${id}-help`} className="mention-help">↑↓ to browse · Enter or Tab to select · Esc to close<br/>{projectDraft?'Selected people and agents join when you send your first message.':targeted?(onInvite?'New teammates can read this chat’s history and files. Agents keep their owner-granted tools.':'Choose a chat recipient, or open a conversation with a personal agent.'):'Mentioning someone does not add them to this chat.'}</div>
+    <div id={`${id}-help`} className="mention-help">↑↓ to browse · Enter or Tab to select · Esc to close<br/>{projectDraft?'Selected people and agents join when you send your first message.':targeted?(onInvite?'People you pick from outside this chat join when you send, and can then read its history and files. Agents keep their owner-granted tools.':'Choose a chat recipient, or open a conversation with a personal agent.'):'Mentioning someone does not add them to this chat.'}</div>
   </motion.div> : null;
-  return {popup,textareaProps,onKeyDown,sync,inviting};
+  return {popup,textareaProps,onKeyDown,sync};
 }

@@ -1,14 +1,18 @@
 import {describe,expect,it} from 'vitest';
-import {buildTimeline,dayKey,isContinuation,isTraceEvent,toThreadMessage,upsertEvents} from './timeline';
+import {attachesTo,buildTimeline,dayKey,isContinuation,isTraceEvent,replyNudgeLine,toThreadMessage,upsertEvents} from './timeline';
 import type {EventRow} from '../types';
 const opts={currentUsername:'alek'};
 const msg=(id:string,source:string,payload:Record<string,unknown>={text:'Hi'},createdAt=1000,extra:Partial<EventRow>={}):EventRow=>({id,type:'message.created',source,payload,createdAt,...extra});
-const tr=(id:string,type:string,createdAt:number):EventRow=>({id,type,source:'agent:Pip',payload:{},createdAt});
+// Turn events come from the agent; other trace events here name no agent, so outside a turn they form loose groups
+// (what the id-stability tests below split and regrow).
+const tr=(id:string,type:string,createdAt:number):EventRow=>({id,type,source:type.startsWith('agent.turn.')?'agent:Pip':'system:runner',payload:{},createdAt});
 const at=(d:number,h:number,min:number)=>new Date(2026,0,d,h,min).getTime();
 const e1=msg('e1','human:alek',{text:'Hi'},1000);
 const t1=tr('t1','agent.turn.started',1100);
 const t2=tr('t2','tool.started',1200);
 const e2=msg('e2','agent:Pip',{text:'Done'},1300);
+// A tool event outside any turn: groups before the agent's first reply, then joins its latest reply.
+const u1=tr('u1','tool.started',1100);
 
 describe('buildTimeline',()=>{
  it('explains omitted engine message payloads while retaining their identity',()=>{
@@ -37,28 +41,29 @@ describe('buildTimeline',()=>{
   expect(buildTimeline([msg('a2','agent:alek')],opts)).toMatchObject([{meta:{authorKind:'agent',isMine:false}}]);
  });
  it('trace events form one activity item',()=>{
+  // A turn's events follow the agent's reply in that turn.
   const items=buildTimeline([e1,t1,t2,e2],opts);
-  expect(items.map(item=>item.id)).toEqual(['e1','t1','e2']);
-  expect(items[1]).toMatchObject({kind:'activity',id:'t1',tone:'agent',meta:{eventId:'t1',authorKind:'activity',isMine:false,displayAt:1100,targetAgents:[]}});
-  expect(items[1]!.kind==='activity'&&items[1]!.events).toEqual([t1,t2]);
-  expect(items[1]!.kind==='activity'&&items[1]!.events[0]).toBe(t1);
-  expect(buildTimeline([e1,t1,t2,tr('t3','tool.failed',1250),e2],opts)).toMatchObject([{id:'e1'},{id:'t1',kind:'activity',tone:'system'},{id:'e2'}]);
-  expect(buildTimeline([t1,msg('e3','agent:Pip'),t2],opts).map(item=>item.id)).toEqual(['t1','e3','t2']);
+  expect(items.map(item=>item.id)).toEqual(['e1','e2','t1']);
+  expect(items[2]).toMatchObject({kind:'activity',id:'t1',tone:'agent',meta:{eventId:'t1',authorKind:'activity',isMine:false,displayAt:1100,targetAgents:[]}});
+  expect(items[2]!.kind==='activity'&&items[2]!.events).toEqual([t1,t2]);
+  expect(items[2]!.kind==='activity'&&items[2]!.events[0]).toBe(t1);
+  expect(buildTimeline([e1,t1,t2,tr('t3','tool.failed',1250),e2],opts)).toMatchObject([{id:'e1'},{id:'e2'},{id:'t1',kind:'activity',tone:'system'}]);
+  expect(buildTimeline([t1,msg('e3','agent:Pip'),t2],opts).map(item=>item.id)).toEqual(['e3','t1']);
   expect(buildTimeline([e1,{id:'x1',type:'channel.updated',source:'system',payload:{},createdAt:1050},t1,t2],opts).map(item=>item.id)).toEqual(['e1','t1']);
   expect(buildTimeline([tr('t0','telemetry.context.window.updated',1),tr('t9','process.output',2)],opts)).toMatchObject([{id:'t0',kind:'activity',tone:'agent'}]);
  });
  it('activity id stays when the group grows',()=>{
-  const previous=buildTimeline([e1,t1,t2,e2],opts);
+  const previous=buildTimeline([e1,u1,t2,e2],opts);
   const t3=tr('t3','tool.executed',1250);
-  expect(buildTimeline([e1,t1,t2,t3,e2],opts,previous).map(item=>item.id)).toEqual(['e1','t1','e2']);
-  const t0=tr('t0','agent.turn.phase',1050);
-  expect(buildTimeline([e1,t0,t1,t2,e2],opts).map(item=>item.id)).toEqual(['e1','t0','e2']);
-  const grown=buildTimeline([e1,t0,t1,t2,e2],opts,previous);
-  expect(grown.map(item=>item.id)).toEqual(['e1','t1','e2']);
-  expect(grown[1]!.kind==='activity'&&grown[1]!.events).toEqual([t0,t1,t2]);
+  expect(buildTimeline([e1,u1,t2,t3,e2],opts,previous).map(item=>item.id)).toEqual(['e1','u1','e2']);
+  const t0=tr('t0','tool.executed',1050);
+  expect(buildTimeline([e1,t0,u1,t2,e2],opts).map(item=>item.id)).toEqual(['e1','t0','e2']);
+  const grown=buildTimeline([e1,t0,u1,t2,e2],opts,previous);
+  expect(grown.map(item=>item.id)).toEqual(['e1','u1','e2']);
+  expect(grown[1]!.kind==='activity'&&grown[1]!.events).toEqual([t0,u1,t2]);
   expect(grown[1]!.meta).toMatchObject({displayAt:1050});
-  const split=buildTimeline([t1,e2,tr('t5','tool.started',1400)],opts);
-  expect(buildTimeline([t1,tr('t5','tool.started',1400)],opts,split).map(item=>item.id)).toEqual(['t1']);
+  const split=buildTimeline([u1,e2,tr('t5','tool.started',1400)],opts);
+  expect(buildTimeline([u1,tr('t5','tool.started',1400)],opts,split).map(item=>item.id)).toEqual(['u1']);
  });
  it('unchanged items keep object identity',()=>{
   const events=[e1,t1,t2,e2];
@@ -78,8 +83,8 @@ describe('buildTimeline',()=>{
   expect(republished[0]!.kind==='message'&&republished[0]!.event).toBe(delivered);
   expect(republished[2]).toBe(previous[2]);
   const grown=buildTimeline([e1,t1,t2,tr('t3','tool.failed',1250),e2],opts,previous);
-  expect(grown[1]).not.toBe(previous[1]);
-  expect(grown[1]).toMatchObject({id:'t1',tone:'system'});
+  expect(grown[2]).not.toBe(previous[2]);
+  expect(grown[2]).toMatchObject({id:'t1',tone:'system'});
   const detached=buildTimeline(events,{currentUsername:'alek',detachedIds:new Set(['e1'])},previous);
   expect(detached[0]).not.toBe(previous[0]);
   expect(detached[0]!.meta.detached).toBe(true);
@@ -93,7 +98,7 @@ describe('buildTimeline',()=>{
  });
  it('deliverAt wins for display time',()=>{
   expect(buildTimeline([msg('e1','human:alek',{text:'Hi'},1000,{deliverAt:5000})],opts)).toMatchObject([{meta:{displayAt:5000}}]);
-  expect(buildTimeline([{...t1,deliverAt:7000}],opts)).toMatchObject([{meta:{displayAt:7000}}]);
+  expect(buildTimeline([{...t2,deliverAt:7000}],opts)).toMatchObject([{meta:{displayAt:7000}}]);
  });
  it('targets',()=>{
   expect(buildTimeline([msg('e1','human:alek',{text:'Hi',targetAgentName:'Pip'})],opts)).toMatchObject([{meta:{targetAgents:['Pip']}}]);
@@ -101,6 +106,20 @@ describe('buildTimeline',()=>{
  });
  it('inReplyTo copied',()=>{
   expect(buildTimeline([msg('e2','agent:Pip',{text:'Yes',inReplyTo:'e1'})],opts)).toMatchObject([{meta:{inReplyTo:'e1'}}]);
+ });
+ it('an agent reply links its question only when other messages came in between',()=>{
+  const question=msg('q1','human:alek',{text:'Progress?'},1000);
+  const later=msg('q2','human:alek',{text:'Who are you?'},2000);
+  const answer=msg('a1','agent:Pip',{text:'Done'},3000,{parentEventId:'q1'});
+  const direct=msg('a2','agent:Pip',{text:'I am Pip'},4000,{parentEventId:'q2'});
+  const items=buildTimeline([question,tr('t1','tool.started',1500),later,answer,direct],opts);
+  expect(items.find(item=>item.id==='a1')!.meta.inReplyTo).toBe('q1');
+  // Directly after its question (activity in between does not count) there is no link.
+  expect(buildTimeline([question,tr('t2','tool.started',1500),msg('a3','agent:Pip',{text:'Done'},3000,{parentEventId:'q1'})],opts)
+   .find(item=>item.id==='a3')!.meta.inReplyTo).toBeUndefined();
+  // A human message's parent is not a reply target; an explicit quote reply wins.
+  expect(buildTimeline([question,later,msg('h1','human:alek',{text:'x'},3000,{parentEventId:'q1'})],opts).at(-1)!.meta.inReplyTo).toBeUndefined();
+  expect(buildTimeline([question,later,msg('a4','agent:Pip',{text:'x',inReplyTo:'q2'},3000,{parentEventId:'q1'})],opts).at(-1)!.meta.inReplyTo).toBe('q2');
  });
  it('detachedIds sets meta.detached',()=>{
   const items=buildTimeline([e1,e2],{currentUsername:'alek',detachedIds:new Set(['e1'])});
@@ -201,17 +220,17 @@ describe('additions',()=>{
   expect(next).toHaveLength(3);
   expect(next[0]).not.toBe(previous[0]);
   expect(next[0]).toMatchObject({text:'Edited'});
-  expect(next[1]).not.toBe(previous[1]);
-  expect(next[2]).toBe(previous[2]);
+  expect(next[2]).not.toBe(previous[2]);
+  expect(next[1]).toBe(previous[1]);
  });
  it('a group split by a new message keeps unique ids',()=>{
-  const previous=buildTimeline([e1,t1,t2],opts);
-  expect(buildTimeline([e1,t1,msg('m','agent:Pip',{text:'x'},1150),t2],opts,previous).map(item=>item.id)).toEqual(['e1','t1','m','t2']);
+  const previous=buildTimeline([e1,u1,t2],opts);
+  expect(buildTimeline([e1,u1,msg('m','agent:Pip',{text:'x'},1150),t2],opts,previous).map(item=>item.id)).toEqual(['e1','u1','m','t2']);
  });
  it('thread message carries the item id, the exact meta and the raw text',()=>{
   const previous=buildTimeline([e1,t1,t2,e2],opts);
-  const grown=buildTimeline([e1,tr('t0','agent.turn.phase',1050),t1,t2,e2],opts,previous);
-  expect(grown.map(item=>toThreadMessage(item).id)).toEqual(['e1','t1','e2']);
+  const grown=buildTimeline([e1,t1,tr('t0','agent.turn.phase',1150),t2,e2],opts,previous);
+  expect(grown.map(item=>toThreadMessage(item).id)).toEqual(['e1','e2','t1']);
   expect(grown.map(item=>toThreadMessage(item).metadata?.custom)).toEqual(grown.map(item=>item.meta));
   expect(toThreadMessage(grown[0]!).metadata?.custom).toMatchObject({isMine:true,authorKind:'human'});
   const [spaced]=buildTimeline([msg('s','agent:Pip',{text:'  spaced  '})],opts);
@@ -219,14 +238,14 @@ describe('additions',()=>{
   expect(toThreadMessage(spaced!).content).toEqual([{type:'text',text:'  spaced  '}]);
  });
  it('a grown group split by a message keeps unique ids',()=>{
-  const t0=tr('t0','agent.turn.phase',1050);
-  const first=buildTimeline([e1,t1,t2],opts);
-  const grown=buildTimeline([e1,t0,t1,t2],opts,first);
-  expect(grown.map(item=>item.id)).toEqual(['e1','t1']);
-  const split=buildTimeline([e1,t0,msg('m','agent:Pip',{text:'x'},1075),t1,t2],opts,grown);
-  expect(split.map(item=>item.id)).toEqual(['e1','t1','m','t2']);
-  const single=buildTimeline([e1,t0,t1],opts,buildTimeline([e1,t1],opts));
-  expect(buildTimeline([e1,t0,msg('m','agent:Pip',{text:'x'},1075),t1],opts,single).map(item=>item.id)).toEqual(['e1','t1','m','t1~1']);
+  const t0=tr('t0','tool.executed',1050);
+  const first=buildTimeline([e1,u1,t2],opts);
+  const grown=buildTimeline([e1,t0,u1,t2],opts,first);
+  expect(grown.map(item=>item.id)).toEqual(['e1','u1']);
+  const split=buildTimeline([e1,t0,msg('m','agent:Pip',{text:'x'},1075),u1,t2],opts,grown);
+  expect(split.map(item=>item.id)).toEqual(['e1','u1','m','t2']);
+  const single=buildTimeline([e1,t0,u1],opts,buildTimeline([e1,u1],opts));
+  expect(buildTimeline([e1,t0,msg('m','agent:Pip',{text:'x'},1075),u1],opts,single).map(item=>item.id)).toEqual(['e1','u1','m','u1~1']);
  });
  it('a group needing a second suffix skips the taken one',()=>{
   const x=tr('x','tool.started',300),p=tr('p','tool.started',100),r=tr('r','tool.started',250);
@@ -249,5 +268,196 @@ describe('additions',()=>{
   const named=buildTimeline([q,z],opts,buildTimeline([z],opts));
   expect(named.map(item=>item.id)).toEqual(['z']);
   expect(buildTimeline([p,m1,r,m2,q,m3,x,z],opts,[...chain,...named]).map(item=>item.id)).toEqual(['x','m1','x~1','m2','z','m3','x~2']);
+ });
+});
+
+describe('turn activity follows the agent reply',()=>{
+ const ev=(id:string,type:string,source:string,createdAt:number,payload:Record<string,unknown>={}):EventRow=>({id,type,source,payload,createdAt});
+ const action=(id:string,agentName:string,createdAt:number)=>ev(id,'telemetry.nest.connection.action','system:nest-connections',createdAt,{agentName,app:'miro',tool:'MIRO_CREATE',title:'Create',change:'create',outcome:'ok',connectionId:'c',requestId:id});
+ const ids=(items:ReturnType<typeof buildTimeline>)=>items.map(item=>item.kind==='activity'?`[${item.events.map(event=>event.id).join(',')}]`:item.id);
+ it("puts a turn's activity after the agent's reply, not after the question",()=>{
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'Add a note'},1),ev('s','agent.turn.started','agent:Pip',2,{triggerEventId:'q'}),
+   ev('ts','tool.started','agent:Pip',3),ev('ps','process.started','system:process-runner',4),action('a','Pip',5),
+   msg('r','agent:Pip',{text:'Done'},6),ev('c','agent.turn.completed','agent:Pip',7,{triggerEventId:'q'}),
+  ],opts);
+  expect(ids(items)).toEqual(['q','r','[s,ts,ps,a,c]']);
+ });
+ it("keeps overlapping agents' activity with their own replies",()=>{
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'Both of you'},1),
+   ev('sa','agent.turn.started','agent:Ann',2,{triggerEventId:'q'}),ev('sb','agent.turn.started','agent:Bob',3,{triggerEventId:'q'}),
+   action('aa','Ann',4),action('ab','Bob',5),ev('tb','tool.started','agent:Bob',6),
+   msg('rb','agent:Bob',{text:'Bob done'},7),ev('cb','agent.turn.completed','agent:Bob',8,{triggerEventId:'q'}),
+   msg('ra','agent:Ann',{text:'Ann done'},9),ev('ca','agent.turn.completed','agent:Ann',10,{triggerEventId:'q'}),
+  ],opts);
+  expect(ids(items)).toEqual(['q','rb','[sb,ab,tb,cb]','ra','[sa,aa,ca]']);
+ });
+ it('a turn without a reply stays where it ended',()=>{
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'Try'},1),ev('s','agent.turn.started','agent:Pip',2,{triggerEventId:'q'}),
+   action('a','Pip',3),ev('f','agent.turn.failed','agent:Pip',4,{triggerEventId:'q'}),msg('q2','human:alek',{text:'Again?'},5),
+  ],opts);
+  expect(ids(items)).toEqual(['q','[s,a,f]','q2']);
+ });
+ it("late events join the agent's previous reply",()=>{
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'Go'},1),ev('s','agent.turn.started','agent:Pip',2,{triggerEventId:'q'}),
+   msg('r','agent:Pip',{text:'Started'},3),ev('c','agent.turn.completed','agent:Pip',4,{triggerEventId:'q'}),
+   msg('q2','human:alek',{text:'Thanks'},5),action('late','Pip',6),
+  ],opts);
+  expect(ids(items)).toEqual(['q','r','[s,c,late]','q2']);
+ });
+ it('late events with no earlier reply in the window stand alone',()=>{
+  const items=buildTimeline([msg('q','human:alek',{text:'Hi'},1),action('late','Pip',2),msg('q2','human:alek',{text:'Hm'},3)],opts);
+  expect(ids(items)).toEqual(['q','[late]','q2']);
+ });
+ it('includes connection action events in activity',()=>{
+  expect(isTraceEvent(action('a','Pip',1))).toBe(true);
+ });
+ it('process and Stop events follow the agent the engine names, not the latest turn',()=>{
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'Both of you'},1),
+   ev('sa','agent.turn.started','agent:Ann',2,{triggerEventId:'q'}),ev('sb','agent.turn.started','agent:Bob',3,{triggerEventId:'q'}),
+   ev('po','process.output','system:process-runner',4,{ownerAgentName:'Ann',targetAgentName:'Ann'}),
+   ev('x','agent.turn.cancel_requested','human:alek',5,{targetAgentName:'Ann',triggerEventId:'q'}),
+   msg('rb','agent:Bob',{text:'Bob done'},6),ev('cb','agent.turn.completed','agent:Bob',7,{triggerEventId:'q'}),
+   msg('ra','agent:Ann',{text:'Ann done'},8),ev('ca','agent.turn.completed','agent:Ann',9,{triggerEventId:'q'}),
+  ],opts);
+  expect(ids(items)).toEqual(['q','rb','[sb,cb]','ra','[sa,po,x,ca]']);
+ });
+ it("a background process exit joins its agent's last reply",()=>{
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'Go'},1),ev('s','agent.turn.started','agent:Pip',2,{triggerEventId:'q'}),
+   msg('r','agent:Pip',{text:'Running it'},3),ev('c','agent.turn.completed','agent:Pip',4,{triggerEventId:'q'}),
+   msg('q2','human:alek',{text:'Ok'},5),ev('pe','process.exited','system:process-runner',6,{ownerAgentName:'Pip',exitCode:0}),
+  ],opts);
+  expect(ids(items)).toEqual(['q','r','[s,c,pe]','q2']);
+ });
+ it("a wrapped agent's turn goes with its reply",()=>{
+  const wrap=(id:string,type:string,createdAt:number)=>ev(id,type,'system:runner:wrapper',createdAt,{targetAgentName:'Wren'});
+  const items=buildTimeline([
+   msg('r0','agent:Wren',{text:'Earlier'},1),msg('q','human:alek',{text:'Next'},2),
+   wrap('ws','wrapper.turn.started',3),msg('r','agent:Wren',{text:'Done'},4),wrap('wc','wrapper.turn.completed',5),
+  ],opts);
+  expect(ids(items)).toEqual(['r0','q','r','[ws,wc]']);
+ });
+ it("a wrapped agent's engine and wrapper turn are one turn",()=>{
+  const wrap=(id:string,type:string,createdAt:number)=>ev(id,type,'system:runner:wrapper',createdAt,{targetAgentName:'Sable',triggerEventId:'q'});
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'@Sable hi'},1),
+   // Same millisecond: the wrapper start can sort before the engine start.
+   wrap('ws','wrapper.turn.started',2),ev('s','agent.turn.started','agent:Sable',2,{triggerEventId:'q'}),
+   ev('po','process.output','system:process-runner',3,{ownerAgentName:'Sable',stream:'STDOUT',text:'x'}),
+   msg('r','agent:Sable',{text:'Hello'},4),wrap('wc','wrapper.turn.completed',5),ev('c','agent.turn.completed','agent:Sable',5,{triggerEventId:'q'}),
+  ],opts);
+  expect(ids(items)).toEqual(['q','r','[ws,s,po,wc,c]']);
+ });
+ it('leaves out a turn that ended without a reply and without doing anything',()=>{
+  const wrap=(id:string,type:string,createdAt:number,payload:Record<string,unknown>={})=>ev(id,type,'system:runner:wrapper',createdAt,{targetAgentName:'Wren',triggerEventId:'r',...payload});
+  const items=buildTimeline([
+   msg('r','agent:Sable',{text:'Hello'},1),
+   ev('s','agent.turn.started','agent:Wren',2,{triggerEventId:'r'}),wrap('ws','wrapper.turn.started',3),
+   ev('pe','process.exited','system:process-runner',4,{ownerAgentName:'Wren',exitCode:0}),
+   wrap('wc','wrapper.turn.completed',5,{emittedMessage:false}),ev('c','agent.turn.completed','agent:Wren',6,{triggerEventId:'r'}),
+   ev('ctx','telemetry.context.window.updated','system:runner:context',7,{agentName:'Ann'}),
+  ],opts);
+  expect(ids(items)).toEqual(['r']);
+ });
+ it('keeps a reply-less turn that used a tool, failed or was stopped',()=>{
+  const turn=(agent:string,at:number,middle:EventRow[])=>[ev(`s${agent}`,'agent.turn.started',`agent:${agent}`,at,{triggerEventId:'q'}),...middle,ev(`c${agent}`,'agent.turn.completed',`agent:${agent}`,at+5,{triggerEventId:'q'})];
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'All of you'},1),
+   ...turn('Ann',10,[ev('t','tool.started','agent:Ann',11,{tool:'fs_read'})]),
+   ...turn('Bob',20,[ev('pe','process.exited','system:process-runner',21,{ownerAgentName:'Bob',exitCode:2})]),
+   ...turn('Cy',30,[ev('x','agent.turn.cancel_requested','human:alek',31,{targetAgentName:'Cy'})]),
+  ],opts);
+  expect(ids(items)).toEqual(['q','[sAnn,t,cAnn]','[sBob,pe,cBob]','[sCy,x,cCy]']);
+ });
+ it("an action older than every loaded turn event goes with the agent's next reply",()=>{
+  // Per-type history pages: the turn's start is beyond the loaded window, its line and reply are not.
+  const items=buildTimeline([
+   msg('r0','agent:Pip',{text:'Earlier'},1),msg('q','human:alek',{text:'Add a card'},2),
+   action('a','Pip',3),msg('r','agent:Pip',{text:'Added'},4),ev('c','agent.turn.completed','agent:Pip',5,{triggerEventId:'q'}),
+  ],opts);
+  expect(ids(items)).toEqual(['r0','q','r','[a,c]']);
+ });
+ it('only shows a group inside the reply it belongs to',()=>{
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'Try'},1),ev('s','agent.turn.started','agent:Pip',2,{triggerEventId:'q'}),
+   ev('f','agent.turn.failed','agent:Pip',3,{triggerEventId:'q'}),
+   msg('q2','human:alek',{text:'Again'},4),ev('s2','agent.turn.started','agent:Pip',5,{triggerEventId:'q2'}),
+   msg('r','agent:Pip',{text:'Done'},6),ev('c2','agent.turn.completed','agent:Pip',7,{triggerEventId:'q2'}),
+   ev('sb','agent.turn.started','agent:Bob',8,{triggerEventId:'q2'}),ev('fb','agent.turn.failed','agent:Bob',9,{triggerEventId:'q2'}),
+  ],opts);
+  expect(ids(items)).toEqual(['q','[s,f]','q2','r','[s2,c2]','[sb,fb]']);
+  expect(attachesTo(items[0],items[1])).toBe(false); // a failed turn never sits inside the person's question
+  expect(attachesTo(items[3],items[4])).toBe(true);
+  expect(attachesTo(items[3],items[5])).toBe(false); // Bob's reply-less turn is not Pip's
+ });
+});
+
+describe('a turn that ended without replying',()=>{
+ const ev=(id:string,type:string,source:string,createdAt:number,payload:Record<string,unknown>={}):EventRow=>({id,type,source,payload,createdAt});
+ const turn=(trigger:string,at:number,middle:EventRow[]=[],end:Record<string,unknown>={noReply:true},agent='Pip')=>[
+  ev(`s-${trigger}`,'agent.turn.started',`agent:${agent}`,at,{triggerEventId:trigger}),...middle,
+  ev(`c-${trigger}`,'agent.turn.completed',`agent:${agent}`,at+5,{triggerEventId:trigger,...end})];
+ const nudge=(id:string,trigger:string,createdAt:number,agent='Pip')=>msg(id,'system:nest',{text:'You ended your turn without replying to alek.',targetAgentName:agent,nestReplyNudge:{triggerEventId:trigger,requestedFor:'human:alek'}},createdAt);
+ const activity=(items:ReturnType<typeof buildTimeline>)=>items.filter(item=>item.kind==='activity');
+ it("marks a finished turn without a reply as unanswered, with the agent's reason",()=>{
+  const items=buildTimeline([
+   msg('q','human:alek',{text:'@Pip what is on the board?',targetAgentName:'Pip'},1),
+   ...turn('q',10,[ev('t','tool.executed','agent:Pip',11),ev('n','noop','agent:Pip',12,{reason:'already delivered'})]),
+  ],opts);
+  expect(items.map(item=>item.id)).toEqual(['q','s-q']);
+  expect(activity(items)[0]).toMatchObject({unanswered:{agent:'Pip',at:15,reason:'already delivered'}});
+ });
+ it('a quiet turn that ended without replying to the person who asked it is still shown',()=>{
+  const [,item]=buildTimeline([msg('q','human:alek',{text:'Hi',targetAgentNames:['Pip','Rex']},1),...turn('q',10)],opts);
+  expect(item).toMatchObject({kind:'activity',unanswered:{agent:'Pip',at:15}});
+ });
+ it("an unaddressed turn becomes unanswered once Nest asked the agent to reply, and so does the ask's own silent turn",()=>{
+  const question=msg('q','human:alek',{text:'Hi'},1);
+  expect(buildTimeline([question,...turn('q',10)],opts).map(item=>item.id)).toEqual(['q']);
+  const items=buildTimeline([question,...turn('q',10),nudge('ask','q',20),...turn('ask',30)],opts);
+  expect(items.map(item=>item.id)).toEqual(['q','s-q','ask','s-ask']);
+  expect(activity(items).map(item=>item.kind==='activity'&&item.unanswered?.agent)).toEqual(['Pip','Pip']);
+  // The ask arriving later changes the row although the turn's events did not.
+  const before=buildTimeline([question,...turn('q',10,[ev('t','tool.executed','agent:Pip',11)])],opts);
+  const after=buildTimeline([question,...turn('q',10,[ev('t','tool.executed','agent:Pip',11)]),nudge('ask','q',20)],opts,before);
+  expect(activity(after)[0]).toMatchObject({unanswered:{agent:'Pip'}});
+ });
+ it('replied, stopped, failed, partly loaded and other agents\' turns are not unanswered',()=>{
+  const asked=(id:string,at:number)=>msg(id,'human:alek',{text:'?',targetAgentName:'Pip'},at);
+  const items=buildTimeline([
+   asked('q1',1),...turn('q1',2,[msg('r','agent:Pip',{text:'Here'},3)]),
+   asked('q2',10),...turn('q2',11,[ev('t2','tool.executed','agent:Pip',12)],{cancelled:true}),
+   asked('q3',20),ev('s-q3','agent.turn.started','agent:Pip',21,{triggerEventId:'q3'}),ev('t3','tool.executed','agent:Pip',22),ev('f-q3','agent.turn.failed','agent:Pip',23,{triggerEventId:'q3'}),
+   asked('q4',30),ev('t4','tool.executed','agent:Pip',31),
+   // A wrapped agent whose wrapper failed: the engine still reports its own turn as completed.
+   asked('q6',50),...turn('q6',51,[ev('wf','wrapper.turn.failed','system:runner:wrapper',52,{targetAgentName:'Pip',triggerEventId:'q6'})]),
+   asked('q5',40),...turn('q5',41,[ev('t5','tool.executed','agent:Rex',42)],{noReply:true},'Rex'),
+   asked('q7',60),...turn('q7',61,[ev('t7','tool.executed','agent:Pip',62)],{noReply:true,scheduledContinuation:true}),
+  ],opts);
+  expect(activity(items).length).toBeGreaterThan(0);
+  expect(activity(items).filter(item=>item.kind==='activity'&&item.unanswered)).toEqual([]);
+ });
+ it("a person's unaddressed message in a chat whose only agent this is counts, unless it names someone else",()=>{
+  const sole={...opts,soleAgent:'Pip'};
+  const worked=[ev('t','tool.executed','agent:Pip',11)];
+  expect(activity(buildTimeline([msg('q','human:alek',{text:'What is on the board?'},1),...turn('q',10,worked)],sole))).toMatchObject([{unanswered:{agent:'Pip'}}]);
+  // An acknowledgment the agent rightly let pass, without doing anything, stays hidden.
+  expect(buildTimeline([msg('q','human:alek',{text:'Thanks!'},1),...turn('q',10,[ev('n','noop','agent:Pip',11,{reason:'Only thanks'})])],sole).map(item=>item.id)).toEqual(['q']);
+  expect(buildTimeline([msg('q','human:alek',{text:'@alice look',mentions:[{kind:'HUMAN',name:'alice'}]},1),...turn('q',10)],sole).map(item=>item.id)).toEqual(['q']);
+  expect(buildTimeline([msg('q','human:alek',{text:'Hi'},1),...turn('q',10,[],{noReply:true},'Rex')],sole).map(item=>item.id)).toEqual(['q']);
+ });
+ it("an unaddressed agent's noop does not show its silent turn",()=>{
+  const items=buildTimeline([msg('q','human:alek',{text:'Morning everyone'},1),...turn('q',10,[ev('n','noop','agent:Rex',11,{reason:'Not for me'})],{noReply:true},'Rex')],opts);
+  expect(items.map(item=>item.id)).toEqual(['q']);
+ });
+ it("describes Nest's ask to reply",()=>{
+  expect(replyNudgeLine(nudge('ask','q',1))).toBe('Nest asked Pip to reply.');
+  expect(replyNudgeLine(msg('s','system:nest',{text:'Hello'},1))).toBeNull();
+  expect(replyNudgeLine(msg('h','human:alek',{text:'x',nestReplyNudge:{triggerEventId:'q'},targetAgentName:'Pip'},1))).toBeNull();
  });
 });

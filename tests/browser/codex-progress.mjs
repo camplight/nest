@@ -51,7 +51,8 @@ try{
   const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(15000);
   await page.goto(base+'/?view=projects&project='+project.id);
   await page.getByRole('textbox',{name:'Message',exact:true}).waitFor();
-  await page.getByRole('button',{name:'Agent is thinking',exact:true}).waitFor();
+  // A started turn shows the agent's working row; the bare start is not its own activity entry.
+  await page.locator('.working-row[data-agent=NestSystem]').waitFor();
   // The browser is already open: the real engine -> gateway WS delivers this update.
   write({type:'item.completed',item:{id:'update-1',type:'agent_message',text:'Checking the release on desktop and mobile.'}});
   write({type:'item.started',item:{id:'tool-1',type:'command_execution',command:'private command'}});

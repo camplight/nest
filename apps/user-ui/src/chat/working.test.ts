@@ -22,8 +22,14 @@ describe('activeTurns',()=>{
   expect(activeTurns([start('s1','Pip','m1',1000)],[])).toStrictEqual([{agent:'Pip',triggerEventId:'m1',since:1000}]);
  });
  it('wrapper events attribute by targetAgentName',()=>{
-  expect(activeTurns([wrapper('w1','wrapper.turn.started','Pip','m1',1000)],[])).toStrictEqual([{agent:'Pip',triggerEventId:'m1',since:1000}]);
-  expect(activeTurns([wrapper('w1','wrapper.turn.started','Pip','m1',1000),start('s1','Pip','m1',1100)],[])).toStrictEqual([{agent:'Pip',triggerEventId:'m1',since:1000}]);
+  expect(activeTurns([wrapper('w1','wrapper.turn.started','Pip','m1',1000)],[])).toStrictEqual([{agent:'Pip',triggerEventId:'m1',since:1000,wrapped:true}]);
+  expect(activeTurns([wrapper('w1','wrapper.turn.started','Pip','m1',1000),start('s1','Pip','m1',1100)],[])).toStrictEqual([{agent:'Pip',triggerEventId:'m1',since:1000,wrapped:true}]);
+ });
+ it('a cancel request marks only its own turn as stopping',()=>{
+  const cancel=(id:string,trigger:string,at:number)=>ev(id,'agent.turn.cancel_requested','human:ana',at,{targetAgentName:'Pip',triggerEventId:trigger,requestedBy:'human:ana'});
+  expect(activeTurns([start('s1','Pip','m1',1000),cancel('c1','m1',1100)],[])).toStrictEqual([{agent:'Pip',triggerEventId:'m1',since:1000,stopping:true}]);
+  expect(activeTurns([start('s1','Pip','m1',1000),cancel('c1','m0',1100)],[])).toStrictEqual([{agent:'Pip',triggerEventId:'m1',since:1000}]);
+  expect(activeTurns([start('s1','Pip','m1',1000),cancel('c1','m1',1100),ev('done','agent.turn.completed','agent:Pip',1200,{triggerEventId:'m1',cancelled:true})],[])).toStrictEqual([]);
  });
  it('progress without a loaded start makes a turn',()=>{
   expect(activeTurns([phase('p1','Pip','m1',1500,'wrapped-progress','Product checks passed.')],[])).toStrictEqual([{agent:'Pip',triggerEventId:'m1',since:1500,progressText:'Product checks passed.',progressEventId:'p1'}]);

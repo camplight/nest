@@ -48,6 +48,7 @@ export type EventRow = {
   payload?: unknown;
   payloadTruncated?: boolean;
   status?: string;
+  parentEventId?: string;
 };
 
 export type AuthMe = {

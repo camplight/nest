@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type {
   AgentCharacter,
   OnboardingState,
@@ -185,7 +185,7 @@ export function AgentSetupForm({onCreated}:{onCreated:(name:string)=>void}) {
             </div>)}
   </section>;
 }
-export function Connections({ agentName, onPermissionsChanged }: { agentName: string; onPermissionsChanged?: () => void }) {
+export function Connections({ agentName, onPermissionsChanged, accessHint }: { agentName: string; onPermissionsChanged?: () => void; accessHint?: ReactNode }) {
   const [connections, setConnections] = useState<Connection[]>([]),
     [kits, setKits] = useState<
       {
@@ -330,6 +330,7 @@ export function Connections({ agentName, onPermissionsChanged }: { agentName: st
           </article>
         ))
       )}
+      {accessHint}
       <label className="onboarding-search">
         Find an app
         <input
@@ -339,22 +340,28 @@ export function Connections({ agentName, onPermissionsChanged }: { agentName: st
         />
       </label>
       <div className="onboarding-apps">
-        {kits.map((kit) => (
+        {kits.map((kit) => {
+          // Matches the project suggestions: a connected app is not offered again.
+          const connected = connections.some((c) => c.status === "ACTIVE" && c.toolkit.toLowerCase() === kit.slug.toLowerCase());
+          return (
           <article className="dashboard-card connection-app-option" key={kit.slug}>
             <div className="connection-app-heading"><IntegrationLogo toolkit={kit.slug} /><div><h3>{kit.name}</h3><p>{kit.description}</p></div></div>
             <button
               className="dashboard-action"
-              disabled={!!busy || !kit.connectable}
+              disabled={!!busy || !kit.connectable || connected}
               onClick={() => void connect(kit.slug)}
             >
               {busy === kit.slug
                 ? "Opening…"
-                : kit.connectable
-                  ? "Connect account"
-                  : "Setup required"}
+                : connected
+                  ? "Connected"
+                  : kit.connectable
+                    ? "Connect account"
+                    : "Setup required"}
             </button>
           </article>
-        ))}
+          );
+        })}
       </div>
       {!kits.length && <p>No matching apps found.</p>}
       {cursor && (

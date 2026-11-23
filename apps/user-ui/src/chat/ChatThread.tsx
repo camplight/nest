@@ -3,7 +3,7 @@
 import {createContext,useCallback,useContext,useEffect,useImperativeHandle,useLayoutEffect,useMemo,useRef,useState,type ReactNode,type Ref} from 'react';
 import {foldAgentTimeline} from './agent-folds';
 import {ArrowDownIcon,ChevronRightIcon} from 'lucide-react';
-import {AgentActivity} from '../components/AgentActivity';
+import {TurnActivity} from '../components/TurnActivity';
 import {AgentAvatar} from '../components/AgentAvatar';
 import type {Agent,EventRow} from '../types';
 import {AssistantRuntimeProvider,ThreadPrimitive,useAuiState,useExternalStoreRuntime} from './aui';
@@ -14,13 +14,14 @@ import {MessageActions} from './MessageActions';
 import {MessageBody} from './MessageBody';
 import type {ReplyTarget} from './quote-types';
 import {SelectionQuote} from './SelectionQuote';
-import {buildTimeline,dayKey,isContinuation,isTraceEvent,toThreadMessage,type ChatMeta,type TimelineItem} from './timeline';
+import {attachesTo,buildTimeline,dayKey,isContinuation,isTraceEvent,replyNudgeLine,toThreadMessage,type ChatMeta,type TimelineItem,type Unanswered} from './timeline';
 import {Button} from './ui/button';
 import {DaySeparator} from './ui/day-separator';
 import {cn} from './ui/lib/utils';
 import {ChatPortalProvider} from './ui/portal';
 import {activeTurns,type WorkingTurn} from './working';
 import {WorkingRow} from './WorkingRow';
+import {ReplyRing} from './ReplyRing';
 import './chat.css';
 
 export type ChatThreadProps={
@@ -28,6 +29,8 @@ export type ChatThreadProps={
  focusedMessageId:string|null;isConversationEmpty:boolean;
  onPreviewDemo(path:string):void;onQuote(target:ReplyTarget,quotedText:string):void;footer?:ReactNode;headerActions?:ReactNode;
  channelLabel:string;onFocusMessage(eventId:string):void;handle?:Ref<ChatThreadHandle>;
+ /** The chat's only agent, if it has exactly one. */
+ soleAgent?:string|null;
 };
 // What the page may ask of the thread: after a send it follows the new message down (the viewport is the thread's own).
 export type ChatThreadHandle={scrollToBottom():void};
@@ -75,11 +78,6 @@ const ThreadContext=createContext<ThreadView|null>(null);
 // Messages carry no bottom padding, so these margins are the whole gap: a small one between authors, tight within a run.
 const spaceAfter=(item:TimelineItem,next:TimelineItem|undefined)=>
  !next?'mb-0':item.kind!=='message'||next.kind!=='message'?'mb-3':isContinuation(item,next)?'mb-0.5':'mb-3';
-// An activity group directly after a message (same day, both in the loaded window) is shown inside that message,
-// under its text; any other group stands on its own in the avatar-gutter column.
-const attachesTo=(previous:TimelineItem|undefined,item:TimelineItem|undefined):boolean=>
- item?.kind==='activity'&&previous?.kind==='message'&&!previous.meta.detached&&!item.meta.detached&&
- dayKey(previous.meta.displayAt)===dayKey(item.meta.displayAt);
 // The classic rgba backgrounds of .trace-group-agent and -system read as a grey bar in dark mode; token-themed here.
 // Chips line up with the message text: no box or inset around the group (the classic .trace-group padding is reset).
 const ACTIVITY_RESET='[&>article]:bg-transparent [&>article]:p-0 [&>article]:rounded-none [&>article]:max-w-none';
@@ -119,7 +117,8 @@ function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;pr
  },[highlighted]);
  return <article ref={ref} id={`message-${item.id}`} data-message-id={item.id} tabIndex={highlighted?-1:undefined}
   className={cn('message',`message-${meta.authorKind}`,SHELL,spacing,highlighted&&'message-highlight bg-accent/40 ring-2 ring-ring')}>
-  {!mine&&<div className="w-8 shrink-0 pt-0.5">{author?authorAvatar(meta):time}</div>}
+  {!mine&&<div className="w-8 shrink-0 pt-0.5">{author?(activity&&meta.authorKind==='agent'
+   ?<ReplyRing agent={meta.authorName} events={activity.events}>{authorAvatar(meta)}</ReplyRing>:authorAvatar(meta)):time}</div>}
   <div data-slot="message-focus" tabIndex={0} role="group" aria-label={`${meta.authorName}, ${formatTime(meta.displayAt)}`} className={cn(COLUMN,mine&&MINE_COLUMN)}>
    {mine?(author?<div className="flex items-center justify-end gap-2">{actions('')}{time}</div>:actions('absolute top-0 start-0 z-10')):author?<div className="flex min-w-0 items-center gap-2">
     <strong className="message-author min-w-0 text-sm font-semibold leading-5 text-foreground [overflow-wrap:anywhere]">{meta.authorName}</strong>
@@ -130,8 +129,26 @@ function MessageShell({item,previous,view,spacing,activity}:{item:MessageItem;pr
    <MessageBody item={item} channelId={props.snapshot.channelId??''} core={props.core} onPreviewDemo={props.onPreviewDemo}
     onFocusMessage={props.onFocusMessage} onQuote={quote}
     activity={activity&&<div data-aui-quote-selectable="false" className={ACTIVITY_IN_MESSAGE}>
-     <AgentActivity events={activity.events} tone={activity.tone} formatTime={formatTime}/>
+     <TurnActivity events={activity.events} tone={activity.tone} formatTime={formatTime}/>
     </div>}/>
+  </div>
+ </article>;
+}
+
+// A finished turn that did not answer the person waiting for it: the agent's row, so it reads as the agent's turn
+// (avatar, name, time), with what it said about ending and the turn's Details underneath.
+function UnansweredRow({item,unanswered,spacing}:{item:ActivityItem;unanswered:Unanswered;spacing:string}){
+ const time=formatTime(unanswered.at);
+ return <article id={`message-${item.id}`} data-message-id={item.id} data-aui-quote-selectable="false" className={cn('message message-agent message-unanswered',SHELL,spacing)}>
+  <div className="w-8 shrink-0 pt-0.5"><AgentAvatar name={unanswered.agent} size={32}/></div>
+  <div data-slot="message-focus" tabIndex={0} role="group" aria-label={`${unanswered.agent}, ${time}`} className={COLUMN}>
+   <div className="flex min-w-0 items-center gap-2">
+    <strong className="message-author min-w-0 text-sm font-semibold leading-5 text-foreground [overflow-wrap:anywhere]">{unanswered.agent}</strong>
+    <time className="shrink-0 whitespace-nowrap text-xs font-normal leading-4 text-muted-foreground tabular-nums" dateTime={new Date(unanswered.at).toISOString()}>{time}</time>
+   </div>
+   <p className="m-0 text-sm italic text-muted-foreground">Ended without replying</p>
+   {unanswered.reason&&<p className="m-0 mt-0.5 text-sm text-muted-foreground [overflow-wrap:anywhere]">It said: “{unanswered.reason}”</p>}
+   <div className={ACTIVITY_IN_MESSAGE}><TurnActivity events={item.events} tone={item.tone} formatTime={formatTime}/></div>
   </div>
  </article>;
 }
@@ -166,16 +183,21 @@ function ThreadItem(){
    <span id={`fold-participants-${foldControl.fold.id}`} className="sr-only">Participants: {foldControl.fold.agentNames.join(', ')}</span>
    <ChevronRightIcon aria-hidden="true" className={cn('size-4 shrink-0',foldControl.expanded&&'rotate-90')}/>
   </Button>}
-  {item.kind==='message'?(attachesTo(item,next)?
+  {item.kind==='message'&&replyNudgeLine(item.event)?
+   <p id={`message-${item.id}`} data-message-id={item.id} role="note" className={cn('my-1 self-center px-2 text-center text-xs text-muted-foreground',spaceAfter(item,next))}>
+    {replyNudgeLine(item.event)} <time dateTime={new Date(item.meta.displayAt).toISOString()}>{formatTime(item.meta.displayAt)}</time>
+   </p>:
+   item.kind==='message'?(attachesTo(item,next)?
     <MessageShell item={item} previous={previous} view={view} activity={next as ActivityItem}
      spacing={spaceAfter(next as ActivityItem,afterNextId?view.byId.get(afterNextId):undefined)}/>:
     <MessageShell item={item} previous={previous} view={view} spacing={spaceAfter(item,next)}/>):
    attachesTo(previous,item)?null:
+   item.unanswered?<UnansweredRow item={item} unanswered={item.unanswered} spacing={spaceAfter(item,next)}/>:
    <div data-aui-quote-selectable="false" className={cn(ACTIVITY_SLOT,spaceAfter(item,next))}>
-    <AgentActivity events={item.events} tone={item.tone} formatTime={formatTime}/>
+    <TurnActivity events={item.events} tone={item.tone} formatTime={formatTime} standalone/>
    </div>}
   {view.turns.filter(turn=>(view.folding.redirects.get(turn.triggerEventId)??turn.triggerEventId)===item.id||(!next&&!view.byId.has(turn.triggerEventId)&&!view.folding.redirects.has(turn.triggerEventId))).map(turn=>
-   <WorkingRow key={turn.agent} turn={turn} activityUnavailable={view.props.snapshot.activityUnavailable}
+   <WorkingRow key={turn.agent} turn={turn} activityUnavailable={view.props.snapshot.activityUnavailable} events={view.props.snapshot.events}
     onReview={()=>view.props.onFocusMessage(turn.triggerEventId)}/>)}
   {item.meta.detached&&next&&!next.meta.detached&&<div data-slot="detached-marker" className="my-3 self-center rounded-full bg-muted/70 px-3 py-1 text-xs text-muted-foreground">Earlier messages not loaded</div>}
  </>;
@@ -215,10 +237,10 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  const {snapshot,core,currentUsername,focusedMessageId}=props;
  const previousItems=useRef<TimelineItem[]>([]);
  const items=useMemo(()=>{
-  const next=buildTimeline(snapshot.events,{currentUsername,detachedIds:snapshot.detachedIds},previousItems.current);
+  const next=buildTimeline(snapshot.events,{currentUsername,detachedIds:snapshot.detachedIds,soleAgent:props.soleAgent},previousItems.current);
   previousItems.current=next;
   return next;
- },[snapshot.events,snapshot.detachedIds,currentUsername]);
+ },[snapshot.events,snapshot.detachedIds,currentUsername,props.soleAgent]);
  // Each active turn's row follows its trigger message, or the last item when the trigger is not loaded (spec 7.5.1).
  const turns=useMemo(()=>activeTurns(snapshot.events,props.agents,snapshot.agentStarts),[snapshot.events,props.agents,snapshot.agentStarts]);
  // A deep-link focus is pending until it scrolled into view and the reader then scrolled themselves (spec 8.5).
@@ -242,6 +264,8 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  const snapshotRef=useRef(snapshot);snapshotRef.current=snapshot;
  const nearBottomRef=useRef(true);
  const [farFromBottom,setFarFromBottom]=useState(false);
+ // Messages scrolled under the header actions: show where the toolbar ends.
+ const [scrolled,setScrolled]=useState(false);
  const [hasNew,setHasNew]=useState(false);
  const [focusPending,setFocusPending]=useState(focusedMessageId!==null);
  const focusPendingRef=useRef(focusPending);focusPendingRef.current=focusPending;
@@ -270,6 +294,7 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
   nearBottomRef.current=distance<NEAR_BOTTOM_PX;
   if(nearBottomRef.current)setHasNew(false);
   setFarFromBottom(distance>=FAR_FROM_BOTTOM_PX);
+  setScrolled(panel.scrollTop>2);
   if(panel.scrollTop<AUTO_LOAD_PX&&!focusPendingRef.current)loadOlder();
  },[loadOlder]);
 
@@ -305,7 +330,7 @@ export function ChatThread(props:ChatThreadProps):JSX.Element{
  // No channel selected yet (the shell is still loading): no conversation, so no empty state either.
  const empty=snapshot.channelId!==null&&!snapshot.loading&&items.length===0;
  return <AssistantRuntimeProvider runtime={runtime}><ChatPortalProvider><ThreadContext.Provider value={view}>
-  <div className="nest-chat relative flex min-h-0 flex-1 flex-col">
+  <div className={cn('nest-chat relative flex min-h-0 flex-1 flex-col',scrolled&&'is-scrolled')}>
    {/* Keep Sharing and Huddle reachable on mobile. Export stays hidden at the existing mobile breakpoint. */}
    <div className="chat-header-actions flex shrink-0 flex-wrap items-center justify-end gap-3 px-3 pb-2 empty:hidden">{props.headerActions}<span className="max-[761px]:hidden"><ExportButton items={items} channelLabel={props.channelLabel}/></span></div>
    <ThreadPrimitive.Root className="relative flex min-h-0 flex-1 flex-col">

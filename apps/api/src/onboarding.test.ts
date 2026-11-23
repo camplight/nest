@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, describe, it, expect } from "vitest";
+import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -141,6 +141,7 @@ describe("personal onboarding through the untouched engine", () => {
       assignedRunnerId: "test-runner",
       allowOutsideWorkspace: false,
       allowOwnerHumanSecrets: false,
+      memoryContextMode: "FULL_CHANNEL_EVENTS",
     });
     const channels = await (await call("/api/channels")).json();
     expect(channels).toHaveLength(1);
@@ -172,6 +173,17 @@ describe("personal onboarding through the untouched engine", () => {
     product = createApp({orgops:client, dbPath:join(dir,'product.sqlite'),personalAgent:settings,defaultAgentModelId:'new-default'});
     expect((await call('/api/onboarding/agent',input)).status).toBe(200);
     expect(await (await call('/api/agents/PuffOwner')).json()).toMatchObject({modelId:'openrouter:new-test'});
+  });
+  it("provisions on an openai-compatible model named by NEST_DEFAULT_AGENT_MODEL_ID", async () => {
+    await call('/api/models',{id:'fireworks-glm',provider:'openai-compatible',modelName:'accounts/fireworks/models/glm-5p3',enabled:true});
+    vi.stubEnv('NEST_DEFAULT_AGENT_MODEL_ID','fireworks-glm');
+    try {
+      product.store.close();
+      product = createApp({orgops:client, dbPath:join(dir,'product.sqlite'), personalAgent:settings});
+      expect((await call('/api/onboarding/agent',input)).status).toBe(200);
+      expect(await (await call('/api/agents/PuffOwner')).json()).toMatchObject({modelId:'openai-compatible:accounts/fireworks/models/glm-5p3'});
+      expect(await (await call('/api/agent-models')).json()).toMatchObject({defaultModel:'openai-compatible:accounts/fireworks/models/glm-5p3'});
+    } finally { vi.unstubAllEnvs(); }
   });
   for (const path of ["/api/agents", "/api/channels"])
     it(`recovers after losing ${path} response`, async () => {

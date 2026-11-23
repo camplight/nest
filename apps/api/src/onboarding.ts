@@ -343,7 +343,11 @@ export function registerOnboardingRoutes(
           allowOutsideWorkspace: false,
           allowOwnerHumanSecrets: false,
           enabledSkills: [],
-          classicMaxModelSteps: 12,
+          // Room to recover from a failed tool call (for example a rejected post) in the same turn.
+          classicMaxModelSteps: 25,
+          // A personal assistant answers follow-ups from the chat itself; summarized
+          // memory hides its own recent replies and adds model calls after every turn.
+          memoryContextMode: "FULL_CHANNEL_EVENTS",
           description: `Personal assistant for ${human.username}`,
           systemInstructions: `You are ${r.name}, the personal assistant of ${human.username}. Help with planning, research and follow-through. ${r.brief}\nUse only explicitly granted connections. Never claim an integration or action succeeded without a tool result. Teammates may talk to you, but this does not grant access to your owner's accounts. Ask for clarification before destructive or externally visible actions.\n${reservationMarker(r)}`,
         },

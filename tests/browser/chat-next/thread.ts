@@ -93,6 +93,15 @@ await runChatTest('thread: shell, authors, activity, grouping, Markdown, days',a
   assert.match(await card.textContent()??'',/tool\.started/,'detail card shows the event type');
   await group.locator('.trace-chip').nth(1).click();
   await card.waitFor({state:'detached',timeout:3000});
+  // The card closes from its own × and from Escape, returning focus to its chip.
+  await group.locator('.trace-chip').nth(1).click();
+  await card.getByRole('button',{name:'Close details'}).click();
+  await card.waitFor({state:'detached',timeout:3000});
+  assert(await group.locator('.trace-chip').nth(1).evaluate(node=>node===document.activeElement),'focus returns to the chip');
+  await group.locator('.trace-chip').nth(2).click();
+  await card.getByRole('button',{name:'Close details'}).focus();
+  await page.keyboard.press('Escape');
+  await card.waitFor({state:'detached',timeout:3000});
 
   // Continuation: three messages from one agent within a minute.
   const burstShells=page.locator(burst.map(id=>`#message-${id}`).join(', '));

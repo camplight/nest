@@ -22,8 +22,12 @@ import { bodyLimit } from 'hono/body-limit';
 import { openProductDb, type ProductDb } from '@nest/db';
 import { BrandingSchema } from '@nest/schemas';
 import { createOrgOpsClient, productHeaders, type OrgOpsClient } from '@nest/orgops-client';
+import { registerAgentMemoryRoutes } from './agent-memory';
+import { createContextCompactionWorker } from './context-compaction-worker';
+import { createReplyNudgeWorker } from './reply-nudge-worker';
+import type { HistorySummarizer } from './context-compaction';
 
-export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string } = {}) {
+export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; compaction?: {engineToken?:string; summarize?:HistorySummarizer; now?:()=>number}; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string } = {}) {
   const store = config.store ?? openProductDb(config.dbPath ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_PRODUCT_DB_PATH ?? '.nest-product/nest.sqlite'));
   const orgops = config.orgops ?? createOrgOpsClient(config.orgopsUrl ?? process.env.ORGOPS_URL ?? 'http://127.0.0.1:8788');
   const app = new Hono();
@@ -82,8 +86,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   registerCommunityRoutes(app, {store, orgops});
   // Unknown product endpoints do not fall through to a privileged service account.
   app.all('/api/branding/*', c => c.json({error: 'Not found'}, 404));
-  const proxy = async (c: any) => {
-    const source = c.req.raw as Request;
+  const forward = async (source: Request) => {
     const url = new URL(source.url);
     const headers = new Headers(source.headers);
     headers.set('x-forwarded-host', url.host);
@@ -93,6 +96,8 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     const response = await orgops.request(url.pathname + url.search, init);
     return new Response(response.body, { status: response.status, headers: productHeaders(response.headers) });
   };
+  const proxy = (c: any) => forward(c.req.raw as Request);
+  registerAgentMemoryRoutes(app, {store, orgops, forward, now: config.compaction?.now});
   app.all('/api/*', proxy);
   app.all('/v1/*', proxy);
   const projectNaming=createProjectNamingWorker({store,namer:config.projectNamer,context:async(projectId,requestId)=>{
@@ -105,5 +110,9 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     const env=config.projectNamer?undefined:await orgops.projectNamingEnv({model:input.model,token:managementKey,agentName:namingSource,agentId:namingSource===managementName?managementId:undefined});
     return {...input,env};
   }});
-  return { app, store, orgops, projectNaming };
+  const compactionToken = config.compaction ? config.compaction.engineToken : managementKey;
+  const contextCompaction = createContextCompactionWorker({store, engine: compactionToken ? orgops.contextCompaction(compactionToken) : null, summarize: config.compaction?.summarize, now: config.compaction?.now});
+  // Same service token as compaction: both read engine events and post as Nest.
+  const replyNudges = createReplyNudgeWorker({store, engine: compactionToken ? orgops.replyNudges(compactionToken) : null, now: config.compaction?.now});
+  return { app, store, orgops, projectNaming, contextCompaction, replyNudges };
 }
