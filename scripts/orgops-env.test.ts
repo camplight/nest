@@ -80,7 +80,7 @@ for (const component of ["api", "runner"] as const)
   });
 
 for (const policy of [undefined, 'off', 'openrouter-auto']) {
-  test(`runner enables smart routing unless explicitly configured: ${policy}`, () => {
+  test(`runner enables smart routing unless explicitly configured: ${policy}`, async () => {
     const previous={...process.env}, f=fixture();
     try {
       delete process.env.ORGOPS_TASK_MODEL_ROUTING;
@@ -90,6 +90,11 @@ for (const policy of [undefined, 'off', 'openrouter-auto']) {
       if(policy) process.env.NEST_TASK_MODEL_ROUTING=policy;
       configureOrgOpsEnv('runner');
       expect(process.env.ORGOPS_TASK_MODEL_ROUTING).toBe(policy ?? 'openrouter-auto');
+      const {automaticTaskModel}=await import('../vendor/orgops/apps/agent-runner/src/automatic-model');
+      const saved={name:'test',modelId:'openrouter:z-ai/glm-5.3',workspacePath:'/tmp',desiredState:'RUNNING',runtimeState:'RUNNING'};
+      const routed=automaticTaskModel(saved,'room');
+      expect(routed?.agent.modelId).toBe(policy==='off' ? undefined : 'openrouter:openrouter/auto');
+      expect(saved.modelId).toBe('openrouter:z-ai/glm-5.3');
     } finally {process.env=previous;}
   });
 }
