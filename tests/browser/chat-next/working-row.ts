@@ -25,6 +25,49 @@ const noSecret=async(page:Page)=>{
   }
 };
 
+await runChatTest('composer stop: Stop takes Send\'s place while an agent works and cancels its turn',async h=>{
+  const {page}=h;
+  const m1=await human(h,'@Pip synthetic long request');
+  await page.locator(`#message-${m1.id}`).waitFor();
+  const send=page.locator('form.composer .composer-send');
+  const stop=page.locator('form.composer .composer-stop');
+  assert.equal(await stop.count(),0,'no Stop while nothing runs');
+  await h.emit('agent.turn.started',{triggerEventId:m1.id});
+  await rowAfter(page,m1.id).filter({hasText:agentName}).waitFor();
+  // The bundled engine does not declare turn cancellation yet, so there is no Stop.
+  await page.waitForTimeout(500);
+  assert.equal(await stop.count(),0,'no Stop when the engine cannot cancel turns');
+  await send.waitFor();
+  // An engine that declares agent.turn.cancel_requested gets Stop; its cancel endpoint is simulated here.
+  await page.route('**/api/event-types',route=>route.fulfill({json:{eventTypes:[{type:'message.created'},{type:'agent.turn.cancel_requested'}],loadErrors:[]}}));
+  await page.route(`**/api/agents/${agentName}/turns/cancel`,route=>route.fulfill({status:202,json:{}}));
+  await page.reload();
+  await rowAfter(page,m1.id).filter({hasText:agentName}).waitFor();
+  await page.getByRole('button',{name:`Stop ${agentName}`,exact:true}).waitFor();
+  assert.equal(await send.count(),0,'Stop takes Send\'s place while the composer is empty');
+  assert.equal(await rows(page).getByRole('button').count(),0,'the working row has no Stop of its own');
+
+  const box=page.getByRole('textbox',{name:'Message',exact:true});
+  await box.fill('Synthetic follow-up draft');
+  assert.equal(await send.isEnabled(),true,'typing brings Send back');
+  assert.equal(await stop.innerText(),'','Stop stays beside Send as an icon');
+  console.log('screenshot',await h.screenshot('composer-stop-typing'));
+  await box.fill('');
+  console.log('screenshot',await h.screenshot('composer-stop'));
+
+  const cancel=page.waitForRequest(request=>request.method()==='POST'&&new URL(request.url()).pathname===`/api/agents/${agentName}/turns/cancel`);
+  await stop.click();
+  assert.deepEqual(JSON.parse((await cancel).postData()??'{}'),{channelId:h.project.channelId},'Stop names the open chat');
+  // "Stopping…" follows the engine's agent.turn.cancel_requested event, which the bundled engine cannot record yet.
+  await h.emit('agent.turn.completed',{triggerEventId:m1.id,eventCount:1,cancelled:true,noReply:true});
+  await rows(page).waitFor({state:'detached',timeout:5000});
+  await send.waitFor();
+  assert.equal(await stop.count(),0,'Stop leaves with the turn');
+  // The stopped turn has no reply: its raw events, including Stopped, sit under the agent's Details.
+  await page.locator('.turn-activity-details summary',{hasText:`${agentName} · Details`}).click();
+  await page.getByRole('button',{name:'Stopped',exact:true}).waitFor({timeout:5000});
+});
+
 await runChatTest('working row: start, progress, move and completion',async h=>{
   const {page}=h;
   const m1=await human(h,'@Pip synthetic first request');
