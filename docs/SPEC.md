@@ -1240,6 +1240,46 @@ Raw provider or engine errors are never logged. Agents in other modes, wrapped
 agents, and models outside the native catalog are skipped. The engine records
 telemetry only while the agent's audit events are on (the default).
 
+## Agents that end without replying
+
+Some models end a turn with a deliberate `noop` while a person is waiting, sometimes
+with a false reason ("already delivered"). The engine accepts a deliberate `noop` as
+finished work. Nest handles this without an engine change.
+
+`createReplyNudgeWorker` (apps/api, polled every 15 seconds) uses the same service
+credential as chat compaction. It reads `agent.turn.completed` events after a cursor
+stored in `product_settings` (`reply_nudge_cursor`). On first start the cursor begins
+at the newest completion, so turns that ended earlier are left alone. For each
+completion from `agent:<name>`, it asks the agent to reply when all of these hold:
+
+- the turn was not stopped (`payload.cancelled` is not true). Failed turns emit
+  `agent.turn.failed` instead and are never read;
+- its trigger (`payload.triggerEventId`) is a `message.created` from `human:<name>`
+  in the same chat;
+- the message was meant for this agent: it names the agent (`targetAgentName`,
+  `targetAgentNames` or an `AGENT` mention), or it names nobody and the agent is the
+  chat's only agent. A message that names someone else is never nudged;
+- neither the agent nor any person has posted a message in the chat since the
+  trigger. A person's follow-up means the agent is already handling it.
+
+The ask is one `message.created` from `system:nest`, with `parentEventId` set to the
+trigger and the payload `{text, targetAgentName, nestReplyNudge: {triggerEventId,
+requestedFor}}`. The text reads "You ended your turn without replying to <name>.
+Reply to them now, or say why you can't." `targetAgentName` wakes only that agent. The
+idempotency key `nest-reply-nudge:<agent>:<triggerEventId>` keeps it to one ask per
+request across passes and API processes. The ask's own turn is never nudged, because
+its trigger is not from a person. An error on one completion skips it. Raw errors are
+never logged.
+
+In the chat, a finished turn with no reply (not stopped, not failed) shows as that
+agent's row when its trigger was meant for the agent. That means one of these: a
+person's message naming the agent, or naming nobody in a one-agent chat; a person's
+message Nest asked the agent to answer; or Nest's ask itself. The row has the
+avatar, the name, the completion time, "Ended without replying", "It said: “…”" with
+the reason from the turn's `noop` event, and the turn's Details. Silent turns of
+agents nobody addressed stay hidden as before. Nest's ask shows as a small centred
+line: "Nest asked <agent> to reply."
+
 ## Background AI project naming
 
 `POST /api/projects/:projectId/suggest-details` accepts a confirmed product message
