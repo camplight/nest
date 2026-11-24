@@ -49,7 +49,7 @@ export function Projects(props: Props) {
   },[projectId,refresh,createRequested]);
   useEffect(()=>{
     let active=true;
-    if(projectId)void post<Project>(`/api/projects/${encodeURIComponent(projectId)}/visit`,{}).then(value=>{if(active){onLoaded(value);setDetail(current=>current?.id===value.id?{...current,...value}:current);}}).catch(()=>{});
+    if(projectId)void post<Project>(`/api/projects/${encodeURIComponent(projectId)}/visit`,{}).then(value=>{if(active&&value?.id===projectId){onLoaded(value);setDetail(current=>current?.id===value.id?{...current,...value}:current);}}).catch(()=>{});
     return ()=>{active=false;};
   },[projectId,onLoaded]);
   async function toggleStar(project:Project) {
