@@ -20,7 +20,8 @@ export const SubmitDeliverableSchema = TaskActionSchema.extend({eventId: z.strin
 export const ReviewSchema = TaskActionSchema.extend({decision: z.enum(['approve', 'request_changes']), feedback: z.string().trim().max(8000).default('')})
   .refine(value => value.decision !== 'request_changes' || value.feedback.length > 0, 'Feedback is required when requesting changes');
 export type Project = {
-  starred?: boolean; lastActivityAt?: number;id: string; ownerId: string; channelId: string; name: string; description: string; createdAt: number; collaboration?:'private'|'team'};
+  starred?: boolean; lastActivityAt?: number;
+  id: string; ownerId: string; channelId: string; name: string; description: string; createdAt: number; collaboration?:'private'|'team'};
 export type Task = z.infer<typeof NewTaskSchema> & {
   projectId: string; version: number; status: 'queued' | 'working' | 'needs_review' | 'changes_requested' | 'done';
   attempt: number; dispatchEventId: string | null; dispatchedAt: number | null;

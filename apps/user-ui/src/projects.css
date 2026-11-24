@@ -239,4 +239,4 @@
 .project-star:hover { border-color: currentColor; }
 .project-star:focus-visible, .project-summary-open:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .project-summary-personal > .project-star { position: absolute; right: 8px; top: 12px; }
-.project-personal-actions { display: flex; justify-content: flex-end; }
+.project-sections > .project-star { margin-left: auto; font-size: 25px; }

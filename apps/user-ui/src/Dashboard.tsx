@@ -225,7 +225,7 @@ export function Dashboard({
         ? "Needs review"
         : item.workingTasks
           ? "In progress"
-          : "Ready to start";
+          : percent===100 ? "Completed" : "Ready to start";
     return (
       <button
         className="dashboard-card dashboard-project-card"

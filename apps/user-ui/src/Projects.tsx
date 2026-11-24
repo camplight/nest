@@ -87,8 +87,7 @@ export function Projects(props: Props) {
         {!creating && props.existingChats.length > 0 && <details className="project-existing-chats"><summary>Existing conversations ({props.existingChats.length})</summary><p>These conversations are not linked to a project you own. Your history and shared access are preserved.</p><div className="dashboard-list">{props.existingChats.map(channel=><button className="dashboard-card project-summary" key={channel.id} onClick={()=>props.onChat(channel.id)}>{channel.name}{channel.archived ? ' · Archived' : ''} →</button>)}</div></details>}
       </>}
       {detail && <>
-      <div className="project-personal-actions">{star(detail)}</div>
-      <nav className="project-sections" aria-label="Project sections">{[['chat','Chat'],['files','Files']].map(([id,label])=><button type="button" key={id} aria-current={tab===id?'page':undefined} onClick={()=>{setCreating(false);onSelect(detail.id,null,id);}}>{label}</button>)}</nav>
+      <nav className="project-sections" aria-label="Project sections">{[['chat','Chat'],['files','Files']].map(([id,label])=><button type="button" key={id} aria-current={tab===id?'page':undefined} onClick={()=>{setCreating(false);onSelect(detail.id,null,id);}}>{label}</button>)}{star(detail)}</nav>
       <div className="project-workspace"><div className="project-main">
         {tab === 'chat' && <div className="project-chat">{chat}</div>}
         {tab === 'files' && <><PublishedArtifacts/><ProjectFiles key={detail.channelId} channelId={detail.channelId} /></>}
