@@ -24,7 +24,7 @@ try {
   else if(path==='/api/collaboration/agents/DemoAssistant/chat')data={channelId:'direct-chat'};
   else if(path==='/api/channels')data=[{id:'direct-chat',name:'Direct chat',visibility:'PRIVATE',canPost:true,participants:[{subscriberType:'HUMAN',subscriberId:'demo-owner'},{subscriberType:'AGENT',subscriberId:'DemoAssistant'}]},{id:'demo-chat',name:'Demo project',visibility:'PRIVATE',canPost:true,participants:[{subscriberType:'HUMAN',subscriberId:'demo-owner'},{subscriberType:'AGENT',subscriberId:'DemoAssistant'}]}];
   else if(path==='/api/projects')data=[{id:'demo',name:'Demo project',description:'Synthetic project',channelId:'demo-chat',ownerId:'demo-owner-id',collaboration:'team',createdAt:1}];
-  else if(path==='/api/projects/demo')data={id:'demo',name:'Demo project',description:'Synthetic project',channelId:'demo-chat',ownerId:'demo-owner-id',collaboration:'team',createdAt:1,tasks:[],deliverables:[],reviews:[]};
+  else if(path==='/api/projects/demo'||path==='/api/projects/demo/visit')data={id:'demo',name:'Demo project',description:'Synthetic project',channelId:'demo-chat',ownerId:'demo-owner-id',collaboration:'team',createdAt:1,tasks:[],deliverables:[],reviews:[]};
   else if(path==='/api/artifacts')data={items:[{name:'alook nest trust report',url:'/demo/alook-nest-trust-report',updatedAt:1792673872350,size:11000},{name:'launch demo',url:'/demo/launch',updatedAt:1792673872350,size:8500}]};
   else if(path==='/api/agent-models')data={models:[],defaultModel:'demo'};
   else if(path==='/api/onboarding/summary')data={setup:null};

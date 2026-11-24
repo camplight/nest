@@ -228,3 +228,15 @@
  .project-detail-page .project-about {position:relative; overflow:visible; max-height:none; z-index:5;}
  .project-detail-page .project-context-body {position:absolute; top:100%; left:-1px; right:-1px; max-height:min(55dvh,440px); overflow-y:auto; background:var(--nest-surface); border:1px solid var(--nest-border); border-radius:0 0 10px 10px; box-shadow:0 12px 24px #0002;}
 }
+
+.project-group { margin-bottom: 28px; }
+.project-group > h2 { font-size: 18px; margin: 0 0 12px; }
+.project-summary-personal { position: relative; padding: 0; }
+.project-summary-open { width: 100%; height: 100%; padding: 24px; padding-right: 60px; border: 0; background: none; color: inherit; text-align: left; display: flex; flex-direction: column; align-items: stretch; border-radius: inherit; cursor: pointer; }
+.project-summary-open h3 { font-size: 18px; margin: 0 0 12px; overflow-wrap: anywhere; }
+.project-star { min-width: 44px; min-height: 44px; border: 1px solid transparent; border-radius: 12px; background: transparent; color: var(--nest-muted); cursor: pointer; font-size: 25px; }
+.project-star[aria-pressed="true"] { color: #826000; background: #fff4cc; }
+.project-star:hover { border-color: currentColor; }
+.project-star:focus-visible, .project-summary-open:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.project-summary-personal > .project-star { position: absolute; right: 8px; top: 12px; }
+.project-sections > .project-star { margin-left: auto; font-size: 25px; }

@@ -413,9 +413,26 @@ try {
     await shortcuts.getByRole('button',{name:'View all projects',exact:true}).click();
     await page.getByRole('heading',{name:'Projects',level:1,exact:true}).waitFor();
     await page.waitForFunction(()=>document.querySelectorAll('.project-grid .project-summary').length===10);
+    // Personal ordering uses real API writes, survives reload, and keeps open/star actions separate.
+    await page.getByRole('button',{name:'Star project Website launch',exact:true}).click();
+    await page.getByRole('region',{name:'Starred projects',exact:true}).waitFor();
+    await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='Unstar project Website launch');
+    const starred=await (await product.app.request('/api/projects',{headers})).json();
+    assert.equal(starred[0].name,'Website launch');assert.equal(starred[0].starred,true);
+    await page.reload();await page.getByRole('button',{name:'Unstar project Website launch',exact:true}).waitFor();
+    for(const viewport of [{width:1440,height:1100},{width:390,height:844}]){
+      await page.setViewportSize(viewport);
+      assert.equal(await page.getByRole('button',{name:'Unstar project Website launch',exact:true}).getAttribute('aria-pressed'),'true');
+      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      if(process.env.CI)console.log(`PROJECT_ORDER_${viewport.width<600?'MOBILE':'DESKTOP'}_JPEG:`+(await page.screenshot({type:'jpeg',quality:75})).toString('base64'));
+    }
+    await page.getByRole('button',{name:'Unstar project Website launch',exact:true}).click();
+    await page.getByRole('button',{name:'Star project Website launch',exact:true}).waitFor();
+    assert.equal(await page.getByRole('region',{name:'Starred projects',exact:true}).count(),0);
+    await page.setViewportSize({width:1440,height:1100});
     await page.getByRole('textbox',{name:'Search projects',exact:true}).fill('Website launch');
     await page.waitForFunction(()=>document.querySelectorAll('.project-grid .project-summary').length===1);
-    await page.locator('.project-grid').getByRole('button').click();
+    await page.locator('.project-grid .project-summary-open').click();
     await page.getByRole('heading',{name:'Website launch',level:1,exact:true}).waitFor();
     assert.equal(await shortcuts.getByRole('button',{name:'Website launch',exact:true}).getAttribute('aria-current'),'page');
     assert.equal(await nav.locator('[aria-current="page"]').count(),1,'Only the current destination is marked as a page');

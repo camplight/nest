@@ -1,3 +1,4 @@
+import {projectOrder} from './project-order';
 import {PublishedArtifacts} from './PublishedArtifacts';
 import {WorkspaceTopbar} from "./components/WorkspaceTopbar";
 import {DesignIcon} from "./Dashboard";
@@ -29,6 +30,8 @@ export function Projects(props: Props) {
   const [loading,setLoading]=useState(true);
   const [refresh,setRefresh]=useState(0);
   const [creating,setCreating]=useState(false);
+  const starButtons=useRef(new Map<string,HTMLButtonElement>());
+  const [starring,setStarring]=useState<string|null>(null);
   const createTrigger=useRef<HTMLButtonElement>(null);
   const createRequested = !projectId && tab === "new";
   useEffect(()=>{
@@ -44,7 +47,26 @@ export function Projects(props: Props) {
     const interval=window.setInterval(load,10000);
     return ()=>{controller.abort();window.clearInterval(interval);};
   },[projectId,refresh,createRequested]);
-  useEffect(() => { if (detail) onLoaded(detail); }, [detail?.id, detail?.channelId, detail?.name, detail?.description, onLoaded]);
+  useEffect(()=>{
+    let active=true;
+    if(projectId)void post<Project>(`/api/projects/${encodeURIComponent(projectId)}/visit`,{}).then(value=>{if(active&&value?.id===projectId){onLoaded(value);setDetail(current=>current?.id===value.id?{...current,...value}:current);}}).catch(()=>{});
+    return ()=>{active=false;};
+  },[projectId,onLoaded]);
+  async function toggleStar(project:Project) {
+    if(starring)return;
+    setStarring(project.id);
+    try {
+      const updated=await apiJson<Project>(`/api/projects/${encodeURIComponent(project.id)}/star`,{method:'PUT',headers:getApiHeaders(),body:JSON.stringify({starred:!project.starred})});
+      setProjects(values=>values.map(value=>value.id===updated.id?updated:value).sort(projectOrder));
+      setDetail(value=>value?.id===updated.id?{...value,...updated}:value);
+      onLoaded(updated);setError(null);
+      requestAnimationFrame(()=>starButtons.current.get(updated.id)?.focus());
+    } catch(reason){setError(message(reason));} finally {setStarring(null);}
+  }
+  function star(project:Project) {
+    return <button ref={node=>{if(node)starButtons.current.set(project.id,node);else starButtons.current.delete(project.id);}} type="button" className="project-star" aria-label={`${project.starred?'Unstar':'Star'} project ${project.name}`} aria-pressed={!!project.starred} disabled={starring!==null} onClick={()=>void toggleStar(project)} title={project.starred?'Remove from your starred projects':'Keep at the top of your projects'}><span aria-hidden="true">{project.starred?'★':'☆'}</span></button>;
+  }
+  useEffect(() => { if (detail) onLoaded(detail); }, [detail?.id, detail?.channelId, detail?.name, detail?.description, detail?.starred, detail?.lastActivityAt, onLoaded]);
   const selected=detail?.tasks.find(t=>t.id===taskId);
   const filteredProjects=projects.filter(project=>`${project.name} ${project.description}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   return <section className={`dashboard projects-page${projectId ? ' project-detail-page' : ''}${projectId && tab === 'chat' ? ' project-chat-page' : ''}${!projectId && createRequested ? ' project-start-page' : ''}`} aria-label="Projects">
@@ -56,13 +78,18 @@ export function Projects(props: Props) {
       {loading && <p role="status">Loading projects…</p>}
       {!projectId && <>
         {creating && props.userId && <ProjectStart key={props.userId} ownerId={props.userId} onCreated={p=>{onLoaded(p);onSelect(p.id);}} onCancel={()=>{setCreating(false);onSelect(null);requestAnimationFrame(()=>createTrigger.current?.focus());}} />}
-        {!creating&&<div className="project-grid">{filteredProjects.map(project=><button className="dashboard-card project-summary" key={project.id} onClick={()=>onSelect(project.id)}><h2>{project.name}</h2><p>{project.description || 'Open the conversation and work with your team.'}</p><span>Open project →</span></button>)}</div>}
+        {!creating&&[true,false].map(starred=>{
+          const values=filteredProjects.filter(project=>!!project.starred===starred);
+          return values.length>0&&<section className="project-group" key={String(starred)} aria-label={starred?'Starred projects':'Recent projects'}><h2>{starred?'Starred':'Recent'}</h2>{!starred&&<p className="project-muted">Ordered by your recent visits and activity.</p>}<div className="project-grid">{values.map(project=><article className="dashboard-card project-summary project-summary-personal" key={project.id}>
+            <button className="project-summary-open" onClick={()=>onSelect(project.id)}><h3>{project.name}</h3><p>{project.description || 'Open the conversation and work with your team.'}</p><span>Open project →</span></button>{star(project)}
+          </article>)}</div></section>;
+        })}
         {!creating && !loading && !error && projects.length>0 && !filteredProjects.length && <div className="dashboard-card dashboard-empty"><h2>No matching projects</h2><p>Try a different project name or description.</p></div>}
         {!loading && !error && !projects.length && !creating && <div className="dashboard-card dashboard-empty"><h2>Your next project starts here</h2><p>Start a conversation and bring your team in with @mentions.</p></div>}
         {!creating && props.existingChats.length > 0 && <details className="project-existing-chats"><summary>Existing conversations ({props.existingChats.length})</summary><p>These conversations are not linked to a project you own. Your history and shared access are preserved.</p><div className="dashboard-list">{props.existingChats.map(channel=><button className="dashboard-card project-summary" key={channel.id} onClick={()=>props.onChat(channel.id)}>{channel.name}{channel.archived ? ' · Archived' : ''} →</button>)}</div></details>}
       </>}
       {detail && <>
-      <nav className="project-sections" aria-label="Project sections">{[['chat','Chat'],['files','Files']].map(([id,label])=><button type="button" key={id} aria-current={tab===id?'page':undefined} onClick={()=>{setCreating(false);onSelect(detail.id,null,id);}}>{label}</button>)}</nav>
+      <nav className="project-sections" aria-label="Project sections">{[['chat','Chat'],['files','Files']].map(([id,label])=><button type="button" key={id} aria-current={tab===id?'page':undefined} onClick={()=>{setCreating(false);onSelect(detail.id,null,id);}}>{label}</button>)}{star(detail)}</nav>
       <div className="project-workspace"><div className="project-main">
         {tab === 'chat' && <div className="project-chat">{chat}</div>}
         {tab === 'files' && <><PublishedArtifacts/><ProjectFiles key={detail.channelId} channelId={detail.channelId} /></>}

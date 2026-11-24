@@ -1,6 +1,7 @@
 import {createPersonalAgentDirectory} from './collaboration';
 import {PROJECT_KICKOFF_GUIDANCE} from './project-guidance';
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { bodyLimit } from 'hono/body-limit';
@@ -181,7 +182,20 @@ export function registerProjectRoutes(app: Hono, {store, orgops, engineToken}: {
   routes.get('/api/projects/:projectId', c => {
     const project=db.project(c.req.param('projectId'));
     if(!project||!canView(project,c.get('human'),c.get('channels')))throw new HTTPException(404,{message:'Project unavailable or conversation access has changed'});
-    return c.json(db.detail(project));
+    return c.json(db.detail(db.personalize(project,c.get('human').id)));
+  });
+  // Personal preferences use the same visibility check as reading the project.
+  routes.put('/api/projects/:projectId/star',async c=>{
+    const project=db.project(c.req.param('projectId')),human=c.get('human');
+    if(!project||!canView(project,human,c.get('channels')))throw new HTTPException(404,{message:'Project unavailable or conversation access has changed'});
+    const body=parse(z.object({starred:z.boolean()}).strict(),await c.req.json().catch(()=>null));
+    return c.json(db.setStarred(project.id,human.id,body.starred));
+  });
+  routes.post('/api/projects/:projectId/visit',c=>{
+    const project=db.project(c.req.param('projectId')),human=c.get('human');
+    if(!project||!canView(project,human,c.get('channels')))throw new HTTPException(404,{message:'Project unavailable or conversation access has changed'});
+    db.recordActivity(project.id,human.id);
+    return c.json(db.personalize(project,human.id));
   });
   routes.post('/api/projects/:projectId/members',async c=>{
     const human=c.get('human'),headers=c.req.raw.headers;

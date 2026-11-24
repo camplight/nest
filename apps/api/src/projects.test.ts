@@ -43,6 +43,16 @@ describe('project workflow against the unchanged engine',()=>{
     expect(r.status).toBe(201);return r.json();
   }
   async function submit(version:number,eventId:string){const r=await request(`${taskPath()}/deliverables`,{version,eventId});expect(r.status).toBe(200);return r.json();}
+  it('does not record polling as activity and validates personal star requests',async()=>{
+    const before=await (await request(`/api/projects/${projectId}`)).json();
+    expect((await (await request(`/api/projects/${projectId}`)).json()).lastActivityAt).toBe(before.lastActivityAt);
+    const visit=await request(`/api/projects/${projectId}/visit`,{});
+    expect(visit.status).toBe(200);
+    expect((await visit.json()).lastActivityAt).toBeGreaterThanOrEqual(before.lastActivityAt);
+    for(const body of [{starred:'true'},{starred:true,humanId:'someone-else'}])
+      expect((await product.app.request(`/api/projects/${projectId}/star`,{method:'PUT',headers,body:JSON.stringify(body)})).status).toBe(400);
+    expect((await request('/api/projects/missing/visit',{})).status).toBe(404);
+  });
   it('summarizes approved work and pending reviews without exposing deliverable text',async()=>{
     let summary=await (await request('/api/projects/dashboard')).json();
     expect(summary.tasks).toEqual({total:1,finished:0,needsReview:0,changesRequested:0});
@@ -128,10 +138,20 @@ describe('project workflow against the unchanged engine',()=>{
     expect(invitedChannels.find((item:any)=>item.id===channel.id)).toMatchObject({canPost:true,canManage:false});
     expect((await (await request('/api/projects',undefined,invitedHeaders)).json()).map((item:any)=>item.id)).toEqual([project.id]);
     expect((await request(`/api/projects/${project.id}`,undefined,invitedHeaders)).status).toBe(200);
+    const starPath=`/api/projects/${project.id}/star`;
+    expect((await product.app.request(starPath,{method:'PUT',headers:invitedHeaders,body:JSON.stringify({starred:true})})).status).toBe(200);
+    expect((await (await request(`/api/projects/${project.id}`,undefined,invitedHeaders)).json()).starred).toBe(true);
+    expect((await (await request(`/api/projects/${project.id}`)).json()).starred).toBe(false);
+    expect((await request(`/api/projects/${project.id}/visit`,{},invitedHeaders)).status).toBe(200);
+    expect((await product.app.request(`/api/projects/${projectId}/star`,{method:'PUT',headers:invitedHeaders,body:JSON.stringify({starred:true})})).status).toBe(404);
+
     expect((await product.app.request(`/api/projects/${project.id}`,{method:'PATCH',headers:invitedHeaders,body:JSON.stringify({name:'Not mine',description:'',expected:{name:project.name,description:project.description}})})).status).toBe(404);
     expect((await request(`/api/projects/${projectId}`,undefined,invitedHeaders)).status).toBe(404);
     expect((await (await request('/api/projects/dashboard',undefined,invitedHeaders)).json()).projects.map((item:any)=>item.project.id)).toEqual([project.id]);
     await request(`/api/channels/${channel.id}/unsubscribe`,person);
+    expect((await product.app.request(starPath,{method:'PUT',headers:invitedHeaders,body:JSON.stringify({starred:false})})).status).toBe(404);
+    expect((await request(`/api/projects/${project.id}/visit`,{},invitedHeaders)).status).toBe(404);
+
     expect((await request(`/api/channels/${channel.id}/share`,{viewerType:'HUMAN',viewerId:'Builder'})).ok).toBe(true);
     expect((await (await request('/api/channels',undefined,invitedHeaders)).json()).some((item:any)=>item.id===channel.id)).toBe(true);
     expect((await request(`/api/projects/${project.id}`,undefined,invitedHeaders)).status).toBe(404);
