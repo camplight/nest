@@ -740,3 +740,20 @@ matching DB/release pair is restored.
 ### Image rejection and reply recovery
 
 Advance from `5986761` to merged upstream `0837472` (#99, #103–#106). This fixes silent failures when a text-only provider rejects image context, malformed final replies and shell lifecycle wakeups. Migration 054 adds nullable compatible reasoning effort without changing existing configured models or credentials. The native gate includes the exact image-rejection regressions. Later upstream scheduling and dependency upgrades are outside this targeted recovery.
+
+## Personal project order
+
+Project lists, dashboard cards and sidebar shortcuts put each person's starred projects
+first, then order by that person's latest visit, delivered Nest message, or project/task
+action. Within the starred group the same recency order applies; untouched projects
+fall back to creation time with an ID tie-break. Agent replies and GET polling do not
+bump human recency. Star/unstar does not reset activity. Preferences are private to the
+viewer and persist across devices in product migration `012_project_preferences`
+(011 is reserved by the separate task-routing PR).
+
+`PUT /api/projects/:projectId/star` accepts `{starred:boolean}`;
+`POST /api/projects/:projectId/visit` records a visit. Both use the same live channel
+access check as reading a project, including team participants; neither grants access
+nor changes shared project metadata. Existing delivered message receipts seed ordering;
+messages sent outside Nest and historical task actions are not backfilled. No OrgOps
+schema or submodule changes are required.

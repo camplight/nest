@@ -178,7 +178,7 @@ export function Dashboard({
   const matches = (value: string) =>
     value.toLocaleLowerCase().includes(normalizedQuery);
   const active = (overview?.projects ?? []).filter(
-    (p) => p.totalTasks === 0 || p.finishedTasks < p.totalTasks,
+    (p) => p.project.starred || p.totalTasks === 0 || p.finishedTasks < p.totalTasks,
   );
   const filteredProjects = active.filter((p) =>
     matches(`${p.project.name} ${p.project.description}`),
@@ -233,7 +233,7 @@ export function Dashboard({
       >
         <span className="dashboard-project-heading">
           <DesignIcon name="dashboard/progress" />
-          <strong>#{item.project.name}</strong>
+          <strong>{item.project.starred?'★':'#'}{item.project.name}</strong>
           <DesignIcon name="dashboard/arrow-right" />
         </span>
         <span className="dashboard-project-meta">

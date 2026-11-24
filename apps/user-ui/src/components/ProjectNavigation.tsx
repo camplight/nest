@@ -1,3 +1,4 @@
+import {projectOrder} from '../project-order';
 import {useEffect, useId, useState} from 'react';
 import type {Project} from '@nest/schemas';
 import {DesignIcon} from '../Dashboard';
@@ -21,7 +22,7 @@ export function ProjectNavigation({projects, currentProjectId, inProjects, creat
   useEffect(() => {
     if (currentProjectId || creating) setExpanded(true);
   }, [currentProjectId, creating]);
-  const ordered = [...projects].sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id));
+  const ordered = [...projects].sort(projectOrder);
   const shortcuts = ordered.slice(0, shortcutLimit);
   const current = ordered.find(project => project.id === currentProjectId);
   // Keep the open project in context without allowing the shortcut list to grow.
@@ -38,7 +39,7 @@ export function ProjectNavigation({projects, currentProjectId, inProjects, creat
     </div>
     <ul id={childrenId} className="project-navigation-children" aria-label="Project shortcuts" hidden={!expanded}>
       {shortcuts.map(project => <li key={project.id}><button type="button" className="project-navigation-link" aria-current={currentProjectId === project.id ? 'page' : undefined} onClick={() => onSelect(project.id)} title={project.name}>
-        <span className="project-navigation-marker" aria-hidden="true">#</span><span className="project-navigation-name">{project.name}</span>
+        <span className="project-navigation-marker" aria-hidden="true">{project.starred?'★':'#'}</span><span className="project-navigation-name">{project.name}</span>
         {unreadCounts[project.channelId] > 0 && <span className="project-navigation-unread" aria-label={`${unreadCounts[project.channelId]} unread messages`}>{unreadCounts[project.channelId]}</span>}
       </button></li>)}
       {projects.length > shortcutLimit && <li><button type="button" className="project-navigation-all" onClick={browse}>View all projects<span aria-hidden="true">→</span></button></li>}
