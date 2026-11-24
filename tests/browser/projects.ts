@@ -416,6 +416,7 @@ try {
     // Personal ordering uses real API writes, survives reload, and keeps open/star actions separate.
     await page.getByRole('button',{name:'Star project Website launch',exact:true}).click();
     await page.getByRole('region',{name:'Starred projects',exact:true}).waitFor();
+    await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='Unstar project Website launch');
     const starred=await (await product.app.request('/api/projects',{headers})).json();
     assert.equal(starred[0].name,'Website launch');assert.equal(starred[0].starred,true);
     await page.reload();await page.getByRole('button',{name:'Unstar project Website launch',exact:true}).waitFor();

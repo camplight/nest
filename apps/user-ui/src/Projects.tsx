@@ -30,6 +30,7 @@ export function Projects(props: Props) {
   const [loading,setLoading]=useState(true);
   const [refresh,setRefresh]=useState(0);
   const [creating,setCreating]=useState(false);
+  const starButtons=useRef(new Map<string,HTMLButtonElement>());
   const [starring,setStarring]=useState<string|null>(null);
   const createTrigger=useRef<HTMLButtonElement>(null);
   const createRequested = !projectId && tab === "new";
@@ -59,10 +60,11 @@ export function Projects(props: Props) {
       setProjects(values=>values.map(value=>value.id===updated.id?updated:value).sort(projectOrder));
       setDetail(value=>value?.id===updated.id?{...value,...updated}:value);
       onLoaded(updated);setError(null);
+      requestAnimationFrame(()=>starButtons.current.get(updated.id)?.focus());
     } catch(reason){setError(message(reason));} finally {setStarring(null);}
   }
   function star(project:Project) {
-    return <button type="button" className="project-star" aria-label={`${project.starred?'Unstar':'Star'} project ${project.name}`} aria-pressed={!!project.starred} disabled={starring!==null} onClick={()=>void toggleStar(project)} title={project.starred?'Remove from your starred projects':'Keep at the top of your projects'}><span aria-hidden="true">{project.starred?'★':'☆'}</span></button>;
+    return <button ref={node=>{if(node)starButtons.current.set(project.id,node);else starButtons.current.delete(project.id);}} type="button" className="project-star" aria-label={`${project.starred?'Unstar':'Star'} project ${project.name}`} aria-pressed={!!project.starred} disabled={starring!==null} onClick={()=>void toggleStar(project)} title={project.starred?'Remove from your starred projects':'Keep at the top of your projects'}><span aria-hidden="true">{project.starred?'★':'☆'}</span></button>;
   }
   useEffect(() => { if (detail) onLoaded(detail); }, [detail?.id, detail?.channelId, detail?.name, detail?.description, detail?.starred, detail?.lastActivityAt, onLoaded]);
   const selected=detail?.tasks.find(t=>t.id===taskId);
