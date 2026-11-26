@@ -24,6 +24,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:ui:agents
       - run: npm run test:ui:projects
+      - run: npm run test:ui:project-access
       - run: npm run test:ui:community
       - run: npm run test:ui:auth
       - run: npm run test:ui:onboarding

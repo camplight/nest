@@ -25,6 +25,10 @@
 .mention-unread-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--instance-accent); }
 .mention-inbox-panel { position:fixed; inset:0; margin:auto; padding:0; max-height:80dvh; width:min(480px,calc(100vw - 32px)); background:var(--nest-surface); color:var(--nest-text); border:1px solid var(--nest-border); border-radius:10px; box-shadow:0 10px 32px #0002; }
 .mention-inbox-panel .mention-heading button { padding:0 6px; border:0; background:transparent; color:inherit; }
+.notification-section { padding:14px; border-bottom:1px solid var(--nest-border); }
+.notification-section>h3 { margin:0 0 10px; font-size:13px; }
+.notification-section .mention-empty { padding:10px 0; }
+.notification-section .project-access-request-list { max-height:32dvh; overflow-y:auto; }
 .mention-inbox-items { max-height:55dvh; overflow:auto; }
 .mention-notification { display:block; width:100%; text-align:left; padding:14px; border:0; border-bottom:1px solid var(--nest-border); border-radius:0; background:transparent; color:var(--nest-text); overflow-wrap:anywhere; }
 .mention-notification.unread { box-shadow:inset 3px 0 var(--instance-accent); }

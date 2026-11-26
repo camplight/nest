@@ -327,7 +327,7 @@ try {
       .waitFor();
     await receiver.keyboard.press("Escape");
     assert.equal(
-      await receiver.getByRole("dialog", { name: "Your mentions" }).count(),
+      await receiver.getByRole("dialog", { name: "Notifications" }).count(),
       0,
     );
     assert(
@@ -338,7 +338,7 @@ try {
     await receiver
       .getByRole("button", { name: /^(Mentions|Notifications)$/, exact: true })
       .press("Enter");
-    await receiver.getByRole("dialog", { name: "Your mentions" }).waitFor();
+    await receiver.getByRole("dialog", { name: "Notifications" }).waitFor();
     await receiver.screenshot({
       path: join(screenshots, "inbox-desktop.png"),
       fullPage: true,
@@ -381,7 +381,7 @@ try {
       .getByRole("button")
       .filter({ hasText: "demo-alice mentioned you" })
       .waitFor();
-    assert.equal(await receiver.getByLabel("Unread mentions").count(), 0);
+    assert.equal(await receiver.getByLabel("Unread notifications").count(), 0);
     // A non-owner participant can target current members but cannot invite.
     await receiver.keyboard.press('Escape');
     const receiverInput=receiver.getByRole('textbox',{name:'Message',exact:true});

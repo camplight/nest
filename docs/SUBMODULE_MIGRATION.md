@@ -436,6 +436,33 @@ are retained. No engine bump, runner change or credential installation is requir
 Snapshot both databases before deployment; the additive migration changes only
 Nest product storage and does not read or modify engine state.
 
+## Human project access requests
+
+Product migration `011_project_access_requests.sql` adds Nest-owned pending,
+approving, approved and denied request history plus audit events. Deploy the API
+and user UI together after snapshotting both databases. The migration is additive:
+it does not change the OrgOps pin/schema, copy engine membership, install runtime
+credentials or alter existing projects, participants, runner assignments,
+workspaces, connected accounts or skill copies.
+
+Requesters use only their existing human session and receive metadata-free state.
+Owners list and decide requests only while their existing OrgOps session can manage
+and post to the active project channel. Approval subscribes the current HUMAN
+username through OrgOps HTTP, confirms membership, then converts a legacy private
+project to team policy. Denial performs no engine write. Removal unsubscribes and
+confirms absence; the project remains team-enabled and the human can request again.
+Personal connected-account audiences and grants remain unchanged.
+
+Retries preserve the request UUID and reconcile lost subscription/unsubscription
+responses before committing product state. An `approving` row is intentionally
+visible for owner retry rather than claiming success. Existing HUMAN membership
+continues to be the authorization source; Nest stores request/audit workflow only.
+No service token, engine DB access, submodule patch or operator backfill is needed.
+After rollout, verify a disposable two-human journey: metadata-free gate, uncertain
+submission retry without duplication, denial, approval and live project access,
+then owner removal and renewed gate. Run browser fixtures in CI or a bounded runner,
+not alongside the live production APIs/agents.
+
 ## Owner-requested project invitations
 
 The management adapter adds minimal roster lookup and channel subscription through

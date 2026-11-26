@@ -19,6 +19,7 @@ type WorkspaceActions = {
   onAgents: () => void;
   onSignOut: () => void;
   onMention: (channelId: string, eventId: string) => void;
+  onProjectAccessChanged: () => void;
   channelLabel?: (channelId: string, fallback: string) => string;
 };
 const WorkspaceContext = createContext<WorkspaceActions | null>(null);
@@ -119,6 +120,7 @@ function WorkspaceControls() {
       <MentionInbox
         icon={<Icon name="notifications" />}
         onOpen={actions.onMention}
+        onProjectAccessChanged={actions.onProjectAccessChanged}
         channelLabel={actions.channelLabel}
       />
       <button
