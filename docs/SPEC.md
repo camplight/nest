@@ -3,7 +3,7 @@
 Nest is the product layer around OrgOps. OrgOps is a pinned, untouched Git
 submodule at `vendor/orgops`, sourced from https://github.com/camplight/orgops.
 Nest does not keep a second copy of the engine or apply source patches.
-The reviewed engine pin is upstream main `e64fc064`, including OrgOps #76
+The reviewed engine pin is upstream `0837472`, including OrgOps #76
 voice/realtime support, #79 restart metadata, #80 byte-budget compatibility,
 the merged security fixes and #82 realtime maintenance environment handling.
 It also includes #83 runner socket wakeups with HTTP catch-up, #84 private invite
@@ -13,7 +13,8 @@ and #88 upstream trace pagination (Nest retains its own chat interface).
 It also includes explicit human/agent roles and ownership/path hardening (#74),
 durable Slack intake (#90), reasoning styles and channel billing (#91/#92),
 and a bounded visible summary for human turns ending with tool-only output (#93).
-The previously deployed pin is `7406b6a`; merging the dependency
+It additionally includes context lifecycle (#94), price refresh validation and static provider pricing (#95/#97), explicit turn completion (#96), fast shell exit handling (#98), and rejection of tool-call markup in final summaries (#99).
+The previously deployed pin is `e64fc064`; merging the dependency
 update alone does not install it on existing hosts.
 Personal onboarding binds the workspace returned by OrgOps instead of requiring
 the requested path. A reservation marker reconciles member-agent creation after
@@ -706,6 +707,8 @@ exercises the project/revision/approval flow in a browser against isolated real
 product/engine HTTP handlers. It simulates runner-authored responses without a
 model invocation. `apps/api/src/projects.test.ts` additionally covers authorization,
 immutable reviews, malformed input, idempotency and restart recovery.
+
+Composer draft and mention-picker updates are isolated from the app shell and message history; typing must not rerender the thread per character. The composer session remains mounted across project tab changes so pending sends, uploads and invitations survive. A synthetic long-thread browser regression checks committed thread renders while typing.
 
 `npm run test:ui:chat-next` runs every browser suite under `tests/browser/chat-next/` (thread, realtime, working row, actions, quote reply, attachments, composer, slash commands and the absence of the old chat) against real engine and product handlers with synthetic data. The earlier browser suites still run against the chat as it renders by default: `test:ui:chat` (`chat.ts`, `codex-progress.mjs`, `claude-code-progress.mjs` and `demo-artifacts.mjs`), `test:ui:projects`, `test:ui:dashboard`, `test:ui:images`, `test:ui:onboarding` (with `test:ui:tour`), `test:ui:agents` (with `connection-projects.mjs`), `tests/browser/targeted-mentions.ts` and `tests/browser/mentions.mjs`. On macOS three upstream tests fail in `npm run test:engine` independently of Nest (the agent runner's two `file-upload` tests and the skills merge test "merges skills from multiple roots with first-name-wins"), and `npm test`'s `deploy/demos/publish.check.mjs` node test fails there too; these four known failures are compared by test ID rather than treated as regressions.
 
@@ -1553,3 +1556,35 @@ Google login preserves workspace destinations in tab-local session storage for u
 Delegated agent creation identifies the configured manager to OrgOps and requires
 an operator-granted SYSTEM agent role. Missing/revoked authority returns 403;
 Nest does not automatically promote an agent during upstream synchronization.
+
+## Native deployment disk safety
+
+Nest's native controller bounds artifact downloads and checks non-root disk
+headroom before download. The installer checks expanded release and paired DB/WAL
+snapshot/migration capacity before extraction and immediately before downtime.
+Successful activation retains the active, three newest and recent snapshot-linked
+release directories; it never prunes runtime data or database backups. The
+watchdog is restored on installer exit even if coherent rollback fails its health
+check. Incomplete DB/configuration recovery blocks automatic restarts with a
+persistent operator-recovery marker. See `deploy/native/README.md` for the exact
+budgets and restoration procedure. This is Nest deployment infrastructure only;
+OrgOps remains untouched.
+
+The runner includes upstream #99 and #103–#106: safe final summaries, channel-aware shells, bounded finalization and image-input rejection recovery. Unsupported images are replaced with an explicit limitation note for one retry; this does not make a text-only model able to see images. Migration 054 adds nullable per-agent compatible reasoning effort, preserving provider defaults.
+
+## Personal project order
+
+Project lists, dashboard cards and sidebar shortcuts put each person's starred projects
+first, then order by that person's latest visit, delivered Nest message, or project/task
+action. Within the starred group the same recency order applies; untouched projects
+fall back to creation time with an ID tie-break. Agent replies and GET polling do not
+bump human recency. Star/unstar does not reset activity. Preferences are private to the
+viewer and persist across devices in product migration `012_project_preferences`
+(011 is reserved by the separate task-routing PR).
+
+`PUT /api/projects/:projectId/star` accepts `{starred:boolean}`;
+`POST /api/projects/:projectId/visit` records a visit. Both use the same live channel
+access check as reading a project, including team participants; neither grants access
+nor changes shared project metadata. Existing delivered message receipts seed ordering;
+messages sent outside Nest and historical task actions are not backfilled. No OrgOps
+schema or submodule changes are required.

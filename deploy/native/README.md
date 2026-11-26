@@ -164,3 +164,31 @@ trees/registered Linux services and create private archives before replacing
 source. Failed updates stay stopped for explicit recovery. Linked/custom runtime
 roots and registered launchd/Windows services need an offline operator procedure.
 Native releases reject in-place CLI builds and point to the host installer.
+
+## Disk headroom and release retention
+
+The controller rejects downloads unless the filesystem has room for a bounded
+2 GiB artifact plus 2 GiB of space available to unprivileged services (not root's
+reserved blocks). Downloads are capped at 2 GiB. The installer checks actual
+expanded archive allocation, both databases/WALs, a second copy for migration or
+rollback, and 3 GiB for tool installation/first-host swap before unpacking or
+stopping services. It checks snapshot space again immediately before downtime.
+The 2 GiB service reserve remains throughout these estimates; concurrent agent
+writes can still consume space, so monitor disk usage independently.
+
+After successful activation, retention removes only recognized immutable release
+directories, keeping the active release, the three newest releases, and releases
+referenced by the three newest host snapshots. Runtime symlinks are not followed;
+legacy directories containing real runtime data, unknown directories and mounts
+are skipped. Databases, backups, workspaces, uploads and credentials are never
+pruned. Older DB snapshots remain available, but restoring them may require
+redownloading their matching GitHub release artifact. Cleanup failure is reported
+without rolling back a release already serving users.
+
+If rollback restores the DB/configuration/release pair but fails to start services
+or pass health checks, the EXIT handler still restores the watchdog timer and the
+installer returns failure. An incomplete DB/configuration restoration leaves
+`/var/lib/nest-watchdog/recovery-required` and blocks automatic restarts: an operator
+must restore a coherent DB/release pair before removing that marker. Do not remove
+it merely to silence the warning. Install the new controller on an existing host
+to enable pre-download checks; editing its repository copy alone is insufficient.

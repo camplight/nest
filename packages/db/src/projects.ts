@@ -6,7 +6,22 @@ export function createProjectStore(db: Database.Database) {
   function project(id: string) { return db.prepare(`SELECT ${projectColumns} FROM product_projects WHERE id=?`).get(id) as Project | undefined; }
   function projects(ownerId: string, teamChannels:string[]=[]) {
     const shared=teamChannels.length?` OR (collaboration='team' AND channel_id IN (${teamChannels.map(()=>'?').join(',')}))`:'';
-    return db.prepare(`SELECT ${projectColumns} FROM product_projects WHERE owner_id=?${shared} ORDER BY created_at DESC`).all(ownerId,...teamChannels) as Project[];
+    const values=db.prepare(`SELECT ${projectColumns} FROM product_projects WHERE owner_id=?${shared}`).all(ownerId,...teamChannels) as Project[];
+    return values.map(value=>personalize(value,ownerId)).sort((a,b)=>Number(b.starred)-Number(a.starred)||b.lastActivityAt-a.lastActivityAt||a.id.localeCompare(b.id));
+  }
+  function personalize(value:Project,humanId:string) {
+    const preference=db.prepare('SELECT starred,last_activity_at FROM product_project_preferences WHERE project_id=? AND human_id=?').get(value.id,humanId) as {starred:number;last_activity_at:number}|undefined;
+    const receipt=db.prepare('SELECT MAX(delivered_at) AS at FROM product_message_requests WHERE channel_id=? AND sender_id=?').get(value.channelId,humanId) as {at:number|null};
+    return {...value,starred:!!preference?.starred,lastActivityAt:Math.max(value.createdAt,preference?.last_activity_at??0,receipt.at??0)};
+  }
+  function recordActivity(projectId:string,humanId:string,at=Date.now()) {
+    db.prepare(`INSERT INTO product_project_preferences(project_id,human_id,last_activity_at) VALUES (?,?,?)
+      ON CONFLICT(project_id,human_id) DO UPDATE SET last_activity_at=MAX(last_activity_at,excluded.last_activity_at)`).run(projectId,humanId,at);
+  }
+  function setStarred(projectId:string,humanId:string,starred:boolean) {
+    db.prepare(`INSERT INTO product_project_preferences(project_id,human_id,starred) VALUES (?,?,?)
+      ON CONFLICT(project_id,human_id) DO UPDATE SET starred=excluded.starred`).run(projectId,humanId,Number(starred));
+    return personalize(project(projectId)!,humanId);
   }
   function task(id: string) {
     const row = db.prepare('SELECT data_json FROM product_tasks WHERE id=?').get(id) as {data_json: string} | undefined;
@@ -33,6 +48,7 @@ export function createProjectStore(db: Database.Database) {
       if(source==='ai'&&!canNameProject(id))return null;
       const changed=db.prepare('UPDATE product_projects SET name=?,description=? WHERE id=? AND owner_id=? AND name=? AND description=?').run(value.name,value.description,id,ownerId,expected.name,expected.description).changes;
       if(!changed)return null;
+      if(source==='human')recordActivity(id,ownerId);
       audit(source==='ai'?'audit.project.naming.applied':'audit.project.updated',ownerId,{projectId:id});
       return project(id)!;
     })();
@@ -40,6 +56,7 @@ export function createProjectStore(db: Database.Database) {
   function createTask(value: Task, actor: string) {
     db.transaction(() => {
       db.prepare('INSERT INTO product_tasks VALUES (?,?,?,?)').run(value.id,value.projectId,value.version,JSON.stringify(value));
+      recordActivity(value.projectId,actor);
       audit('audit.task.created',actor,{taskId:value.id,projectId:value.projectId});
     })();
     return value;
@@ -55,6 +72,7 @@ export function createProjectStore(db: Database.Database) {
       if (d) db.prepare('INSERT INTO product_deliverables VALUES (?,?,?,?,?,?,?)').run(d.id,d.taskId,d.attempt,d.eventId,d.text,d.submittedBy,d.createdAt);
       const r = extra?.review;
       if (r) db.prepare('INSERT INTO product_reviews VALUES (?,?,?,?,?,?,?)').run(r.id,r.taskId,r.deliverableId,r.decision,r.feedback,r.reviewerId,r.createdAt);
+      recordActivity(next.projectId,actor);
       audit(`audit.task.${next.status}`,actor,{taskId:next.id,attempt:next.attempt,version:next.version});
       return true;
     })();
@@ -67,5 +85,5 @@ export function createProjectStore(db: Database.Database) {
     const reviews = db.prepare('SELECT r.id,r.task_id AS taskId,r.deliverable_id AS deliverableId,r.decision,r.feedback,r.reviewer_id AS reviewerId,r.created_at AS createdAt FROM product_reviews r JOIN product_tasks t ON t.id=r.task_id WHERE t.project_id=? ORDER BY r.created_at').all(value.id) as Review[];
     return {...value,tasks:tasks(value.id),deliverables,reviews};
   }
-  return {project,projects,task,tasks,createProject,updateProject,canNameProject,openingMessage,createTask,changeTask,detail};
+  return {personalize,recordActivity,setStarred,project,projects,task,tasks,createProject,updateProject,canNameProject,openingMessage,createTask,changeTask,detail};
 }

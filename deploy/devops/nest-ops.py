@@ -113,13 +113,14 @@ def native_operation(job, action, sha, lock_fd):
             arch = {'x86_64': 'x64', 'aarch64': 'arm64'}.get(os.uname().machine)
             if not arch:
                 raise RuntimeError('Unsupported release architecture')
+            run('python3', str(SOURCE / 'deploy/native/storage.py'), 'download')
             import tempfile
             with tempfile.TemporaryDirectory(prefix='native-', dir=STATE) as tmp:
                 artifact = Path(tmp) / ('nest-host-linux-' + arch + '.tar.gz')
                 url = 'https://github.com/camplight/nest/releases/download/native-' + sha + '/' + artifact.name
                 for suffix in ('', '.sha256'):
                     run('curl', '--fail', '--silent', '--show-error', '--location',
-                        '--proto', '=https', '--max-time', '300', '--output', str(artifact) + suffix, url + suffix)
+                        '--proto', '=https', '--max-time', '300', '--max-filesize', str(2 * 1024**3), '--output', str(artifact) + suffix, url + suffix)
                 checksum = Path(str(artifact) + '.sha256').read_text().split()[0]
                 if not re.fullmatch(r'[a-f0-9]{64}', checksum):
                     raise RuntimeError('Invalid release checksum')

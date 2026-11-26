@@ -1,6 +1,9 @@
 // The Nest composer (spec 6.8 to 6.12, 7.4), moved out of App.tsx unchanged in behaviour: drafts, the idempotent
 // send path, uploads and the mention picker. Both chats render it; App.tsx drives it through ChatComposerHandle.
 import {
+  createContext,
+  useContext,
+  type ReactNode,
   forwardRef,
   type ChangeEvent,
   type ClipboardEvent,
@@ -42,7 +45,7 @@ function stripQuote(text:string,author:string):string{
 }
 export type ComposerSession=ReturnType<typeof useComposerSession>;
 export type ChatComposerProps={
-  session:ComposerSession;conversationName:string;isConversationEmpty:boolean;
+  conversationName:string;isConversationEmpty:boolean;
   // inProject, openInvite and openFiles reach the picker's slash commands through session.bindCommands. mentionCandidates,
   // canInvite, onInvite and onAskAssistant drive the picker through the session (ComposerSessionOptions); the form does not read them.
   inProject:boolean;mentionCandidates:MentionCandidate[];canInvite:boolean;
@@ -170,8 +173,21 @@ export function useComposerSession(options:ComposerSessionOptions){
   };
 }
 
+const ComposerSessionContext=createContext<ComposerSession|null>(null);
+
+/** Keep the session alive across project tabs without making App own every keystroke.
+ * Children come from App: draft updates only notify the composer consumer, leaving
+ * the shell, thread runtime and message Markdown outside the update path.
+ */
+export function ComposerSessionProvider({options,children}:{options:ComposerSessionOptions;children:ReactNode}){
+  const session=useComposerSession(options);
+  return <ComposerSessionContext.Provider value={session}>{children}</ComposerSessionContext.Provider>;
+}
+
 export const ChatComposer=forwardRef<ChatComposerHandle,ChatComposerProps>(function ChatComposer(props,ref){
-  const {session,conversationName:activeConversationName,isConversationEmpty}=props;
+  const session=useContext(ComposerSessionContext);
+  if(!session)throw new Error('ChatComposer requires ComposerSessionProvider');
+  const {conversationName:activeConversationName,isConversationEmpty}=props;
   const {channel:activeChannel,channelId:activeChannelId,canPost:activeChannelCanPost,composerTextareaRef,draft,draftState,draftStored,setDraft,sending,
     pendingAttachments,setPendingAttachments,attachmentError,uploadingAttachmentCount,readyAttachments,hasAttachmentErrors,uploadFiles,mentions}=session;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
