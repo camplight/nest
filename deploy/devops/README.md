@@ -118,9 +118,10 @@ or reset watchdog state merely to bypass its cooldown.
 Validation: `python3 -m unittest discover -s deploy/devops -p 'test_*.py'` covers
 recovery decisions, cooldown, unknown state, failed restarts and deployment locks.
 After building `nest:check`, `node deploy/devops/check-resources.mjs` checks actual
-Compose rendering and uses a disposable, network-isolated 64 MiB container to
-verify cgroup OOM containment, automatic restart, real watchdog recovery from
-unhealthy state and synthetic volume persistence.
+Compose rendering on a Linux cgroup v2 host. A disposable, network-isolated
+64 MiB container verifies a kernel-recorded OOM kill, automatic restart and
+synthetic volume persistence. A separate fixture verifies real watchdog
+recovery from an unhealthy state.
 Run this **locally or in CI**, never as a stress test of production.
 
 See [the incident record](INCIDENT-2026-10-25.md) for evidence and remaining limits.
