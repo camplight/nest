@@ -573,8 +573,10 @@ server units, Caddy configuration and `scripts/install-host.sh` live in Nest. Se
 [the native runbook](../deploy/native/README.md) for preservation of both SQLite
 stores, runner identity, Codex auth/workspaces, private deployment credentials,
 TLS state and the explicit same-version Docker import/recovery procedure.
-The installer updates the reviewed restricted controller; source checkout alone
-does not change an existing host.
+Application installation and rollback do not replace the restricted controller.
+Controller, activation guards, and systemd reconciliation hook provisioning are
+separate from application installation. Protocol v2 remains fixture-only and is
+not enabled for production by this migration.
 
 Native units pin engine and file roots to persistent absolute paths. Nest repairs
 its generated compatibility symlinks atomically when releases move; existing real

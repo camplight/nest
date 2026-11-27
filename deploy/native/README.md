@@ -130,13 +130,12 @@ untouched. The imported environment must round-trip through Node's dotenv parser
 unsafe quoting fails rather than damaging credentials. Custom storage roots need
 an explicit migration review. No live engine database is silently rewritten.
 
-The installer replaces the reviewed root-owned deployment controller while
-preserving its restricted SSH key/interface. Native `deploy <main SHA>` downloads
-the matching CI release and invokes this same script; `restart` uses systemd.
-The existing health watchdog also handles native service failures with the same
-three-observation threshold, one-hour cooldown and deployment lock. It leaves
-intentionally stopped services alone. No agent root shell or on-host build is added. Installing source does not update
-other existing hosts; each host must run the installer.
+Application activation and rollback do not install the restricted controller.
+The new controller source rejects legacy native `deploy <SHA>` without running
+checkout code. Existing installed controllers are unchanged. Protocol v2 is
+fixture-only pending the private workflow and verified release gates.
+The watchdog still uses the three-observation threshold, one-hour cooldown and
+shared deployment lock; it leaves intentionally stopped services alone.
 
 Before inviting users back, verify Google login/return, a wrapped Codex turn,
 Composio/GitHub, projects/uploads, demos and deployment access using real accounts.
@@ -146,10 +145,12 @@ through an observation period; uninstalling Docker is separate cleanup.
 
 ## Recovery
 
-A pre-open activation failure restores the previous database pair/config/release.
-The installer pauses the public proxy during schema migration and checks engine
-health, runner heartbeat and anonymous demo denial before opening traffic. Do not
-restart an old engine against new schemas. Keep the reported backup directory.
+A reversible pre-cutoff failure restores the previous database pair/config/release.
+The installer keeps ingress and the normal runner stopped through API readiness
+and anonymous access checks. It records the durable cutoff before starting either;
+runner freshness and public ingress are checked afterward. A post-cutoff failure
+never restores a snapshot automatically. Do not restart an old engine against
+new schemas. Keep the reported backup directory.
 
 After a successful activation accepts writes, **do not restore an old snapshot**
 over new messages. Stop traffic and both APIs/runner, take a new full backup, and
@@ -185,10 +186,40 @@ pruned. Older DB snapshots remain available, but restoring them may require
 redownloading their matching GitHub release artifact. Cleanup failure is reported
 without rolling back a release already serving users.
 
-If rollback restores the DB/configuration/release pair but fails to start services
-or pass health checks, the EXIT handler still restores the watchdog timer and the
-installer returns failure. An incomplete DB/configuration restoration leaves
-`/var/lib/nest-watchdog/recovery-required` and blocks automatic restarts: an operator
-must restore a coherent DB/release pair before removing that marker. Do not remove
-it merely to silence the warning. Install the new controller on an existing host
-to enable pre-download checks; editing its repository copy alone is insufficient.
+An unverified rollback, interrupted activation, or post-cutoff health failure
+leaves `/var/lib/nest-watchdog/recovery-required`. The timer may still run, but
+cannot restart services under that gate. Do not clear it until the active
+DB/config/release pair is known coherent and the operator has resolved the outage.
+The installer does not provision the independent systemd start guards needed for
+v2. The guards and recovery hooks must be proven on a disposable host before
+any production rollout.
+
+## Protocol v2 rehearsal (disposable VM only)
+
+Use an isolated Ubuntu 24.04 x64 VM with only synthetic credentials/data and
+SSH access for the operator. Build the baseline from a clean test snapshot
+with pinned OrgOps initialized and the Node version from `versions.env`. The
+builder rejects modified tracked files and packages from `git ls-files`; to
+include uncommitted work, transfer reviewed files to a scratch checkout and
+record a test-only commit there. Do not publish the snapshot or its artifacts.
+
+```sh
+scripts/build-host-release.sh /tmp/nest-host-linux-x64.tar.gz
+sudo bash deploy/native/rehearse.sh /tmp/nest-host-linux-x64.tar.gz
+sudo bash deploy/native/rehearse-v2.sh /tmp/nest-host-linux-x64.tar.gz
+```
+
+The v2 driver requires the baseline's synthetic login and loopback domain.
+It provisions independent systemd guards and a local fixture-only worker,
+uses a distinct synthetic upgrade, checks replay and controller preservation,
+and observes systemd's exit hook after killing a fixture worker. It does not
+enable the production v2 SSH binding.
+
+For each reboot case, use a fresh VM or reset the VM to a snapshot from after
+the successful v2 rehearsal. Run `sudo bash deploy/native/rehearse-v2.sh
+--prepare-reboot interrupted-before-cutoff` (or `--prepare-reboot failed-restore`),
+reboot the VM yourself, reconnect, and run `sudo bash deploy/native/rehearse-v2.sh
+--check-reboot`. The check requires a changed boot ID, a durable recovery
+outcome, the watchdog gate, and confirmation that guarded services did not
+start. The fixture intentionally leaves recovery blocked. Do not run these
+commands on a production or shared host.

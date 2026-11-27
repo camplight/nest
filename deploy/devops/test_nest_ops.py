@@ -98,7 +98,7 @@ class NativeDeploymentTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
-        for name, value in {'STATE': root, 'SOURCE': root / 'source', 'NATIVE_CONFIG': root / 'native.json', 'RUNNER_PAUSE': root / 'runner-paused'}.items():
+        for name, value in {'STATE': root, 'SOURCE': root / 'source', 'NATIVE_CONFIG': root / 'native.json', 'RUNNER_PAUSE': root / 'runner-paused', 'RECOVERY_GATE': root / 'recovery-required'}.items():
             p = patch.object(ops, name, value)
             p.start()
             self.addCleanup(p.stop)
@@ -124,23 +124,18 @@ class NativeDeploymentTests(unittest.TestCase):
         self.assertNotIn(('systemctl', 'start', 'nest-runner'), args)
         self.assertTrue(ops.RUNNER_PAUSE.exists())
 
-    def test_native_deploy_rejects_non_main_before_installer_or_download(self):
-        with patch.object(ops, 'run', return_value='a' * 40) as command:
-            with self.assertRaisesRegex(RuntimeError, 'Only the current'):
+    def test_legacy_native_deploy_never_executes_checkout_or_mutates_services(self):
+        with patch.object(ops, 'run') as command, patch.object(ops.subprocess, 'run') as child:
+            with self.assertRaisesRegex(RuntimeError, 'Legacy native deployment is disabled'):
                 ops.execute(self.job, 'deploy', 'b' * 40)
-        self.assertFalse(any('curl' in c.args or 'bash' in c.args for c in command.call_args_list))
+        command.assert_not_called()
+        child.assert_not_called()
 
-    def test_low_disk_aborts_before_download_or_installer(self):
-        sha = 'b' * 40
-        def command(*args, **kwargs):
-            if args[0] == 'python3' and args[-1] == 'download':
-                raise RuntimeError('Insufficient deployment space')
-            return sha
-        with patch.object(ops, 'run', side_effect=command) as run:
-            with self.assertRaisesRegex(RuntimeError, 'Insufficient deployment space'):
-                ops.execute(self.job, 'deploy', sha)
-        self.assertFalse(any('curl' in c.args or 'bash' in c.args or 'systemctl' in c.args
-                             for c in run.call_args_list))
+    def test_native_restart_respects_recovery_gate(self):
+        ops.RECOVERY_GATE.touch()
+        with patch.object(ops, 'run') as command:
+            ops.execute(self.job, 'restart')
+        command.assert_not_called()
         self.assertEqual(json.loads((ops.STATE / (self.job + '.json')).read_text())['state'], 'failed')
 
     def test_native_restart_respects_same_mutation_lock_as_docker_and_installer(self):

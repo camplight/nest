@@ -267,19 +267,24 @@ Native activation preserves the operator's `/etc/nest/runner-paused` marker.
 `--pause-runner` and `--resume-runner` change it within the backed-up activation;
 the runner unit and restricted restart controller respect it. A paused rollout
 checks API/provider/demo availability without requiring or claiming a runner
-heartbeat. This permits product updates while an upstream execution fix is pending.
+heartbeat. In an unpaused rollout, the installer requires a fresh runner
+observation after the durable cutoff, not an existing `online` row. This permits product updates while an upstream execution fix is pending.
 The watchdog continues inspecting the two APIs during that execution pause and
 excludes only the runner. API recovery respects the same pause marker, deployment
 lock and cooldown; intentionally stopping an API still suppresses recovery.
 
 Whole process trees have separate 320/512/768 MiB API/engine/runner limits within
 a 1536 MiB RAM / 512 MiB swap / 80% CPU slice. These are not agent sandboxes.
-Re-running the script stages another prebuilt release and snapshots both stopped
-DBs; pre-open failures restore the previous pair/config/release. Explicit
-same-version Docker import retains source volumes and restart-policy records.
-Native restricted host operations reuse this installer; builds remain in CI.
-Fresh-VM CI checks install/reinstall, paired-DB recovery, runner identity/heartbeat,
-crash recovery, protected demos and a real agent turn with a synthetic provider.
+Re-running the script stages a prebuilt release and snapshots both stopped DBs.
+The durable cutoff precedes live ingress and runner work. Reversible failures
+before cutoff can restore the prior pair/config/release; failures after cutoff
+preserve current data. Explicit same-version Docker import retains source volumes
+and restart-policy records. Native app releases no longer install or restore the
+controller. Protocol v2 is fixture-only; the production SSH binding stays disabled.
+The native CI rehearsal covers install/reinstall, paired-DB recovery, runner
+identity/heartbeat, protected demos and a real agent turn with a synthetic
+provider. The fixture-only v2 step additionally checks detached activation and
+worker-exit reconciliation; real reboot checks use a separate disposable VM.
 
 Local CLI upgrades stop all writers before private backups, use registered Linux
 supervisors and preserve credentials. Post-mutation local failures remain stopped
@@ -1517,9 +1522,9 @@ headroom before download. The installer checks expanded release and paired DB/WA
 snapshot/migration capacity before extraction and immediately before downtime.
 Successful activation retains the active, three newest and recent snapshot-linked
 release directories; it never prunes runtime data or database backups. The
-watchdog is restored on installer exit even if coherent rollback fails its health
-check. Incomplete DB/configuration recovery blocks automatic restarts with a
-persistent operator-recovery marker. See `deploy/native/README.md` for the exact
+watchdog timer can run while its persistent operator-recovery marker blocks
+restarts. An unverified rollback, interrupted activation, or post-cutoff check
+failure leaves the gate in place for operator review. See `deploy/native/README.md` for the exact
 budgets and restoration procedure. This is Nest deployment infrastructure only;
 OrgOps remains untouched.
 

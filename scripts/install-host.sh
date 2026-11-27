@@ -49,16 +49,38 @@ printf '%s  %s\n' "$digest" "$artifact" | sha256sum --check --status
 python3 "$root/deploy/native/storage.py" install --artifact "$artifact"
 work=$(mktemp -d /opt/nest/host-stage.XXXXXX)
 restore_watchdog=0
+managed_operation=${NEST_HOST_OPERATION_ID:-}
+if [[ -n $managed_operation ]]; then
+  [[ $managed_operation =~ ^[a-f0-9]{32}$ && ${NEST_HOST_LOCK_FD:-} =~ ^[0-9]+$ &&
+     $(readlink "/proc/$$/fd/$NEST_HOST_LOCK_FD") == /opt/nest/operations/deployment.lock &&
+     $import_docker == 0 ]] || exit 1
+  [[ -f /usr/local/lib/nest-ops/activation.py ]] || { echo 'Missing independently installed activation guard.' >&2; exit 1; }
+  for unit in nest-api nest-engine nest-runner nest-caddy nest-livekit; do
+    guard="/etc/systemd/system/$unit.service.d/nest-activation.conf"
+    grep -Fxq 'ExecCondition=+/usr/bin/python3 -I /usr/local/lib/nest-ops/activation.py guard %n' "$guard" &&
+      systemctl show "$unit.service" --property=DropInPaths --value | grep -Fqw "$guard" || {
+        echo 'Required systemd guard is not loaded.' >&2; exit 1;
+      }
+  done
+fi
+operation_id=${managed_operation:-$(tr -d '-' </proc/sys/kernel/random/uuid)}
+activation() { /usr/bin/python3 -I "$root/deploy/native/activation.py" "$@"; }
+runner_probe() {
+  "$node_dir/bin/node" --env-file=/etc/nest/runtime.env --input-type=module -e '
+    import {spawnSync} from "node:child_process";
+    process.exit(spawnSync("/usr/bin/python3", ["-I", ...process.argv.slice(1)], {stdio:"inherit"}).status ?? 1);
+  ' "$root/deploy/native/activation.py" "$@"
+}
 finish() {
   result=$?
   trap - EXIT
   rm -rf "$work" || true
-  if [[ $restore_watchdog == 1 && ! -f /var/lib/nest-watchdog/recovery-required ]]; then
+  if [[ $restore_watchdog == 1 ]]; then
     # This must run even if rollback's service start or health check fails.
     systemctl start nest-native-watchdog.timer || echo 'ERROR: watchdog timer could not be restored' >&2
   fi
   if [[ -f /var/lib/nest-watchdog/recovery-required ]]; then
-    echo 'ERROR: database/configuration recovery incomplete; automatic restarts blocked. Operator recovery required.' >&2
+    echo 'Deployment recovery gate remains set; automatic restarts are blocked.' >&2
   fi
   exit "$result"
 }
@@ -188,7 +210,6 @@ old_release=
 if [[ -L /app ]]; then old_release=$(readlink -f /app); fi
 for link in node caddy livekit; do readlink "/opt/nest/$link" > "$backup/$link.link" || true; done
 cp -a /etc/nest "$backup/config"
-[[ ! -f /usr/local/lib/nest-ops.py ]] || cp -a /usr/local/lib/nest-ops.py "$backup/controller"
 [[ ! -f /usr/local/lib/nest-watchdog.py ]] || cp -a /usr/local/lib/nest-watchdog.py "$backup/watchdog"
 install -d "$backup/units"
 install -d "$backup/commands"
@@ -214,30 +235,16 @@ pathlib.Path(sys.argv[1]).write_text(json.dumps(state))
 PY
 # Recheck immediately before downtime: staging/other writers may consume space.
 python3 "$root/deploy/native/storage.py" snapshot
-committed=0
-databases_snapshotted=0
+activation begin "$operation_id" "$old_release" "$release" "$backup"
 recover() {
   result=$?
-  trap - ERR
-  if [[ $committed == 0 ]]; then
+  trap - ERR TERM
+  if activation rollback_allowed "$operation_id"; then
     if [[ -f $backup/units/nest-native-watchdog.timer ]]; then restore_watchdog=1; fi
-    # A partial DB/config restoration must not be automatically restarted.
-    install -d -m 700 /var/lib/nest-watchdog
-    touch /var/lib/nest-watchdog/recovery-required
-    systemctl stop nest-native-watchdog.timer nest-native-watchdog.service nest-caddy nest-livekit nest-runner nest-api nest-engine 2>/dev/null || true
-    if [[ $databases_snapshotted == 1 ]]; then
-    python3 - "$backup" <<'PY'
-import pathlib,shutil,sys
-b=pathlib.Path(sys.argv[1])
-for area in ('engine','product'):
-    dest=pathlib.Path('/var/lib/nest')/area/'nest.sqlite'
-    for suffix in ('','-wal','-shm'): pathlib.Path(str(dest)+suffix).unlink(missing_ok=True)
-    if (b/(area+'.sqlite')).exists(): shutil.copyfile(b/(area+'.sqlite'),dest)
-PY
-    fi
+    systemctl stop nest-native-watchdog.timer nest-native-watchdog.service nest-caddy nest-livekit nest-runner nest-api nest-engine
+    activation restore "$operation_id"
     for area in engine product; do [[ ! -f /var/lib/nest/$area/nest.sqlite ]] || chown node:node "/var/lib/nest/$area/nest.sqlite"; done
     rsync -a --delete "$backup/config/" /etc/nest/
-    [[ ! -f $backup/controller ]] || install -m 755 "$backup/controller" /usr/local/lib/nest-ops.py
     [[ ! -f $backup/watchdog ]] || install -m 755 "$backup/watchdog" /usr/local/lib/nest-watchdog.py
     for link in node caddy livekit; do
       if [[ -s $backup/$link.link ]]; then
@@ -256,8 +263,8 @@ PY
     if [[ -n $old_release && -d $old_release ]]; then
       ln -sfn "$old_release" /app
       for tool in codex claude; do ln -sfn "$old_release/deploy/native/agent-clis/node_modules/.bin/$tool" "/usr/local/bin/$tool"; done
-      # DB pair, configuration, units and release pointer are now coherent.
-      rm -f /var/lib/nest-watchdog/recovery-required
+      sync -f /var/lib/nest /opt/nest /etc/nest /etc/systemd/system /
+      activation restored "$operation_id"
       systemctl reset-failed nest-engine nest-api nest-runner nest-caddy 2>/dev/null || true
       if [[ -f /etc/nest/livekit-enabled ]]; then systemctl start nest-livekit; else systemctl disable nest-livekit 2>/dev/null || true; fi
       systemctl start nest-engine nest-api
@@ -267,6 +274,8 @@ PY
     else
       systemctl disable nest-engine nest-api nest-runner nest-caddy nest-livekit nest-native-watchdog.timer 2>/dev/null || true
       rm -f /app
+      sync -f /var/lib/nest /opt/nest /etc/nest /etc/systemd/system /
+      activation restored "$operation_id"
     fi
     if [[ -f $backup/docker.json ]]; then
       python3 - "$backup/docker.json" <<'PYCODE'
@@ -283,11 +292,14 @@ PYCODE
       install -d -m 700 -o node -g node /var/lib/nest/engine /var/lib/nest/product /var/lib/nest/files
       if [[ -f $backup/watchdog-enabled ]]; then systemctl enable --now nest-watchdog.timer || true; fi
     fi
+    activation verify "$operation_id"
+    if [[ -z $managed_operation ]]; then activation clear "$operation_id"; fi
     echo "Activation failed; rollback completed. Backup: $backup" >&2
   fi
   exit "$result"
 }
 trap recover ERR
+trap 'false' TERM
 # Hold the public proxy closed throughout snapshot, schema migration and checks.
 systemctl stop nest-caddy.service nest-livekit.service nest-runner.service nest-api.service nest-engine.service 2>/dev/null || true
 for unit in nest-caddy nest-livekit nest-runner nest-api nest-engine; do
@@ -329,19 +341,7 @@ JSCODE
     env_file="$backup/import.env"
   fi
 fi
-python3 - "$backup" <<'PY'
-from contextlib import closing
-import pathlib,sqlite3,sys
-out=pathlib.Path(sys.argv[1])
-for area in ('engine','product'):
-    src=pathlib.Path('/var/lib/nest')/area/'nest.sqlite'
-    if src.exists():
-        with closing(sqlite3.connect(f'file:{src}?mode=ro',uri=True)) as db, closing(sqlite3.connect(out/(area+'.sqlite'))) as dest:
-            assert db.execute('PRAGMA quick_check').fetchone()[0]=='ok'
-            db.backup(dest)
-            assert dest.execute('PRAGMA quick_check').fetchone()[0]=='ok'
-PY
-databases_snapshotted=1
+activation snapshot "$operation_id"
 [[ -z $env_file ]] || install -m 600 -o node -g node "$env_file" /etc/nest/runtime.env
 # Persisted opt-in lets the restricted controller use the same installer path.
 livekit_opt_in=$("$node_dir/bin/node" --input-type=module -e 'import {parseEnv} from "node:util"; import {readFileSync} from "node:fs"; console.log(parseEnv(readFileSync("/etc/nest/runtime.env","utf8")).NEST_ENABLE_LIVEKIT === "1" ? "1" : "0")')
@@ -393,20 +393,14 @@ NEST_DOMAIN="$domain" "$caddy_dir/caddy" validate --config /etc/nest/Caddyfile -
 systemd-analyze verify "$release"/deploy/native/systemd/*.service
 systemctl daemon-reload
 systemctl reset-failed nest-engine nest-api nest-runner nest-caddy 2>/dev/null || true
-if [[ -f /etc/nest/livekit-enabled ]]; then
-  systemctl enable nest-livekit >/dev/null
-  systemctl start nest-livekit
-  curl --fail --silent --show-error --max-time 3 --retry 20 --retry-all-errors --retry-delay 1 --output /dev/null http://127.0.0.1:7880/
-fi
+activation readiness "$operation_id"
 systemctl start nest-engine nest-api
-if [[ ! -f /etc/nest/runner-paused ]]; then systemctl start nest-runner; fi
 for attempt in $(seq 1 60); do
   if curl --fail --silent --max-time 2 http://127.0.0.1:8787/health >/dev/null; then break; fi
   sleep 1
 done
 curl --fail --silent --max-time 5 http://127.0.0.1:8787/health >/dev/null
 systemctl is-active --quiet nest-engine nest-api
-if [[ ! -f /etc/nest/runner-paused ]]; then systemctl is-active --quiet nest-runner; fi
 python3 - "$backup/google-sign-in.json" <<'PY'
 import json,pathlib,sys,urllib.request
 previous=json.loads(pathlib.Path(sys.argv[1]).read_text())
@@ -416,35 +410,38 @@ if previous.get('enabled'):
     if not current.get('enabled') or current.get('allowedDomain')!=previous.get('allowedDomain'):
         raise SystemExit('Google sign-in regressed during activation; restoring the previous release/configuration.')
 PY
-if [[ ! -f /etc/nest/runner-paused ]]; then
-"$node_dir/bin/node" --env-file=/etc/nest/runtime.env --input-type=module <<'JS'
-import {readFileSync} from 'node:fs';
-let expected; for(let i=0;i<30;i++){try{expected=readFileSync('/app/.nest-data/runner-id','utf8').trim();break;}catch{await new Promise(r=>setTimeout(r,1000));}}
-if(!expected) throw Error('Runner identity was not created');
-let ready=false;
-for(let i=0;i<60;i++) {
-  const r=await fetch('http://127.0.0.1:8788/api/runners',{headers:{'x-orgops-runner-token':process.env.NEST_RUNNER_TOKEN},signal:AbortSignal.timeout(3000)});
-  if(r.ok && (await r.json()).some(x=>x.id===expected && x.online)) {ready=true;break;}
-  await new Promise(r=>setTimeout(r,1000));
-}
-if(!ready) throw Error('Runner registration/heartbeat failed');
-JS
-else
-  ! systemctl is-active --quiet nest-runner
-  echo 'Runner remains intentionally paused; agent execution/heartbeat is not claimed.'
-fi
-# Pre-open checks: public demos must still require a human session.
-[[ $(curl --silent --max-time 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/demo/kibrit-software-factory) == 401 ]]
-systemctl enable nest-engine nest-api nest-runner nest-caddy >/dev/null
-install -m 755 "$release/deploy/devops/nest-ops.py" /usr/local/lib/nest-ops.py
+# Before live traffic or work, check denial without writing through ingress.
+[[ $(curl --silent --max-time 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/demo/not-real) == 401 ]]
+runner_before=0
+if [[ ! -f /etc/nest/runner-paused ]]; then runner_before=$(runner_probe runner-baseline); fi
 install -m 755 "$release/deploy/devops/nest-watchdog.py" /usr/local/lib/nest-watchdog.py
 printf '{"commit":"%s","domain":"%s"}\n' "$sha" "$domain" > /etc/nest/native.json
-# Healthy activation establishes a coherent pair even after an operator recovery.
-rm -f /var/lib/nest-watchdog/recovery-required
-systemctl enable --now nest-native-watchdog.timer >/dev/null
+sync -f /opt/nest /var/lib/nest /etc/nest /etc/systemd/system /
+# The durable cutoff precedes every service able to accept live work/traffic.
+activation cutoff "$operation_id"
+systemctl enable nest-engine nest-api nest-runner nest-caddy >/dev/null
+if [[ -f /etc/nest/livekit-enabled ]]; then
+  systemctl enable --now nest-livekit >/dev/null
+  curl --fail --silent --show-error --max-time 3 --retry 20 --retry-all-errors --retry-delay 1 --output /dev/null http://127.0.0.1:7880/
+fi
+if [[ ! -f /etc/nest/runner-paused ]]; then
+  runner_started=$(date +%s%3N)
+  systemctl start nest-runner
+  runner_probe runner-wait "$runner_before" "$runner_started"
+  systemctl is-active --quiet nest-runner
+else
+  if systemctl is-active --quiet nest-runner; then false; fi
+  echo 'Runner remains intentionally paused; agent execution/heartbeat is not claimed.'
+fi
 systemctl start nest-caddy
-committed=1
-trap - ERR
+if [[ $domain == http://* ]]; then base=$domain; else base="https://$domain"; fi
+for path in /health / /admin/; do
+  curl --fail --silent --show-error --max-time 5 --retry 4 --retry-all-errors --retry-delay 1 --output /dev/null "$base$path"
+done
+systemctl enable --now nest-native-watchdog.timer >/dev/null
+activation verify "$operation_id"
+if [[ -z $managed_operation ]]; then activation clear "$operation_id"; fi
+trap - ERR TERM
 # Cleanup is post-commit maintenance: a failure must never roll back live writes.
 python3 "$root/deploy/native/storage.py" prune || echo 'WARNING: old release cleanup failed; operator review required' >&2
 printf 'Native Nest active: %s. Offline database/config backup: %s\n' "$sha" "$backup"

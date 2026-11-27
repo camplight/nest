@@ -93,7 +93,7 @@ def recover():
             print('Nest watchdog: deployment in progress; skipped')
             return
         if (STATE.parent / 'recovery-required').exists():
-            print('Nest watchdog: incomplete database/configuration recovery; operator review required')
+            print('Nest watchdog: deployment recovery gate set; operator review required')
             return
         try:
             state = json.loads(STATE.read_text()) if STATE.exists() else {}

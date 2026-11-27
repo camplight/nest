@@ -128,10 +128,20 @@ See [the incident record](INCIDENT-2026-10-25.md) for evidence and remaining lim
 
 ### Native hosts
 
-Hosts provisioned/migrated by [`scripts/install-host.sh`](../../scripts/install-host.sh)
-record `/etc/nest/native.json`. The same forced-command interface dispatches to
-systemd for restart or downloads the current main SHA's `native-<SHA>` CI release
-and invokes that installer for deployment. The shared deployment lock remains
-held through activation. No build runs on the production server, no SSH privileges
-are expanded, and both DB snapshots/recovery remain explicit operator code.
-Docker hosts keep their existing behavior until native migration is run.
+Native hosts record `/etc/nest/native.json`. The app installer no longer installs or
+restores the controller. This controller revision rejects legacy native `deploy <SHA>`;
+it never executes installer code from a checkout. Existing installed controllers
+are not changed automatically. Docker hosts are outside native protocol v2.
+
+The v2 protocol and local ledger are exercised by synthetic fixtures. The v2 SSH
+binding is disabled until the private workflow, provisioned guards and live release
+verification are ready; do not install or authorize it as a production deploy path.
+See the [protocol design](../../docs/superpowers/specs/2026-11-26-instance-deployment-design.md#public-protocol-v2).
+A lost acknowledgement is reconciled by the original `<repository_id>:<run_id>`;
+a queued or unknown outcome is not permission to issue a second deploy. The host
+recovery marker also blocks native restarts from this controller revision.
+The v2 worker command attaches a systemd `ExecStopPost` reconciler; a separate
+boot oneshot classifies queued and running receipts from previous boot IDs.
+Neither hook resubmits an operation or restores a snapshot. These hooks are
+provisioned only by the [disposable rehearsal](../native/README.md#protocol-v2-rehearsal-disposable-vm-only)
+in this phase.
