@@ -19,6 +19,11 @@ NEST_GOOGLE_REDIRECT_URI=http://127.0.0.1:8080/api/auth/google/callback
 ENV
 chmod 600 "$work/runtime.env"
 install_host() { bash scripts/install-host.sh --release "$artifact" --sha256 "$digest" --domain http://127.0.0.1:8080 "$@"; }
+# Independent controller sentinel; the installer must not replace or restore it.
+controller=/usr/local/lib/nest-ops.py
+test ! -e "$controller"
+printf '# Disposable rehearsal controller sentinel\n' > "$work/controller"
+install -m 0644 "$work/controller" "$controller"
 install_host --env-file "$work/runtime.env" --enable-livekit
 voice_smoke() {
   systemctl is-active --quiet nest-livekit
@@ -71,11 +76,12 @@ with urllib.request.urlopen('http://127.0.0.1:8787/api/auth/google/config',timeo
 assert config.get('enabled') and config.get('allowedDomain')=='example.com','Google sign-in rollback failed'
 PY
 cmp /etc/nest/livekit.yaml "$work/livekit.yaml"
+cmp "$work/controller" "$controller"
 voice_smoke
 # Configuration failure after the snapshot must restore the previous DB pair/config.
 printf 'NEST_RUNNER_TOKEN=synthetic\n' > "$work/invalid.env"
 # Reproduce the outage: rollback restores state but its health check also fails.
-# The EXIT finalizer must still restart the timer and preserve the failure exit.
+# The timer can run, but it must not restart services while recovery is unverified.
 mkdir "$work/bin"
 cat > "$work/bin/curl" <<'SH'
 #!/usr/bin/env bash
@@ -87,10 +93,13 @@ if PATH="$work/bin:$PATH" install_host --env-file "$work/invalid.env"; then
   echo 'FAIL: invalid configuration was accepted'; exit 1
 fi
 systemctl is-active --quiet nest-native-watchdog.timer
-test ! -e /var/lib/nest-watchdog/recovery-required
-# The injected failure bypassed rollback's readiness wait. The real services
-# start asynchronously; verify their eventual health with the normal curl.
+test -f /var/lib/nest-watchdog/recovery-required
+# The injected failure bypassed rollback's readiness wait. Verify eventual
+# health independently before the fixture operator clears the gate.
 /usr/bin/curl --fail --silent --show-error --max-time 5 --retry 30 --retry-all-errors --retry-delay 1 http://127.0.0.1:8787/health >/dev/null
+read -r operation_id < <(python3 -c 'import json; print(json.load(open("/opt/nest/operations/activation.json"))["operation_id"])')
+python3 deploy/native/activation.py verify "$operation_id"
+python3 deploy/native/activation.py clear "$operation_id"
 cmp /app/.nest-data/runner-id "$work/runner-id"
 python3 deploy/native/smoke.py
 # SFU failure is recovered independently, without restarting APIs or the runner.
@@ -151,4 +160,5 @@ for area in ('engine','product'):
         assert db.execute('PRAGMA quick_check').fetchone()[0]=='ok'
 print('PASS: both databases pass integrity checks')
 PY
+cmp "$work/controller" "$controller"
 echo 'PASS: repeatable native installation, agent turn, state/identity preservation, rollback, crash recovery and protected demo/UI routing'

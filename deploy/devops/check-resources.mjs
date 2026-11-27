@@ -1,4 +1,4 @@
-// Local/CI only. Synthetic OOM is confined to a disposable 64 MiB container.
+// Local/CI only. Synthetic OOM is confined to a disposable 64 MiB container on cgroup v2.
 import {execFileSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import assert from 'node:assert/strict';
@@ -30,34 +30,45 @@ console.log('PASS: Compose budgets, overrides, restart policy and durable volume
 
 const suffix=randomUUID();const container='nest-resource-check-'+suffix;const volume=container+'-data';
 const image=process.argv[2]??'nest:check';
-const fixture=`const fs=require('node:fs');const file='/data/sentinel';if(!fs.existsSync(file)){fs.writeFileSync(file,'durable-fixture');console.log('allocating within bounded fixture');const blocks=[];while(true)blocks.push(Buffer.alloc(4*1024*1024,1));}else{console.log('recovered');setInterval(()=>{},1000);}`;
-const since=String(Math.floor(Date.now()/1000));
+// Observe the kernel counter before the cgroup is torn down. Docker's event
+// history can miss a short-lived OOM even when the restart succeeds.
+const fixture=`
+if [ -f /data/sentinel ]; then
+  test -s /data/oom-kill
+  echo recovered
+  exec node -e 'setInterval(() => {}, 1000)'
+fi
+read_oom_kill() {
+  awk '$1 == "oom_kill" { print $2; found = 1 } END { exit !found }' /sys/fs/cgroup/memory.events
+}
+before=$(read_oom_kill)
+printf '%s' durable-fixture > /data/sentinel
+status=0
+# Keep V8's heap limit above the cgroup limit so the kernel kills the allocator.
+node --max-old-space-size=256 -e 'const blocks=[];while(true)blocks.push(Buffer.alloc(4*1024*1024,1))' || status=$?
+after=$(read_oom_kill)
+echo "allocator exit=$status; kernel oom_kill: $before -> $after"
+[ "$status" -eq 137 ] && [ "$after" -gt "$before" ] || exit 1
+printf '%s %s\\n' "$before" "$after" > /data/oom-kill
+exit "$status"
+`;
 try{
- // Keep V8's heap ceiling above the cgroup limit so Node cannot abort first
- // under small-container heap auto-sizing; the kernel must enforce 64 MiB.
- docker(['run','--detach','--name',container,'--network','none','--memory','64m','--memory-swap','64m','--cpus','0.25','--pids-limit','32','--restart','on-failure:1','--mount',`type=volume,source=${volume},target=/data`,'--entrypoint','node',image,'--max-old-space-size=256','-e',fixture]);
+ docker(['run','--detach','--name',container,'--network','none','--cgroupns','private','--memory','64m','--memory-swap','64m','--cpus','0.25','--pids-limit','32','--restart','on-failure:1','--mount',`type=volume,source=${volume},target=/data`,'--entrypoint','sh',image,'-ec',fixture]);
  let recovered=false;
  for(let attempt=0;attempt<40;attempt++){
   const [info]=JSON.parse(docker(['inspect',container]));
+  if(info.RestartCount>=1&&!info.State.Running&&info.State.Status==='exited')break;
   if(info.RestartCount>=1&&info.State.Running&&docker(['logs',container]).includes('recovered')){recovered=true;break;}
   await new Promise(resolve=>setTimeout(resolve,500));
  }
- assert.ok(recovered,'Bounded OOM fixture must restart and recover');
+ if(!recovered)console.error('Bounded fixture logs:',docker(['logs',container]));
+ assert.ok(recovered,'Bounded fixture must record a kernel cgroup OOM kill and restart');
  const [info]=JSON.parse(docker(['inspect',container]));
  assert.equal(info.HostConfig.Memory,64*1024**2);assert.equal(info.HostConfig.MemorySwap,64*1024**2);assert.equal(info.HostConfig.PidsLimit,32);assert.equal(info.HostConfig.NanoCpus,250_000_000);
  assert.equal(docker(['exec',container,'cat','/data/sentinel']),'durable-fixture');
- // Preserve milliseconds: truncating --until to seconds omits a fast OOM/restart
- // that happened in the same current second, despite a real cgroup OOM.
- // Docker may publish the OOM event after the restarted process is ready.
- let events='';
- for(let attempt=0;attempt<20;attempt++){
-  events=docker(['events','--since',since,'--until',new Date().toISOString(),'--filter',`container=${container}`,'--filter','event=oom','--format','{{.Action}}']);
-  if(events.includes('oom'))break;
-  await new Promise(resolve=>setTimeout(resolve,250));
- }
- if(!events.includes('oom'))console.error('Bounded fixture logs:',docker(['logs',container]));
- assert.ok(events.includes('oom'),'Docker must record an actual cgroup OOM event');
- console.log('PASS: actual cgroup OOM stayed within 64 MiB; Docker restart and durable data survived');
+ const [before,after]=docker(['exec',container,'cat','/data/oom-kill']).split(' ').map(Number);
+ assert.ok(after>before,'The kernel cgroup oom_kill counter must increase');
+ console.log(`PASS: 64 MiB cgroup recorded an OOM kill (${before} -> ${after}); Docker restarted and durable data survived`);
 }finally{
  try{docker(['rm','--force','--volumes',container]);}catch{}
  try{docker(['volume','rm',volume]);}catch{}

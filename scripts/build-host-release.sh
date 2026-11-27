@@ -51,7 +51,7 @@ import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 const sha=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
 const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim();
-writeFileSync('nest-release.json',JSON.stringify({format:1,commit:git('rev-parse','HEAD'),engine:git('-C','vendor/orgops','rev-parse','HEAD'),platform:process.platform,arch:process.arch,node:process.version,pins:sha('deploy/native/versions.env'),lock:sha('package-lock.json'),agentLock:sha('deploy/native/agent-clis/package-lock.json')})+'\n');
+writeFileSync('nest-release.json',JSON.stringify({format:1,activationProtocol:2,commit:git('rev-parse','HEAD'),engine:git('-C','vendor/orgops','rev-parse','HEAD'),platform:process.platform,arch:process.arch,node:process.version,pins:sha('deploy/native/versions.env'),lock:sha('package-lock.json'),agentLock:sha('deploy/native/agent-clis/package-lock.json')})+'\n');
 JS
 list=$(mktemp)
 trap 'rm -f "$list" nest-release.json' EXIT

@@ -33,12 +33,25 @@ jobs:
           cache: npm
       - name: Check installer and build pinned Linux release
         run: |
-          bash -n scripts/install-host.sh scripts/build-host-release.sh deploy/native/rehearse.sh
+          for script in scripts/install-host.sh scripts/build-host-release.sh deploy/native/rehearse{,-v2}.sh; do
+            bash -n "$script"
+          done
           scripts/build-host-release.sh /tmp/nest-host-linux-x64.tar.gz
           npm run --workspace @nest/cli test
           python3 -m unittest discover -s deploy/devops -p 'test_*.py'
       - name: Install on the fresh VM and test repeat install, rollback and agent turn
         run: sudo bash deploy/native/rehearse.sh /tmp/nest-host-linux-x64.tar.gz
+      - name: Rehearse a post-cutoff failure through the existing native controller
+        run: |
+          legacy=$(mktemp /tmp/nest-legacy-controller.XXXXXX.py)
+          trap 'rm -f "$legacy"' EXIT
+          # Pin the pre-Phase-1 controller; do not use the new controller on this path.
+          revision=00314477e41c1634a16cf9436bdd3238093868f3
+          git fetch --no-tags --depth=1 origin "$revision"
+          git show "$revision:deploy/devops/nest-ops.py" > "$legacy"
+          sudo python3 -I deploy/native/rehearse-legacy-failure.py /tmp/nest-host-linux-x64.tar.gz "$legacy"
+      - name: Rehearse detached v2 activation and lost reply on the synthetic VM
+        run: sudo bash deploy/native/rehearse-v2.sh /tmp/nest-host-linux-x64.tar.gz
       - name: Assert upstream stayed untouched
         run: test -z "$(git -C vendor/orgops status --porcelain)"
       - name: Service diagnostics

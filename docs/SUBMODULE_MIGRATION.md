@@ -573,8 +573,10 @@ server units, Caddy configuration and `scripts/install-host.sh` live in Nest. Se
 [the native runbook](../deploy/native/README.md) for preservation of both SQLite
 stores, runner identity, Codex auth/workspaces, private deployment credentials,
 TLS state and the explicit same-version Docker import/recovery procedure.
-The installer updates the reviewed restricted controller; source checkout alone
-does not change an existing host.
+Application installation and rollback do not replace the restricted controller.
+Controller, activation guards, and systemd reconciliation hook provisioning are
+separate from application installation. Protocol v2 remains fixture-only and is
+not enabled for production by this migration.
 
 Native units pin engine and file roots to persistent absolute paths. Nest repairs
 its generated compatibility symlinks atomically when releases move; existing real
@@ -735,7 +737,12 @@ immutable release directories are retained according to the documented native
 policy; data backups remain untouched. Rollback health failure no longer skips
 watchdog restoration. Partial DB/configuration restoration requires operator
 recovery before any automatic restart; preserve the recovery marker until the
-matching DB/release pair is restored.
+matching DB/release pair is restored. After cutoff the installer does not
+restore the previous DB pair, including on the legacy native controller path.
+Use the [native operator recovery procedure](../deploy/native/README.md#existing-native-controller-failure-after-activation)
+for a failed post-cutoff check. A failed first install or Docker import can
+roll back even when no native service units have been installed yet, provided
+systemd confirms that no native unit is active.
 
 ### Image rejection and reply recovery
 

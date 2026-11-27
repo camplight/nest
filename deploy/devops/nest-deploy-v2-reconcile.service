@@ -1,0 +1,14 @@
+[Unit]
+Description=Reconcile interrupted Nest deployment jobs from prior boots
+After=local-fs.target
+Before=multi-user.target
+ConditionPathExists=/opt/nest/operations/v2.sqlite
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -E -s /usr/local/lib/nest-ops/native_ops_job.py reconcile-boot
+TimeoutStartSec=25
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

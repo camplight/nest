@@ -118,9 +118,10 @@ or reset watchdog state merely to bypass its cooldown.
 Validation: `python3 -m unittest discover -s deploy/devops -p 'test_*.py'` covers
 recovery decisions, cooldown, unknown state, failed restarts and deployment locks.
 After building `nest:check`, `node deploy/devops/check-resources.mjs` checks actual
-Compose rendering and uses a disposable, network-isolated 64 MiB container to
-verify cgroup OOM containment, automatic restart, real watchdog recovery from
-unhealthy state and synthetic volume persistence.
+Compose rendering on a Linux cgroup v2 host. A disposable, network-isolated
+64 MiB container verifies a kernel-recorded OOM kill, automatic restart and
+synthetic volume persistence. A separate fixture verifies real watchdog
+recovery from an unhealthy state.
 Run this **locally or in CI**, never as a stress test of production.
 
 See [the incident record](INCIDENT-2026-10-25.md) for evidence and remaining limits.
@@ -128,10 +129,20 @@ See [the incident record](INCIDENT-2026-10-25.md) for evidence and remaining lim
 
 ### Native hosts
 
-Hosts provisioned/migrated by [`scripts/install-host.sh`](../../scripts/install-host.sh)
-record `/etc/nest/native.json`. The same forced-command interface dispatches to
-systemd for restart or downloads the current main SHA's `native-<SHA>` CI release
-and invokes that installer for deployment. The shared deployment lock remains
-held through activation. No build runs on the production server, no SSH privileges
-are expanded, and both DB snapshots/recovery remain explicit operator code.
-Docker hosts keep their existing behavior until native migration is run.
+Native hosts record `/etc/nest/native.json`. The app installer no longer installs or
+restores the controller. This controller revision rejects legacy native `deploy <SHA>`;
+it never executes installer code from a checkout. Existing installed controllers
+are not changed automatically. Docker hosts are outside native protocol v2.
+
+The v2 protocol and local ledger are exercised by synthetic fixtures. The v2 SSH
+binding is disabled until the private workflow, provisioned guards and live release
+verification are ready; do not install or authorize it as a production deploy path.
+See [`native_ops_v2.py`](native_ops_v2.py) for the command and request contract.
+A lost acknowledgement is reconciled by the original `<repository_id>:<run_id>`;
+a queued or unknown outcome is not permission to issue a second deploy. The host
+recovery marker also blocks native restarts from this controller revision.
+The v2 worker command attaches a systemd `ExecStopPost` reconciler; a separate
+boot oneshot classifies queued and running receipts from previous boot IDs.
+Neither hook resubmits an operation or restores a snapshot. These hooks are
+provisioned only by the [disposable rehearsal](../native/README.md#protocol-v2-rehearsal-disposable-vm-only)
+in this phase.
