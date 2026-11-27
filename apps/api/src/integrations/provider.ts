@@ -23,6 +23,8 @@ export type IntegrationTool = {
 /** Only provider-specific transport, payloads and identity namespacing live here. */
 export interface ConnectionProvider {
   id: string;
+  /** Explicit toolkit ownership for additional providers. */
+  toolkits?: string[];
   subject(ownerId: string): string;
   apps(search: string, cursor?: string): Promise<Page<AppIntegration>>;
   accounts(ownerId: string, cursor?: string): Promise<Page<ConnectedAccount>>;

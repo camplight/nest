@@ -10,6 +10,7 @@ import {registerAgentRequestRoutes} from './agent-requests';
 import {registerMessageRoutes} from './messages';
 import {registerIntegrationRoutes} from "./integrations/routes";
 import {composioConfigFromEnv,createComposioProvider} from "./integrations/composio";
+import {unipileConfigFromEnv,createUnipileProvider} from "./integrations/unipile";
 import type {ConnectionProvider} from "./integrations/provider";
 import { registerAgentModelRoutes } from './agent-models';
 import { registerOnboardingRoutes, type PersonalAgentConfig } from './onboarding';
@@ -23,7 +24,7 @@ import { openProductDb, type ProductDb } from '@nest/db';
 import { BrandingSchema } from '@nest/schemas';
 import { createOrgOpsClient, productHeaders, type OrgOpsClient } from '@nest/orgops-client';
 
-export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string } = {}) {
+export function createApp(config: { demoRoot?: string; projectNamer?:ProjectNamer; projectNamingModelId?:string; agentManagement?:AgentManagementConfig; connections?: ConnectionProvider | null; additionalConnections?: ConnectionProvider[]; connectionEngineToken?:string; defaultAgentModelId?: string; personalAgent?: PersonalAgentConfig; store?: ProductDb; orgops?: OrgOpsClient; dbPath?: string; orgopsUrl?: string } = {}) {
   const store = config.store ?? openProductDb(config.dbPath ?? resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.NEST_PRODUCT_DB_PATH ?? '.nest-product/nest.sqlite'));
   const orgops = config.orgops ?? createOrgOpsClient(config.orgopsUrl ?? process.env.ORGOPS_URL ?? 'http://127.0.0.1:8788');
   const app = new Hono();
@@ -55,7 +56,9 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
   });
   const providerConfig=composioConfigFromEnv();
   const provider=config.connections===null?undefined:config.connections??(providerConfig?createComposioProvider(providerConfig):undefined);
-  registerIntegrationRoutes(app,{store,orgops,provider,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
+  const unipileConfig = config.connections === undefined ? unipileConfigFromEnv() : undefined;
+  const additionalProviders = config.additionalConnections ?? (unipileConfig ? [createUnipileProvider(unipileConfig)] : []);
+  registerIntegrationRoutes(app,{store,orgops,provider,additionalProviders,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
   const defaultAgentModelId = config.defaultAgentModelId ?? process.env.NEST_DEFAULT_AGENT_MODEL_ID ?? config.personalAgent?.modelId ?? process.env.NEST_PERSONAL_AGENT_MODEL_ID ?? DEFAULT_AGENT_MODEL_ID;
   registerAgentModelRoutes(app, orgops, defaultAgentModelId);
   registerDashboardActivityRoutes(app,orgops);
@@ -71,7 +74,7 @@ export function createApp(config: { demoRoot?: string; projectNamer?:ProjectName
     } : undefined
   );
   registerAgentManagementRoutes(app, {orgops, store, config: agentManagement});
-  registerOnboardingRoutes(app, {store, orgops, config:config.personalAgent && {...config.personalAgent, modelId:defaultAgentModelId ?? config.personalAgent.modelId}, defaultModelId:defaultAgentModelId, connectionsAvailable:Boolean(provider)});
+  registerOnboardingRoutes(app, {store, orgops, config:config.personalAgent && {...config.personalAgent, modelId:defaultAgentModelId ?? config.personalAgent.modelId}, defaultModelId:defaultAgentModelId, connectionsAvailable:Boolean(provider || additionalProviders.length)});
   registerMessageRoutes(app, {store,orgops});
   registerCollaborationRoutes(app,{store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});
   registerAgentRequestRoutes(app,{store,orgops,engineToken:config.connectionEngineToken??process.env.NEST_CONNECTION_METADATA_TOKEN??process.env.NEST_RUNNER_TOKEN});

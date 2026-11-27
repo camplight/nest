@@ -51,6 +51,8 @@ for (const component of ["api", "runner"] as const)
     try {
       vi.stubEnv("NEST_ENGINE_DATA_DIR", dir);
       vi.stubEnv("NEST_COMPOSIO_API_KEY", "test-private");
+      vi.stubEnv("NEST_UNIPILE_API_KEY", "test-private");
+      vi.stubEnv("ORGOPS_UNIPILE_API_KEY", "test-private");
       vi.stubEnv("ORGOPS_COMPOSIO_API_KEY", "test-private");
       vi.stubEnv("NEST_CONNECTION_METADATA_TOKEN", "test-private");
       vi.stubEnv("NEST_MANAGEMENT_AGENT_NAME", "NestSystem");
@@ -59,6 +61,8 @@ for (const component of ["api", "runner"] as const)
       const result = configureOrgOpsEnv(component);
       for (const key of [
         "NEST_COMPOSIO_API_KEY",
+        "NEST_UNIPILE_API_KEY",
+        "ORGOPS_UNIPILE_API_KEY",
         "ORGOPS_COMPOSIO_API_KEY",
         "NEST_CONNECTION_METADATA_TOKEN",
         "NEST_MANAGEMENT_AGENT_NAME",
