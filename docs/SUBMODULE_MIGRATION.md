@@ -737,7 +737,12 @@ immutable release directories are retained according to the documented native
 policy; data backups remain untouched. Rollback health failure no longer skips
 watchdog restoration. Partial DB/configuration restoration requires operator
 recovery before any automatic restart; preserve the recovery marker until the
-matching DB/release pair is restored.
+matching DB/release pair is restored. After cutoff the installer does not
+restore the previous DB pair, including on the legacy native controller path.
+Use the [native operator recovery procedure](../deploy/native/README.md#existing-native-controller-failure-after-activation)
+for a failed post-cutoff check. A failed first install or Docker import can
+roll back even when no native service units have been installed yet, provided
+systemd confirms that no native unit is active.
 
 ### Image rejection and reply recovery
 

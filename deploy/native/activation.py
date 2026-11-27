@@ -86,7 +86,7 @@ def may_start_live_units(checkpoint: ActivationCheckpoint | None, marker_present
     if checkpoint is None:
         return not marker_present
     if checkpoint.stage == 'verified':
-        if checkpoint.outcome not in {'succeeded', 'rolled_back'}:
+        if checkpoint.outcome not in {'succeeded', 'rolled_back', 'resolved_unhealthy'}:
             return False
         expected = checkpoint.old_release if checkpoint.outcome == 'rolled_back' else checkpoint.new_release
     elif marker_present and checkpoint.stage in {'cutoff', 'restored'}:
@@ -262,9 +262,15 @@ def main(args: list[str]) -> int:
             (checkpoint.old_release and APP.resolve() == Path(checkpoint.old_release))
             or (not checkpoint.old_release and not APP.exists())):
         write_checkpoint(CHECKPOINT, replace(checkpoint, stage='restored'))
-    elif args[0] == 'verify' and stage in {'cutoff', 'restored'}:
+    elif args[0] == 'failed' and stage == 'cutoff':
+        write_checkpoint(CHECKPOINT, replace(checkpoint, outcome='active_unhealthy'))
+    elif args[0] == 'verify' and (stage == 'restored' or (stage == 'cutoff' and not checkpoint.outcome)):
         write_checkpoint(CHECKPOINT, replace(checkpoint, stage='verified',
             outcome='rolled_back' if stage == 'restored' else 'succeeded'))
+    elif args[0] == 'resolve' and stage == 'cutoff' and APP.resolve() == Path(checkpoint.new_release) and APP.is_dir():
+        # The root operator has independently checked coherence and health.
+        # This is not the installer succeeding or a change to its job receipt.
+        write_checkpoint(CHECKPOINT, replace(checkpoint, stage='verified', outcome='resolved_unhealthy'))
     elif args[0] == 'clear' and stage == 'verified':
         MARKER.unlink()
         sync_dir(MARKER.parent)

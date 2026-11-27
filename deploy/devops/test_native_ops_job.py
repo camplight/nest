@@ -3,7 +3,9 @@ from pathlib import Path
 import fcntl
 import json
 import tempfile
+import time
 import unittest
+from unittest.mock import patch
 
 import native_ops_job as job
 from native_ops_job import (JobDependencies, Outcome, classify, reconcile, run_job,
@@ -81,11 +83,30 @@ class JobTests(unittest.TestCase):
         self.assertEqual(state['reason_code'], 'worker_not_started')
         self.assertEqual(self.calls, [])
 
+    def test_job_and_reconciler_tolerate_brief_lock_contention(self):
+        for mode in ('run', 'reconcile'):
+            with self.subTest(mode=mode), self.lock.open('a') as holder:
+                fcntl.flock(holder, fcntl.LOCK_EX)
+                raw = request() | {'run_id': '202', 'request_id': '100:202'} if mode == 'reconcile' else request()
+                req = parse_request(json.dumps(raw).encode(), ControllerPolicy('test', '100', raw['workflow_ref'], 'example/nest'))
+                rec, _ = self.ledger.reserve(req)
+                op = rec['operation_id']
+                if mode == 'reconcile':
+                    self.ledger.claim(op)
+                # Release a real flock when the waiter first yields; no scheduler timing dependency.
+                with patch.object(job.time, 'sleep', side_effect=lambda _: fcntl.flock(holder, fcntl.LOCK_UN)):
+                    if mode == 'run':
+                        run_job(op, replace(self.deps, clock=time.monotonic))
+                        self.assertEqual(self.ledger.status(req.request_id)['state'], 'succeeded')
+                    else:
+                        self.assertEqual(reconcile(op, self.deps)['reason_code'], 'worker_lost_before_activation')
+
     def test_busy_and_recovery_gate(self):
         with self.lock.open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             self.assertEqual(self.ledger.status('100:200')['state'], 'queued')
-            run_job(self.id, self.deps)
+            with patch.object(job, 'LOCK_WAIT_SECONDS', 0.02, create=True):
+                run_job(self.id, replace(self.deps, clock=time.monotonic))
         self.assertEqual(self.ledger.status('100:200')['reason_code'], 'busy')
         raw = request() | {'run_id': '201', 'request_id': '100:201'}
         req = parse_request(json.dumps(raw).encode(), ControllerPolicy('test', '100', raw['workflow_ref'], 'example/nest'))

@@ -1524,8 +1524,13 @@ Successful activation retains the active, three newest and recent snapshot-linke
 release directories; it never prunes runtime data or database backups. The
 watchdog timer can run while its persistent operator-recovery marker blocks
 restarts. An unverified rollback, interrupted activation, or post-cutoff check
-failure leaves the gate in place for operator review. See `deploy/native/README.md` for the exact
-budgets and restoration procedure. This is Nest deployment infrastructure only;
+failure leaves the gate in place for operator review, including when an existing
+native controller invokes the installer. Operator resolution does not convert a
+failed job into a success. The product API's background naming worker can run
+during pre-cutoff readiness; rollback can discard its result and repeat a model
+call. Public ingress and normal runner execution remain closed during readiness.
+See `deploy/native/README.md` for budgets, compatibility details and the recovery
+procedure. This is Nest deployment infrastructure only;
 OrgOps remains untouched.
 
 The runner includes upstream #99 and #103–#106: safe final summaries, channel-aware shells, bounded finalization and image-input rejection recovery. Unsupported images are replaced with an explicit limitation note for one retry; this does not make a text-only model able to see images. Migration 054 adds nullable per-agent compatible reasoning effort, preserving provider defaults.

@@ -54,6 +54,29 @@ class ActivationTests(unittest.TestCase):
                 self.assertFalse(may_start_live_units(verified, False, denied))
                 self.assertFalse(may_start_readiness_units(verified, False, denied, 'abc'))
 
+    def test_operator_resolution_does_not_relabel_failed_deploy_as_succeeded(self):
+        marker = self.root / 'recovery-required'
+        marker.touch()
+        self.new.mkdir()
+        checkpoint = replace(self.check, stage='cutoff')
+        write_checkpoint(self.path, checkpoint)
+        with patch.multiple(activation, CHECKPOINT=self.path, MARKER=marker, APP=self.old), \
+                patch.object(activation.os, 'geteuid', return_value=0):
+            self.assertEqual(activation.main(['resolve', checkpoint.operation_id]), 2)
+            self.assertEqual(read_checkpoint(self.path), checkpoint)
+        with patch.multiple(activation, CHECKPOINT=self.path, MARKER=marker, APP=self.new), \
+                patch.object(activation.os, 'geteuid', return_value=0):
+            self.assertEqual(activation.main(['failed', checkpoint.operation_id]), 0)
+            self.assertEqual(read_checkpoint(self.path).outcome, 'active_unhealthy')
+            self.assertEqual(activation.main(['verify', checkpoint.operation_id]), 2)
+            self.assertEqual(activation.main(['resolve', checkpoint.operation_id]), 0)
+            record = read_checkpoint(self.path)
+            self.assertEqual(record.outcome, 'resolved_unhealthy')
+            self.assertTrue(marker.exists())
+            self.assertEqual(activation.main(['clear', checkpoint.operation_id]), 0)
+            self.assertEqual(activation.main(['guard', 'nest-runner.service']), 0)
+            self.assertFalse(may_start_live_units(record, False, self.old))
+
     def prepare_pair(self):
         data = self.root / 'data'
         backup = self.root / 'backup'

@@ -50,11 +50,14 @@ python3 "$root/deploy/native/storage.py" install --artifact "$artifact"
 work=$(mktemp -d /opt/nest/host-stage.XXXXXX)
 restore_watchdog=0
 managed_operation=${NEST_HOST_OPERATION_ID:-}
+activation_helper="$root/deploy/native/activation.py"
 if [[ -n $managed_operation ]]; then
   [[ $managed_operation =~ ^[a-f0-9]{32}$ && ${NEST_HOST_LOCK_FD:-} =~ ^[0-9]+$ &&
      $(readlink "/proc/$$/fd/$NEST_HOST_LOCK_FD") == /opt/nest/operations/deployment.lock &&
      $import_docker == 0 ]] || exit 1
-  [[ -f /usr/local/lib/nest-ops/activation.py ]] || { echo 'Missing independently installed activation guard.' >&2; exit 1; }
+  # The guard and every managed transition must share the pinned host implementation.
+  activation_helper=/usr/local/lib/nest-ops/activation.py
+  [[ -f $activation_helper ]] || { echo 'Missing independently installed activation guard.' >&2; exit 1; }
   for unit in nest-api nest-engine nest-runner nest-caddy nest-livekit; do
     guard="/etc/systemd/system/$unit.service.d/nest-activation.conf"
     grep -Fxq 'ExecCondition=+/usr/bin/python3 -I /usr/local/lib/nest-ops/activation.py guard %n' "$guard" &&
@@ -64,12 +67,12 @@ if [[ -n $managed_operation ]]; then
   done
 fi
 operation_id=${managed_operation:-$(tr -d '-' </proc/sys/kernel/random/uuid)}
-activation() { /usr/bin/python3 -I "$root/deploy/native/activation.py" "$@"; }
+activation() { /usr/bin/python3 -I "$activation_helper" "$@"; }
 runner_probe() {
   "$node_dir/bin/node" --env-file=/etc/nest/runtime.env --input-type=module -e '
     import {spawnSync} from "node:child_process";
     process.exit(spawnSync("/usr/bin/python3", ["-I", ...process.argv.slice(1)], {stdio:"inherit"}).status ?? 1);
-  ' "$root/deploy/native/activation.py" "$@"
+  ' "$activation_helper" "$@"
 }
 finish() {
   result=$?
@@ -241,7 +244,18 @@ recover() {
   trap - ERR TERM
   if activation rollback_allowed "$operation_id"; then
     if [[ -f $backup/units/nest-native-watchdog.timer ]]; then restore_watchdog=1; fi
-    systemctl stop nest-native-watchdog.timer nest-native-watchdog.service nest-caddy nest-livekit nest-runner nest-api nest-engine
+    rollback_units=(nest-native-watchdog.timer nest-native-watchdog.service nest-caddy.service
+                    nest-livekit.service nest-runner.service nest-api.service nest-engine.service)
+    # A fresh host may not have these units yet. Ignore the group stop status,
+    # but require an affirmative inactive/failed state from systemd for each unit.
+    systemctl stop "${rollback_units[@]}" 2>/dev/null || true
+    for unit in "${rollback_units[@]}"; do
+      state=$(systemctl show "$unit" --property=ActiveState --value) || exit 1
+      case $state in
+        inactive|failed) ;;
+        *) echo "Cannot confirm $unit stopped; refusing automatic restore." >&2; exit 1;;
+      esac
+    done
     activation restore "$operation_id"
     for area in engine product; do [[ ! -f /var/lib/nest/$area/nest.sqlite ]] || chown node:node "/var/lib/nest/$area/nest.sqlite"; done
     rsync -a --delete "$backup/config/" /etc/nest/
@@ -295,6 +309,10 @@ PYCODE
     activation verify "$operation_id"
     if [[ -z $managed_operation ]]; then activation clear "$operation_id"; fi
     echo "Activation failed; rollback completed. Backup: $backup" >&2
+  else
+    # A recognized post-cutoff failure must not become a successful deploy
+    # receipt merely because an operator later resolves it.
+    activation failed "$operation_id" || true
   fi
   exit "$result"
 }

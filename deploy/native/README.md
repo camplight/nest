@@ -191,8 +191,54 @@ leaves `/var/lib/nest-watchdog/recovery-required`. The timer may still run, but
 cannot restart services under that gate. Do not clear it until the active
 DB/config/release pair is known coherent and the operator has resolved the outage.
 The installer does not provision the independent systemd start guards needed for
-v2. The guards and recovery hooks must be proven on a disposable host before
-any production rollout.
+v2. A managed install uses the independently installed activation helper for
+both checkpoint transitions and runner probes, so the systemd guard and the
+installer agree on the checkpoint format. The guards and recovery hooks must
+be proven on a disposable host before any production rollout.
+
+### Existing native controller: failure after activation
+
+Merging Phase 1 does not replace an installed controller or start a deployment.
+The next legacy native `deploy <SHA>` does use the new installer in unmanaged
+mode. It sets the recovery marker before activation and, after opening ingress
+or enabled runner work, checks for a fresh runner heartbeat and probes public
+`/health` and `/admin/` (four bounded retries per route). A temporary ingress
+or TLS failure can fail the deploy after the release is already active. The
+legacy job reports failure; no alert is sent by this path. Live writes are
+preserved, there is no automatic snapshot rollback, and while the marker is
+present the watchdog will not restart services and subsequent installs refuse
+activation. The timer may still be running; that is not proof of recovery.
+
+An operator should use independent host access to inspect the failed job logs,
+`/opt/nest/operations/activation.json`, `/etc/nest/native.json`, and the `/app`
+release pointer. Check both databases and their matching configuration/release,
+public TLS and health/UI, and the runner heartbeat or intentional pause. If the
+checkpoint is still `cutoff` and the active candidate is coherent and healthy
+after fixing or rechecking the problem, record an explicit resolution and clear
+the gate under the deployment lock. Use the root-owned host helper for managed
+installs or the active reviewed release's helper for an unmanaged install:
+
+```sh
+op='<operation_id from the inspected checkpoint>'
+helper=/app/deploy/native/activation.py # managed: /usr/local/lib/nest-ops/activation.py
+sudo flock -w 5 /opt/nest/operations/deployment.lock bash -ec '
+  /usr/bin/python3 -I "$1" resolve "$2"
+  /usr/bin/python3 -I "$1" clear "$2"
+' bash "$helper" "$op"
+sudo systemctl enable --now nest-native-watchdog.timer
+```
+
+`resolve` records `resolved_unhealthy` in the checkpoint and leaves the failed
+job result unchanged. Do not use `verify` to relabel a failed deployment. If
+coherence is unknown, or the checkpoint is not the expected cutoff case, keep
+the gate and use operator-led recovery. Do not restore a pre-cutoff snapshot
+automatically after opening live work.
+
+The product API starts its background project-naming worker during loopback
+readiness. This is a Phase 1 limitation: a pending naming job can make a model
+call or write its result before cutoff. A pre-cutoff rollback can discard that
+result and the call may repeat; the normal agent runner and public ingress
+remain blocked until cutoff.
 
 ## Protocol v2 rehearsal (disposable VM only)
 
@@ -208,6 +254,11 @@ scripts/build-host-release.sh /tmp/nest-host-linux-x64.tar.gz
 sudo bash deploy/native/rehearse.sh /tmp/nest-host-linux-x64.tar.gz
 sudo bash deploy/native/rehearse-v2.sh /tmp/nest-host-linux-x64.tar.gz
 ```
+
+Native CI also tests a post-cutoff failure using the pinned pre-Phase-1
+controller and local Git/artifact fixtures. It injects an ingress-check
+failure after a real synthetic agent turn, checks that the new write and
+failed job receipt survive, and resolves the recovery gate before the v2 case.
 
 The v2 driver requires the baseline's synthetic login and loopback domain.
 It provisions independent systemd guards and a local fixture-only worker,

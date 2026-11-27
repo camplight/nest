@@ -16,6 +16,7 @@ from native_ops_release import ReleaseRejected, ReleaseSource, prepare_release, 
 from native_ops_v2 import DeployRequest, Ledger, StatusRecord
 
 FORWARD_SECONDS = 1500
+LOCK_WAIT_SECONDS = 3
 RECONCILE_COMMAND = '/usr/bin/python3 -E -s /usr/local/lib/nest-ops/native_ops_job.py'
 
 
@@ -50,12 +51,23 @@ def terminal(ledger: Ledger, operation_id: str, expected: str, outcome: Outcome)
     return ledger.update(operation_id, expected, state=outcome.state, phase='complete', **details)
 
 
+def acquire_briefly(lock, *, deadline: float) -> bool:
+    # A watchdog health check also takes this flock. Don't mistake a short
+    # inspection for a deployment, nor wait behind a busy host indefinitely.
+    while (remaining := deadline - time.monotonic()) > 0:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except BlockingIOError:
+            time.sleep(min(0.05, remaining))
+    return False
+
+
 def run_job(operation_id: str, deps: JobDependencies) -> None:
     deadline = deps.clock() + FORWARD_SECONDS
     with deps.lock.open('a') as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+        wait = min(LOCK_WAIT_SECONDS, deadline - deps.clock())
+        if not acquire_briefly(lock, deadline=time.monotonic() + wait):
             # Never update a claimed running operation, including our own replay.
             terminal(deps.ledger, operation_id, 'queued', Outcome('rejected', 'busy'))
             return
@@ -78,15 +90,15 @@ def run_job(operation_id: str, deps: JobDependencies) -> None:
             deps.clear_verified(operation_id)
 
 
-def reconcile(operation_id: str, deps: JobDependencies) -> StatusRecord:
+def reconcile(operation_id: str, deps: JobDependencies, *, lock_deadline: float | None = None) -> StatusRecord:
     """Called only after the supervisor establishes that this job is no longer alive."""
     record = terminal(deps.ledger, operation_id, 'queued', Outcome('rejected', 'worker_not_started'))
     if record['state'] != 'running':
         return record
     with deps.lock.open('a') as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+        if lock_deadline is None:
+            lock_deadline = time.monotonic() + LOCK_WAIT_SECONDS
+        if not acquire_briefly(lock, deadline=lock_deadline):
             # The supervisor has already reaped our worker; another job's lock
             # cannot establish whether this operation reached its cutoff.
             return terminal(deps.ledger, operation_id, 'running', Outcome('recovery_required', 'worker_lost'))
@@ -97,8 +109,9 @@ def reconcile(operation_id: str, deps: JobDependencies) -> StatusRecord:
 
 def reconcile_boot(deps: JobDependencies) -> None:
     """Reject or mark interrupted work from prior boots; never launch a worker."""
+    lock_deadline = time.monotonic() + LOCK_WAIT_SECONDS
     for operation_id in deps.ledger.previous_boot_pending():
-        reconcile(operation_id, deps)
+        reconcile(operation_id, deps, lock_deadline=lock_deadline)
 
 
 def classify(stage: str, recorded_outcome: str, matching_release: bool) -> Outcome:
