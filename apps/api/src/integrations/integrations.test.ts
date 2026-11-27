@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { createApp as createEngine } from "../../../../vendor/orgops/apps/api/src/app";
 import { createOrgOpsClient } from "@nest/orgops-client";
 import { createApp } from "../app";
+import { LINKEDIN_TOOLKIT } from "./unipile";
+import type { ConnectionProvider } from "./provider";
 import { createComposioProvider } from "./composio";
 import { MAX_CONNECTION_ACTIONS, MAX_CONNECTION_GRANT_BYTES, MAX_CONNECTION_CATALOG_PAGES } from "@nest/schemas";
 import { generate } from "@orgops/llm";
@@ -23,6 +25,7 @@ let dir: string,
   subject: string,
   channel: string,
   localId: string;
+let linkedinOwner = "", linkedinWrites = 0;
 let executionCount = 0,
   shared = false,
   foreign = false,
@@ -53,7 +56,7 @@ const account = () => ({
 beforeEach(async () => {
   vi.stubEnv("ORGOPS_MASTER_KEY", Buffer.alloc(32, 171).toString("base64"));
   dir = mkdtempSync(join(tmpdir(), "nest-connections-"));
-  executionCount = 0;
+  executionCount = 0; linkedinWrites = 0;
   shared = false;
   foreign = false;
   disabled = false;
@@ -138,6 +141,16 @@ beforeEach(async () => {
   product = createApp({
     orgops: client,
     connections: provider,
+    additionalConnections: [{
+      id:'linkedin-fixture',toolkits:[LINKEDIN_TOOLKIT],subject:owner=>`li:${owner}`,
+      apps:async()=>({items:[{slug:LINKEDIN_TOOLKIT,name:'LinkedIn',description:'',connectable:true}],nextCursor:null}),
+      accounts:async owner=>({items:[{id:'provider-account',subject:`li:${owner}`,toolkit:LINKEDIN_TOOLKIT,status:'ACTIVE',disabled:false,shared:false}],nextCursor:null}),
+      account:async id=>({id,subject:`li:${linkedinOwner}`,toolkit:LINKEDIN_TOOLKIT,status:'ACTIVE',disabled:false,shared:false}),
+      link:async()=>({redirectUrl:'https://auth.unipile.com/test'}),revoke:async()=>{},
+      tools:async()=>({items:[{slug:'LINKEDIN_PUBLISH_PERSONAL',name:'Publish',description:'',toolkit:LINKEDIN_TOOLKIT,inputParameters:{}}],nextCursor:null}),
+      tool:async slug=>({slug,name:'Publish',description:'',toolkit:LINKEDIN_TOOLKIT,inputParameters:{}}),
+      execute:async()=>{linkedinWrites++;return {id:'linkedin-post'};},
+    } satisfies ConnectionProvider],
     connectionEngineToken: "runner",
     dbPath: join(dir, "product.sqlite"),
     personalAgent: {
@@ -157,7 +170,7 @@ beforeEach(async () => {
     cookie: login.headers.getSetCookie()[0].split(";")[0],
   };
   const me = await (await call("/api/auth/me")).json();
-  subject = provider.subject(me.id);
+  subject = provider.subject(me.id); linkedinOwner = me.id;
   await call("/api/models", "POST", {
     id: "model",
     provider: "openrouter",
@@ -695,4 +708,24 @@ it('trusts ordinary group chats but still enforces tool revocation',async()=>{
   expect((await execute(h)).status).toBe(200);
   await call('/api/integrations/agents/PuffOwner/grants/'+localId,'DELETE');
   expect((await execute(h)).status).toBe(403);expect(executionCount).toBe(1);
+});
+
+
+it('routes a second provider through its own saved connection and exact agent grants', async()=>{
+  const first=await (await call('/api/integrations/connections')).json();
+  const second=await (await call('/api/integrations/connections?cursor='+encodeURIComponent(first.nextCursor))).json();
+  expect(second.items).toHaveLength(1);
+  const linkedinId=second.items[0].id;
+  expect(linkedinId).not.toBe(localId); // Identical remote IDs in different providers do not collide.
+  const h=await enable();
+  const publish=()=>call('/api/integrations/skill/execute','POST',{connectionId:linkedinId,tool:'LINKEDIN_PUBLISH_PERSONAL',arguments:{text:'Test'}},h);
+  expect((await publish()).status).toBe(403);
+  expect(linkedinWrites).toBe(0);
+  expect((await call('/api/integrations/agents/PuffOwner/grants/'+linkedinId,'PUT',{tools:['LINKEDIN_PUBLISH_PERSONAL']})).status).toBe(200);
+  const result=await publish();
+  expect(result.status).toBe(200);expect(await result.json()).toEqual({id:'linkedin-post'});
+  expect(linkedinWrites).toBe(1);expect(executionCount).toBe(0);
+  expect((await execute(h)).status).toBe(200);expect(executionCount).toBe(1);
+  expect((await call('/api/integrations/connections/'+linkedinId+'/revoke','POST',{})).status).toBe(200);
+  expect((await publish()).status).toBe(403);expect(linkedinWrites).toBe(1);
 });

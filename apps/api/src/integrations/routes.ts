@@ -14,6 +14,7 @@ import {
 } from "@nest/schemas";
 import type { ProductDb } from "@nest/db";
 import type { OrgOpsClient, Human } from "@nest/orgops-client";
+import { connectionRegistry } from "./registry";
 import type { ConnectionProvider } from "./provider";
 const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -44,14 +45,18 @@ export function registerIntegrationRoutes(
     store,
     orgops,
     provider,
+    additionalProviders = [],
     engineToken,
   }: {
     store: ProductDb;
     orgops: OrgOpsClient;
     provider?: ConnectionProvider;
+    additionalProviders?: ConnectionProvider[];
     engineToken?: string;
   },
 ) {
+  const providers = [...(provider ? [provider] : []), ...additionalProviders];
+  const registry = connectionRegistry(providers);
   const db = store.db;
   const changingSkills = new Set<string>();
   const routes = new Hono<IntegrationEnv>();
@@ -130,7 +135,10 @@ export function registerIntegrationRoutes(
   });
   const human = (c: Context<IntegrationEnv>): Human =>
     c.get("human") ?? fail(403, "Human sign-in required");
-  const service = () => provider ?? fail(503, "Connections are not configured");
+  const service = (id?: string) => {
+    if (!providers.length || (id && !registry.has(id))) fail(503, "Connections are not configured");
+    return registry.get(id);
+  };
   async function body<T>(
     c: Context<IntegrationEnv>,
     schema: z.ZodType<T>,
@@ -164,13 +172,13 @@ export function registerIntegrationRoutes(
   function connection(localId: string, owner: string) {
     const r = db
       .prepare(
-        "SELECT * FROM product_connections WHERE id=? AND owner_id=? AND provider=?",
+        "SELECT * FROM product_connections WHERE id=? AND owner_id=?",
       )
-      .get(localId, owner, service().id) as Connection | undefined;
+      .get(localId, owner) as Connection | undefined;
     return r ?? fail(404, "Connection not found");
   }
   async function account(r: Connection, active = true) {
-    const p = service();
+    const p = service(r.provider);
     const a = await p.account(r.account_id);
     if (
       r.subject !== p.subject(r.owner_id) ||
@@ -204,23 +212,21 @@ export function registerIntegrationRoutes(
   routes.get("/config", (c) => {
     human(c);
     return c.json({
-      configured: Boolean(provider),
-      skillAvailable: Boolean(provider && engineToken),
+      configured: Boolean(providers.length),
+      skillAvailable: Boolean(providers.length && engineToken),
     });
   });
   routes.get("/toolkits", async (c) => {
     human(c);
-    return c.json(
-      await service().apps(
-        (c.req.query("search") ?? "").slice(0, 120),
-        c.req.query("cursor")?.slice(0, 500),
-      ),
-    );
+    service();
+    const {items, nextCursor} = await registry.page(c.req.query("cursor"), (p, cursor) => p.apps((c.req.query("search") ?? "").slice(0, 120), cursor));
+    return c.json({items, nextCursor});
   });
   routes.get("/connections", async (c) => {
-    const owner = human(c).id,
-      p = service();
-    const page = await p.accounts(owner, c.req.query("cursor")?.slice(0, 500));
+    const owner = human(c).id;
+    service();
+    const page = await registry.page(c.req.query("cursor"), (p, cursor) => p.accounts(owner, cursor));
+    const p = page.provider;
     const items = [];
     for (const a of page.items) {
       if (a.subject !== p.subject(owner) || a.shared) continue;
@@ -244,7 +250,7 @@ export function registerIntegrationRoutes(
   routes.post("/connections/link", async (c) => {
     const owner = human(c).id;
     const input = await body(c, connectionLinkInput);
-    return c.json(await service().link(owner, input.toolkit), 201);
+    return c.json(await registry.forToolkit(input.toolkit).link(owner, input.toolkit), 201);
   });
   routes.post("/connections/:id/revoke", async (c) => {
     const owner = human(c).id,
@@ -260,13 +266,13 @@ export function registerIntegrationRoutes(
       ).run(r.id);
       audit("audit.connection.revoked", owner, { connectionId: r.id });
     })();
-    await service().revoke(r.account_id);
+    await service(r.provider).revoke(r.account_id);
     return c.json({ ok: true });
   });
   routes.get("/connections/:id/tools", async (c) => {
     const r = connection(c.req.param("id"), human(c).id);
     await account(r);
-    const page = await service().tools(
+    const page = await service(r.provider).tools(
       r.toolkit,
       (c.req.query("search") ?? "").slice(0, 120),
       c.req.query("cursor")?.slice(0, 500),
@@ -290,7 +296,7 @@ export function registerIntegrationRoutes(
     if (tools.length <= 20) {
       // Narrow selections avoid traversing a large catalog.
       for (const slug of tools) {
-        const tool = await service().tool(slug);
+        const tool = await service(r.provider).tool(slug);
         if (tool.slug !== slug || tool.toolkit !== r.toolkit)
           fail(400, "Tool does not belong to this connection");
       }
@@ -304,7 +310,7 @@ export function registerIntegrationRoutes(
       do {
         if (++pages > MAX_CONNECTION_CATALOG_PAGES)
           fail(503, "Could not verify all actions. Your saved access was kept.");
-        const page = await service().tools(r.toolkit, "", cursor);
+        const page = await service(r.provider).tools(r.toolkit, "", cursor);
         for (const tool of page.items) {
           if (tool.toolkit === r.toolkit) remaining.delete(tool.slug);
         }
@@ -357,9 +363,9 @@ export function registerIntegrationRoutes(
   });
   function grantedToolCount(agentId: string, owner: string) {
     const grants = db.prepare(
-      "SELECT g.tools_json FROM product_connection_grants g JOIN product_connections c ON c.id=g.connection_id WHERE g.agent_id=? AND g.owner_id=? AND c.owner_id=? AND c.revoked_at IS NULL AND c.provider=?",
-    ).all(agentId, owner, owner, provider?.id ?? "") as { tools_json: string }[];
-    return grants.reduce((count, grant) => count + JSON.parse(grant.tools_json).length, 0);
+      "SELECT g.tools_json,c.provider FROM product_connection_grants g JOIN product_connections c ON c.id=g.connection_id WHERE g.agent_id=? AND g.owner_id=? AND c.owner_id=? AND c.revoked_at IS NULL",
+    ).all(agentId, owner, owner) as { tools_json: string; provider: string }[];
+    return grants.filter(g => registry.has(g.provider)).reduce((count, grant) => count + JSON.parse(grant.tools_json).length, 0);
   }
   routes.get("/agents/:name/skill", async (c) => {
     const owner = human(c).id,
@@ -523,7 +529,7 @@ export function registerIntegrationRoutes(
       const t = await skill(c),
         conn = grant(t, input.connectionId, input.tool),
         a = await account(conn),
-        tool = await service().tool(input.tool);
+        tool = await service(conn.provider).tool(input.tool);
       if (tool.slug !== input.tool || tool.toolkit !== conn.toolkit)
         fail(403, "Tool does not match connection");
       await skill(c);
@@ -542,7 +548,7 @@ export function registerIntegrationRoutes(
         tool: input.tool,
       });
       try {
-        const result = await service().execute(
+        const result = await service(conn.provider).execute(
           a,
           input.tool,
           "arguments" in input

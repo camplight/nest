@@ -757,3 +757,8 @@ access check as reading a project, including team participants; neither grants a
 nor changes shared project metadata. Existing delivered message receipts seed ordering;
 messages sent outside Nest and historical task actions are not backfilled. No OrgOps
 schema or submodule changes are required.
+
+LinkedIn/Unipile connections are a Nest-only provider adapter. They reuse the
+existing `nest-connections` secret/tool-grant boundary and product connection tables;
+no engine modification, submodule bump or database migration is required. The launcher
+strips Unipile configuration before translating Nest variables into engine variables.

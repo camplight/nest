@@ -1541,3 +1541,14 @@ access check as reading a project, including team participants; neither grants a
 nor changes shared project metadata. Existing delivered message receipts seed ordering;
 messages sent outside Nest and historical task actions are not backfilled. No OrgOps
 schema or submodule changes are required.
+
+### LinkedIn account connections
+
+The Connected apps boundary supports multiple provider adapters. Existing Composio
+connections retain their stored provider and IDs; catalog cursors carry provider
+continuation, while execution resolves the provider from the owned local connection.
+Optional Unipile V2 support exposes eight exact research, private-message-read and
+personal/company text-publishing actions. Hosted login and account discovery use
+operator-configured, unique per-owner Unipile scopes. No callback-supplied account
+ID grants ownership, no agent can choose the remote account, and service keys stay
+in the Nest API. Setup, limitations and live validation are in [LINKEDIN.md](LINKEDIN.md).
