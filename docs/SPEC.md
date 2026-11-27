@@ -1541,3 +1541,7 @@ access check as reading a project, including team participants; neither grants a
 nor changes shared project metadata. Existing delivered message receipts seed ordering;
 messages sent outside Nest and historical task actions are not backfilled. No OrgOps
 schema or submodule changes are required.
+
+Native deployment requires a 4 GiB host: the runner has a 1536 MiB hard limit
+inside a 2816 MiB aggregate Nest budget. Browser test suites and full builds must
+run on a separate worker. Host resizing does not automatically resize cgroups.
