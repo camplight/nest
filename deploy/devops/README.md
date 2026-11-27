@@ -137,7 +137,7 @@ are not changed automatically. Docker hosts are outside native protocol v2.
 The v2 protocol and local ledger are exercised by synthetic fixtures. The v2 SSH
 binding is disabled until the private workflow, provisioned guards and live release
 verification are ready; do not install or authorize it as a production deploy path.
-See the [protocol design](../../docs/superpowers/specs/2026-11-26-instance-deployment-design.md#public-protocol-v2).
+See [`native_ops_v2.py`](native_ops_v2.py) for the command and request contract.
 A lost acknowledgement is reconciled by the original `<repository_id>:<run_id>`;
 a queued or unknown outcome is not permission to issue a second deploy. The host
 recovery marker also blocks native restarts from this controller revision.
