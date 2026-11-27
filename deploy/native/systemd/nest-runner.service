@@ -29,7 +29,7 @@ Environment=NEST_RUNNER_API_URL=http://127.0.0.1:8788
 Environment=NEST_MANAGEMENT_URL=http://127.0.0.1:8787
 ExecStart=/opt/nest/node/bin/node --env-file=/etc/nest/runtime.env --import tsx scripts/start-orgops.ts runner
 Slice=nest.slice
-MemoryMax=768M
+MemoryMax=1536M
 CPUWeight=25
 TasksMax=256
 UMask=0077

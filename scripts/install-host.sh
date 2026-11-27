@@ -24,6 +24,8 @@ while (($#)); do
   esac
 done
 [[ $EUID == 0 && $(uname -s) == Linux ]] || { echo 'Requires root on Linux.' >&2; exit 1; }
+# Runtime budgets reserve more than 1 GiB outside Nest on a 4 GiB host.
+[[ $(awk '/MemTotal:/ {print $2}' /proc/meminfo) -ge 3670016 ]] || { echo 'Native Nest requires a host with at least 4 GiB RAM.' >&2; exit 1; }
 [[ -f "$artifact" && $digest =~ ^[a-f0-9]{64}$ && $domain =~ ^([a-zA-Z0-9.-]+|http://127\.0\.0\.1:[0-9]+)$ ]] || { usage >&2; exit 2; }
 # shellcheck source=/dev/null
 source /etc/os-release

@@ -53,11 +53,26 @@ live in `/var/lib/nest`, linked into each release. Generated engine/file aliases
 storage and are repaired atomically; removing an old release does not break them.
 API/engine/runner run as `node`,
 Caddy as `caddy`. Memory/CPU/task budgets live in the units, not manual host tweaks:
-320 MiB product API, 512 MiB engine, 768 MiB runner within 1536 MiB RAM, 512 MiB
+A host with at least 4 GiB RAM is required. The defaults are
+320 MiB product API, 512 MiB engine, 1536 MiB runner within 2816 MiB RAM, 512 MiB
 swap, 80% CPU and 384 tasks. Caddy has a separate 128 MiB cap. The installer preserves existing swap and adds
 a persistent 2 GiB swap file when the host has less than about 2 GiB available
 swap capacity; container rehearsals leave the outer host swap untouched. These are process
-budgets, not per-agent sandboxes. Builds belong off the production VPS.
+budgets, not per-agent sandboxes. Builds and browser test suites belong off the production VPS.
+An OOM in a runner child can stop the whole runner and interrupt every active turn.
+The larger host must have larger service budgets too; resizing the VM alone does not change them.
+
+To apply these memory limits to an existing 4 GiB host without restarting agents:
+
+```sh
+sudo systemctl set-property nest.slice MemoryMax=2816M
+sudo systemctl set-property nest-runner.service MemoryMax=1536M
+sudo systemctl show nest.slice nest-runner.service -p MemoryMax -p MainPID -p NRestarts
+```
+
+These commands persist systemd overrides under `/etc/systemd/system.control`. They
+survive releases and take precedence over unit defaults; include them when auditing
+or rolling back memory settings. Do not raise these limits on a 2 GiB host.
 
 ## Operator inputs
 
